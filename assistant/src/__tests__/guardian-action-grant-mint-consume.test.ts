@@ -10,7 +10,7 @@
  *   5. Second consume attempt is denied (one-time use)
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Platform + logger mocks ─────────────────────────────────────────
 
@@ -28,7 +28,7 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   createGuardianActionRequest,
   resolveGuardianActionRequest,
@@ -42,10 +42,6 @@ import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 // ── Constants ───────────────────────────────────────────────────────
 

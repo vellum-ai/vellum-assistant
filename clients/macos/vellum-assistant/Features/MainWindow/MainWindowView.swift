@@ -38,6 +38,8 @@ struct MainWindowView: View {
     /// Used to distinguish automatic collapse from manual user collapse so
     /// we only re-expand the sidebar on app exit when it was our doing.
     @State private var sidebarAutoCollapsedForApp = false
+    @State var sidebarContentHeight: CGFloat = 0
+    @State var sidebarFrameHeight: CGFloat = 0
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     let sidebarExpandedWidth: CGFloat = 240
@@ -547,8 +549,6 @@ struct MainWindowView: View {
                 )
             )
         )
-        // Hover->pending-deletion invariant is now owned by
-        // SidebarInteractionState.setConversationHover(conversationId:hovering:)
     }
 
     private var coreLayoutGeometryView: some View {

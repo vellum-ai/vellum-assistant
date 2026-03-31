@@ -43,6 +43,14 @@ enum SidebarLayoutMetrics {
     /// (20pt icon + 4pt trailing padding on the overlay + 8pt gap).
     static let trailingIconPadding: CGFloat = 32
 
+    // MARK: - Section Header
+
+    /// Height of a collapsible section header row.
+    static let sectionHeaderHeight: CGFloat = 28
+
+    /// Size of the disclosure chevron in section headers.
+    static let sectionChevronSize: CGFloat = 10
+
     // MARK: - Section Divider
 
     /// Vertical padding above and below a section divider line.

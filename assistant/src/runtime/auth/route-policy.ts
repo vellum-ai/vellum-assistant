@@ -358,6 +358,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/wipe", scopes: ["chat.write"] },
   { endpoint: "conversations/reorder", scopes: ["chat.write"] },
 
+  // Conversation groups
+  { endpoint: "groups:GET", scopes: ["chat.read"] },
+  { endpoint: "groups:POST", scopes: ["chat.write"] },
+  { endpoint: "groups:PATCH", scopes: ["chat.write"] },
+  { endpoint: "groups:DELETE", scopes: ["chat.write"] },
+  { endpoint: "groups/reorder", scopes: ["chat.write"] },
+
   // Conversation search
   { endpoint: "conversations/search", scopes: ["chat.read"] },
 

@@ -108,6 +108,37 @@ const platformImportBundleMock = mock(async () => ({
     },
   } as Record<string, unknown>,
 }));
+const platformRequestUploadUrlMock = mock(async () => ({
+  uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
+  bundleKey: "bundle-key-123",
+  expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+}));
+const platformUploadToSignedUrlMock = mock(async () => {});
+const platformImportPreflightFromGcsMock = mock(async () => ({
+  statusCode: 200,
+  body: {
+    can_import: true,
+    summary: {
+      files_to_create: 2,
+      files_to_overwrite: 1,
+      files_unchanged: 0,
+      total_files: 3,
+    },
+  } as Record<string, unknown>,
+}));
+const platformImportBundleFromGcsMock = mock(async () => ({
+  statusCode: 200,
+  body: {
+    success: true,
+    summary: {
+      total_files: 3,
+      files_created: 2,
+      files_overwritten: 1,
+      files_skipped: 0,
+      backups_created: 1,
+    },
+  } as Record<string, unknown>,
+}));
 
 mock.module("../lib/platform-client.js", () => ({
   readPlatformToken: readPlatformTokenMock,
@@ -119,6 +150,10 @@ mock.module("../lib/platform-client.js", () => ({
   platformDownloadExport: platformDownloadExportMock,
   platformImportPreflight: platformImportPreflightMock,
   platformImportBundle: platformImportBundleMock,
+  platformRequestUploadUrl: platformRequestUploadUrlMock,
+  platformUploadToSignedUrl: platformUploadToSignedUrlMock,
+  platformImportPreflightFromGcs: platformImportPreflightFromGcsMock,
+  platformImportBundleFromGcs: platformImportBundleFromGcsMock,
 }));
 
 const hatchLocalMock = mock(async () => {});
@@ -244,6 +279,41 @@ beforeEach(() => {
   });
   platformImportBundleMock.mockReset();
   platformImportBundleMock.mockResolvedValue({
+    statusCode: 200,
+    body: {
+      success: true,
+      summary: {
+        total_files: 3,
+        files_created: 2,
+        files_overwritten: 1,
+        files_skipped: 0,
+        backups_created: 1,
+      },
+    },
+  });
+  platformRequestUploadUrlMock.mockReset();
+  platformRequestUploadUrlMock.mockResolvedValue({
+    uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
+    bundleKey: "bundle-key-123",
+    expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+  });
+  platformUploadToSignedUrlMock.mockReset();
+  platformUploadToSignedUrlMock.mockResolvedValue(undefined);
+  platformImportPreflightFromGcsMock.mockReset();
+  platformImportPreflightFromGcsMock.mockResolvedValue({
+    statusCode: 200,
+    body: {
+      can_import: true,
+      summary: {
+        files_to_create: 2,
+        files_to_overwrite: 1,
+        files_unchanged: 0,
+        total_files: 3,
+      },
+    },
+  });
+  platformImportBundleFromGcsMock.mockReset();
+  platformImportBundleFromGcsMock.mockResolvedValue({
     statusCode: 200,
     body: {
       success: true,
@@ -996,5 +1066,212 @@ describe("teleport full flow", () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("--to is deprecated"),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Signed-URL upload tests
+// ---------------------------------------------------------------------------
+
+describe("signed-URL upload flow", () => {
+  test("happy path: signed URL upload succeeds → GCS-based import used", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Signed-URL flow should be used
+      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
+      expect(platformUploadToSignedUrlMock).toHaveBeenCalled();
+      expect(platformImportBundleFromGcsMock).toHaveBeenCalledWith(
+        "bundle-key-123",
+        "platform-token",
+        "org-123",
+        "https://platform.vellum.ai",
+      );
+      // Inline import should NOT be called
+      expect(platformImportBundleMock).not.toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("happy path dry-run: signed URL upload succeeds → GCS-based preflight used", async () => {
+    setArgv(
+      "--from",
+      "my-local",
+      "--platform",
+      "existing-platform",
+      "--dry-run",
+    );
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    const platformEntry = makeEntry("existing-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      if (name === "existing-platform") return platformEntry;
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Signed-URL flow should be used for preflight
+      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
+      expect(platformUploadToSignedUrlMock).toHaveBeenCalled();
+      expect(platformImportPreflightFromGcsMock).toHaveBeenCalledWith(
+        "bundle-key-123",
+        "platform-token",
+        "org-123",
+        "https://platform.vellum.ai",
+      );
+      // Inline preflight should NOT be called
+      expect(platformImportPreflightMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("fallback: platformRequestUploadUrl throws 503 → falls back to inline import", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Simulate 503 — "not available" in the error message
+    platformRequestUploadUrlMock.mockRejectedValue(
+      new Error("Signed uploads are not available on this platform instance"),
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Should fall back to inline import
+      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
+      expect(platformUploadToSignedUrlMock).not.toHaveBeenCalled();
+      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
+      expect(platformImportBundleMock).toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("fallback: platformRequestUploadUrl throws 404 → falls back to inline import", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Simulate 404 — endpoint doesn't exist on older platform versions
+    platformRequestUploadUrlMock.mockRejectedValue(
+      new Error("Signed uploads are not available on this platform instance"),
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Should fall back to inline import
+      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
+      expect(platformUploadToSignedUrlMock).not.toHaveBeenCalled();
+      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
+      expect(platformImportBundleMock).toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("upload error: platformUploadToSignedUrl throws → error propagates", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Upload succeeds at getting URL but fails during PUT
+    platformUploadToSignedUrlMock.mockRejectedValue(
+      new Error("Upload to signed URL failed: 500 Internal Server Error"),
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow(
+        "Upload to signed URL failed: 500 Internal Server Error",
+      );
+      // Should NOT fall back to inline import
+      expect(platformImportBundleMock).not.toHaveBeenCalled();
+      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("413 from GCS import: error message includes 'too large'", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // GCS import returns 413
+    platformImportBundleFromGcsMock.mockRejectedValue(
+      new Error("Bundle too large to import"),
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("too large");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

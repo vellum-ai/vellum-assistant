@@ -55,6 +55,7 @@ import {
 } from "../memory/conversation-queries.js";
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
+import { listGroups } from "../memory/group-crud.js";
 import {
   consumeCallback,
   consumeCallbackError,
@@ -138,6 +139,7 @@ import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
+import { groupRouteDefinitions } from "./routes/group-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
@@ -806,7 +808,11 @@ export class RuntimeHttpServer {
     conversation: ConversationRow;
     binding?: ExternalConversationBinding | null;
     attentionState?: AttentionState;
-    displayMeta?: { displayOrder: number | null; isPinned: boolean };
+    displayMeta?: {
+      displayOrder: number | null;
+      isPinned: boolean;
+      groupId: string | null;
+    };
     parentCache: Map<string, ConversationRow | null>;
   }) {
     const { conversation, binding, attentionState, displayMeta, parentCache } =
@@ -848,6 +854,7 @@ export class RuntimeHttpServer {
               displayOrder: displayMeta.displayOrder,
             }
           : {}),
+      groupId: displayMeta?.groupId ?? null,
       ...(forkParent ? { forkParent } : {}),
     };
   }
@@ -1029,7 +1036,7 @@ export class RuntimeHttpServer {
           const attentionStates =
             getAttentionStateByConversationIds(conversationIds);
           const parentCache = new Map<string, ConversationRow | null>();
-          return Response.json({
+          const response: Record<string, unknown> = {
             conversations: rows.map((conversation) =>
               this.serializeConversationSummary({
                 conversation,
@@ -1040,7 +1047,18 @@ export class RuntimeHttpServer {
               }),
             ),
             hasMore: offset + rows.length < totalCount,
-          });
+          };
+          // Include groups array on first page only
+          if (offset === 0) {
+            const groups = listGroups();
+            response.groups = groups.map((g) => ({
+              id: g.id,
+              name: g.name,
+              sortPosition: g.sortPosition,
+              isSystemGroup: g.isSystemGroup,
+            }));
+          }
+          return Response.json(response);
         },
       },
       ...conversationAttentionRouteDefinitions(),
@@ -1048,6 +1066,8 @@ export class RuntimeHttpServer {
       ...(conversationManagementDeps
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
+
+      ...groupRouteDefinitions(),
 
       {
         endpoint: "conversations/seen",

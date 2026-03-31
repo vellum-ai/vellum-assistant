@@ -41,6 +41,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     @AppStorage("lastActiveConversationId") private var lastActiveConversationIdString: String?
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @Published var conversations: [ConversationModel] = []
+    @Published var groups: [ConversationGroup] = []
+    /// Whether the daemon returned a non-empty groups array, indicating it supports
+    /// the group system. When true, `groupId: null` from the server means "explicitly
+    /// ungrouped" and the client should NOT override it with source-based heuristics.
+    /// When false (old daemon), the heuristic fallback in `deriveGroupId` is needed.
+    var daemonSupportsGroups: Bool = false
     @Published var hasMoreConversations: Bool = false
     @Published var isLoadingMoreConversations: Bool = false
     private struct AssistantActivitySnapshot: Equatable {
@@ -62,6 +68,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some conversations.
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+    /// Concrete client for group CRUD operations (not on the protocol).
+    private let groupClient = ConversationListClient()
+    /// Debounce task for coalescing rapid reorder persistence calls (e.g. during drag).
+    private var reorderDebounceTask: Task<Void, Never>?
     var serverOffset: Int = 0
     @Published var activeConversationId: UUID? {
         didSet {
@@ -150,6 +160,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Subscription to activeViewModel's messages count changes.
     /// Drives activeMessageCount so only message-count-dependent views re-render,
     /// not the entire window tree.
+    private var groupsCancellable: AnyCancellable?
     private var activeViewModelCancellable: AnyCancellable?
     /// Tracks the message count of the active conversation's view model.
     /// SwiftUI views that need to react to new messages should observe this
@@ -191,6 +202,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// once the associated ChatViewModel finishes its current send/think cycle.
     /// Populated when a notification_intent arrives while the VM is busy.
     private var pendingNotificationCatchUpIds: Set<String> = []
+    /// Stores the groupId a conversation had before being pinned, so it can be
+    /// restored on unpin instead of falling back to heuristic-based routing.
+    private var prePinGroupIds: [UUID: String?] = [:]
     /// Periodic task that refreshes the active channel conversation's history.
     /// Cancelled when switching away from a channel conversation.
     private var channelRefreshTask: Task<Void, Never>?
@@ -215,32 +229,81 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// keyed by conversation ID. Consumed by `restoreUnseen(conversationIds:)`.
     private var markAllSeenPriorStates: [UUID: MarkAllSeenPriorState] = [:]
 
+    var sortedGroups: [ConversationGroup] {
+        groups.sorted { $0.sortPosition < $1.sortPosition }
+    }
+
+    /// Conversations organized by group. Groups appear in sortPosition order;
+    /// ungrouped conversations (including orphans with unknown groupId) appear last.
+    /// Buckets conversations in a single pass over `visibleConversations` (O(N))
+    /// instead of filtering per group (O(N*G)).
+    var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] {
+        let visible = visibleConversations
+        let knownGroupIds = Set(groups.map(\.id))
+
+        // Single-pass bucketing: group conversations by groupId
+        var buckets: [String: [ConversationModel]] = [:]
+        var ungrouped: [ConversationModel] = []
+        var orphaned: [ConversationModel] = []
+
+        for conversation in visible {
+            if let gid = conversation.groupId {
+                if knownGroupIds.contains(gid) {
+                    buckets[gid, default: []].append(conversation)
+                } else {
+                    orphaned.append(conversation)  // unknown groupId
+                }
+            } else {
+                ungrouped.append(conversation)
+            }
+        }
+
+        // Always include all groups so the view layer can decide visibility.
+        // Non-system groups always appear (so "New Group" is visible immediately).
+        // System groups are emitted even when empty so the view can show ghost
+        // headers during drag; the view hides empty system groups when no drag is active.
+        var result: [(ConversationGroup?, [ConversationModel])] = []
+        for group in sortedGroups {
+            result.append((group, buckets[group.id] ?? []))
+        }
+
+        // Ungrouped + orphaned (unknown groupId) -- always last
+        result.append((nil, ungrouped + orphaned))
+
+        return result
+    }
+
     /// Conversations that are not archived — used by the UI to populate the sidebar.
-    /// Sorted: pinned first (by pinnedOrder ascending), then conversations with explicit
-    /// displayOrder ascending, then remaining conversations by lastInteractedAt descending.
+    /// Sorted: grouped conversations first (by group sortPosition), then ungrouped.
+    /// Within each group, conversations sort by displayOrder ascending, then recency descending.
     /// Conversations move to the top when messages are sent or received, but NOT when clicked/selected.
     var visibleConversations: [ConversationModel] {
         conversations.filter { !$0.isArchived && $0.kind != .private }
             .sorted { visibleConversationSortOrder($0, $1) }
     }
 
-    /// Shared sort predicate for visible conversations: pinned first (by pinnedOrder),
-    /// then conversations with explicit displayOrder, then remaining by recency.
+    /// Shared sort predicate for visible conversations: groups first (by sortPosition),
+    /// then within each group by displayOrder/recency. Ungrouped last.
     private func visibleConversationSortOrder(_ a: ConversationModel, _ b: ConversationModel) -> Bool {
-        if a.isPinned && b.isPinned {
-            return (a.pinnedOrder ?? 0) < (b.pinnedOrder ?? 0)
-        }
-        if a.isPinned { return true }
-        if b.isPinned { return false }
-        // Conversations without explicit displayOrder (nil) sort by recency and
-        // appear ABOVE explicitly-ordered conversations so new/active conversations are
-        // never buried below stale manual ordering.
+        let aGroupPos = groupSortPosition(for: a.groupId)
+        let bGroupPos = groupSortPosition(for: b.groupId)
+        if aGroupPos != bGroupPos { return aGroupPos < bGroupPos }
+
         if a.displayOrder == nil && b.displayOrder == nil {
             return a.lastInteractedAt > b.lastInteractedAt
         }
         if a.displayOrder == nil { return true }
         if b.displayOrder == nil { return false }
         return a.displayOrder! < b.displayOrder!
+    }
+
+    /// Precomputed lookup from groupId -> sortPosition. Rebuilt when `groups` changes (infrequent).
+    /// Avoids O(N) linear scan per sort comparison in `visibleConversationSortOrder`.
+    private var groupSortPositionMap: [String: Double] = [:]
+
+    private func groupSortPosition(for groupId: String?) -> Double {
+        guard let groupId else { return Double.infinity }  // ungrouped sorts last (intentional)
+        return groupSortPositionMap[groupId] ?? Double.infinity  // orphaned -> treat as ungrouped
     }
 
     /// Count of visible (non-archived, non-private) conversations with unseen assistant messages.
@@ -294,6 +357,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
+        // Keep groupSortPositionMap in sync whenever `groups` changes.
+        self.groupsCancellable = $groups.sink { [weak self] newGroups in
+            self?.groupSortPositionMap = Dictionary(uniqueKeysWithValues: newGroups.map { ($0.id, $0.sortPosition) })
+        }
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
         // the wake-up conversation's UUID is persisted.
@@ -595,13 +662,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         title: String,
         source: String? = nil,
         scheduleJobId: String? = nil,
-        markHistoryLoaded: Bool = true
+        markHistoryLoaded: Bool = true,
+        groupId: String? = nil
     ) -> UUID? {
         guard !conversations.contains(where: { $0.conversationId == conversationId }) else {
             return nil
         }
 
-        var conversation = ConversationModel(title: title, conversationId: conversationId)
+        var conversation = ConversationModel(title: title, conversationId: conversationId, groupId: groupId)
         if let source { conversation.source = source }
         if let scheduleJobId { conversation.scheduleJobId = scheduleJobId }
         let viewModel = makeViewModel()
@@ -626,7 +694,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Called when the daemon broadcasts `task_run_conversation_created` so the user
     /// can see task execution messages streaming in real-time.
     func createTaskRunConversation(conversationId: String, workItemId: String, title: String) {
-        guard let localId = createBackgroundConversation(conversationId: conversationId, title: title) else { return }
+        guard let localId = createBackgroundConversation(conversationId: conversationId, title: title, source: "task", groupId: ConversationGroup.background.id) else { return }
         log.info("Created task run conversation \(localId) for conversation \(conversationId) (work item \(workItemId))")
     }
 
@@ -638,7 +706,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             conversationId: conversationId,
             title: title,
             source: "schedule",
-            scheduleJobId: scheduleJobId
+            scheduleJobId: scheduleJobId,
+            groupId: ConversationGroup.scheduled.id
         ) else { return }
         log.info("Created schedule conversation \(localId) for conversation \(conversationId) (schedule \(scheduleJobId))")
     }
@@ -663,7 +732,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let localId = createBackgroundConversation(
             conversationId: conversationId,
             title: title,
-            source: "heartbeat"
+            source: "heartbeat",
+            groupId: ConversationGroup.background.id
         ) else { return }
         log.info("Created heartbeat conversation \(localId) for conversation \(conversationId)")
     }
@@ -705,27 +775,19 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func archiveConversation(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
 
-        // Clear ordering state before archiving so stale is_pinned/display_order
-        // values don't affect DB pagination (which sorts by is_pinned DESC).
-        // Send the update BEFORE setting isArchived, because sendReorderConversations()
-        // only serializes visibleConversations (non-archived).
-        let wasPinned = conversations[index].isPinned
+        // Clear displayOrder so the conversation sorts by recency when unarchived
+        // (avoids snapping to a stale position). groupId is intentionally preserved —
+        // the daemon never receives a nil update (archived conversations are excluded
+        // from visibleConversations/reorder payloads), so both client and server
+        // retain the original group assignment through the archive/unarchive lifecycle.
         let hadOrder = conversations[index].displayOrder != nil
 
-        // Batch mutations into a single array write to avoid multiple
-        // @Published objectWillChange emissions that can cause SwiftUI
-        // ForEach re-entrancy crashes.
         var conversation = conversations[index]
-        conversation.isPinned = false
-        conversation.pinnedOrder = nil
         conversation.displayOrder = nil
         conversation.isArchived = true
         conversations[index] = conversation
 
-        if wasPinned {
-            recompactPinnedOrders()
-        }
-        if wasPinned || hadOrder {
+        if hadOrder {
             sendReorderConversations()
         }
 
@@ -831,19 +893,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // with the daemon's row numbering regardless of client-side filtering.
         serverOffset += response.conversations.count
 
+        // Merge groups if provided (first page only from server).
+        if let responseGroups = response.groups, !responseGroups.isEmpty {
+            mergeGroups(from: responseGroups)
+        }
+
         let recentConversations = response.conversations.filter {
             $0.conversationType != "private"
         }
-
-        // Compute the next pinnedOrder based on existing pinned conversations AND
-        // persisted displayOrder values in the incoming batch, so legacy conversations
-        // (nil displayOrder) don't collide with explicit or already-loaded ones.
-        let existingMax = conversations.compactMap(\.pinnedOrder).max() ?? -1
-        let batchMax = recentConversations
-            .filter { $0.isPinned ?? false }
-            .compactMap { $0.displayOrder.map { Int($0) } }
-            .max() ?? -1
-        var nextPinnedOrder = max(existingMax, batchMax) + 1
 
         for conversation in recentConversations {
             // If a local conversation already exists, merge server pin/order metadata.
@@ -852,20 +909,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                     from: conversation,
                     localId: conversations[existingIdx].id,
                     createdAt: conversations[existingIdx].createdAt,
-                    isArchived: conversations[existingIdx].isArchived,
-                    fallbackPinnedOrder: nextPinnedOrder
+                    isArchived: conversations[existingIdx].isArchived
                 )
                 mergeAssistantAttention(from: conversation, intoConversationAt: existingIdx)
-                if conversation.isPinned == true && conversation.displayOrder == nil { nextPinnedOrder += 1 }
                 continue
             }
 
             let conversationModel = conversationModel(
                 from: conversation,
-                isArchived: isConversationArchived(conversation.id),
-                fallbackPinnedOrder: nextPinnedOrder
+                isArchived: isConversationArchived(conversation.id)
             )
-            if conversation.isPinned == true && conversation.displayOrder == nil { nextPinnedOrder += 1 }
             // VM creation is lazy — getOrCreateViewModel() will instantiate
             // when the conversation is first accessed (e.g. selected by the user).
             conversations.append(conversationModel)
@@ -1071,8 +1124,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 from: item,
                 localId: existingConversation.id,
                 createdAt: existingConversation.createdAt,
-                isArchived: isArchived,
-                fallbackPinnedOrder: existingConversation.pinnedOrder
+                isArchived: isArchived
             )
             mergeAssistantAttention(from: item, intoConversationAt: existingIdx)
             if let viewModel = chatViewModels[existingConversation.id] {
@@ -1102,19 +1154,28 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         from item: ConversationListResponseItem,
         localId: UUID = UUID(),
         createdAt: Date? = nil,
-        isArchived: Bool,
-        fallbackPinnedOrder: Int? = nil
+        isArchived: Bool
     ) -> ConversationModel {
         let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
         let isPinned = item.isPinned ?? false
+        // When the daemon supports groups, groupId: null means "explicitly ungrouped" —
+        // use the server value as-is. Only fall back to source-based heuristics for
+        // old daemons that don't return groupId at all.
+        let groupId: String? = daemonSupportsGroups
+            ? (item.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil))
+            : ConversationModel.deriveGroupId(
+                serverGroupId: item.groupId,
+                isPinned: isPinned,
+                source: item.source,
+                title: item.title
+            )
         return ConversationModel(
             id: localId,
             title: item.title,
             createdAt: createdAt ?? Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAtMillis) / 1000.0),
             conversationId: item.id,
             isArchived: isArchived,
-            isPinned: isPinned,
-            pinnedOrder: isPinned ? (item.displayOrder.map { Int($0) } ?? fallbackPinnedOrder) : nil,
+            groupId: groupId,
             displayOrder: item.displayOrder.map { Int($0) },
             lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(item.updatedAt) / 1000.0),
             kind: item.conversationType == "private" ? .private : .standard,
@@ -1183,35 +1244,34 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func pinConversation(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        let nextOrder = (conversations.compactMap(\.pinnedOrder).max() ?? -1) + 1
-        var conversation = conversations[index]
-        conversation.isPinned = true
-        conversation.pinnedOrder = nextOrder
-        conversations[index] = conversation
+        // Remember the pre-pin groupId so unpin can restore the original group.
+        prePinGroupIds[id] = conversations[index].groupId
+        conversations[index].groupId = ConversationGroup.pinned.id
+        let maxOrder = conversations
+            .filter { $0.groupId == ConversationGroup.pinned.id }
+            .compactMap(\.displayOrder).max() ?? -1
+        conversations[index].displayOrder = maxOrder + 1
         sendReorderConversations()
     }
 
     func unpinConversation(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        var conversation = conversations[index]
-        conversation.isPinned = false
-        conversation.pinnedOrder = nil
-        conversation.displayOrder = nil
-        conversations[index] = conversation
-        recompactPinnedOrders()
-        sendReorderConversations()
-    }
-
-    func reorderPinnedConversations(from source: IndexSet, to destination: Int) {
-        var pinned = visibleConversations.filter(\.isPinned)
-        pinned.move(fromOffsets: source, toOffset: destination)
-        var draft = conversations
-        for (order, item) in pinned.enumerated() {
-            if let idx = draft.firstIndex(where: { $0.id == item.id }) {
-                draft[idx].pinnedOrder = order
-            }
+        // Restore the group the conversation belonged to before pinning.
+        // Falls back to heuristic routing when no pre-pin groupId was recorded
+        // (e.g. conversations pinned before this feature was added).
+        if let stored = prePinGroupIds.removeValue(forKey: id),
+           stored == nil || groups.contains(where: { $0.id == stored }) {
+            // Restore the saved group only if it still exists (or was nil/ungrouped).
+            // If the group was deleted while pinned, fall through to heuristics.
+            conversations[index].groupId = stored
+        } else if conversations[index].isScheduleConversation {
+            conversations[index].groupId = ConversationGroup.scheduled.id
+        } else if conversations[index].shouldReturnToBackgroundOnUnpin {
+            conversations[index].groupId = ConversationGroup.background.id
+        } else {
+            conversations[index].groupId = nil
         }
-        conversations = draft
+        conversations[index].displayOrder = nil
         sendReorderConversations()
     }
 
@@ -1219,31 +1279,42 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
         var conversation = conversations[index]
         conversation.lastInteractedAt = Date()
-        // Clear explicit displayOrder so the conversation reverts to recency-based sorting.
-        // This ensures actively-used conversations float to the top naturally and new conversations
-        // aren't permanently stuck below explicitly-ordered conversations.
-        let hadOrder = conversation.displayOrder != nil
-        if hadOrder {
-            conversation.displayOrder = nil
-        }
-        conversations[index] = conversation
-        if hadOrder {
-            sendReorderConversations()
+        if conversation.groupId == nil {
+            // Clear explicit displayOrder so ungrouped conversations revert to recency-based sorting.
+            // Grouped conversations keep their manual ordering.
+            let hadOrder = conversation.displayOrder != nil
+            if hadOrder { conversation.displayOrder = nil }
+            conversations[index] = conversation
+            if hadOrder { sendReorderConversations() }
+        } else {
+            conversations[index] = conversation
         }
     }
 
+    /// Move a conversation to a specific group. Clears displayOrder so the
+    /// conversation sorts by recency within the target group.
+    func moveConversationToGroup(_ conversationId: UUID, groupId: String?) {
+        guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
+        // Save pre-pin provenance so unpinConversation can restore the original group.
+        if groupId == ConversationGroup.pinned.id {
+            prePinGroupIds[conversationId] = conversations[index].groupId
+        }
+        conversations[index].groupId = groupId
+        conversations[index].displayOrder = nil
+        // When ungrouping, bump lastInteractedAt so the conversation appears
+        // at the top of the ungrouped list (which sorts by recency).
+        if groupId == nil {
+            conversations[index].lastInteractedAt = Date()
+        }
+        sendReorderConversations()
+    }
+
     /// Move a conversation to a new position in the visible list (for drag-and-drop reorder).
-    /// Works for any conversation: pinned-to-pinned reorders among pinned items,
-    /// unpinned-to-pinned pins the source, and unpinned-to-unpinned reorders
-    /// using displayOrder. When the target is a schedule conversation, the source is
-    /// inserted at the end of the unpinned regular conversations list (the boundary
-    /// between regular and scheduled conversations).
-    ///
-    /// Only assigns displayOrder to the dragged conversation and conversations that already
-    /// had an explicit displayOrder. Conversations without explicit ordering (sorted
-    /// by recency) keep nil displayOrder so new conversations continue to appear at top.
+    /// Group-aware: if source and target are in different groups, the source is reassigned
+    /// to the target's group. displayOrder is scoped to the TARGET GROUP only — conversations
+    /// in other groups are untouched.
     @discardableResult
-    func moveConversation(sourceId: UUID, targetId: UUID) -> Bool {
+    func moveConversation(sourceId: UUID, targetId: UUID, insertAfterTarget: Bool? = nil) -> Bool {
         guard let sourceIdx = conversations.firstIndex(where: { $0.id == sourceId }),
               let targetIdx = conversations.firstIndex(where: { $0.id == targetId }) else { return false }
         let targetConversation = conversations[targetIdx]
@@ -1252,92 +1323,68 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // @Published write, preventing SwiftUI ForEach re-entrancy crashes.
         var draft = conversations
 
-        if targetConversation.isPinned {
-            // Dropping onto a pinned conversation — pin the source if needed and reorder
-            let sourceWasPinned = draft[sourceIdx].isPinned
-            if !sourceWasPinned {
-                draft[sourceIdx].isPinned = true
-            }
-            let targetOrder = targetConversation.pinnedOrder ?? 0
-            let sourceOrder = sourceWasPinned ? (draft[sourceIdx].pinnedOrder ?? Int.max) : Int.max
+        let sourceGroupId = draft[sourceIdx].groupId
+        let targetGroupId = targetConversation.groupId
 
-            // Direction-aware: if source is above target (lower order), insert after target
-            let insertOrder = sourceOrder < targetOrder ? targetOrder + 1 : targetOrder
-
-            draft[sourceIdx].pinnedOrder = insertOrder
-            for i in draft.indices where draft[i].isPinned && draft[i].id != sourceId {
-                if let order = draft[i].pinnedOrder, order >= insertOrder {
-                    draft[i].pinnedOrder = order + 1
-                }
+        // Cross-group drag: assign source to target's group.
+        // Save pre-pin provenance so unpinConversation can restore the original group.
+        if sourceGroupId != targetGroupId {
+            if targetGroupId == ConversationGroup.pinned.id {
+                prePinGroupIds[sourceId] = sourceGroupId
             }
-            recompactPinnedOrders(in: &draft)
+            draft[sourceIdx].groupId = targetGroupId
+        }
+
+        // Reorder within TARGET GROUP only (not global — prevents corrupting other groups).
+        let groupMembers = draft
+            .filter { $0.groupId == targetGroupId && !$0.isArchived && $0.kind != .private }
+            .sorted { visibleConversationSortOrder($0, $1) }
+
+        // Remove source from the group member list
+        var reordered = groupMembers.filter { $0.id != sourceId }
+
+        // Find target's index in the filtered list
+        let targetInReordered = reordered.firstIndex(where: { $0.id == targetId })
+
+        // Direction-aware insertion:
+        // Determine if source was visually above target (dragging down) using
+        // section-local indices, not global visibleConversations indices.
+        // For cross-group drags, use the caller-provided insertAfterTarget
+        // (derived from the drop indicator) so the insertion position matches
+        // the visual indicator the user saw.
+        let draggingDown: Bool
+        if let insertAfterTarget {
+            draggingDown = insertAfterTarget
+        } else if sourceGroupId != targetGroupId {
+            // Cross-group without explicit direction: default to insert after target
+            draggingDown = true
         } else {
-            // Dropping onto an unpinned conversation — reorder using displayOrder.
-            // Capture pinned state BEFORE modifications so direction detection
-            // isn't affected by the unpin changing the source's list position.
-            let sourceWasPinned = draft[sourceIdx].isPinned
+            let sourceLocalIdx = groupMembers.firstIndex(where: { $0.id == sourceId })
+            let targetLocalIdx = groupMembers.firstIndex(where: { $0.id == targetId })
+            draggingDown = (sourceLocalIdx ?? 0) < (targetLocalIdx ?? 0)
+        }
 
-            if sourceWasPinned {
-                draft[sourceIdx].isPinned = false
-                draft[sourceIdx].pinnedOrder = nil
-                draft[sourceIdx].displayOrder = nil
-                recompactPinnedOrders(in: &draft)
-            }
+        let insertPos: Int
+        if draggingDown {
+            let targetIdx = targetInReordered ?? reordered.endIndex
+            insertPos = min(targetIdx + 1, reordered.endIndex)
+        } else {
+            insertPos = targetInReordered ?? reordered.endIndex
+        }
 
-            // Build the unpinned list in sidebar display order: regular conversations first,
-            // then schedule conversations. This matches the UI sections and prevents dropping
-            // onto a schedule conversation from inserting the source among regular conversations
-            // at the wrong position.
-            let visible = draft.filter { !$0.isArchived && $0.kind != .private }
-                .sorted { visibleConversationSortOrder($0, $1) }
-            let allUnpinned = visible.filter { !$0.isPinned }
-            let regularUnpinned = allUnpinned.filter { !$0.isScheduleConversation }
-            let scheduleUnpinned = allUnpinned.filter { $0.isScheduleConversation }
-            let unpinned = regularUnpinned + scheduleUnpinned
+        if let movedConversation = groupMembers.first(where: { $0.id == sourceId }) ?? [draft[sourceIdx]].first {
+            reordered.insert(movedConversation, at: insertPos)
+        }
 
-            var reordered = unpinned.filter { $0.id != sourceId }
-
-            let insertPos: Int
-            let sourceConversation = draft[sourceIdx]
-            if targetConversation.isScheduleConversation && !sourceConversation.isScheduleConversation {
-                // Cross-section drag: insert at section boundary
-                insertPos = reordered.firstIndex(where: { $0.isScheduleConversation }) ?? reordered.endIndex
-            } else {
-                // Direction-aware: if source was visually above target (dragging down),
-                // insert AFTER target; if below (dragging up), insert BEFORE target.
-                // Pinned conversations are always visually above unpinned ones, so a
-                // pinned→unpinned drag is always "dragging down".
-                let draggingDown: Bool
-                if sourceWasPinned {
-                    draggingDown = true
-                } else {
-                    let sourceVisualIdx = unpinned.firstIndex(where: { $0.id == sourceId })
-                    let targetVisualIdx = unpinned.firstIndex(where: { $0.id == targetId })
-                    draggingDown = (sourceVisualIdx ?? 0) < (targetVisualIdx ?? 0)
-                }
-
-                if draggingDown {
-                    let targetInFiltered = reordered.firstIndex(where: { $0.id == targetId }) ?? reordered.endIndex
-                    insertPos = min(targetInFiltered + 1, reordered.endIndex)
-                } else {
-                    insertPos = reordered.firstIndex(where: { $0.id == targetId }) ?? reordered.endIndex
-                }
-            }
-
-            if let movedConversation = unpinned.first(where: { $0.id == sourceId }) ?? [draft[sourceIdx]].first {
-                reordered.insert(movedConversation, at: insertPos)
-            }
-
-            // Assign displayOrder to ALL conversations in the reordered list. When a
-            // user drags a conversation they are explicitly defining an ordering, so every
-            // conversation in the affected section needs a concrete displayOrder. Without
-            // this, dragging between recency-sorted conversations (nil displayOrder) would
-            // only assign an order to the source, causing it to jump to the top of
-            // the list since visibleConversations sorts non-nil displayOrder above nil.
-            for (order, item) in reordered.enumerated() {
-                if let idx = draft.firstIndex(where: { $0.id == item.id }) {
-                    draft[idx].displayOrder = order
-                }
+        // Assign displayOrder to ALL conversations in the target group. When a
+        // user drags a conversation they are explicitly defining an ordering, so every
+        // conversation in the affected group needs a concrete displayOrder. Without
+        // this, dragging between recency-sorted conversations (nil displayOrder) would
+        // only assign an order to the source, causing it to jump to the top of
+        // the list since visibleConversations sorts non-nil displayOrder above nil.
+        for (order, item) in reordered.enumerated() {
+            if let idx = draft.firstIndex(where: { $0.id == item.id }) {
+                draft[idx].displayOrder = order
             }
         }
 
@@ -1347,53 +1394,88 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         return true
     }
 
-    /// Recompact pinned orders in the given draft array (no @Published writes).
-    private func recompactPinnedOrders(in draft: inout [ConversationModel]) {
-        let pinned = draft.enumerated()
-            .filter { $0.element.isPinned }
-            .sorted { ($0.element.pinnedOrder ?? 0) < ($1.element.pinnedOrder ?? 0) }
-        for (order, item) in pinned.enumerated() {
-            draft[item.offset].pinnedOrder = order
-        }
-    }
-
-    private func recompactPinnedOrders() {
-        var draft = conversations
-        recompactPinnedOrders(in: &draft)
-        conversations = draft
-    }
-
     /// Send the current conversation ordering to the daemon so it persists across restarts.
-    /// For pinned conversations, derives a deterministic displayOrder from pinnedOrder so
-    /// the pinned ordering survives restarts. For unpinned conversations that have been
-    /// explicitly reordered (non-nil displayOrder), sends their displayOrder. For
-    /// unpinned conversations without explicit ordering, sends nil so they sort by recency.
+    /// Includes groupId in the payload so the server can track group membership.
+    /// Debounced: rapid successive calls (e.g. during drag) are coalesced into a single
+    /// API call after 300ms of inactivity.
     private func sendReorderConversations() {
-        let visible = visibleConversations.filter { !$0.isChannelConversation }
-        var updates: [ReorderConversationsRequestUpdate] = []
-        for conversation in visible {
-            guard let conversationId = conversation.conversationId else { continue }
-            let order: Double?
-            if conversation.isPinned {
-                // Pinned conversations always need a persisted displayOrder derived from
-                // their pinnedOrder so their user-defined order survives restarts.
-                order = Double(conversation.pinnedOrder ?? 0)
-            } else {
+        reorderDebounceTask?.cancel()
+        reorderDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+
+            let visible = self.visibleConversations.filter { !$0.isChannelConversation }
+            var updates: [ReorderConversationsRequestUpdate] = []
+            for conversation in visible {
+                guard let conversationId = conversation.conversationId else { continue }
+                let order: Double?
                 order = conversation.displayOrder.map { Double($0) }
+                updates.append(ReorderConversationsRequestUpdate(
+                    conversationId: conversationId,
+                    displayOrder: order,
+                    isPinned: conversation.isPinned,
+                    groupId: conversation.groupId
+                ))
             }
-            updates.append(ReorderConversationsRequestUpdate(
-                conversationId: conversationId,
-                displayOrder: order,
-                isPinned: conversation.isPinned
-            ))
-        }
-        guard !updates.isEmpty else { return }
-        Task {
-            let success = await conversationListClient.reorderConversations(updates: updates)
+            guard !updates.isEmpty else { return }
+            let success = await self.conversationListClient.reorderConversations(updates: updates)
             if !success {
                 log.error("Failed to send reorder_conversations")
             }
         }
+    }
+
+    // MARK: - Group CRUD
+
+    func createGroup(name: String) async -> ConversationGroup? {
+        // sort_position is server-authoritative: server assigns max(custom sort_position) + 1.
+        // Client just sends name; server returns the group with its assigned sort_position.
+        guard let response = await groupClient.createGroup(name: name) else { return nil }
+        let group = ConversationGroup(from: response)
+        groups.append(group)
+        return group
+    }
+
+    func renameGroup(_ groupId: String, name: String) async {
+        guard let idx = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        groups[idx].name = name
+        _ = await groupClient.updateGroup(groupId: groupId, name: name, sortPosition: nil)
+    }
+
+    func deleteGroup(_ groupId: String) async {
+        guard let idx = groups.firstIndex(where: { $0.id == groupId }),
+              !groups[idx].isSystemGroup else { return }
+        // Batch-mutate a copy to avoid per-element SwiftUI re-renders
+        var updated = conversations
+        for i in updated.indices where updated[i].groupId == groupId {
+            updated[i].groupId = nil
+            updated[i].displayOrder = nil
+        }
+        conversations = updated
+        groups.remove(at: idx)
+        _ = await groupClient.deleteGroup(groupId: groupId)
+        sendReorderConversations()
+    }
+
+    func reorderGroups(_ updates: [(groupId: String, sortPosition: Double)]) async {
+        for update in updates {
+            if let idx = groups.firstIndex(where: { $0.id == update.groupId }) {
+                groups[idx].sortPosition = update.sortPosition
+            }
+        }
+        _ = await groupClient.reorderGroups(updates: updates)
+    }
+
+    /// Replace local groups with the server response (authoritative).
+    /// Groups deleted on another client are pruned; new groups are added.
+    /// Only falls back to system defaults when server returns no groups at all.
+    private func mergeGroups(from responseGroups: [ConversationGroupResponse]) {
+        if responseGroups.isEmpty {
+            // Old daemon or empty response — keep existing groups (or system defaults)
+            return
+        }
+        daemonSupportsGroups = true
+        groups = responseGroups.map { ConversationGroup(from: $0) }
     }
 
     // MARK: - ConversationRestorerDelegate

@@ -2,7 +2,7 @@
  * Regression test: guardian verification calls must create a voice channel
  * binding so the conversation never appears as an unbound desktop conversation.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -90,14 +90,10 @@ mock.module("../memory/conversation-title-service.js", () => ({
 
 import { startVerificationCall } from "../calls/call-domain.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb, resetDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("startVerificationCall — voice binding", () => {
   beforeEach(() => {

@@ -64,8 +64,10 @@ export async function runTask(
     // Scheduled section; non-schedule tasks use "background" to stay out of
     // the main conversation list.
     conversationType: opts.source === "schedule" ? undefined : "background",
-    source: opts.source,
+    source: opts.source === "schedule" ? "schedule" : "task",
     scheduleJobId: opts.scheduleJobId,
+    groupId:
+      opts.source === "schedule" ? "system:scheduled" : "system:background",
     origin: "task",
     systemHint: `Task: ${task.title}`,
   });

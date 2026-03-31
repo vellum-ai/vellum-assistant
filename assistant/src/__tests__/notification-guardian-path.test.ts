@@ -5,7 +5,7 @@
  * pipeline (including conversation-created callbacks) without a custom dispatch path.
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ConversationCreatedInfo } from "../notifications/broadcaster.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
@@ -80,7 +80,7 @@ import {
   createPendingQuestion,
 } from "../calls/call-store.js";
 import { dispatchGuardianQuestion } from "../calls/guardian-dispatch.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();
@@ -132,10 +132,6 @@ function resetTables(): void {
 describe("ASK_GUARDIAN canonical notification path", () => {
   beforeEach(() => {
     resetTables();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   test("dispatches through emitNotificationSignal with guardian context metadata", async () => {

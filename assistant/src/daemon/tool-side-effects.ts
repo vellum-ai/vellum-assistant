@@ -10,6 +10,7 @@
 import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
+import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -222,18 +223,39 @@ registerHook("bash", (_name, input, result) => {
   type PendingDm = { userId: string; text: string; assistantId: string };
   type Parsed = { _pendingSlackDm?: PendingDm };
 
-  const dispatch = (parsed: Parsed) => {
+  // Returns "delivered" when DM was sent, "rejected" when _pendingSlackDm
+  // was found but failed validation, or null when the field was absent.
+  const dispatch = (parsed: Parsed): "delivered" | "rejected" | null => {
     if (parsed._pendingSlackDm) {
       const { userId, text, assistantId } = parsed._pendingSlackDm;
+
+      // Validate that an active Slack verification session exists and
+      // that the destination matches the userId in the parsed payload.
+      const session = findActiveSession("slack");
+      if (!session) {
+        log.warn(
+          { userId, assistantId },
+          "Bash hook: no active Slack verification session — ignoring _pendingSlackDm",
+        );
+        return "rejected";
+      }
+      if (session.destinationAddress !== userId) {
+        log.warn(
+          { userId, expected: session.destinationAddress, assistantId },
+          "Bash hook: Slack DM userId does not match active session destination — ignoring",
+        );
+        return "rejected";
+      }
+
       deliverVerificationSlack(userId, text, assistantId);
-      return true;
+      return "delivered";
     }
-    return false;
+    return null;
   };
 
   // Try full content first (handles pretty-printed single-object JSON)
   try {
-    if (dispatch(JSON.parse(result.content.trim()) as Parsed)) return;
+    if (dispatch(JSON.parse(result.content.trim()) as Parsed) !== null) return;
   } catch {
     // Not a single JSON object — fall back to line-by-line for
     // multi-object output (e.g. cancel + create chained with &&).
@@ -242,7 +264,7 @@ registerHook("bash", (_name, input, result) => {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
     try {
-      if (dispatch(JSON.parse(trimmed) as Parsed)) return;
+      if (dispatch(JSON.parse(trimmed) as Parsed) === "delivered") return;
     } catch {
       continue;
     }

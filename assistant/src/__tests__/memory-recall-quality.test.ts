@@ -6,15 +6,7 @@
  * These tests fail if memory quality degrades — they act as guardrails
  * before any retrieval or ranking changes.
  */
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -78,7 +70,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import {
   conversations,
@@ -252,10 +244,6 @@ describe("Memory Recall Quality", () => {
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
     mockQdrantResults = [];
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   // -------------------------------------------------------------------------

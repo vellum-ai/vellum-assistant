@@ -4,23 +4,13 @@ import VellumAssistantShared
 /// A single conversation row in the sidebar, handling hover, pin, archive, rename,
 /// and drag interactions.
 ///
-/// Value-type props and action closures are compared via `Equatable` so SwiftUI
-/// can skip re-evaluation when parent views re-render for unrelated reasons.
-///
-/// Hover state (`isHovered`) is observed directly from `SidebarInteractionState`
-/// inside this view's `body`, keeping the `@Observable` dependency scoped here
-/// rather than in the parent. This prevents sidebar hover from invalidating
-/// unrelated views (e.g. the chat panel) that share a common ancestor.
-///
-/// - SeeAlso: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
+/// Hover state is owned locally via `@State` so it resets automatically when the
+/// view's identity changes (e.g., conversation moves between ForEach sections on
+/// pin/unpin). Props and action closures use `Equatable` to skip re-evaluation.
 struct SidebarConversationItem: View, Equatable {
     let conversation: ConversationModel
     let isSelected: Bool
     let interactionState: ConversationInteractionState
-    /// Provides hover state via `@Observable` property-level tracking.
-    /// The observation dependency is established in this view's `body`,
-    /// not in the parent, so hover changes only invalidate this row.
-    var sidebarInteraction: SidebarInteractionState
 
     // Action closures — not compared in Equatable
     var selectConversation: () -> Void
@@ -29,20 +19,38 @@ struct SidebarConversationItem: View, Equatable {
     var onArchive: () -> Void
     var onStartRename: () -> Void
     var onMarkUnread: () -> Void
-    var onHoverChange: (Bool) -> Void
     var onDragStart: () -> Void
     var onOpenInNewWindow: (() -> Void)?
     var onShowFeedback: (() -> Void)?
+    /// Available groups for the "Move to" submenu. Excludes the conversation's current group.
+    var moveToGroups: [ConversationGroup] = []
+    /// Moves the conversation to the specified group (nil = ungrouped).
+    var onMoveToGroup: ((String?) -> Void)? = nil
 
     static func == (lhs: SidebarConversationItem, rhs: SidebarConversationItem) -> Bool {
         lhs.conversation == rhs.conversation &&
         lhs.isSelected == rhs.isSelected &&
         lhs.interactionState == rhs.interactionState &&
-        lhs.sidebarInteraction === rhs.sidebarInteraction
+        lhs.moveToGroups == rhs.moveToGroups
     }
 
+    /// The conversation's current group (if any), used for "Remove from group" visibility.
+    private var moveToCurrentGroup: ConversationGroup? {
+        guard let gid = conversation.groupId else { return nil }
+        // The moveToGroups list excludes the current group, so check all system groups + search moveToGroups
+        // by looking at the conversation's groupId against known groups.
+        if gid == ConversationGroup.pinned.id { return ConversationGroup.pinned }
+        if gid == ConversationGroup.scheduled.id { return ConversationGroup.scheduled }
+        if gid == ConversationGroup.background.id { return ConversationGroup.background }
+        // Custom group — not in moveToGroups (it's filtered out), but we know it's non-system
+        return ConversationGroup(id: gid, name: "", sortPosition: 0, isSystemGroup: false)
+    }
+
+    @State private var isMouseInside: Bool = false
     @State private var isMenuOpen: Bool = false
-    private var isHovered: Bool { sidebarInteraction.isHoveredConversation == conversation.id }
+
+    /// Effective hover state, used throughout the body for visual affordances.
+    private var isHovered: Bool { isMouseInside }
     private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
@@ -70,6 +78,22 @@ struct SidebarConversationItem: View, Equatable {
             .disabled(!canMarkUnread)
         }
 
+        if !moveToGroups.isEmpty, let onMoveToGroup {
+            VSubMenuItem(icon: VIcon.folder.rawValue, label: "Move to") {
+                ForEach(moveToGroups) { group in
+                    VMenuItem(label: group.name) {
+                        onMoveToGroup(group.id)
+                    }
+                }
+                if conversation.groupId != nil {
+                    VMenuDivider()
+                    VMenuItem(label: "Remove from group") {
+                        onMoveToGroup(nil)
+                    }
+                }
+            }
+        }
+
         if let onOpenInNewWindow {
             VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
                 onOpenInNewWindow()
@@ -93,12 +117,12 @@ struct SidebarConversationItem: View, Equatable {
             if isHovered {
                 VButton(
                     label: conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)",
-                    iconOnly: VIcon.pin.rawValue,
+                    iconOnly: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
                     style: .ghost,
                     iconSize: 20,
                     tooltip: conversation.isPinned ? "Unpin" : "Pin",
-                    iconColor: conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary,
-                    iconRotation: .degrees(-45)
+                    iconColor: VColor.contentSecondary,
+                    iconRotation: conversation.isPinned ? .degrees(0) : .degrees(-45)
                 ) {
                     onTogglePin()
                 }
@@ -176,7 +200,7 @@ struct SidebarConversationItem: View, Equatable {
         }
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .contentShape(Rectangle())
-        .animation(VAnimation.fast, value: isHovered)
+        .animation(VAnimation.fast, value: isMouseInside)
         .animation(VAnimation.fast, value: isMenuOpen)
         .onTapGesture {
             selectConversation()
@@ -219,7 +243,14 @@ struct SidebarConversationItem: View, Equatable {
             contextMenuContent
         }
         .pointerCursor { hovering in
-            onHoverChange(hovering)
+            isMouseInside = hovering
+        }
+        .onChange(of: conversation) { _, _ in
+            // Reset menu state when conversation props change within the same view
+            // lifecycle (e.g., title update while menu is open).
+            if isMenuOpen {
+                isMenuOpen = false
+            }
         }
         .onDrag {
             guard !conversation.isChannelConversation else {
@@ -251,4 +282,3 @@ struct SidebarConversationItem: View, Equatable {
         }
     }
 }
-

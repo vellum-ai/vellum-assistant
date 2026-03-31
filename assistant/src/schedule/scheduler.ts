@@ -188,7 +188,12 @@ async function runScheduleOnce(
         );
         const { runTask } = await import("../tasks/task-runner.js");
         const result = await runTask(
-          { taskId, workingDir: process.cwd(), source: "schedule", scheduleJobId: job.id },
+          {
+            taskId,
+            workingDir: process.cwd(),
+            source: "schedule",
+            scheduleJobId: job.id,
+          },
           processMessage as (
             conversationId: string,
             message: string,
@@ -237,6 +242,7 @@ async function runScheduleOnce(
         const fallbackConversation = bootstrapConversation({
           source: "schedule",
           scheduleJobId: job.id,
+          groupId: "system:scheduled",
           origin: "schedule",
           systemHint: `Schedule: ${job.name}`,
         });
@@ -255,6 +261,7 @@ async function runScheduleOnce(
     const conversation = bootstrapConversation({
       source: "schedule",
       scheduleJobId: job.id,
+      groupId: "system:scheduled",
       origin: "schedule",
       systemHint: isOneShot ? `Reminder: ${job.name}` : `Schedule: ${job.name}`,
     });

@@ -9,15 +9,7 @@
  * - Stripping removes <memory_context> tags
  * - No conflict gate references
  */
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
@@ -87,7 +79,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { stripUserTextBlocksByPrefix } from "../daemon/conversation-runtime-assembly.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   resetCleanupScheduleThrottle,
   resetStaleSweepThrottle,
@@ -122,10 +114,6 @@ describe("Memory lifecycle E2E regression", () => {
     mockQdrantResults = [];
     resetCleanupScheduleThrottle();
     resetStaleSweepThrottle();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   test("extraction produces items with standard-kind enum and supersession chains form correctly", async () => {

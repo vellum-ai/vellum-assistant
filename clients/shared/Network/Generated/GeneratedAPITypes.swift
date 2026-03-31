@@ -3174,11 +3174,13 @@ public struct ReorderConversationsRequestUpdate: Codable, Sendable {
     public let conversationId: String
     public let displayOrder: Double?
     public let isPinned: Bool
+    public let groupId: String?
 
-    public init(conversationId: String, displayOrder: Double?, isPinned: Bool) {
+    public init(conversationId: String, displayOrder: Double?, isPinned: Bool, groupId: String? = nil) {
         self.conversationId = conversationId
         self.displayOrder = displayOrder
         self.isPinned = isPinned
+        self.groupId = groupId
     }
 }
 
@@ -3455,11 +3457,14 @@ public struct ConversationListResponse: Codable, Sendable {
     public let conversations: [ConversationListResponseItem]
     /// Whether more conversations exist beyond the returned page.
     public let hasMore: Bool?
+    /// Available conversation groups. Sent with the first page only.
+    public let groups: [ConversationGroupResponse]?
 
-    public init(type: String, conversations: [ConversationListResponseItem], hasMore: Bool? = nil) {
+    public init(type: String, conversations: [ConversationListResponseItem], hasMore: Bool? = nil, groups: [ConversationGroupResponse]? = nil) {
         self.type = type
         self.conversations = conversations
         self.hasMore = hasMore
+        self.groups = groups
     }
 }
 
@@ -3479,9 +3484,10 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let assistantAttention: AssistantAttention?
     public let displayOrder: Double?
     public let isPinned: Bool?
+    public let groupId: String?
     public let forkParent: ConversationForkParent?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, forkParent: ConversationForkParent? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -3495,7 +3501,22 @@ public struct ConversationListResponseItem: Codable, Sendable {
         self.assistantAttention = assistantAttention
         self.displayOrder = displayOrder
         self.isPinned = isPinned
+        self.groupId = groupId
         self.forkParent = forkParent
+    }
+}
+
+public struct ConversationGroupResponse: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let sortPosition: Double
+    public let isSystemGroup: Bool
+
+    public init(id: String, name: String, sortPosition: Double, isSystemGroup: Bool) {
+        self.id = id
+        self.name = name
+        self.sortPosition = sortPosition
+        self.isSystemGroup = isSystemGroup
     }
 }
 

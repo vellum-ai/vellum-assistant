@@ -6,6 +6,7 @@ struct SidebarConversationsHeader: View {
     var isLoading: Bool = false
     let onMarkAllSeen: () -> Void
     let onNewConversation: () -> Void
+    var onCreateGroup: (() -> Void)? = nil
 
     @AppStorage("newChatShortcut") private var newChatShortcut: String = "cmd+n"
 
@@ -17,7 +18,7 @@ struct SidebarConversationsHeader: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(spacing: VSpacing.xs) {
             Text("Conversations")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(VColor.contentDefault)
@@ -28,14 +29,24 @@ struct SidebarConversationsHeader: View {
                         label: "Mark all as seen",
                         iconOnly: VIcon.circleCheck.rawValue,
                         style: .ghost,
-                        tooltip: "Mark all as seen",
                         action: onMarkAllSeen
                     )
                     .disabled(isLoading)
+                    .vTooltip("Mark all as seen")
                 }
-                VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, tooltip: newChatTooltip, action: onNewConversation)
+                if let onCreateGroup {
+                    VButton(
+                        label: "New group",
+                        iconOnly: VIcon.folderPlus.rawValue,
+                        style: .ghost,
+                        action: onCreateGroup
+                    )
+                    .vTooltip("New group")
+                }
+                VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewConversation)
                     .disabled(isLoading)
                     .opacity(isLoading ? 0.4 : 1)
+                    .vTooltip(newChatTooltip)
             }
         }
         .padding(.leading, 0)

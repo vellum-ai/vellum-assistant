@@ -178,6 +178,7 @@ export class HeartbeatService {
       const conversation = bootstrapConversation({
         conversationType: "background",
         source: "heartbeat",
+        groupId: "system:background",
         origin: "heartbeat",
         systemHint: "Heartbeat",
       });

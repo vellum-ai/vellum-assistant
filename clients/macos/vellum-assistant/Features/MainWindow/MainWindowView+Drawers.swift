@@ -149,11 +149,11 @@ extension MainWindowView {
     var conversationSwitcherDrawerLayer: some View {
         if showConversationSwitcher {
             ConversationSwitcherDrawer(
-                regularConversations: regularConversations,
-                activeConversationId: conversationManager.activeConversationId,
                 conversationManager: conversationManager,
                 windowState: windowState,
                 sidebar: sidebar,
+                customGroupsEnabled: assistantFeatureFlagStore.isEnabled("conversation-groups-ui"),
+                backgroundEnabled: assistantFeatureFlagStore.isEnabled("show-background-conversations"),
                 selectConversation: { selectConversation($0) },
                 onDismiss: { showConversationSwitcher = false }
             )

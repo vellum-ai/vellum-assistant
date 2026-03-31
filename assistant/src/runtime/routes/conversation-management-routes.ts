@@ -528,6 +528,7 @@ export function conversationManagementRouteDefinitions(
             conversationId: string;
             displayOrder?: number;
             isPinned?: boolean;
+            groupId?: string | null;
           }>;
         };
         if (!Array.isArray(body.updates)) {
@@ -538,6 +539,7 @@ export function conversationManagementRouteDefinitions(
             id: u.conversationId,
             displayOrder: u.displayOrder ?? null,
             isPinned: u.isPinned ?? false,
+            groupId: u.groupId,
           })),
         );
         return Response.json({ ok: true });

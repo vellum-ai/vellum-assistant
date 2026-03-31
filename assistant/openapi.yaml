@@ -3131,6 +3131,115 @@ paths:
                   description: Upper bound epoch ms
                   type: number
               additionalProperties: false
+  /v1/groups:
+    get:
+      operationId: groups_get
+      summary: List groups
+      description: Return all conversation groups.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: groups_post
+      summary: Create group
+      description: Create a new custom conversation group. Server assigns sort_position.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Group name
+              required:
+                - name
+              additionalProperties: false
+  /v1/groups/{groupId}:
+    delete:
+      operationId: groups_by_groupId_delete
+      summary: Delete group
+      description: Delete a custom conversation group.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: groups_by_groupId_patch
+      summary: Update group
+      description: Update a conversation group's name or sort position.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                sortPosition:
+                  type: number
+              additionalProperties: false
+  /v1/groups/reorder:
+    post:
+      operationId: groups_reorder_post
+      summary: Reorder groups
+      description: Batch-update sort positions for conversation groups.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                updates:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      groupId:
+                        type: string
+                      sortPosition:
+                        type: number
+                    required:
+                      - groupId
+                      - sortPosition
+                    additionalProperties: false
+                  description: Array of { groupId, sortPosition } objects
+              required:
+                - updates
+              additionalProperties: false
   /v1/guardian-actions/decision:
     post:
       operationId: guardianactions_decision_post
