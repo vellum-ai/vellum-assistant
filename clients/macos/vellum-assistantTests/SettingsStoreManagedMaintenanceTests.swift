@@ -2,9 +2,9 @@ import XCTest
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
-// MARK: - URLProtocol stub for maintenance-mode endpoint calls
+// MARK: - URLProtocol stub for recovery-mode endpoint calls
 
-private final class MaintenanceStoreURLProtocol: URLProtocol {
+private final class RecoveryStoreURLProtocol: URLProtocol {
     static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -31,21 +31,32 @@ private final class MaintenanceStoreURLProtocol: URLProtocol {
 
 // MARK: - Blocking URLProtocol stub for mid-flight staleness tests
 
-/// A URLProtocol stub that suspends the network response until `resume()` is called.
-/// This lets tests mutate UserDefaults *between* the request being sent and the
-/// response being delivered, exercising staleness-guard code paths.
-private final class BlockingMaintenanceURLProtocol: URLProtocol {
+/// A URLProtocol stub that blocks the *first* POST request until `resume()` is called,
+/// then responds immediately to any follow-up GET requests (e.g. the `refreshAssistant`
+/// call that `enterRecoveryMode`/`exitRecoveryMode` makes after the POST succeeds).
+/// This lets tests mutate UserDefaults *between* the POST being sent and the response
+/// being delivered, exercising staleness-guard code paths.
+private final class BlockingRecoveryURLProtocol: URLProtocol {
     // The pending instance waiting to deliver its response.
-    static var pendingInstance: BlockingMaintenanceURLProtocol?
+    static var pendingInstance: BlockingRecoveryURLProtocol?
     // The (response, data) to deliver when resume() is called.
     static var stagedResponse: (HTTPURLResponse, Data)?
+    // True once the first blocking request has been resumed; subsequent requests respond immediately.
+    static var hasResumed: Bool = false
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        // Park ourselves so the test can call resume() after mutating UserDefaults.
-        Self.pendingInstance = self
+        // Only block the first request (the POST). After the first resume(), let follow-up
+        // GET requests (from refreshAssistant) go through immediately so the staleness check
+        // in SettingsStore can run without hanging.
+        if Self.hasResumed {
+            deliverStagedResponse()
+        } else {
+            // Park ourselves so the test can call resume() after mutating UserDefaults.
+            Self.pendingInstance = self
+        }
     }
 
     override func stopLoading() {
@@ -54,6 +65,12 @@ private final class BlockingMaintenanceURLProtocol: URLProtocol {
 
     /// Deliver the staged response to the URLSession machinery.
     func resume() {
+        Self.hasResumed = true
+        deliverStagedResponse()
+        Self.pendingInstance = nil
+    }
+
+    private func deliverStagedResponse() {
         guard let (response, data) = Self.stagedResponse else {
             client?.urlProtocol(self, didFailWithError: URLError(.unknown))
             return
@@ -61,7 +78,6 @@ private final class BlockingMaintenanceURLProtocol: URLProtocol {
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
-        Self.pendingInstance = nil
     }
 }
 
@@ -102,7 +118,7 @@ private func assistantPayload(
 // MARK: - Tests
 
 @MainActor
-final class SettingsStoreManagedMaintenanceTests: XCTestCase {
+final class SettingsStoreManagedRecoveryTests: XCTestCase {
 
     private let testAssistantId = "maintenance-test-asst-\(UUID().uuidString.prefix(8))"
     private let testOrgId = "org-test-\(UUID().uuidString.prefix(8))"
@@ -139,8 +155,8 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         try! data.write(to: primaryURL, options: .atomic)
 
         // Register stub network handler and a session token.
-        URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
-        MaintenanceStoreURLProtocol.requestHandler = nil
+        URLProtocol.registerClass(RecoveryStoreURLProtocol.self)
+        RecoveryStoreURLProtocol.requestHandler = nil
         // Save any existing token so we can restore it in tearDown, preventing
         // the test run from destroying the developer's real session token.
         previousToken = SessionTokenManager.getToken()
@@ -148,8 +164,8 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     }
 
     override func tearDown() {
-        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
-        MaintenanceStoreURLProtocol.requestHandler = nil
+        URLProtocol.unregisterClass(RecoveryStoreURLProtocol.self)
+        RecoveryStoreURLProtocol.requestHandler = nil
         if let token = previousToken {
             SessionTokenManager.setToken(token)
         } else {
@@ -192,7 +208,7 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         enteredAt: String? = nil
     ) {
         let assistantId = id ?? testAssistantId
-        MaintenanceStoreURLProtocol.requestHandler = { _ in
+        RecoveryStoreURLProtocol.requestHandler = { _ in
             let url = URL(string: "https://example.com")!
             let response = HTTPURLResponse(
                 url: url, statusCode: 200, httpVersion: nil, headerFields: nil
@@ -207,7 +223,7 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     }
 
     private func stubFailure(statusCode: Int) {
-        MaintenanceStoreURLProtocol.requestHandler = { request in
+        RecoveryStoreURLProtocol.requestHandler = { request in
             let url = request.url ?? URL(string: "https://example.com")!
             let response = HTTPURLResponse(
                 url: url, statusCode: statusCode, httpVersion: nil, headerFields: nil
@@ -218,21 +234,21 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
 
     // MARK: - Initial state
 
-    func testInitialMaintenanceModeStateIsNil() {
+    func testInitialRecoveryModeStateIsNil() {
         let store = makeStore()
 
-        XCTAssertNil(store.managedAssistantMaintenanceMode)
-        XCTAssertFalse(store.maintenanceModeRefreshing)
-        XCTAssertFalse(store.maintenanceModeEntering)
-        XCTAssertFalse(store.maintenanceModeExiting)
-        XCTAssertNil(store.maintenanceModeRefreshError)
-        XCTAssertNil(store.maintenanceModeEnterError)
-        XCTAssertNil(store.maintenanceModeExitError)
+        XCTAssertNil(store.managedAssistantRecoveryMode)
+        XCTAssertFalse(store.recoveryModeRefreshing)
+        XCTAssertFalse(store.recoveryModeEntering)
+        XCTAssertFalse(store.recoveryModeExiting)
+        XCTAssertNil(store.recoveryModeRefreshError)
+        XCTAssertNil(store.recoveryModeEnterError)
+        XCTAssertNil(store.recoveryModeExitError)
     }
 
-    // MARK: - refreshManagedAssistantMaintenanceMode
+    // MARK: - refreshManagedAssistantRecoveryMode
 
-    func testRefreshSetsMaintenanceModeEnabledFromSuccessResponse() async {
+    func testRefreshSetsRecoveryModeEnabledFromSuccessResponse() async {
         stubSuccess(
             maintenanceEnabled: true,
             debugPodName: "debug-pod-abc",
@@ -240,37 +256,37 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         )
 
         let store = makeStore()
-        await store.refreshManagedAssistantMaintenanceMode()
+        await store.refreshManagedAssistantRecoveryMode()
 
-        let mode = try! XCTUnwrap(store.managedAssistantMaintenanceMode)
+        let mode = try! XCTUnwrap(store.managedAssistantRecoveryMode)
         XCTAssertTrue(mode.enabled)
         XCTAssertEqual(mode.debug_pod_name, "debug-pod-abc")
         XCTAssertEqual(mode.entered_at, "2026-03-30T10:00:00Z")
-        XCTAssertNil(store.maintenanceModeRefreshError)
-        XCTAssertFalse(store.maintenanceModeRefreshing)
+        XCTAssertNil(store.recoveryModeRefreshError)
+        XCTAssertFalse(store.recoveryModeRefreshing)
     }
 
-    func testRefreshSetsMaintenanceModeDisabled() async {
+    func testRefreshSetsRecoveryModeDisabled() async {
         stubSuccess(maintenanceEnabled: false)
 
         let store = makeStore()
-        await store.refreshManagedAssistantMaintenanceMode()
+        await store.refreshManagedAssistantRecoveryMode()
 
-        let mode = try! XCTUnwrap(store.managedAssistantMaintenanceMode)
+        let mode = try! XCTUnwrap(store.managedAssistantRecoveryMode)
         XCTAssertFalse(mode.enabled)
         XCTAssertNil(mode.debug_pod_name)
-        XCTAssertNil(store.maintenanceModeRefreshError)
+        XCTAssertNil(store.recoveryModeRefreshError)
     }
 
     func testRefreshSetsErrorOnPlatformFailure() async {
         stubFailure(statusCode: 500)
 
         let store = makeStore()
-        await store.refreshManagedAssistantMaintenanceMode()
+        await store.refreshManagedAssistantRecoveryMode()
 
-        XCTAssertNil(store.managedAssistantMaintenanceMode)
-        XCTAssertNotNil(store.maintenanceModeRefreshError)
-        XCTAssertFalse(store.maintenanceModeRefreshing)
+        XCTAssertNil(store.managedAssistantRecoveryMode)
+        XCTAssertNotNil(store.recoveryModeRefreshError)
+        XCTAssertFalse(store.recoveryModeRefreshing)
     }
 
     func testRefreshClearsRefreshErrorOnSuccess() async {
@@ -279,13 +295,13 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
 
         // First call fails.
         stubFailure(statusCode: 503)
-        await store.refreshManagedAssistantMaintenanceMode()
-        XCTAssertNotNil(store.maintenanceModeRefreshError)
+        await store.refreshManagedAssistantRecoveryMode()
+        XCTAssertNotNil(store.recoveryModeRefreshError)
 
         // Second call succeeds — error should be cleared.
         stubSuccess(maintenanceEnabled: false)
-        await store.refreshManagedAssistantMaintenanceMode()
-        XCTAssertNil(store.maintenanceModeRefreshError)
+        await store.refreshManagedAssistantRecoveryMode()
+        XCTAssertNil(store.recoveryModeRefreshError)
     }
 
     func testRefreshIsNoOpWhenNoConnectedAssistantId() async {
@@ -294,19 +310,19 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
 
         // If refresh were to hit the network, the nil handler would cause an error.
-        MaintenanceStoreURLProtocol.requestHandler = nil
+        RecoveryStoreURLProtocol.requestHandler = nil
 
         let store = SettingsStore(settingsClient: MockSettingsClient())
-        await store.refreshManagedAssistantMaintenanceMode()
+        await store.refreshManagedAssistantRecoveryMode()
 
-        XCTAssertNil(store.managedAssistantMaintenanceMode)
-        XCTAssertNil(store.maintenanceModeRefreshError)
-        XCTAssertFalse(store.maintenanceModeRefreshing)
+        XCTAssertNil(store.managedAssistantRecoveryMode)
+        XCTAssertNil(store.recoveryModeRefreshError)
+        XCTAssertFalse(store.recoveryModeRefreshing)
     }
 
-    // MARK: - enterManagedAssistantMaintenanceMode
+    // MARK: - enterManagedAssistantRecoveryMode
 
-    func testEnterMaintenanceModeUpdatesStateOnSuccess() async {
+    func testEnterRecoveryModeUpdatesStateOnSuccess() async {
         stubSuccess(
             maintenanceEnabled: true,
             debugPodName: "debug-pod-enter",
@@ -314,12 +330,12 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         )
 
         let store = makeStore()
-        store.enterManagedAssistantMaintenanceMode()
+        store.enterManagedAssistantRecoveryMode()
 
         let completed = expectation(description: "enter done")
         let task = Task {
             var ticks = 0
-            while store.maintenanceModeEntering && ticks < 200 {
+            while store.recoveryModeEntering && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -328,23 +344,23 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         await fulfillment(of: [completed], timeout: 5)
         task.cancel()
 
-        let mode = try! XCTUnwrap(store.managedAssistantMaintenanceMode)
+        let mode = try! XCTUnwrap(store.managedAssistantRecoveryMode)
         XCTAssertTrue(mode.enabled)
         XCTAssertEqual(mode.debug_pod_name, "debug-pod-enter")
-        XCTAssertNil(store.maintenanceModeEnterError)
-        XCTAssertFalse(store.maintenanceModeEntering)
+        XCTAssertNil(store.recoveryModeEnterError)
+        XCTAssertFalse(store.recoveryModeEntering)
     }
 
-    func testEnterMaintenanceModeStoresErrorOnFailure() async {
+    func testEnterRecoveryModeStoresErrorOnFailure() async {
         stubFailure(statusCode: 409)
 
         let store = makeStore()
-        store.enterManagedAssistantMaintenanceMode()
+        store.enterManagedAssistantRecoveryMode()
 
         let completed = expectation(description: "enter done with error")
         let task = Task {
             var ticks = 0
-            while store.maintenanceModeEntering && ticks < 200 {
+            while store.recoveryModeEntering && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -353,29 +369,29 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         await fulfillment(of: [completed], timeout: 5)
         task.cancel()
 
-        XCTAssertNotNil(store.maintenanceModeEnterError)
-        XCTAssertFalse(store.maintenanceModeEntering)
+        XCTAssertNotNil(store.recoveryModeEnterError)
+        XCTAssertFalse(store.recoveryModeEntering)
     }
 
-    // MARK: - exitManagedAssistantMaintenanceMode
+    // MARK: - exitManagedAssistantRecoveryMode
 
-    func testExitMaintenanceModeUpdatesStateOnSuccess() async {
+    func testExitRecoveryModeUpdatesStateOnSuccess() async {
         stubSuccess(maintenanceEnabled: false)
 
         let store = makeStore()
         // Seed an active maintenance state.
-        store.managedAssistantMaintenanceMode = PlatformAssistantMaintenanceMode(
+        store.managedAssistantRecoveryMode = PlatformAssistantRecoveryMode(
             enabled: true,
             entered_at: "2026-03-30T10:00:00Z",
             debug_pod_name: "debug-pod-old"
         )
 
-        store.exitManagedAssistantMaintenanceMode()
+        store.exitManagedAssistantRecoveryMode()
 
         let completed = expectation(description: "exit done")
         let task = Task {
             var ticks = 0
-            while store.maintenanceModeExiting && ticks < 200 {
+            while store.recoveryModeExiting && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -384,22 +400,22 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         await fulfillment(of: [completed], timeout: 5)
         task.cancel()
 
-        let mode = try! XCTUnwrap(store.managedAssistantMaintenanceMode)
+        let mode = try! XCTUnwrap(store.managedAssistantRecoveryMode)
         XCTAssertFalse(mode.enabled)
-        XCTAssertNil(store.maintenanceModeExitError)
-        XCTAssertFalse(store.maintenanceModeExiting)
+        XCTAssertNil(store.recoveryModeExitError)
+        XCTAssertFalse(store.recoveryModeExiting)
     }
 
-    func testExitMaintenanceModeStoresErrorOnFailure() async {
+    func testExitRecoveryModeStoresErrorOnFailure() async {
         stubFailure(statusCode: 409)
 
         let store = makeStore()
-        store.exitManagedAssistantMaintenanceMode()
+        store.exitManagedAssistantRecoveryMode()
 
         let completed = expectation(description: "exit done with error")
         let task = Task {
             var ticks = 0
-            while store.maintenanceModeExiting && ticks < 200 {
+            while store.recoveryModeExiting && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -408,8 +424,8 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         await fulfillment(of: [completed], timeout: 5)
         task.cancel()
 
-        XCTAssertNotNil(store.maintenanceModeExitError)
-        XCTAssertFalse(store.maintenanceModeExiting)
+        XCTAssertNotNil(store.recoveryModeExitError)
+        XCTAssertFalse(store.recoveryModeExiting)
     }
 
     // MARK: - Error cleared on next action
@@ -420,11 +436,11 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
 
         // First call fails.
         stubFailure(statusCode: 500)
-        store.enterManagedAssistantMaintenanceMode()
+        store.enterManagedAssistantRecoveryMode()
         let firstDone = expectation(description: "first enter done")
         let task1 = Task {
             var ticks = 0
-            while store.maintenanceModeEntering && ticks < 200 {
+            while store.recoveryModeEntering && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -432,15 +448,15 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         }
         await fulfillment(of: [firstDone], timeout: 5)
         task1.cancel()
-        XCTAssertNotNil(store.maintenanceModeEnterError)
+        XCTAssertNotNil(store.recoveryModeEnterError)
 
         // Second call succeeds — error should be cleared.
         stubSuccess(maintenanceEnabled: true)
-        store.enterManagedAssistantMaintenanceMode()
+        store.enterManagedAssistantRecoveryMode()
         let secondDone = expectation(description: "second enter done")
         let task2 = Task {
             var ticks = 0
-            while store.maintenanceModeEntering && ticks < 200 {
+            while store.recoveryModeEntering && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -448,7 +464,7 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         }
         await fulfillment(of: [secondDone], timeout: 5)
         task2.cancel()
-        XCTAssertNil(store.maintenanceModeEnterError)
+        XCTAssertNil(store.recoveryModeEnterError)
     }
 
     func testExitClearsPreviousExitError() async {
@@ -457,11 +473,11 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
 
         // First call fails.
         stubFailure(statusCode: 500)
-        store.exitManagedAssistantMaintenanceMode()
+        store.exitManagedAssistantRecoveryMode()
         let firstDone = expectation(description: "first exit done")
         let task1 = Task {
             var ticks = 0
-            while store.maintenanceModeExiting && ticks < 200 {
+            while store.recoveryModeExiting && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -469,15 +485,15 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         }
         await fulfillment(of: [firstDone], timeout: 5)
         task1.cancel()
-        XCTAssertNotNil(store.maintenanceModeExitError)
+        XCTAssertNotNil(store.recoveryModeExitError)
 
         // Second call succeeds — error should be cleared.
         stubSuccess(maintenanceEnabled: false)
-        store.exitManagedAssistantMaintenanceMode()
+        store.exitManagedAssistantRecoveryMode()
         let secondDone = expectation(description: "second exit done")
         let task2 = Task {
             var ticks = 0
-            while store.maintenanceModeExiting && ticks < 200 {
+            while store.recoveryModeExiting && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -485,45 +501,46 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         }
         await fulfillment(of: [secondDone], timeout: 5)
         task2.cancel()
-        XCTAssertNil(store.maintenanceModeExitError)
+        XCTAssertNil(store.recoveryModeExitError)
     }
 
     // MARK: - Staleness-guard regression tests
 
-    /// Verifies that `refreshManagedAssistantMaintenanceMode` discards the response when
+    /// Verifies that `refreshManagedAssistantRecoveryMode` discards the response when
     /// `connectedAssistantId` changes while the request is in flight.
     func testRefreshDiscardsStaleResponseWhenAssistantIdChangesMidFlight() async {
 
         // Stage a success response for the blocking stub.
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
-        BlockingMaintenanceURLProtocol.stagedResponse = (
+        BlockingRecoveryURLProtocol.stagedResponse = (
             response,
             assistantPayload(id: testAssistantId, maintenanceEnabled: true, debugPodName: "stale-pod")
         )
-        BlockingMaintenanceURLProtocol.pendingInstance = nil
+        BlockingRecoveryURLProtocol.pendingInstance = nil
 
         // Swap the normal stub for the blocking variant.
-        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
-        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        URLProtocol.unregisterClass(RecoveryStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingRecoveryURLProtocol.self)
         defer {
-            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
-            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
-            BlockingMaintenanceURLProtocol.stagedResponse = nil
+            URLProtocol.unregisterClass(BlockingRecoveryURLProtocol.self)
+            URLProtocol.registerClass(RecoveryStoreURLProtocol.self)
+            BlockingRecoveryURLProtocol.stagedResponse = nil
+            BlockingRecoveryURLProtocol.hasResumed = false
         }
 
         let store = makeStore()
 
         // Start the refresh in the background — it will block waiting for the stub to respond.
         let refreshTask = Task { @MainActor in
-            await store.refreshManagedAssistantMaintenanceMode()
+            await store.refreshManagedAssistantRecoveryMode()
         }
 
         // Wait until the blocking stub has received the request (i.e. startLoading() was called).
         let requestReceived = expectation(description: "blocking stub received request")
         let waitTask = Task {
             var ticks = 0
-            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+            while BlockingRecoveryURLProtocol.pendingInstance == nil && ticks < 500 {
                 try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
                 ticks += 1
             }
@@ -536,47 +553,48 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         UserDefaults.standard.set("different-assistant-id", forKey: "connectedAssistantId")
 
         // Now unblock the response.
-        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+        BlockingRecoveryURLProtocol.pendingInstance?.resume()
 
         // Wait for the refresh Task to complete.
         await refreshTask.value
 
         // Staleness guard should have discarded the response — mode must remain nil.
-        XCTAssertNil(store.managedAssistantMaintenanceMode,
-            "managedAssistantMaintenanceMode must not be updated with a stale response when connectedAssistantId changed mid-flight")
-        XCTAssertFalse(store.maintenanceModeRefreshing)
+        XCTAssertNil(store.managedAssistantRecoveryMode,
+            "managedAssistantRecoveryMode must not be updated with a stale response when connectedAssistantId changed mid-flight")
+        XCTAssertFalse(store.recoveryModeRefreshing)
     }
 
-    /// Verifies that `refreshManagedAssistantMaintenanceMode` discards the response when
+    /// Verifies that `refreshManagedAssistantRecoveryMode` discards the response when
     /// `connectedOrganizationId` changes while the request is in flight.
     func testRefreshDiscardsStaleResponseWhenOrgIdChangesMidFlight() async {
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
-        BlockingMaintenanceURLProtocol.stagedResponse = (
+        BlockingRecoveryURLProtocol.stagedResponse = (
             response,
             assistantPayload(id: testAssistantId, maintenanceEnabled: true, debugPodName: "stale-pod-org")
         )
-        BlockingMaintenanceURLProtocol.pendingInstance = nil
+        BlockingRecoveryURLProtocol.pendingInstance = nil
 
-        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
-        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        URLProtocol.unregisterClass(RecoveryStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingRecoveryURLProtocol.self)
         defer {
-            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
-            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
-            BlockingMaintenanceURLProtocol.stagedResponse = nil
+            URLProtocol.unregisterClass(BlockingRecoveryURLProtocol.self)
+            URLProtocol.registerClass(RecoveryStoreURLProtocol.self)
+            BlockingRecoveryURLProtocol.stagedResponse = nil
+            BlockingRecoveryURLProtocol.hasResumed = false
         }
 
         let store = makeStore()
 
         let refreshTask = Task { @MainActor in
-            await store.refreshManagedAssistantMaintenanceMode()
+            await store.refreshManagedAssistantRecoveryMode()
         }
 
         let requestReceived = expectation(description: "blocking stub received request (org)")
         let waitTask = Task {
             var ticks = 0
-            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+            while BlockingRecoveryURLProtocol.pendingInstance == nil && ticks < 500 {
                 try? await Task.sleep(nanoseconds: 10_000_000)
                 ticks += 1
             }
@@ -588,45 +606,46 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         // Simulate organization switch mid-flight.
         UserDefaults.standard.set("different-org-id", forKey: "connectedOrganizationId")
 
-        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+        BlockingRecoveryURLProtocol.pendingInstance?.resume()
 
         await refreshTask.value
 
-        XCTAssertNil(store.managedAssistantMaintenanceMode,
-            "managedAssistantMaintenanceMode must not be updated with a stale response when connectedOrganizationId changed mid-flight")
-        XCTAssertFalse(store.maintenanceModeRefreshing)
+        XCTAssertNil(store.managedAssistantRecoveryMode,
+            "managedAssistantRecoveryMode must not be updated with a stale response when connectedOrganizationId changed mid-flight")
+        XCTAssertFalse(store.recoveryModeRefreshing)
     }
 
-    /// Verifies that `enterManagedAssistantMaintenanceMode` does not overwrite
-    /// `managedAssistantMaintenanceMode` when `connectedAssistantId` changes mid-flight.
+    /// Verifies that `enterManagedAssistantRecoveryMode` does not overwrite
+    /// `managedAssistantRecoveryMode` when `connectedAssistantId` changes mid-flight.
     func testEnterDiscardsStaleResponseWhenAssistantIdChangesMidFlight() async {
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
-        BlockingMaintenanceURLProtocol.stagedResponse = (
+        BlockingRecoveryURLProtocol.stagedResponse = (
             response,
             assistantPayload(id: testAssistantId, maintenanceEnabled: true, debugPodName: "enter-stale-pod")
         )
-        BlockingMaintenanceURLProtocol.pendingInstance = nil
+        BlockingRecoveryURLProtocol.pendingInstance = nil
 
-        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
-        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        URLProtocol.unregisterClass(RecoveryStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingRecoveryURLProtocol.self)
         defer {
-            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
-            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
-            BlockingMaintenanceURLProtocol.stagedResponse = nil
+            URLProtocol.unregisterClass(BlockingRecoveryURLProtocol.self)
+            URLProtocol.registerClass(RecoveryStoreURLProtocol.self)
+            BlockingRecoveryURLProtocol.stagedResponse = nil
+            BlockingRecoveryURLProtocol.hasResumed = false
         }
 
         let store = makeStore()
 
         // Kick off enter — it fires a Task internally and returns immediately.
-        store.enterManagedAssistantMaintenanceMode()
+        store.enterManagedAssistantRecoveryMode()
 
         // Wait for the stub to receive the in-flight request.
         let requestReceived = expectation(description: "enter: blocking stub received request")
         let waitTask = Task {
             var ticks = 0
-            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+            while BlockingRecoveryURLProtocol.pendingInstance == nil && ticks < 500 {
                 try? await Task.sleep(nanoseconds: 10_000_000)
                 ticks += 1
             }
@@ -639,13 +658,13 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         UserDefaults.standard.set("different-assistant-id-enter", forKey: "connectedAssistantId")
 
         // Unblock the response.
-        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+        BlockingRecoveryURLProtocol.pendingInstance?.resume()
 
         // Wait for the enter task to finish.
         let done = expectation(description: "enter finishes")
         let pollTask = Task {
             var ticks = 0
-            while store.maintenanceModeEntering && ticks < 200 {
+            while store.recoveryModeEntering && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -655,41 +674,42 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         pollTask.cancel()
 
         // The staleness guard should discard the stale response.
-        XCTAssertNil(store.managedAssistantMaintenanceMode,
-            "managedAssistantMaintenanceMode must not be updated with a stale enter response when connectedAssistantId changed mid-flight")
-        XCTAssertFalse(store.maintenanceModeEntering)
+        XCTAssertNil(store.managedAssistantRecoveryMode,
+            "managedAssistantRecoveryMode must not be updated with a stale enter response when connectedAssistantId changed mid-flight")
+        XCTAssertFalse(store.recoveryModeEntering)
     }
 
-    /// Verifies that `enterManagedAssistantMaintenanceMode` does not overwrite
-    /// `managedAssistantMaintenanceMode` when `connectedOrganizationId` changes mid-flight.
+    /// Verifies that `enterManagedAssistantRecoveryMode` does not overwrite
+    /// `managedAssistantRecoveryMode` when `connectedOrganizationId` changes mid-flight.
     func testEnterDiscardsStaleResponseWhenOrgIdChangesMidFlight() async {
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
-        BlockingMaintenanceURLProtocol.stagedResponse = (
+        BlockingRecoveryURLProtocol.stagedResponse = (
             response,
             assistantPayload(id: testAssistantId, maintenanceEnabled: true, debugPodName: "enter-stale-pod-org")
         )
-        BlockingMaintenanceURLProtocol.pendingInstance = nil
+        BlockingRecoveryURLProtocol.pendingInstance = nil
 
-        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
-        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        URLProtocol.unregisterClass(RecoveryStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingRecoveryURLProtocol.self)
         defer {
-            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
-            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
-            BlockingMaintenanceURLProtocol.stagedResponse = nil
+            URLProtocol.unregisterClass(BlockingRecoveryURLProtocol.self)
+            URLProtocol.registerClass(RecoveryStoreURLProtocol.self)
+            BlockingRecoveryURLProtocol.stagedResponse = nil
+            BlockingRecoveryURLProtocol.hasResumed = false
         }
 
         let store = makeStore()
 
         // Kick off enter — it fires a Task internally and returns immediately.
-        store.enterManagedAssistantMaintenanceMode()
+        store.enterManagedAssistantRecoveryMode()
 
         // Wait for the stub to receive the in-flight request.
         let requestReceived = expectation(description: "enter org: blocking stub received request")
         let waitTask = Task {
             var ticks = 0
-            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+            while BlockingRecoveryURLProtocol.pendingInstance == nil && ticks < 500 {
                 try? await Task.sleep(nanoseconds: 10_000_000)
                 ticks += 1
             }
@@ -702,13 +722,13 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         UserDefaults.standard.set("different-org-id-enter", forKey: "connectedOrganizationId")
 
         // Unblock the response.
-        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+        BlockingRecoveryURLProtocol.pendingInstance?.resume()
 
         // Wait for the enter task to finish.
         let done = expectation(description: "enter org finishes")
         let pollTask = Task {
             var ticks = 0
-            while store.maintenanceModeEntering && ticks < 200 {
+            while store.recoveryModeEntering && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -718,47 +738,48 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         pollTask.cancel()
 
         // The staleness guard should discard the stale response.
-        XCTAssertNil(store.managedAssistantMaintenanceMode,
-            "managedAssistantMaintenanceMode must not be updated with a stale enter response when connectedOrganizationId changed mid-flight")
-        XCTAssertFalse(store.maintenanceModeEntering)
+        XCTAssertNil(store.managedAssistantRecoveryMode,
+            "managedAssistantRecoveryMode must not be updated with a stale enter response when connectedOrganizationId changed mid-flight")
+        XCTAssertFalse(store.recoveryModeEntering)
     }
 
-    /// Verifies that `exitManagedAssistantMaintenanceMode` does not overwrite
-    /// `managedAssistantMaintenanceMode` when `connectedAssistantId` changes mid-flight.
+    /// Verifies that `exitManagedAssistantRecoveryMode` does not overwrite
+    /// `managedAssistantRecoveryMode` when `connectedAssistantId` changes mid-flight.
     func testExitDiscardsStaleResponseWhenAssistantIdChangesMidFlight() async {
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
-        BlockingMaintenanceURLProtocol.stagedResponse = (
+        BlockingRecoveryURLProtocol.stagedResponse = (
             response,
             assistantPayload(id: testAssistantId, maintenanceEnabled: false)
         )
-        BlockingMaintenanceURLProtocol.pendingInstance = nil
+        BlockingRecoveryURLProtocol.pendingInstance = nil
 
-        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
-        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        URLProtocol.unregisterClass(RecoveryStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingRecoveryURLProtocol.self)
         defer {
-            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
-            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
-            BlockingMaintenanceURLProtocol.stagedResponse = nil
+            URLProtocol.unregisterClass(BlockingRecoveryURLProtocol.self)
+            URLProtocol.registerClass(RecoveryStoreURLProtocol.self)
+            BlockingRecoveryURLProtocol.stagedResponse = nil
+            BlockingRecoveryURLProtocol.hasResumed = false
         }
 
         let store = makeStore()
         // Seed an active maintenance state so exit has something to clear.
-        store.managedAssistantMaintenanceMode = PlatformAssistantMaintenanceMode(
+        store.managedAssistantRecoveryMode = PlatformAssistantRecoveryMode(
             enabled: true,
             entered_at: "2026-03-30T10:00:00Z",
             debug_pod_name: "exit-stale-pod"
         )
 
         // Kick off exit — it fires a Task internally and returns immediately.
-        store.exitManagedAssistantMaintenanceMode()
+        store.exitManagedAssistantRecoveryMode()
 
         // Wait for the stub to receive the in-flight request.
         let requestReceived = expectation(description: "exit: blocking stub received request")
         let waitTask = Task {
             var ticks = 0
-            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+            while BlockingRecoveryURLProtocol.pendingInstance == nil && ticks < 500 {
                 try? await Task.sleep(nanoseconds: 10_000_000)
                 ticks += 1
             }
@@ -771,13 +792,13 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         UserDefaults.standard.set("different-assistant-id-exit", forKey: "connectedAssistantId")
 
         // Unblock the response.
-        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+        BlockingRecoveryURLProtocol.pendingInstance?.resume()
 
         // Wait for the exit task to finish.
         let done = expectation(description: "exit finishes")
         let pollTask = Task {
             var ticks = 0
-            while store.maintenanceModeExiting && ticks < 200 {
+            while store.recoveryModeExiting && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -787,49 +808,50 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         pollTask.cancel()
 
         // The staleness guard should discard the stale response — seeded state must be preserved.
-        let mode = try! XCTUnwrap(store.managedAssistantMaintenanceMode,
-            "managedAssistantMaintenanceMode must not be cleared by a stale exit response when connectedAssistantId changed mid-flight")
+        let mode = try! XCTUnwrap(store.managedAssistantRecoveryMode,
+            "managedAssistantRecoveryMode must not be cleared by a stale exit response when connectedAssistantId changed mid-flight")
         XCTAssertTrue(mode.enabled,
             "The seeded enabled=true state should be preserved, not overwritten by the stale response")
-        XCTAssertFalse(store.maintenanceModeExiting)
+        XCTAssertFalse(store.recoveryModeExiting)
     }
 
-    /// Verifies that `exitManagedAssistantMaintenanceMode` does not overwrite
-    /// `managedAssistantMaintenanceMode` when `connectedOrganizationId` changes mid-flight.
+    /// Verifies that `exitManagedAssistantRecoveryMode` does not overwrite
+    /// `managedAssistantRecoveryMode` when `connectedOrganizationId` changes mid-flight.
     func testExitDiscardsStaleResponseWhenOrgIdChangesMidFlight() async {
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
-        BlockingMaintenanceURLProtocol.stagedResponse = (
+        BlockingRecoveryURLProtocol.stagedResponse = (
             response,
             assistantPayload(id: testAssistantId, maintenanceEnabled: false)
         )
-        BlockingMaintenanceURLProtocol.pendingInstance = nil
+        BlockingRecoveryURLProtocol.pendingInstance = nil
 
-        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
-        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        URLProtocol.unregisterClass(RecoveryStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingRecoveryURLProtocol.self)
         defer {
-            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
-            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
-            BlockingMaintenanceURLProtocol.stagedResponse = nil
+            URLProtocol.unregisterClass(BlockingRecoveryURLProtocol.self)
+            URLProtocol.registerClass(RecoveryStoreURLProtocol.self)
+            BlockingRecoveryURLProtocol.stagedResponse = nil
+            BlockingRecoveryURLProtocol.hasResumed = false
         }
 
         let store = makeStore()
         // Seed an active maintenance state so exit has something to clear.
-        store.managedAssistantMaintenanceMode = PlatformAssistantMaintenanceMode(
+        store.managedAssistantRecoveryMode = PlatformAssistantRecoveryMode(
             enabled: true,
             entered_at: "2026-03-30T10:00:00Z",
             debug_pod_name: "exit-stale-pod-org"
         )
 
         // Kick off exit — it fires a Task internally and returns immediately.
-        store.exitManagedAssistantMaintenanceMode()
+        store.exitManagedAssistantRecoveryMode()
 
         // Wait for the stub to receive the in-flight request.
         let requestReceived = expectation(description: "exit org: blocking stub received request")
         let waitTask = Task {
             var ticks = 0
-            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+            while BlockingRecoveryURLProtocol.pendingInstance == nil && ticks < 500 {
                 try? await Task.sleep(nanoseconds: 10_000_000)
                 ticks += 1
             }
@@ -842,13 +864,13 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         UserDefaults.standard.set("different-org-id-exit", forKey: "connectedOrganizationId")
 
         // Unblock the response.
-        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+        BlockingRecoveryURLProtocol.pendingInstance?.resume()
 
         // Wait for the exit task to finish.
         let done = expectation(description: "exit org finishes")
         let pollTask = Task {
             var ticks = 0
-            while store.maintenanceModeExiting && ticks < 200 {
+            while store.recoveryModeExiting && ticks < 200 {
                 await Task.yield()
                 ticks += 1
             }
@@ -858,10 +880,10 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         pollTask.cancel()
 
         // The staleness guard should discard the stale response — seeded state must be preserved.
-        let mode = try! XCTUnwrap(store.managedAssistantMaintenanceMode,
-            "managedAssistantMaintenanceMode must not be cleared by a stale exit response when connectedOrganizationId changed mid-flight")
+        let mode = try! XCTUnwrap(store.managedAssistantRecoveryMode,
+            "managedAssistantRecoveryMode must not be cleared by a stale exit response when connectedOrganizationId changed mid-flight")
         XCTAssertTrue(mode.enabled,
             "The seeded enabled=true state should be preserved, not overwritten by the stale response")
-        XCTAssertFalse(store.maintenanceModeExiting)
+        XCTAssertFalse(store.recoveryModeExiting)
     }
 }

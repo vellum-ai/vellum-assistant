@@ -244,29 +244,29 @@ public final class SettingsStore: ObservableObject {
         "brave": "Brave",
     ]
 
-    // MARK: - Managed Assistant Maintenance Mode State
+    // MARK: - Managed Assistant Recovery Mode State
 
-    /// Current maintenance-mode payload for the selected managed assistant.
+    /// Current recovery-mode payload for the selected managed assistant.
     /// `nil` when not in a managed context or when the state has not yet been loaded.
-    @Published var managedAssistantMaintenanceMode: PlatformAssistantMaintenanceMode?
+    @Published var managedAssistantRecoveryMode: PlatformAssistantRecoveryMode?
 
-    /// `true` while a maintenance-mode refresh is in flight.
-    @Published var maintenanceModeRefreshing: Bool = false
+    /// `true` while a recovery-mode refresh is in flight.
+    @Published var recoveryModeRefreshing: Bool = false
 
-    /// `true` while an enter-maintenance-mode request is in flight.
-    @Published var maintenanceModeEntering: Bool = false
+    /// `true` while an enter-recovery-mode request is in flight.
+    @Published var recoveryModeEntering: Bool = false
 
-    /// `true` while an exit-maintenance-mode request is in flight.
-    @Published var maintenanceModeExiting: Bool = false
+    /// `true` while an exit-recovery-mode request is in flight.
+    @Published var recoveryModeExiting: Bool = false
 
     /// Non-nil when the most recent refresh failed.
-    @Published var maintenanceModeRefreshError: String?
+    @Published var recoveryModeRefreshError: String?
 
-    /// Non-nil when the most recent enter-maintenance-mode call failed.
-    @Published var maintenanceModeEnterError: String?
+    /// Non-nil when the most recent enter-recovery-mode call failed.
+    @Published var recoveryModeEnterError: String?
 
-    /// Non-nil when the most recent exit-maintenance-mode call failed.
-    @Published var maintenanceModeExitError: String?
+    /// Non-nil when the most recent exit-recovery-mode call failed.
+    @Published var recoveryModeExitError: String?
 
     // MARK: - Platform Config State
 
@@ -603,13 +603,13 @@ public final class SettingsStore: ObservableObject {
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
 
-        // Refresh maintenance-mode state when the app returns to the foreground
+        // Refresh recovery-mode state when the app returns to the foreground
         // so the UI stays current if maintenance was toggled elsewhere.
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    await self?.refreshManagedAssistantMaintenanceMode()
+                    await self?.refreshManagedAssistantRecoveryMode()
                 }
             }
             .store(in: &cancellables)
@@ -628,15 +628,15 @@ public final class SettingsStore: ObservableObject {
                 // Also clear in-flight flags so the new assistant's UI starts clean
                 // rather than inheriting a spinner from the previous assistant's
                 // in-progress mutation.
-                self.managedAssistantMaintenanceMode = nil
-                self.maintenanceModeRefreshError = nil
-                self.maintenanceModeEnterError = nil
-                self.maintenanceModeExitError = nil
-                self.maintenanceModeEntering = false
-                self.maintenanceModeExiting = false
-                self.maintenanceModeRefreshing = false
+                self.managedAssistantRecoveryMode = nil
+                self.recoveryModeRefreshError = nil
+                self.recoveryModeEnterError = nil
+                self.recoveryModeExitError = nil
+                self.recoveryModeEntering = false
+                self.recoveryModeExiting = false
+                self.recoveryModeRefreshing = false
                 Task { @MainActor [weak self] in
-                    await self?.refreshManagedAssistantMaintenanceMode()
+                    await self?.refreshManagedAssistantRecoveryMode()
                 }
             }
             .store(in: &cancellables)
@@ -651,15 +651,15 @@ public final class SettingsStore: ObservableObject {
                 guard let self else { return }
                 // Same as the connectedAssistantId sink: clear in-flight flags so
                 // the new context's UI starts clean.
-                self.managedAssistantMaintenanceMode = nil
-                self.maintenanceModeRefreshError = nil
-                self.maintenanceModeEnterError = nil
-                self.maintenanceModeExitError = nil
-                self.maintenanceModeEntering = false
-                self.maintenanceModeExiting = false
-                self.maintenanceModeRefreshing = false
+                self.managedAssistantRecoveryMode = nil
+                self.recoveryModeRefreshError = nil
+                self.recoveryModeEnterError = nil
+                self.recoveryModeExitError = nil
+                self.recoveryModeEntering = false
+                self.recoveryModeExiting = false
+                self.recoveryModeRefreshing = false
                 Task { @MainActor [weak self] in
-                    await self?.refreshManagedAssistantMaintenanceMode()
+                    await self?.refreshManagedAssistantRecoveryMode()
                 }
             }
             .store(in: &cancellables)
@@ -670,14 +670,14 @@ public final class SettingsStore: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    await self?.refreshManagedAssistantMaintenanceMode()
+                    await self?.refreshManagedAssistantRecoveryMode()
                 }
             }
             .store(in: &cancellables)
 
         // Perform the initial load.
         Task { @MainActor [weak self] in
-            await self?.refreshManagedAssistantMaintenanceMode()
+            await self?.refreshManagedAssistantRecoveryMode()
         }
 
         // Watch workspace config.json for external mutations (e.g. model
@@ -2536,36 +2536,36 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Managed Assistant Maintenance Mode Actions
+    // MARK: - Managed Assistant Recovery Mode Actions
 
-    /// Fetches the current maintenance-mode state for the selected managed assistant
-    /// and updates `managedAssistantMaintenanceMode`.
+    /// Fetches the current recovery-mode state for the selected managed assistant
+    /// and updates `managedAssistantRecoveryMode`.
     ///
     /// This is a no-op when the connected assistant is not managed.
-    func refreshManagedAssistantMaintenanceMode() async {
+    func refreshManagedAssistantRecoveryMode() async {
         guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
               !connectedId.isEmpty,
               let assistant = LockfileAssistant.loadByName(connectedId),
               assistant.isManaged else {
             // Not a managed assistant — clear any stale state.
-            managedAssistantMaintenanceMode = nil
-            maintenanceModeRefreshError = nil
+            managedAssistantRecoveryMode = nil
+            recoveryModeRefreshError = nil
             return
         }
 
         let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
         guard !orgId.isEmpty else {
-            log.warning("Cannot refresh maintenance mode: no connectedOrganizationId set")
+            log.warning("Cannot refresh recovery mode: no connectedOrganizationId set")
             return
         }
 
         let taskAssistantId = connectedId
 
-        maintenanceModeRefreshing = true
-        maintenanceModeRefreshError = nil
+        recoveryModeRefreshing = true
+        recoveryModeRefreshError = nil
         defer {
             if UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId {
-                maintenanceModeRefreshing = false
+                recoveryModeRefreshing = false
             }
         }
 
@@ -2578,132 +2578,132 @@ public final class SettingsStore: ObservableObject {
             // assistant and connected organization haven't changed while the request was in flight.
             let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             guard currentConnectedId == connectedId else {
-                log.info("Discarding stale maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
+                log.info("Discarding stale recovery-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
                 return
             }
             let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
             guard currentOrgId == orgId else {
-                log.info("Discarding stale maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
+                log.info("Discarding stale recovery-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
                 return
             }
-            managedAssistantMaintenanceMode = updated.maintenance_mode
-            log.info("Refreshed maintenance mode for assistant \(assistant.assistantId, privacy: .public): enabled=\(updated.maintenance_mode?.enabled ?? false)")
+            managedAssistantRecoveryMode = updated.recovery_mode
+            log.info("Refreshed recovery mode for assistant \(assistant.assistantId, privacy: .public): enabled=\(updated.recovery_mode?.enabled ?? false)")
         } catch {
-            maintenanceModeRefreshError = error.localizedDescription
-            log.error("Failed to refresh maintenance mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
+            recoveryModeRefreshError = error.localizedDescription
+            log.error("Failed to refresh recovery mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
         }
     }
 
-    /// Enters maintenance mode for the selected managed assistant.
+    /// Enters recovery mode for the selected managed assistant.
     ///
-    /// Sets `maintenanceModeEntering` while the request is in flight and updates
-    /// `managedAssistantMaintenanceMode` on success.
-    func enterManagedAssistantMaintenanceMode() {
+    /// Sets `recoveryModeEntering` while the request is in flight and updates
+    /// `managedAssistantRecoveryMode` on success.
+    func enterManagedAssistantRecoveryMode() {
         Task {
             guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
                   !connectedId.isEmpty,
                   let assistant = LockfileAssistant.loadByName(connectedId),
                   assistant.isManaged else {
-                maintenanceModeEnterError = "No managed assistant selected"
+                recoveryModeEnterError = "No managed assistant selected"
                 return
             }
 
             let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
             guard !orgId.isEmpty else {
-                maintenanceModeEnterError = "No organization ID available"
+                recoveryModeEnterError = "No organization ID available"
                 return
             }
 
             let taskAssistantId = connectedId
 
-            maintenanceModeEntering = true
-            maintenanceModeEnterError = nil
+            recoveryModeEntering = true
+            recoveryModeEnterError = nil
             defer {
                 if UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId {
-                    maintenanceModeEntering = false
+                    recoveryModeEntering = false
                 }
             }
 
             do {
-                let updated = try await AuthService.shared.enterMaintenanceMode(
+                let updated = try await AuthService.shared.enterRecoveryMode(
                     assistantId: assistant.assistantId,
                     organizationId: orgId
                 )
                 // Guard against stale responses: only apply the result if both the
                 // connected assistant and connected organization haven't changed while
-                // the request was in flight (same pattern as refreshManagedAssistantMaintenanceMode).
+                // the request was in flight (same pattern as refreshManagedAssistantRecoveryMode).
                 let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
                 guard currentConnectedId == connectedId else {
-                    log.info("Discarding stale enter-maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
+                    log.info("Discarding stale enter-recovery-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
                     return
                 }
                 let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
                 guard currentOrgId == orgId else {
-                    log.info("Discarding stale enter-maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
+                    log.info("Discarding stale enter-recovery-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
                     return
                 }
-                managedAssistantMaintenanceMode = updated.maintenance_mode
-                log.info("Entered maintenance mode for assistant \(assistant.assistantId, privacy: .public)")
+                managedAssistantRecoveryMode = updated.recovery_mode
+                log.info("Entered recovery mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
-                maintenanceModeEnterError = error.localizedDescription
-                log.error("Failed to enter maintenance mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
+                recoveryModeEnterError = error.localizedDescription
+                log.error("Failed to enter recovery mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
             }
         }
     }
 
-    /// Exits maintenance mode for the selected managed assistant.
+    /// Exits recovery mode for the selected managed assistant.
     ///
-    /// Sets `maintenanceModeExiting` while the request is in flight and updates
-    /// `managedAssistantMaintenanceMode` on success.
-    func exitManagedAssistantMaintenanceMode() {
+    /// Sets `recoveryModeExiting` while the request is in flight and updates
+    /// `managedAssistantRecoveryMode` on success.
+    func exitManagedAssistantRecoveryMode() {
         Task {
             guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
                   !connectedId.isEmpty,
                   let assistant = LockfileAssistant.loadByName(connectedId),
                   assistant.isManaged else {
-                maintenanceModeExitError = "No managed assistant selected"
+                recoveryModeExitError = "No managed assistant selected"
                 return
             }
 
             let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
             guard !orgId.isEmpty else {
-                maintenanceModeExitError = "No organization ID available"
+                recoveryModeExitError = "No organization ID available"
                 return
             }
 
             let taskAssistantId = connectedId
 
-            maintenanceModeExiting = true
-            maintenanceModeExitError = nil
+            recoveryModeExiting = true
+            recoveryModeExitError = nil
             defer {
                 if UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId {
-                    maintenanceModeExiting = false
+                    recoveryModeExiting = false
                 }
             }
 
             do {
-                let updated = try await AuthService.shared.exitMaintenanceMode(
+                let updated = try await AuthService.shared.exitRecoveryMode(
                     assistantId: assistant.assistantId,
                     organizationId: orgId
                 )
                 // Guard against stale responses: only apply the result if both the
                 // connected assistant and connected organization haven't changed while
-                // the request was in flight (same pattern as refreshManagedAssistantMaintenanceMode).
+                // the request was in flight (same pattern as refreshManagedAssistantRecoveryMode).
                 let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
                 guard currentConnectedId == connectedId else {
-                    log.info("Discarding stale exit-maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
+                    log.info("Discarding stale exit-recovery-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
                     return
                 }
                 let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
                 guard currentOrgId == orgId else {
-                    log.info("Discarding stale exit-maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
+                    log.info("Discarding stale exit-recovery-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
                     return
                 }
-                managedAssistantMaintenanceMode = updated.maintenance_mode
-                log.info("Exited maintenance mode for assistant \(assistant.assistantId, privacy: .public)")
+                managedAssistantRecoveryMode = updated.recovery_mode
+                log.info("Exited recovery mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
-                maintenanceModeExitError = error.localizedDescription
-                log.error("Failed to exit maintenance mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
+                recoveryModeExitError = error.localizedDescription
+                log.error("Failed to exit recovery mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
             }
         }
     }
