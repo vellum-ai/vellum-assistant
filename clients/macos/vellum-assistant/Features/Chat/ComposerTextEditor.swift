@@ -47,7 +47,7 @@ struct ComposerTextEditor: NSViewRepresentable {
     let placeholder: String
     let isEditable: Bool
     let cmdEnterToSend: Bool
-    var textColorOverride: NSColor? = nil
+    var textColor: NSColor
     var onSubmit: (() -> Void)? = nil
     var onTab: (() -> Bool)? = nil
     var onUpArrow: (() -> Bool)? = nil
@@ -87,10 +87,11 @@ struct ComposerTextEditor: NSViewRepresentable {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
         textView.defaultParagraphStyle = paragraphStyle
+        textView.textColor = textColor
         textView.typingAttributes = [
             .font: font,
             .paragraphStyle: paragraphStyle,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: textColor,
         ]
 
         textView.postsFrameChangedNotifications = true
@@ -144,18 +145,24 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
-        let resolvedTextColor = textColorOverride ?? NSColor.labelColor
-
         textView.font = font
         textView.defaultParagraphStyle = paragraphStyle
         textView.typingAttributes = [
             .font: font,
             .paragraphStyle: paragraphStyle,
-            .foregroundColor: resolvedTextColor,
+            .foregroundColor: textColor,
         ]
 
         textView.placeholderString = placeholder
-        textView.textColor = resolvedTextColor
+        textView.textColor = textColor
+
+        // Directly stamp the foreground color onto the text storage so
+        // characters inserted by the keystroke-redirect path (which sets
+        // textView.string programmatically) always have the correct color.
+        if textView.string.count > 0, let ts = textView.textStorage {
+            let fullRange = NSRange(location: 0, length: ts.length)
+            ts.addAttribute(.foregroundColor, value: textColor, range: fullRange)
+        }
 
         textView.cmdEnterToSend = cmdEnterToSend
         textView.onSubmit = onSubmit

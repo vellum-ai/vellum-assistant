@@ -227,8 +227,9 @@ struct ComposerView: View {
                 placeholder: ghostSuffix == nil ? placeholderText : "",
                 isEditable: isInteractionEnabled,
                 cmdEnterToSend: cmdEnterToSend,
-                textColorOverride: hasSlashHighlight
-                    ? NSColor(VColor.contentDefault).withAlphaComponent(0) : nil,
+                textColor: hasSlashHighlight
+                    ? NSColor(VColor.contentDefault).withAlphaComponent(0)
+                    : NSColor(VColor.contentDefault),
                 onSubmit: { performSendAction() },
                 onTab: {
                     if showSlashMenu { handleSlashNavigation(.tab); return true }
