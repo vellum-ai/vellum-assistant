@@ -55,7 +55,6 @@ mock.module("../oauth/oauth-store.js", () => ({
           defaultScopes: "[]",
           scopePolicy: "[]",
           extraParams: null,
-          callbackTransport: null,
           pingUrl: null,
           pingMethod: null,
           pingHeaders: null,
