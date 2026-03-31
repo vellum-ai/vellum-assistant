@@ -278,6 +278,22 @@ export async function markMessageRead(
   );
 }
 
+/** Patch arbitrary fields on a message (e.g. to update recipients on a draft). */
+export async function patchMessage(
+  connection: OAuthConnection,
+  messageId: string,
+  fields: Record<string, unknown>,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+    },
+  );
+}
+
 /** Move a message to a different folder (e.g. for archiving). */
 export async function moveMessage(
   connection: OAuthConnection,

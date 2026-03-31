@@ -108,8 +108,16 @@ import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messagi
 // ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
 // ── outlook ───────────────────────────────────────────────────────────────────
+import * as outlookAttachments from "./bundled-skills/outlook/tools/outlook-attachments.js";
+import * as outlookCategories from "./bundled-skills/outlook/tools/outlook-categories.js";
+import * as outlookDraft from "./bundled-skills/outlook/tools/outlook-draft.js";
+import * as outlookFollowUp from "./bundled-skills/outlook/tools/outlook-follow-up.js";
+import * as outlookForward from "./bundled-skills/outlook/tools/outlook-forward.js";
 import * as outlookOutreachScan from "./bundled-skills/outlook/tools/outlook-outreach-scan.js";
+import * as outlookSendDraft from "./bundled-skills/outlook/tools/outlook-send-draft.js";
 import * as outlookSenderDigest from "./bundled-skills/outlook/tools/outlook-sender-digest.js";
+import * as outlookTrash from "./bundled-skills/outlook/tools/outlook-trash.js";
+import * as outlookUnsubscribe from "./bundled-skills/outlook/tools/outlook-unsubscribe.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -294,8 +302,16 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["notifications:tools/send-notification.ts", sendNotification],
 
   // outlook
-  ["outlook:tools/outlook-sender-digest.ts", outlookSenderDigest],
+  ["outlook:tools/outlook-attachments.ts", outlookAttachments],
+  ["outlook:tools/outlook-categories.ts", outlookCategories],
+  ["outlook:tools/outlook-draft.ts", outlookDraft],
+  ["outlook:tools/outlook-follow-up.ts", outlookFollowUp],
+  ["outlook:tools/outlook-forward.ts", outlookForward],
   ["outlook:tools/outlook-outreach-scan.ts", outlookOutreachScan],
+  ["outlook:tools/outlook-send-draft.ts", outlookSendDraft],
+  ["outlook:tools/outlook-sender-digest.ts", outlookSenderDigest],
+  ["outlook:tools/outlook-trash.ts", outlookTrash],
+  ["outlook:tools/outlook-unsubscribe.ts", outlookUnsubscribe],
 
   // phone-calls
   ["phone-calls:tools/call-start.ts", callStart],
