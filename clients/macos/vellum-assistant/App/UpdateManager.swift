@@ -148,13 +148,18 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
 
     /// Checks whether a newer service group release is available for Docker/managed topologies.
     /// For `.local` topology this is a no-op (Sparkle handles local app updates).
-    /// Failures are silently swallowed — the menu simply stays in "Check for Updates…" state.
-    func checkServiceGroupUpdate() async {
+    ///
+    /// - Parameter knownVersion: The current service group version if already known
+    ///   (e.g. from the SSE connection manager). When provided, the method skips its
+    ///   own health-endpoint fetch — which would 404 on the platform proxy for
+    ///   managed assistants that lack a direct `runtimeUrl`.
+    func checkServiceGroupUpdate(knownVersion: String? = nil) async {
         do {
             // Resolve current topology from the lockfile
             let assistants = LockfileAssistant.loadAll()
             guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
                   let assistant = assistants.first(where: { $0.assistantId == connectedId }) else {
+                log.warning("Service group update check skipped: no connected assistant in lockfile")
                 clearServiceGroupFlags()
                 return
             }
@@ -168,6 +173,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             // Fetch the latest stable release from the platform API
             let platformBase = AuthService.shared.baseURL
             guard let releasesURL = URL(string: "\(platformBase)/v1/releases/?stable=true") else {
+                log.error("Service group update check failed: could not construct releases URL from base \(platformBase, privacy: .public)")
                 clearServiceGroupFlags()
                 return
             }
@@ -184,6 +190,8 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
 
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.error("Service group update check failed: releases API returned HTTP \(statusCode)")
                 clearServiceGroupFlags()
                 return
             }
@@ -192,24 +200,41 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             let releases = try decoder.decode([AssistantRelease].self, from: data)
             guard let latestRelease = releases.first else {
+                log.warning("Service group update check: no stable releases returned")
                 clearServiceGroupFlags()
                 return
             }
 
-            // Fetch the current service group version from health endpoint
-            let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "health",
-                timeout: 10
-            ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+            // Resolve the current service group version — prefer the caller-supplied
+            // value (from the SSE connection) over an independent health fetch.
+            let currentVersion: String? = {
+                if let known = knownVersion, !known.isEmpty { return known }
+                // Fallback: attempt a direct health-endpoint fetch (works for Docker
+                // topologies where the gateway is on localhost).
+                return nil
+            }()
 
-            guard let currentVersion = decoded?.version, !currentVersion.isEmpty else {
-                clearServiceGroupFlags()
-                return
+            let resolvedVersion: String
+            if let v = currentVersion {
+                resolvedVersion = v
+            } else {
+                let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
+                    path: "health",
+                    timeout: 10
+                ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+
+                guard let v = decoded?.version, !v.isEmpty else {
+                    log.error("Service group update check failed: health endpoint returned no version")
+                    clearServiceGroupFlags()
+                    return
+                }
+                resolvedVersion = v
             }
 
             // Compare versions
             guard let latestParsed = VersionCompat.parse(latestRelease.version),
-                  let currentParsed = VersionCompat.parse(currentVersion) else {
+                  let currentParsed = VersionCompat.parse(resolvedVersion) else {
+                log.error("Service group update check failed: could not parse versions (latest=\(latestRelease.version, privacy: .public), current=\(resolvedVersion, privacy: .public))")
                 clearServiceGroupFlags()
                 return
             }
@@ -221,13 +246,14 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             }()
 
             if isNewer {
+                log.info("Service group update available: \(latestRelease.version, privacy: .public) (current: \(resolvedVersion, privacy: .public))")
                 isServiceGroupUpdateAvailable = true
                 serviceGroupUpdateVersion = latestRelease.version
             } else {
                 clearServiceGroupFlags()
             }
         } catch {
-            // Failures silently clear the flags — no error state in the menu.
+            log.error("Service group update check failed: \(error.localizedDescription, privacy: .public)")
             clearServiceGroupFlags()
         }
     }

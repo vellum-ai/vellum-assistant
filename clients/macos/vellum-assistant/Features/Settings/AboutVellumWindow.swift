@@ -276,10 +276,15 @@ struct AboutVellumView: View {
             isCheckingForUpdates = false
 
         case .docker, .managed:
-            // Docker/managed: check platform API and show result inline
+            // Docker/managed: check platform API and show result inline.
+            // Pass the already-known service group version from the SSE connection
+            // so the check doesn't need to hit the health endpoint independently
+            // (which 404s on the platform proxy for managed assistants).
             defer { isCheckingForUpdates = false }
 
-            await AppDelegate.shared?.updateManager.checkServiceGroupUpdate()
+            await AppDelegate.shared?.updateManager.checkServiceGroupUpdate(
+                knownVersion: connectionManager?.assistantVersion ?? healthz?.version
+            )
 
             if let updateManager = AppDelegate.shared?.updateManager {
                 if updateManager.isServiceGroupUpdateAvailable,
