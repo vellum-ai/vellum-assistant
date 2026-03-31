@@ -292,7 +292,8 @@ struct MarkdownSegmentView: View, Equatable {
                 result += attributed
 
             case .heading(let level, let text):
-                var headingAttr = AttributedString(text)
+                var headingAttr = (try? AttributedString(markdown: text, options: mdOptions))
+                    ?? AttributedString(text)
                 let headingSize: CGFloat = switch level {
                 case 1: 20
                 case 2: 16
