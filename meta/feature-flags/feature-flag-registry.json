@@ -18,14 +18,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "platform-hosted-enabled",
-      "scope": "macos",
-      "key": "platform-hosted-enabled",
-      "label": "Platform Hosted Assistants",
-      "description": "Enable the Vellum Cloud hosting option on the Hosting screen",
-      "defaultEnabled": false
-    },
-    {
       "id": "local-docker-enabled",
       "scope": "macos",
       "key": "local-docker-enabled",
