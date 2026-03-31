@@ -1,5 +1,8 @@
+import os
 import SwiftUI
 import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ImageGenerationServiceCard")
 
 /// Card for the image generation service with Managed/Your Own mode toggle.
 ///
@@ -144,6 +147,8 @@ struct ImageGenerationServiceCard: View {
     // MARK: - Save
 
     private func save() {
+        log.info("[DEBUG] save() called — draftMode=\(draftMode) store.imageGenMode=\(store.imageGenMode) draftModel=\(draftModel)")
+
         // Persist API key if entered and in your-own mode
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
@@ -152,14 +157,21 @@ struct ImageGenerationServiceCard: View {
         }
 
         let modeChanged = draftMode != store.imageGenMode
+        log.info("[DEBUG] modeChanged=\(modeChanged)")
         let pendingMode = modeChanged ? store.setImageGenMode(draftMode) : nil
 
         // Await the mode patch before writing the model so the daemon's
         // read-modify-write cycle for the model doesn't overwrite the mode.
         let capturedModel = draftModel
         Task {
-            if let pendingMode { _ = await pendingMode.value }
+            if let pendingMode {
+                log.info("[DEBUG] awaiting pendingMode task...")
+                let result = await pendingMode.value
+                log.info("[DEBUG] pendingMode completed, success=\(result)")
+            }
+            log.info("[DEBUG] now calling setImageGenModel(\(capturedModel))")
             store.setImageGenModel(capturedModel)
+            log.info("[DEBUG] setImageGenModel returned")
         }
         initialModel = draftModel
     }

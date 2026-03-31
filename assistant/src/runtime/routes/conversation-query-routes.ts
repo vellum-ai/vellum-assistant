@@ -25,6 +25,9 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
+import { getLogger } from "../../util/logger.js";
+
+const log = getLogger("conversation-query-routes");
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import {
@@ -353,6 +356,10 @@ export function conversationQueryRouteDefinitions(
       tags: ["config"],
       handler: async ({ req }) => {
         const body = (await req.json()) as Record<string, unknown>;
+        log.info(
+          "[DEBUG] PATCH /config received body=%s",
+          JSON.stringify(body),
+        );
         if (
           body == null ||
           typeof body !== "object" ||
@@ -367,8 +374,23 @@ export function conversationQueryRouteDefinitions(
         }
         try {
           const raw = loadRawConfig();
+          const svc = (raw as Record<string, unknown>).services as
+            | Record<string, unknown>
+            | undefined;
+          log.info(
+            "[DEBUG] PATCH /config: loaded raw config, current image-generation=%s",
+            JSON.stringify(svc?.["image-generation"]),
+          );
           deepMergeOverwrite(raw, body);
+          const svcAfter = (raw as Record<string, unknown>).services as
+            | Record<string, unknown>
+            | undefined;
+          log.info(
+            "[DEBUG] PATCH /config: after merge, image-generation=%s",
+            JSON.stringify(svcAfter?.["image-generation"]),
+          );
           saveRawConfig(raw);
+          log.info("[DEBUG] PATCH /config: saved config");
           return Response.json({ ok: true });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

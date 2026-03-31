@@ -138,6 +138,7 @@ public struct SettingsClient: SettingsClientProtocol {
     }
 
     public func setImageGenModel(modelId: String) async -> ModelInfoMessage? {
+        log.info("[DEBUG] SettingsClient.setImageGenModel: sending PUT for modelId=\(modelId)")
         do {
             let response = try await GatewayHTTPClient.put(
                 path: "assistants/{assistantId}/model/image-gen", json: ["modelId": modelId], timeout: 10
@@ -146,6 +147,7 @@ public struct SettingsClient: SettingsClientProtocol {
                 log.error("setImageGenModel failed (HTTP \(response.statusCode))")
                 return nil
             }
+            log.info("[DEBUG] SettingsClient.setImageGenModel: PUT succeeded (HTTP \(response.statusCode))")
             let patched = injectType("model_info", into: response.data)
             return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
         } catch {
@@ -514,6 +516,7 @@ public struct SettingsClient: SettingsClientProtocol {
     }
 
     public func patchConfig(_ partial: [String: Any]) async -> Bool {
+        log.info("[DEBUG] patchConfig: sending PATCH with body=\(partial)")
         do {
             let response = try await GatewayHTTPClient.patch(
                 path: "config", json: partial, timeout: 10
@@ -522,6 +525,7 @@ public struct SettingsClient: SettingsClientProtocol {
                 log.error("patchConfig failed (HTTP \(response.statusCode))")
                 return false
             }
+            log.info("[DEBUG] patchConfig: PATCH succeeded (HTTP \(response.statusCode))")
             return true
         } catch {
             log.error("patchConfig error: \(error.localizedDescription)")
