@@ -358,7 +358,7 @@ final class VellumCli {
                 if once.trySet() {
                     log.warning("CLI sleep timed out after \(timeoutSeconds)s — terminating process")
                     proc?.terminate()
-                    continuation.resume(returning: proc?.terminationStatus ?? -1)
+                    continuation.resume(returning: -1)
                 }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
