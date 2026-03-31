@@ -291,6 +291,11 @@ async function upgradeDocker(
     `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
   );
 
+  // Capture GUARDIAN_BOOTSTRAP_SECRET from the gateway container (it is only
+  // set on gateway, not assistant) so it persists across container restarts.
+  const gatewayEnv = await captureContainerEnv(res.gatewayContainer);
+  const bootstrapSecret = gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"];
+
   // Notify connected clients that an upgrade is about to begin.
   // This must fire BEFORE any progress broadcasts so the UI sets
   // isUpdateInProgress = true and starts displaying status messages.
@@ -419,6 +424,7 @@ async function upgradeDocker(
   await startContainers(
     {
       signingKey,
+      bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
       gatewayPort,
@@ -517,6 +523,7 @@ async function upgradeDocker(
         await startContainers(
           {
             signingKey,
+            bootstrapSecret,
             cesServiceToken,
             extraAssistantEnv,
             gatewayPort,
