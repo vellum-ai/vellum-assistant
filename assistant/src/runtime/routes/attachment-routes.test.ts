@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
@@ -66,10 +72,35 @@ describe("resolveAllowedFileBackedAttachmentPath", () => {
     expect(resolveAllowedFileBackedAttachmentPath(convFile)).toBe(convFile);
   });
 
+  test("rejects files in conversation dir outside attachments subdir", () => {
+    const convDir = join(conversationsDir, "conv-456");
+    mkdirSync(convDir, { recursive: true });
+    const metaFile = join(convDir, "meta.json");
+    writeFileSync(metaFile, "{}");
+
+    expect(resolveAllowedFileBackedAttachmentPath(metaFile)).toBeNull();
+  });
+
   test("rejects files outside allowed directories", () => {
     const outsideFile = join(outsideDir, "secret.txt");
     writeFileSync(outsideFile, "secret");
 
     expect(resolveAllowedFileBackedAttachmentPath(outsideFile)).toBeNull();
+  });
+
+  test("rejects path traversal via '..' segments", () => {
+    const traversalPath = join(attachmentsDir, "..", "..", "secret.txt");
+
+    expect(resolveAllowedFileBackedAttachmentPath(traversalPath)).toBeNull();
+  });
+
+  test("rejects symlinks inside allowed dir pointing outside", () => {
+    const outsideFile = join(outsideDir, "linked-secret.txt");
+    writeFileSync(outsideFile, "secret");
+
+    const symlinkPath = join(attachmentsDir, "sneaky-link.txt");
+    symlinkSync(outsideFile, symlinkPath);
+
+    expect(resolveAllowedFileBackedAttachmentPath(symlinkPath)).toBeNull();
   });
 });

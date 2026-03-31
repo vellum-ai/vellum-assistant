@@ -37,20 +37,41 @@ function resolveAllowedAttachmentDirectories(): string[] {
     "data",
     "attachments",
   );
-  const conversationsDir = join(getWorkspaceDir(), "conversations");
   const recordingsDir = join(
     process.env.HOME ?? "",
     "Library/Application Support/vellum-assistant/recordings",
   );
-  return [workspaceAttachmentsDir, conversationsDir, recordingsDir].map(
-    (dir) => {
-      try {
-        return realpathSync(dir);
-      } catch {
-        return resolve(dir);
-      }
-    },
-  );
+  return [workspaceAttachmentsDir, recordingsDir].map((dir) => {
+    try {
+      return realpathSync(dir);
+    } catch {
+      return resolve(dir);
+    }
+  });
+}
+
+/**
+ * Check if a resolved path is inside a conversation attachments subdirectory.
+ * Matches: <conversationsDir>/<conversationId>/attachments/...
+ */
+function isConversationAttachmentPath(resolvedPath: string): boolean {
+  const conversationsDir = join(getWorkspaceDir(), "conversations");
+  let resolvedConversationsDir: string;
+  try {
+    resolvedConversationsDir = realpathSync(conversationsDir);
+  } catch {
+    resolvedConversationsDir = resolve(conversationsDir);
+  }
+
+  if (!isPathWithinDirectory(resolvedPath, resolvedConversationsDir)) {
+    return false;
+  }
+
+  // Extract the relative path after conversations/ and verify it contains
+  // an "attachments" segment: <conversationId>/attachments/...
+  const relativePath = resolvedPath.slice(resolvedConversationsDir.length + 1);
+  const segments = relativePath.split(sep);
+  return segments.length >= 3 && segments[1] === "attachments";
 }
 
 export function resolveAllowedFileBackedAttachmentPath(
@@ -58,9 +79,13 @@ export function resolveAllowedFileBackedAttachmentPath(
 ): string | null {
   const resolvedPath = resolveCanonicalPath(filePath);
   const allowedDirs = resolveAllowedAttachmentDirectories();
-  return allowedDirs.some((dir) => isPathWithinDirectory(resolvedPath, dir))
-    ? resolvedPath
-    : null;
+  if (allowedDirs.some((dir) => isPathWithinDirectory(resolvedPath, dir))) {
+    return resolvedPath;
+  }
+  if (isConversationAttachmentPath(resolvedPath)) {
+    return resolvedPath;
+  }
+  return null;
 }
 
 export async function handleUploadAttachment(req: Request): Promise<Response> {
@@ -219,15 +244,17 @@ export function handleGetAttachmentContent(
   attachmentId: string,
   req: Request,
 ): Response {
+  // Check for file-backed attachment first so we can skip hydration — file-backed
+  // content is served directly from disk via Bun.file, not from the hydrated base64.
+  const filePath = getFilePathForAttachment(attachmentId);
+  const isFileBacked = !!filePath;
+
   const attachment = attachmentsStore.getAttachmentById(attachmentId, {
-    hydrateFileData: true,
+    hydrateFileData: !isFileBacked,
   });
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);
   }
-
-  // Check for file-backed attachment
-  const filePath = getFilePathForAttachment(attachmentId);
   if (filePath) {
     const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
     if (!resolvedPath) {
