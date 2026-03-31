@@ -207,7 +207,7 @@ struct TeleportSection: View {
     private var verifyingBanner: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "checkmark.circle.fill")
+                VIconView(.circleCheck, size: 16)
                     .foregroundStyle(VColor.systemPositiveStrong)
                 Text("Transfer complete — verify your new assistant is working.")
                     .font(VFont.labelDefault)
@@ -295,6 +295,18 @@ struct TeleportSection: View {
     }
 
     private func cancelTeleport() {
+        // Sleep docker assistant to free resources if it was the target
+        if let target = targetAssistant, target.isDocker {
+            let dockerId = target.assistantId
+            Task {
+                do {
+                    try await AppDelegate.shared?.vellumCli.sleep(name: dockerId)
+                    log.info("[teleport] Slept Docker assistant \(dockerId, privacy: .public) after cancel")
+                } catch {
+                    log.error("[teleport] Failed to sleep Docker assistant \(dockerId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
         phase = .idle
         targetAssistant = nil
     }
@@ -398,6 +410,7 @@ struct TeleportSection: View {
 
         // Step 4 — Bootstrap actor token against docker gateway
         phase = .transferring(step: "Authenticating with Docker assistant...")
+        let originalActorToken = ActorTokenManager.getToken()
         let actorToken = try await bootstrapActorToken(targetAssistantId: resolvedDocker.assistantId)
         ActorTokenManager.setToken(actorToken)
 
@@ -418,6 +431,13 @@ struct TeleportSection: View {
            let success = importJson["success"] as? Bool, !success {
             let errorMsg = (importJson["error"] as? String) ?? "Import reported failure"
             throw TeleportError.importFailed(message: errorMsg)
+        }
+
+        // Step 5.5 — Restore original actor token so the local assistant works during verification
+        if let originalActorToken {
+            ActorTokenManager.setToken(originalActorToken)
+        } else {
+            ActorTokenManager.deleteToken()
         }
 
         // Step 6 — Store target for user confirmation (do NOT switch yet)
