@@ -51,13 +51,19 @@ struct MarkdownSegmentView: View, Equatable {
                         font: VFont.nsChat,
                         textColor: NSColor(textColor)
                     )
+                    let measuredSize = VSelectableTextView.measureSize(
+                        attributedString: nsAttributed,
+                        lineSpacing: 4,
+                        maxWidth: maxContentWidth ?? 400
+                    )
                     VSelectableTextView(
                         attributedString: nsAttributed,
                         maxWidth: maxContentWidth,
                         lineSpacing: 4,
-                        tintColor: NSColor(tintColor)
+                        tintColor: NSColor(tintColor),
+                        useExternalSizing: true
                     )
-                    .optionalMaxWidth(maxContentWidth)
+                    .frame(width: measuredSize.width, height: measuredSize.height, alignment: .leading)
                     #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)

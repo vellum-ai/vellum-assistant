@@ -10,6 +10,17 @@ import SwiftUI
 /// `LazyVStack` or other lazy containers where `SelectionOverlay` defeats lazy
 /// loading and causes performance issues.
 ///
+/// **Performance:** When many instances exist in a `LazyVStack`, set
+/// `useExternalSizing: true` and precompute size via
+/// ``measureSize(attributedString:lineSpacing:maxWidth:)``, then apply
+/// `.frame(width:height:)` so SwiftUI's layout system does not query this
+/// view during the layout pass. This avoids an O(N) layout measurement
+/// cascade through nested `StackLayout.sizeThatFits` calls.
+///
+/// For low-instance-count scenarios (e.g., a single thinking block),
+/// leave `useExternalSizing` at its default (`false`) and let
+/// `sizeThatFits` compute the size normally.
+///
 /// - SeeAlso: [NSTextView](https://developer.apple.com/documentation/appkit/nstextview)
 /// - SeeAlso: [NSViewRepresentable](https://developer.apple.com/documentation/swiftui/nsviewrepresentable)
 public struct VSelectableTextView: NSViewRepresentable {
@@ -17,18 +28,77 @@ public struct VSelectableTextView: NSViewRepresentable {
     let maxWidth: CGFloat?
     let lineSpacing: CGFloat
     let tintColor: NSColor
+    let useExternalSizing: Bool
 
     public init(
         attributedString: NSAttributedString,
         maxWidth: CGFloat? = nil,
         lineSpacing: CGFloat = 4,
-        tintColor: NSColor = NSColor(VColor.primaryBase)
+        tintColor: NSColor = NSColor(VColor.primaryBase),
+        useExternalSizing: Bool = false
     ) {
         self.attributedString = attributedString
         self.maxWidth = maxWidth
         self.lineSpacing = lineSpacing
         self.tintColor = tintColor
+        self.useExternalSizing = useExternalSizing
     }
+
+    // MARK: - Static Measurement
+
+    /// Shared TextKit 1 stack for height measurement. Reused across all
+    /// calls to avoid creating per-instance TextKit stacks just to measure.
+    @MainActor private static let measurementTextStorage = NSTextStorage()
+
+    @MainActor private static let measurementLayoutManager: NSLayoutManager = {
+        let lm = NSLayoutManager()
+        measurementTextStorage.addLayoutManager(lm)
+        return lm
+    }()
+
+    @MainActor private static let measurementTextContainer: NSTextContainer = {
+        let tc = NSTextContainer(size: NSSize(width: 0, height: .greatestFiniteMagnitude))
+        tc.lineFragmentPadding = 0
+        measurementLayoutManager.addTextContainer(tc)
+        return tc
+    }()
+
+    /// Precomputes the layout size for a given attributed string at a given
+    /// width using a shared TextKit 1 stack. Call from the SwiftUI side
+    /// before creating the `NSViewRepresentable`, then apply the result via
+    /// `.frame(width:height:)` to avoid `sizeThatFits` being called during
+    /// the `LazyVStack` layout pass.
+    @MainActor
+    public static func measureSize(
+        attributedString: NSAttributedString,
+        lineSpacing: CGFloat,
+        maxWidth: CGFloat
+    ) -> CGSize {
+        let mutable = NSMutableAttributedString(attributedString: attributedString)
+        let fullRange = NSRange(location: 0, length: mutable.length)
+
+        mutable.enumerateAttribute(.paragraphStyle, in: fullRange, options: []) { value, range, _ in
+            let existing = (value as? NSParagraphStyle) ?? NSParagraphStyle.default
+            let updated = existing.mutableCopy() as! NSMutableParagraphStyle
+            updated.lineSpacing = lineSpacing
+            mutable.addAttribute(.paragraphStyle, value: updated, range: range)
+        }
+
+        measurementTextStorage.setAttributedString(mutable)
+        measurementTextContainer.containerSize = NSSize(
+            width: maxWidth,
+            height: .greatestFiniteMagnitude
+        )
+        measurementLayoutManager.ensureLayout(for: measurementTextContainer)
+        let usedRect = measurementLayoutManager.usedRect(for: measurementTextContainer)
+
+        return CGSize(
+            width: ceil(min(usedRect.width, maxWidth)),
+            height: ceil(usedRect.height)
+        )
+    }
+
+    // MARK: - NSViewRepresentable
 
     public func makeNSView(context: Context) -> NSTextView {
         // Build an explicit TextKit 1 stack to avoid the implicit TextKit 2→1
@@ -75,32 +145,30 @@ public struct VSelectableTextView: NSViewRepresentable {
         coordinator.applyAttributedString(attributedString, lineSpacing: lineSpacing, to: textView)
     }
 
+    /// When `useExternalSizing` is `true`, returns `nil` so SwiftUI uses
+    /// the precomputed `.frame(width:height:)` from the caller. When `false`,
+    /// computes size using the view's own TextKit stack.
+    /// Reference: https://developer.apple.com/documentation/swiftui/nsviewrepresentable/sizethatfits(_:nsview:context:)-33z4e
     public func sizeThatFits(
         _ proposal: ProposedViewSize,
         nsView textView: NSTextView,
         context: Context
     ) -> CGSize? {
+        if useExternalSizing { return nil }
+
         let width = maxWidth ?? proposal.width ?? 400
-        let coordinator = context.coordinator
-
-        // Return cached size when the content and available width haven't changed.
-        if let cached = coordinator.cachedHeight, coordinator.cachedWidth == width {
-            return CGSize(width: ceil(coordinator.cachedContentWidth ?? width), height: cached)
-        }
-
         guard let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return nil }
 
-        textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        textContainer.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
+        return CGSize(width: ceil(min(usedRect.width, width)), height: ceil(usedRect.height))
+    }
 
-        let resultHeight = ceil(usedRect.height)
-        let resultWidth = ceil(min(usedRect.width, width))
-        coordinator.cachedWidth = width
-        coordinator.cachedHeight = resultHeight
-        coordinator.cachedContentWidth = resultWidth
-        return CGSize(width: resultWidth, height: resultHeight)
+    public static func dismantleNSView(_ textView: NSTextView, coordinator: Coordinator) {
+        textView.textStorage?.setAttributedString(NSAttributedString())
+        coordinator.lastAttributedString = nil
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator() }
@@ -108,9 +176,6 @@ public struct VSelectableTextView: NSViewRepresentable {
     public final class Coordinator {
         var lastAttributedString: NSAttributedString?
         var lastLineSpacing: CGFloat = 0
-        var cachedWidth: CGFloat?
-        var cachedHeight: CGFloat?
-        var cachedContentWidth: CGFloat?
 
         func applyAttributedString(
             _ attributedString: NSAttributedString,
@@ -119,11 +184,6 @@ public struct VSelectableTextView: NSViewRepresentable {
         ) {
             lastAttributedString = attributedString
             lastLineSpacing = lineSpacing
-
-            // Invalidate cached size when content changes.
-            cachedWidth = nil
-            cachedHeight = nil
-            cachedContentWidth = nil
 
             guard let textStorage = textView.textStorage else { return }
 
