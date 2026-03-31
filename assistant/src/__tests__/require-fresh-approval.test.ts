@@ -20,7 +20,7 @@ import {
   test,
 } from "bun:test";
 
-import type { ScopeOption } from "../permissions/types.js";
+import { RiskLevel, type ScopeOption } from "../permissions/types.js";
 import type {
   ToolExecutionResult,
   ToolLifecycleEvent,
@@ -68,6 +68,9 @@ let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 /** Override the check() result for specific tests. */
 let checkResultOverride: { decision: string; reason: string } | undefined;
 
+/** Override the risk level returned by classifyRisk(). Defaults to "high". */
+let riskOverride: string = "high";
+
 /** Scope options override — controls whether persistent decisions are offered. */
 let scopeOptionsOverride: ScopeOption[] | undefined;
 
@@ -91,7 +94,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => "high",
+  classifyRisk: async () => riskOverride,
   check: async () => {
     if (checkResultOverride) return checkResultOverride;
     return { decision: "allow", reason: "allowed" };
@@ -172,6 +175,7 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
     fakeToolResult = { content: "ok", isError: false };
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
+    riskOverride = "high";
     clearAllOverrides();
   });
 
@@ -200,6 +204,8 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
 
   test("regular tools are still auto-approved in non-interactive guardian sessions", async () => {
     // Verify that the auto-approve path still works for normal tools
+    // at non-high risk levels
+    riskOverride = RiskLevel.Medium;
     checkResultOverride = {
       decision: "prompt",
       reason: "Needs approval",
@@ -215,6 +221,58 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
     // Regular tools should be auto-approved
     expect(result.isError).toBe(false);
   });
+
+  test("high-risk tools are denied in non-interactive guardian sessions", async () => {
+    riskOverride = RiskLevel.High;
+    checkResultOverride = {
+      decision: "prompt",
+      reason: "Needs approval",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "bash",
+      { command: "echo hello" },
+      makeContext({ isInteractive: false, trustClass: "guardian" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("requires user approval");
+  });
+
+  test("medium-risk tools are still auto-approved in non-interactive guardian sessions", async () => {
+    riskOverride = RiskLevel.Medium;
+    checkResultOverride = {
+      decision: "prompt",
+      reason: "Needs approval",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "bash",
+      { command: "echo hello" },
+      makeContext({ isInteractive: false, trustClass: "guardian" }),
+    );
+
+    expect(result.isError).toBe(false);
+  });
+
+  test("low-risk tools are still auto-approved in non-interactive guardian sessions", async () => {
+    riskOverride = RiskLevel.Low;
+    checkResultOverride = {
+      decision: "prompt",
+      reason: "Needs approval",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "bash",
+      { command: "echo hello" },
+      makeContext({ isInteractive: false, trustClass: "guardian" }),
+    );
+
+    expect(result.isError).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -226,6 +284,7 @@ describe("requireFreshApproval: temporary override bypass", () => {
     fakeToolResult = { content: "ok", isError: false };
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
+    riskOverride = "high";
     clearAllOverrides();
   });
 
@@ -335,6 +394,7 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
     fakeToolResult = { content: "ok", isError: false };
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
+    riskOverride = "high";
     clearAllOverrides();
   });
 
@@ -437,6 +497,7 @@ describe("requireFreshApproval: grant-consumed does not skip permission check", 
     fakeToolResult = { content: "ok", isError: false };
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
+    riskOverride = "high";
     clearAllOverrides();
   });
 
@@ -491,6 +552,7 @@ describe("requireFreshApproval: context flag propagation", () => {
     fakeToolResult = { content: "ok", isError: false };
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
+    riskOverride = "high";
     clearAllOverrides();
   });
 
