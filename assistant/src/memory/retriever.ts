@@ -946,9 +946,7 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
       const rows = db
         .select({
           memoryItemId: memoryItemSources.memoryItemId,
-          conversationId: conversations.id,
           title: conversations.title,
-          conversationCreatedAt: conversations.createdAt,
           conversationUpdatedAt: conversations.updatedAt,
         })
         .from(memoryItemSources)
@@ -966,12 +964,7 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
       // Group by item ID and pick the most recently updated conversation
       const bestConvMap = new Map<
         string,
-        {
-          title: string | null;
-          conversationId: string;
-          createdAt: number;
-          updatedAt: number;
-        }
+        { title: string | null; updatedAt: number }
       >();
       for (const row of rows) {
         const existing = bestConvMap.get(row.memoryItemId);
@@ -981,8 +974,6 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
         ) {
           bestConvMap.set(row.memoryItemId, {
             title: row.title,
-            conversationId: row.conversationId,
-            createdAt: row.conversationCreatedAt,
             updatedAt: row.conversationUpdatedAt,
           });
         }
@@ -1009,7 +1000,6 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
         .select({
           id: conversations.id,
           title: conversations.title,
-          createdAt: conversations.createdAt,
         })
         .from(conversations)
         .where(inArray(conversations.id, convIds))

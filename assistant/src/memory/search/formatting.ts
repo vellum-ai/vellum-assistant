@@ -240,12 +240,6 @@ function renderCandidate(
   const fromAttr = c.sourceLabel
     ? ` from="${escapeXmlAttr(c.sourceLabel)}"`
     : "";
-  // NOTE: sourcePath is intentionally NOT emitted here. Exposing internal
-  // conversation-log file paths (e.g. conversations/…/messages.jsonl) in the
-  // model-visible XML would let a prompt-injected model read raw conversation
-  // histories via the auto-allowed file_read tool. The sourceLabel (conversation
-  // title) provides sufficient provenance without leaking paths.
-
   // Build inline supersession suffix for items
   let supersessionSuffix = "";
   if (c.type === "item" && c.supersedes) {
