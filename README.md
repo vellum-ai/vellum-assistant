@@ -9,68 +9,78 @@
   <a href="https://vellum.ai"><img src="https://img.shields.io/badge/Built%20by-Vellum-blueviolet?style=for-the-badge" alt="Built by Vellum"></a>
 </p>
 
-<p align="center"><b>An AI assistant that lives on your machine.</b><br>Native macOS & iOS apps, a Bun + TypeScript runtime, and a multi-channel gateway — so your assistant can manage your tools, automate your workflows, and talk to you from anywhere.</p>
+<p align="center"><b>An AI assistant that belongs to you, and learns how you work.</b></p>
+
+<p align="center">Learns your preferences and adapts over time, builds memory that reinforces what matters and forgets what doesn't, and reaches out proactively when something needs your attention.</p>
+
+<p align="center">Your credentials are isolated in a dedicated process and never reach the model, trust is earned not assumed, and every tool runs in a sandbox. Talk to it from the native macOS app (locally or via a managed server), Telegram, or Slack, with shared memory and identity across every surface.</p>
 
 ---
 
-## Highlights
+### Personality and intelligence
 
-<table>
-<tr><td>🖥️ <b>Native Clients</b></td><td>macOS menu bar app with computer-use (accessibility + CGEvent) and iOS chat client. Standalone or connected-to-Mac.</td></tr>
-<tr><td>🔧 <b>Extensible Skills</b></td><td>40+ bundled skills. The assistant can author, test, and persist new skills at runtime. Version-bound approvals and mutation protection.</td></tr>
-<tr><td>💬 <b>Multi-Channel</b></td><td>Desktop, Telegram, Slack, Gmail, SMS, phone calls — one gateway, multiple conversations, shared memory. OAuth2 integrations and unified messaging.</td></tr>
-<tr><td>🔒 <b>Security-First</b></td><td>OS-level sandboxing (sandbox-exec / bwrap). Keychain-backed credential vault. Secret ingress blocking. Scoped trust rules.</td></tr>
-<tr><td>🌐 <b>Browser & Computer Use</b></td><td>Headless browser automation (navigate, click, type, screenshot, extract). macOS computer-use via accessibility APIs. Credential-aware form filling.</td></tr>
-<tr><td>📡 <b>Real-Time Streaming</b></td><td>SSE event stream with JWT auth. Streaming deltas for text, thinking, tool use, and attachments. Up to 100 concurrent connections.</td></tr>
-<tr><td>🚀 <b>Agent-Driven Dev</b></td><td>Claude Code slash commands for parallel PRs, automated review loops, swarm workflows, and one-shot feature delivery (<code>/blitz</code>).</td></tr>
-</table>
+| Area | Summary |
+|------|---------|
+| **Brain (Memory engine)** | **Remembers what matters and forgets what doesn't.** Hybrid retrieval (dense + sparse with RRF) ranks results semantically and lexically. Each memory type has its own staleness window (e.g. identity facts last six months, events last three days). |
+| **Backpack (Persistent memory)** | **Carries everything the assistant keeps over time.** Structured memory items like identity, preferences, projects, events are extracted by the LLM with source attribution and deduplication. Per-user and per-channel persona files, trusted contacts, and scoped memory isolation for private conversations. Embedding runs locally by default. |
+| **Self (Identity layer)** | **Defines who the assistant is, not just what it says.** Behavior lives in [SOUL.md](http://soul.md/), and during onboarding the assistant observes how you communicate and writes its own personality files. A journal captures retrospective context per user. [NOW.md](http://now.md/) acts as an ephemeral scratchpad for current focus and active threads. |
+| **Pulse (Proactivity engine)** | **Reaches out when something matters, without being asked.** Every hour it checks in with itself; re-reads its own notes, notices what's unfinished or due soon, and reaches out if something matters. Notifications are routed to the right channel and won't interrupt you if you're already talking. |
+
+### Infra and control
+
+| Area | Summary |
+|------|---------|
+| **Gatekeeper (Trust engine)** | **Decides who can do what, and defaults to no.** Fail-closed trust system that resolves actor identity once (guardian, trusted, or unknown) and enforces it everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Your credentials live in a separate process and never reach the model. |
+| **Skills** | Manifest-driven plugins ([SKILL.md](http://skill.md/) + TOOLS.json) that inject tools and prompt sections at runtime. Skills can be bundled, installed from a catalog, or added from the workspace (each are sandboxed with scoped permissions). |
+| **Channels** | Use it on the macOS app, Telegram, and Slack, with shared memory across all of them. (More channels coming soon) |
+| **Multi-provider support** | Supports Anthropic Claude, OpenAI, Google Gemini, and Ollama for local models. Embeddings follow the same pattern; local ONNX by default, with automatic fallback through cloud providers. Swap models without changing anything else. |
 
 ---
 
-## Get Started
+## Getting started
 
-The following guide is for running the assistant in any environment of your choosing.
+### Desktop App (Recommended)
 
-### Install
+The [Desktop App](./clients/macos/README.md) comes with the Vellum CLI bundled in, so you won't need to pre-install the CLI.
 
-**Prerequisites:** [Bun](https://bun.sh) is the only requirement. The assistant's hatch process is expected to cover all other needs.
+1. Download the latest release
+2. On install, choose your mode:
+   - **Local mode:** Run the assistant on the same machine as the Desktop App.
+   - **Managed mode:** Sign in via the Vellum platform and connecting to a hosted assistant; no local runtime required.
+
+The app installs dependencies, starts the runtime, and handles updates automatically.
+
+### CLI
+
+_Note: The CLI is functional but not our primary focus. It's available for advanced users, contributors, and non-macOS environments, but the desktop app is where we invest most of our effort and testing. Expect rough edges._
+
+**Install**
 
 ```bash
-bun install -g vellum  # Install the vellum package
-vellum hatch           # first-time assistant setup
+bun install -g vellum
+vellum hatch
 ```
 
-### Install From Source
+**Install from source**
 
 ```bash
 git clone https://github.com/vellum-ai/vellum-assistant.git
 cd vellum-assistant
-./setup.sh              # installs deps, links packages, registers the global `vellum` CLI
-vellum hatch            # first-time assistant setup
+./setup.sh
+vellum hatch
 ```
 
-### Vellum CLI
-
-List of the most common CLI commands when interacting with your assistant.
+**Common commands**
 
 ```bash
-vellum hatch       # first-time assistant setup
-vellum retire      # shut down an assistant instance and clean up its data
+vellum wake        # start services
+vellum sleep       # stop services, keep data
+vellum client      # interact through the terminal
 vellum ps          # view running assistants
-vellum wake        # start services (assistant + gateway + credential-executor)
-vellum sleep       # stop services, keeping the assistant's data.
-vellum upgrade     # upgrade to the latest version
-vellum client      # connect to a running assistant and interact with it through the terminal
+vellum upgrade     # upgrade to latest version
 ```
 
 All commands reference a "default" assistant without specifying an argument. If you are tracking multiple assistants, pass in the assistant id as the second argument.
-
-### Desktop App
-
-The [Desktop App](./clients/macos/README.md) comes with the Vellum CLI bundled in, so you won't need to pre-install the CLI if you prefer the Desktop interface. We support two modes today:
-
-- **Local mode:** Run the assistant on the same machine as the Desktop App.
-- **Managed mode:** Sign in via the Vellum platform and connecting to a hosted assistant — no local runtime required.
 
 ---
 
