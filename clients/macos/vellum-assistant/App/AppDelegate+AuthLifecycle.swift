@@ -409,14 +409,57 @@ extension AppDelegate {
     /// 4. Reconfigure transport and reconnect
     /// 5. Resume credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
-        // If switching to a managed assistant while logged out, prompt login first.
+        // If switching to a managed assistant while logged out, check whether
+        // a valid session token exists before forcing re-authentication.
+        // The in-memory auth state may be stale (tied to the previous assistant's
+        // context), so we validate the token against the platform API first.
         if assistant.isManaged && !authManager.isAuthenticated {
-            // Persist the target so we can switch after login completes.
-            UserDefaults.standard.set(assistant.assistantId, forKey: "pendingManagedSwitchAssistantId")
-            showAuthWindow()
+            Task {
+                let hasValidSession = await validateSessionTokenForSwitch()
+                if hasValidSession {
+                    // Session token is still valid — refresh auth state and
+                    // proceed with the switch directly without showing login.
+                    await authManager.checkSession()
+                    log.info("[switchAssistant] Session token valid — proceeding with managed switch to \(assistant.assistantId, privacy: .public) without re-auth")
+                    self.performSwitchAssistantCore(to: assistant)
+                } else {
+                    // Token is expired/invalid — persist the target and show login.
+                    log.info("[switchAssistant] Session token invalid — requiring re-auth for managed switch to \(assistant.assistantId, privacy: .public)")
+                    UserDefaults.standard.set(assistant.assistantId, forKey: "pendingManagedSwitchAssistantId")
+                    self.showAuthWindow()
+                }
+            }
             return
         }
 
+        performSwitchAssistantCore(to: assistant)
+    }
+
+    /// Validates the stored session token against the platform API.
+    /// Returns `true` if a session token exists and the server confirms
+    /// it is still valid; `false` if no token exists or the server
+    /// rejects it (401/403/network error).
+    private func validateSessionTokenForSwitch() async -> Bool {
+        guard SessionTokenManager.getToken() != nil else {
+            return false
+        }
+
+        do {
+            let response = try await AuthService.shared.getSession()
+            if response.status == 200, response.meta?.is_authenticated != false, response.data?.user != nil {
+                return true
+            }
+            return false
+        } catch {
+            log.warning("[switchAssistant] Session validation failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Core switch logic, extracted so it can be called both from the
+    /// synchronous path (non-managed or already-authenticated) and from
+    /// the async token-validation path.
+    private func performSwitchAssistantCore(to assistant: LockfileAssistant) {
         // Cancel any in-flight validation task from a previous switch so a
         // stale timeout doesn't rollback to the wrong assistant (A→B→C race).
         switchValidationTask?.cancel()
