@@ -232,7 +232,7 @@ public struct ToolCallChip: View {
                             } else {
                                 let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
                                 if Self.isFileEditTool(toolCall.toolName) {
-                                    VDiffView(result, maxHeight: lineCount > 500 ? 400 : nil)
+                                    VDiffView(result, maxHeight: lineCount > 50 || result.count > 5000 ? 400 : nil)
                                 } else if lineCount > 500 {
                                     let lines = cachedResultLines ?? result.components(separatedBy: "\n")
                                     ScrollView {
@@ -242,9 +242,17 @@ public struct ToolCallChip: View {
                                                     .font(VFont.bodySmallDefault)
                                                     .foregroundStyle(VColor.contentSecondary)
                                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                                    .textSelection(.enabled)
                                             }
                                         }
+                                    }
+                                    .frame(maxHeight: 400)
+                                } else if lineCount > 50 || result.count > 5000 {
+                                    ScrollView {
+                                        Text(result)
+                                            .font(VFont.bodySmallDefault)
+                                            .foregroundStyle(VColor.contentSecondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
                                     }
                                     .frame(maxHeight: 400)
                                 } else {
