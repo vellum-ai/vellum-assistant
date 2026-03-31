@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Import client functions directly before mock.module so we get the real implementations
+import {
+  getAttachment,
+  getMessageWithHeaders,
+  listAttachments,
+  listMasterCategories,
+  trashMessage,
+  updateMessageCategories,
+  updateMessageFlag,
+} from "../messaging/providers/outlook/client.js";
 import type { OutlookMailFolder } from "../messaging/providers/outlook/types.js";
 import type { OutlookMessage } from "../messaging/providers/outlook/types.js";
 import type { OAuthConnection } from "../oauth/connection.js";
@@ -571,6 +581,201 @@ describe("Outlook messaging provider", () => {
       expect(outlookMessagingProvider.capabilities.has("threads")).toBe(true);
       expect(outlookMessagingProvider.capabilities.has("folders")).toBe(true);
       expect(outlookMessagingProvider.capabilities.has("archive")).toBe(false);
+    });
+  });
+});
+
+// ── Outlook client function tests ──────────────────────────────────────────
+
+describe("Outlook client functions", () => {
+  function createClientMockConnection(
+    responseBody: unknown = {},
+    status = 200,
+  ): OAuthConnection {
+    return {
+      id: "outlook-conn-1",
+      providerKey: "outlook",
+      accountInfo: "test@outlook.com",
+      request: mock(() =>
+        Promise.resolve({ status, headers: {}, body: responseBody }),
+      ),
+      withToken: <T>(fn: (token: string) => Promise<T>) =>
+        fn("mock-access-token"),
+    };
+  }
+
+  // ── listAttachments ──────────────────────────────────────────────────
+
+  describe("listAttachments", () => {
+    test("returns attachment metadata", async () => {
+      const attachments = {
+        value: [
+          {
+            id: "att-1",
+            name: "file.pdf",
+            contentType: "application/pdf",
+            size: 12345,
+            isInline: false,
+          },
+        ],
+      };
+      const conn = createClientMockConnection(attachments);
+      const result = await listAttachments(conn, "msg-1");
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "GET",
+          path: "/v1.0/me/messages/msg-1/attachments",
+          query: { $select: "id,name,contentType,size,isInline" },
+        }),
+      );
+      expect(result.value).toHaveLength(1);
+      expect(result.value![0].name).toBe("file.pdf");
+    });
+  });
+
+  // ── getAttachment ────────────────────────────────────────────────────
+
+  describe("getAttachment", () => {
+    test("returns file content with contentBytes", async () => {
+      const attachment = {
+        id: "att-1",
+        name: "file.pdf",
+        contentType: "application/pdf",
+        size: 12345,
+        isInline: false,
+        contentBytes: "dGVzdCBjb250ZW50",
+      };
+      const conn = createClientMockConnection(attachment);
+      const result = await getAttachment(conn, "msg-1", "att-1");
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "GET",
+          path: "/v1.0/me/messages/msg-1/attachments/att-1",
+        }),
+      );
+      expect(result.contentBytes).toBe("dGVzdCBjb250ZW50");
+      expect(result.name).toBe("file.pdf");
+    });
+  });
+
+  // ── trashMessage ─────────────────────────────────────────────────────
+
+  describe("trashMessage", () => {
+    test("calls move with destinationId deleteditems", async () => {
+      const movedMessage = {
+        id: "msg-1",
+        conversationId: "conv-1",
+        subject: "Test",
+        parentFolderId: "deleteditems",
+      };
+      const conn = createClientMockConnection(movedMessage);
+      const result = await trashMessage(conn, "msg-1");
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "POST",
+          path: "/v1.0/me/messages/msg-1/move",
+          body: { destinationId: "deleteditems" },
+        }),
+      );
+      expect(result.id).toBe("msg-1");
+    });
+  });
+
+  // ── updateMessageCategories ──────────────────────────────────────────
+
+  describe("updateMessageCategories", () => {
+    test("sends PATCH with categories array", async () => {
+      const conn = createClientMockConnection(undefined, 204);
+      await updateMessageCategories(conn, "msg-1", ["important", "work"]);
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "PATCH",
+          path: "/v1.0/me/messages/msg-1",
+          body: { categories: ["important", "work"] },
+        }),
+      );
+    });
+  });
+
+  // ── updateMessageFlag ────────────────────────────────────────────────
+
+  describe("updateMessageFlag", () => {
+    test("sends PATCH with flag object", async () => {
+      const flag = {
+        flagStatus: "flagged" as const,
+        dueDateTime: {
+          dateTime: "2024-12-31T23:59:59",
+          timeZone: "UTC",
+        },
+      };
+      const conn = createClientMockConnection(undefined, 204);
+      await updateMessageFlag(conn, "msg-1", flag);
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "PATCH",
+          path: "/v1.0/me/messages/msg-1",
+          body: { flag },
+        }),
+      );
+    });
+  });
+
+  // ── listMasterCategories ─────────────────────────────────────────────
+
+  describe("listMasterCategories", () => {
+    test("returns category list", async () => {
+      const categories = {
+        value: [
+          { displayName: "Red Category", color: "preset0" },
+          { displayName: "Blue Category", color: "preset7" },
+        ],
+      };
+      const conn = createClientMockConnection(categories);
+      const result = await listMasterCategories(conn);
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "GET",
+          path: "/v1.0/me/outlook/masterCategories",
+        }),
+      );
+      expect(result.value).toHaveLength(2);
+      expect(result.value![0].displayName).toBe("Red Category");
+    });
+  });
+
+  // ── getMessageWithHeaders ────────────────────────────────────────────
+
+  describe("getMessageWithHeaders", () => {
+    test("includes internetMessageHeaders in select", async () => {
+      const message = {
+        id: "msg-1",
+        subject: "Test",
+        internetMessageHeaders: [
+          { name: "X-Mailer", value: "TestMailer" },
+          { name: "List-Unsubscribe", value: "<mailto:unsub@example.com>" },
+        ],
+      };
+      const conn = createClientMockConnection(message);
+      const result = await getMessageWithHeaders(conn, "msg-1");
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "GET",
+          path: "/v1.0/me/messages/msg-1",
+          query: {
+            $select:
+              "id,subject,from,internetMessageHeaders,bodyPreview,body,hasAttachments,receivedDateTime",
+          },
+        }),
+      );
+      expect(result.internetMessageHeaders).toHaveLength(2);
+      expect(result.internetMessageHeaders![0].name).toBe("X-Mailer");
     });
   });
 });

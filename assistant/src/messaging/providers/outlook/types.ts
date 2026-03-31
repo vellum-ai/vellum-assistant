@@ -28,6 +28,12 @@ export interface OutlookItemBody {
   content: string;
 }
 
+/** Internet message header (e.g. List-Unsubscribe, X-Mailer) */
+export interface OutlookInternetMessageHeader {
+  name: string;
+  value: string;
+}
+
 /** Full Outlook message from Microsoft Graph */
 export interface OutlookMessage {
   id: string;
@@ -46,6 +52,7 @@ export interface OutlookMessage {
   flag: {
     flagStatus: "notFlagged" | "flagged" | "complete";
   };
+  internetMessageHeaders?: OutlookInternetMessageHeader[];
 }
 
 /** Outlook mail folder */
@@ -80,4 +87,43 @@ export interface OutlookUserProfile {
   displayName: string;
   mail: string;
   userPrincipalName: string;
+}
+
+/** Outlook attachment metadata */
+export interface OutlookAttachment {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  isInline: boolean;
+  "@odata.type"?: string;
+}
+
+/** Outlook file attachment with base64-encoded content */
+export interface OutlookFileAttachment extends OutlookAttachment {
+  contentBytes: string;
+}
+
+/** Outlook attachment list response (paginated) */
+export interface OutlookAttachmentListResponse {
+  value?: OutlookAttachment[];
+  "@odata.nextLink"?: string;
+}
+
+/** Outlook message flag with optional due/start dates */
+export interface OutlookMessageFlag {
+  flagStatus: "notFlagged" | "flagged" | "complete";
+  dueDateTime?: { dateTime: string; timeZone: string };
+  startDateTime?: { dateTime: string; timeZone: string };
+}
+
+/** Outlook master category */
+export interface OutlookMasterCategory {
+  displayName: string;
+  color: string;
+}
+
+/** Outlook master category list response */
+export interface OutlookMasterCategoryListResponse {
+  value?: OutlookMasterCategory[];
 }
