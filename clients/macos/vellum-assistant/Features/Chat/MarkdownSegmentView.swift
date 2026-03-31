@@ -3,11 +3,6 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
-private final class AttributedStringCacheEntry: NSObject {
-    let attributedString: AttributedString
-    init(_ attributedString: AttributedString) { self.attributedString = attributedString }
-}
-
 /// Reusable view that renders parsed `MarkdownSegment` arrays.
 /// Groups consecutive text-selectable segments (text, headings, lists) into
 /// unified Text views so that text selection can span across paragraphs.
@@ -192,212 +187,14 @@ struct MarkdownSegmentView: View, Equatable {
         return groups
     }
 
-    // MARK: - Combined AttributedString
-
-    /// Cache for expensive `buildCombinedAttributedString` results.
-    /// Keyed by a combined hash of the segment values and style colors so
-    /// identical segment arrays return the cached value instead of re-parsing
-    /// markdown and re-creating `AttributedString` on every SwiftUI body
-    /// evaluation. NSCache handles eviction automatically under memory pressure.
-    @MainActor private static var attributedStringCache: NSCache<NSNumber, AttributedStringCacheEntry> = {
-        let cache = NSCache<NSNumber, AttributedStringCacheEntry>()
-        cache.countLimit = 1_000
-        cache.totalCostLimit = 10_000_000
-        return cache
-    }()
-
-    // MARK: - Cache Guardrails
-
-    private static let maxCacheableTextLength = 10_000
-    /// Cache for prefix width measurements to avoid repeated Core Text layout calls.
-    @MainActor private static var prefixWidthCache: [String: CGFloat] = [:]
+    // MARK: - Cache Management
 
     /// Clears the attributed string cache.  Called when switching conversations
     /// or archiving a conversation to reclaim memory.
     static func clearAttributedStringCache() {
-        attributedStringCache.removeAllObjects()
-        prefixWidthCache.removeAll()
         groupedSegmentsCache.removeAll()
         MarkdownTableView.clearCellAttributedStringCache()
         SelectableTextView.clearCache()
-    }
-
-    /// Rough character count of the text content within a segment array.
-    private static func segmentTextLength(_ segments: [MarkdownSegment]) -> Int {
-        segments.reduce(0) { total, seg in
-            switch seg {
-            case .text(let t): return total + t.count
-            case .heading(_, let t): return total + t.count
-            case .codeBlock(_, let c): return total + c.count
-            case .list(let items): return total + items.reduce(0) { $0 + $1.text.count }
-            case .table(let h, let r): return total + h.joined().count + r.flatMap { $0 }.joined().count
-            case .image, .horizontalRule: return total
-            }
-        }
-    }
-
-    /// Builds (or retrieves from cache) a single AttributedString from
-    /// consecutive text-selectable segments.
-    private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
-        os_signpost(.begin, log: PerfSignposts.log, name: "attributedStringBuild")
-        defer { os_signpost(.end, log: PerfSignposts.log, name: "attributedStringBuild") }
-        // Build a stable cache key from the segment contents and style
-        // inputs that affect the output (e.g. secondaryTextColor for list
-        // prefix coloring) so different visual contexts don't share entries.
-        var hasher = Hasher()
-        for segment in segments {
-            hasher.combine(segment)
-        }
-        hasher.combine(secondaryTextColor.description)
-        hasher.combine(textColor.description)
-        hasher.combine(codeTextColor.description)
-        hasher.combine(codeBackgroundColor.description)
-        let cacheKey = hasher.finalize()
-
-        let cacheKeyNS = cacheKey as NSNumber
-        if let cached = Self.attributedStringCache.object(forKey: cacheKeyNS)?.attributedString {
-            return cached
-        }
-
-        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor)
-
-        // Skip caching for very long segment groups to avoid a single huge
-        // entry evicting many smaller, more frequently accessed entries.
-        let textLen = Self.segmentTextLength(segments)
-        if textLen > Self.maxCacheableTextLength { return result }
-
-        // Use 10 bytes per character to estimate cost; AttributedString carries
-        // font, color, and paragraph metadata on top of raw text.
-        Self.attributedStringCache.setObject(AttributedStringCacheEntry(result), forKey: cacheKeyNS, cost: textLen * 10)
-        return result
-    }
-
-    /// Pure builder with no side effects — separated for caching.
-    private static func buildAttributedStringUncached(
-        from segments: [MarkdownSegment],
-        secondaryTextColor: Color,
-        codeTextColor: Color = VColor.systemNegativeStrong,
-        codeBackgroundColor: Color = VColor.surfaceActive
-    ) -> AttributedString {
-        let mdOptions = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        var result = AttributedString()
-
-        for (index, segment) in segments.enumerated() {
-            if index > 0 {
-                result += AttributedString("\n\n")
-            }
-
-            switch segment {
-            case .text(let text):
-                let attributed = (try? AttributedString(markdown: text, options: mdOptions))
-                    ?? AttributedString(text)
-                result += attributed
-
-            case .list(let items):
-                for (itemIndex, item) in items.enumerated() {
-                    if itemIndex > 0 {
-                        result += AttributedString("\n")
-                    }
-                    let indentLevel = item.indent / 2
-                    let indentString = String(repeating: "    ", count: indentLevel)
-                    let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
-
-                    var prefixAttr = AttributedString(indentString + prefix)
-                    prefixAttr.foregroundColor = secondaryTextColor
-
-                    let itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
-                        ?? AttributedString(item.text)
-
-                    // Apply hanging indent so wrapped lines align with item text
-                    let prefixText = indentString + prefix
-                    // Measure actual prefix width using the font (cached to avoid repeated Core Text calls)
-                    let prefixWidth: CGFloat
-                    if let cached = prefixWidthCache[prefixText] {
-                        prefixWidth = cached
-                    } else {
-                        let font = NSFont(name: "DMSans-Regular", size: 16) ?? NSFont.systemFont(ofSize: 16)
-                        let prefixNS = NSString(string: prefixText)
-                        prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
-                        if prefixWidthCache.count < 200 {
-                            prefixWidthCache[prefixText] = prefixWidth
-                        }
-                    }
-                    let paragraphStyle = NSMutableParagraphStyle()
-                    paragraphStyle.headIndent = prefixWidth
-                    paragraphStyle.firstLineHeadIndent = 0
-
-                    var itemCombined = prefixAttr + itemAttr
-                    itemCombined.applyParagraphStyle(paragraphStyle)
-                    result += itemCombined
-                }
-
-            default:
-                break
-            }
-        }
-
-        // Apply background, text color, and padding to inline code spans
-        var codeRanges: [Range<AttributedString.Index>] = []
-        for run in result.runs {
-            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
-                codeRanges.append(run.range)
-            }
-        }
-        for range in codeRanges.reversed() {
-            result[range].foregroundColor = codeTextColor
-            result[range].backgroundColor = codeBackgroundColor
-            var trailing = AttributedString("\u{2009}")
-            trailing.backgroundColor = codeBackgroundColor
-            result.insert(trailing, at: range.upperBound)
-            var leading = AttributedString("\u{2009}")
-            leading.backgroundColor = codeBackgroundColor
-            result.insert(leading, at: range.lowerBound)
-        }
-        // Apply synthetic italic/bold to emphasized runs.
-        // DM Sans doesn't ship an italic font face, so SwiftUI can't resolve
-        // the italic trait from .emphasized inlinePresentationIntent. We detect
-        // emphasized runs and apply a synthetic oblique via affine transform.
-        var emphOnlyRanges: [Range<AttributedString.Index>] = []
-        var boldEmphRanges: [Range<AttributedString.Index>] = []
-        for run in result.runs {
-            guard let intent = run.inlinePresentationIntent, !intent.contains(.code) else { continue }
-            let isEmph = intent.contains(.emphasized)
-            let isBold = intent.contains(.stronglyEmphasized)
-            if isEmph && isBold {
-                boldEmphRanges.append(run.range)
-            } else if isEmph {
-                emphOnlyRanges.append(run.range)
-            }
-        }
-        if !emphOnlyRanges.isEmpty || !boldEmphRanges.isEmpty {
-            let sz: CGFloat = 16 // matches VFont.chat size
-            var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
-            if !emphOnlyRanges.isEmpty {
-                let italicCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique)
-                let italicFont = Font(italicCT as NSFont)
-                for range in emphOnlyRanges { result[range].font = italicFont }
-            }
-            if !boldEmphRanges.isEmpty {
-                let wght = 0x77676874
-                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
-                let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
-                let boldItalicCT = CTFontCreateCopyWithAttributes(
-                    baseCT, sz, &oblique,
-                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
-                )
-                let boldItalicFont = Font(boldItalicCT as NSFont)
-                for range in boldEmphRanges { result[range].font = boldItalicFont }
-            }
-        }
-
-        // Underline links so they are visually distinct from plain text
-        for run in result.runs where result[run.range].link != nil {
-            result[run.range].underlineStyle = .single
-        }
-
-        return result
     }
 }
 
@@ -463,18 +260,6 @@ private struct CodeBlockView: View, Equatable {
             }
         }
         .onHover { isHovered = $0 }
-    }
-}
-
-// MARK: - NSParagraphStyle Sendable workaround
-
-private extension AttributedString {
-    /// Applies a paragraph style via NSMutableAttributedString to avoid the
-    /// compiler warning about NSParagraphStyle's revoked Sendable conformance.
-    mutating func applyParagraphStyle(_ style: NSParagraphStyle) {
-        let ns = NSMutableAttributedString(self)
-        ns.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: ns.length))
-        self = AttributedString(ns)
     }
 }
 
