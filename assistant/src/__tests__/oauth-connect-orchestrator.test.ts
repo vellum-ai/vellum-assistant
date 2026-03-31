@@ -95,7 +95,6 @@ type ProviderRow = {
   defaultScopes: string;
   scopePolicy: string;
   extraParams: string | null;
-  callbackTransport: string | null;
   pingUrl: string | null;
   pingMethod: string | null;
   pingHeaders: string | null;
@@ -171,7 +170,6 @@ function makeProviderRow(
     scopePolicy:
       '{"allowAdditionalScopes":false,"allowedOptionalScopes":[],"forbiddenScopes":[]}',
     extraParams: null,
-    callbackTransport: null,
     pingUrl: null,
     pingMethod: null,
     pingHeaders: null,
