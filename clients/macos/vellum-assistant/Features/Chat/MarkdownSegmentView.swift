@@ -76,21 +76,6 @@ struct MarkdownSegmentView: View, Equatable {
                         .fixedSize(horizontal: false, vertical: true)
                     #endif
 
-                case .heading(let level, let headingText):
-                    let headingFont: Font = switch level {
-                    case 1: .system(size: 20, weight: .bold)
-                    case 2: .system(size: 16, weight: .semibold)
-                    case 3: .system(size: 14, weight: .semibold)
-                    default: .system(size: 14, weight: .semibold)
-                    }
-                    Text(headingText)
-                        .font(headingFont)
-                        .foregroundStyle(textColor)
-                        .optionalMaxWidth(maxContentWidth)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, level == 1 ? 4 : 2)
-
                 case .codeBlock(let language, let code):
                     CodeBlockView(
                         language: language,
@@ -126,10 +111,8 @@ struct MarkdownSegmentView: View, Equatable {
 
     /// Groups of segments for rendering.
     private enum SegmentGroup {
-        /// Consecutive text paragraphs combined for cross-paragraph selection.
+        /// Consecutive text paragraphs and headings combined for cross-paragraph selection.
         case selectableRun([MarkdownSegment])
-        /// A heading rendered as its own block for spacing control.
-        case heading(level: Int, text: String)
         case codeBlock(language: String?, code: String)
         case table(headers: [String], rows: [[String]])
         case image(alt: String, url: String)
@@ -183,9 +166,8 @@ struct MarkdownSegmentView: View, Equatable {
             switch segment {
             case .text:
                 currentRun.append(segment)
-            case .heading(let level, let text):
-                flushRun()
-                groups.append(.heading(level: level, text: text))
+            case .heading:
+                currentRun.append(segment)
             case .list:
                 currentRun.append(segment)
             case .codeBlock(let language, let code):
@@ -308,6 +290,29 @@ struct MarkdownSegmentView: View, Equatable {
                 let attributed = (try? AttributedString(markdown: text, options: mdOptions))
                     ?? AttributedString(text)
                 result += attributed
+
+            case .heading(let level, let text):
+                var headingAttr = AttributedString(text)
+                let headingSize: CGFloat = switch level {
+                case 1: 20
+                case 2: 16
+                default: 14
+                }
+                let wght = 0x77676874 // 'wght' variation axis tag
+                let weightValue: Int = level == 1 ? 700 : 600
+                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, headingSize, nil)
+                let vars: [CFNumber: CFNumber] = [wght as CFNumber: weightValue as CFNumber]
+                let headingCT = CTFontCreateCopyWithAttributes(
+                    baseCT, headingSize, nil,
+                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: vars] as CFDictionary)
+                )
+                headingAttr.font = Font(headingCT as NSFont)
+                if index > 0 {
+                    let paraStyle = NSMutableParagraphStyle()
+                    paraStyle.paragraphSpacingBefore = level == 1 ? 8 : 4
+                    headingAttr.applyParagraphStyle(paraStyle)
+                }
+                result += headingAttr
 
             case .list(let items):
                 for (itemIndex, item) in items.enumerated() {
