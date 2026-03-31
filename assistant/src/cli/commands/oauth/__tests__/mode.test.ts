@@ -34,6 +34,10 @@ let mockSetNestedValueCalls: Array<{
 
 let mockConfigServices: Record<string, unknown> = {};
 
+let mockRequirePlatformConnection: (
+  cmd: unknown,
+) => Promise<boolean> = async () => true;
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -120,6 +124,8 @@ mock.module("../shared.js", () => ({
   isManagedMode: () => false,
   getManagedServiceConfigKey: (key: string) =>
     mockGetManagedServiceConfigKey(key),
+  requirePlatformConnection: (cmd: unknown) =>
+    mockRequirePlatformConnection(cmd),
   requirePlatformClient: async (_cmd: Command) => {
     if (
       !mockPlatformClientResult ||
@@ -244,6 +250,7 @@ describe("assistant oauth mode", () => {
     mockSaveRawConfigCalls = [];
     mockSetNestedValueCalls = [];
     mockConfigServices = {};
+    mockRequirePlatformConnection = async () => true;
     process.exitCode = 0;
   });
 
