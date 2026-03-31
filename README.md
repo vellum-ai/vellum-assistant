@@ -32,7 +32,7 @@
 |------|---------|
 | **Gatekeeper (Trust engine)** | **Decides who can do what, and defaults to no.** Fail-closed trust system that resolves actor identity once (guardian, trusted, or unknown) and enforces it everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Your credentials live in a separate process and never reach the model. |
 | **Skills** | Manifest-driven plugins (SKILL.md + TOOLS.json) that inject tools and prompt sections at runtime. Skills can be bundled, installed from a catalog, or created within the workspace. |
-| **Channels** | Use it on the macOS app, Telegram, and Slack, with shared memory across all of them. (More channels coming soon) |
+| **Channels** | Interact with your assistant on the MacOS app, Telegram, and Slack, with shared memory across all of them. (More channels coming soon) |
 | **Multi-provider support** | Supports Anthropic Claude, OpenAI, Google Gemini, and Ollama for local models. Embeddings follow the same pattern; local ONNX by default, with automatic fallback through cloud providers. Swap models without changing anything else. |
 
 ---
