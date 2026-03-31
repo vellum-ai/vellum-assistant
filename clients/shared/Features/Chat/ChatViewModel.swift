@@ -735,7 +735,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     public var displayedMessageCount: Int {
         get { paginationState.displayedMessageCount }
-        set { paginationState.displayedMessageCount = newValue }
+        set {
+            paginationState.displayedMessageCount = newValue
+            paginationState.recomputePaginatedSuffix()
+        }
     }
 
     public var isLoadingMoreMessages: Bool {
@@ -745,6 +748,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     public var displayedMessages: [ChatMessage] {
         paginationState.displayedMessages
+    }
+
+    /// Pre-computed paginated visible messages for the current display window.
+    /// Cached at the model layer so view bodies read O(1) instead of running
+    /// the O(n) visibility filter on every body evaluation.
+    public var paginatedVisibleMessages: [ChatMessage] {
+        paginationState.paginatedVisibleMessages
     }
 
     public var historyCursor: Double? {

@@ -92,6 +92,10 @@ struct MessageListView: View {
 
     // MARK: - Pagination
 
+    /// Pre-computed paginated visible messages from the model layer.
+    /// Cached as a stored property on `ChatPaginationState` and updated
+    /// reactively via Combine, so reading this in `body` is O(1).
+    let paginatedVisibleMessages: [ChatMessage]
     /// Number of messages the view currently displays (suffix window size).
     var displayedMessageCount: Int = .max
     /// Whether older messages exist beyond the current display window.
@@ -133,13 +137,12 @@ struct MessageListView: View {
     @State private var scrollPosition = ScrollPosition()
 
     /// The subset of messages actually shown, honoring the pagination window.
-    /// Uses the shared `ChatVisibleMessageFilter` so hidden automated messages
-    /// are excluded from rendered rows, pagination anchors, and all derived state.
+    /// Reads the pre-computed cache from the model layer in O(1) instead of
+    /// running the O(n) visibility filter on every body evaluation.
+    ///
+    /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     private var visibleMessages: [ChatMessage] {
-        ChatVisibleMessageFilter.paginatedMessages(
-            from: messages,
-            displayedMessageCount: displayedMessageCount
-        )
+        paginatedVisibleMessages
     }
 
     /// Checks whether observable message-level inputs have changed since the
