@@ -504,17 +504,15 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 6 watermarks should have been advanced (3 timestamps + 3 IDs)
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(6);
+    // All 3 timestamp watermarks should have been advanced (IDs left untouched
+    // so the compound-cursor branch stays active)
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(3);
 
     const calls = mockSetMemoryCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
     expect(keys).toContain("telemetry:usage:last_reported_at");
-    expect(keys).toContain("telemetry:usage:last_reported_id");
     expect(keys).toContain("telemetry:turns:last_reported_at");
-    expect(keys).toContain("telemetry:turns:last_reported_id");
     expect(keys).toContain("telemetry:lifecycle:last_reported_at");
-    expect(keys).toContain("telemetry:lifecycle:last_reported_id");
   });
 
   test("events sent normally after re-enabling collectUsageData", async () => {
