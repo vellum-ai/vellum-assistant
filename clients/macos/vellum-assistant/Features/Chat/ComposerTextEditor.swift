@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import VellumAssistantShared
 
 /// NSScrollView subclass that reports intrinsic content size based on
 /// its document view's text layout height. This lets SwiftUI size the
@@ -155,7 +156,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         if let override = textColorOverride {
             textView.textColor = override
         } else {
-            textView.textColor = .labelColor
+            textView.textColor = NSColor(VColor.contentDefault)
         }
 
         textView.cmdEnterToSend = cmdEnterToSend
