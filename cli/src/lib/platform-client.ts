@@ -422,7 +422,7 @@ export async function platformRequestUploadUrl(
     };
   }
 
-  if (response.status === 503) {
+  if (response.status === 404 || response.status === 503) {
     throw new Error(
       "Signed uploads are not available on this platform instance",
     );
