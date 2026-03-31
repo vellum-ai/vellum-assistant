@@ -170,9 +170,12 @@ struct SettingsDeveloperTab: View {
             }
         } message: {
             if lockfileAssistants.count > 1 {
-                Text("This will stop the current assistant and switch to another. The retired assistant's lockfile entry will be removed.")
+                let otherAssistants = lockfileAssistants.filter { $0.assistantId != selectedAssistantId }
+                let nextAssistant = otherAssistants.first(where: { $0.isRemote }) ?? otherAssistants.first
+                let nextName = nextAssistant.map { displayNames[$0.assistantId] ?? $0.assistantId } ?? "another assistant"
+                Text("This will retire this assistant and switch to \(nextName). The retired assistant's lockfile entry will be removed.")
             } else {
-                Text("This will stop the assistant, remove local data, and return to initial setup. This action cannot be undone.")
+                Text("This will retire your only assistant and return you to setup. This action cannot be undone.")
             }
         }
         .alert("Restart Assistant", isPresented: $showingRestartConfirmation) {
@@ -815,8 +818,8 @@ struct SettingsDeveloperTab: View {
         SettingsCard(
             title: "Retire Assistant",
             subtitle: lockfileAssistants.count > 1
-                ? "Stops the current assistant and switches to another."
-                : "Stops the assistant, removes local data, and returns to initial setup."
+                ? "Retires the current assistant and switches to the next available one."
+                : "Retires your only assistant and returns to initial setup."
         ) {
             VButton(label: "Retire", style: .danger) {
                 showingRetireConfirmation = true
