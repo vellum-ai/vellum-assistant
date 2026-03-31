@@ -20,7 +20,7 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
-import { getWorkspaceHooksDir } from "../util/platform.js";
+import { getDeprecatedDir, getWorkspaceHooksDir } from "../util/platform.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
@@ -953,7 +953,7 @@ function isActorTokenSigningKeyPath(
   const resolvedPath = resolve(cwd, filePath);
   const signingKeyPaths = [
     join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
-    resolve(cwd, "deprecated", "actor-token-signing-key"),
+    join(getDeprecatedDir(), "actor-token-signing-key"),
   ];
 
   // Lexical match (handles normal paths and cases where files don't exist)
