@@ -727,6 +727,10 @@ extension AppDelegate {
                 self.removeLockfileEntry(assistantId: assistantName)
             }
 
+            // Explicitly stop the retired assistant's processes to ensure
+            // nothing lingers (the CLI retire may not kill all child processes).
+            await vellumCli.stop(name: assistantName)
+
             // Check if other assistants remain in the lockfile.
             // Prefer remote assistants (always reachable), then try waking local ones.
             let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName && $0.isCurrentEnvironment }
