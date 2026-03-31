@@ -83,7 +83,7 @@ if (missingKeys.length === 0) {
 } else {
   const list = missingKeys.map((k) => `  - ${k}`).join('\n');
   console.error(
-    `\u2717 ${missingKeys.length} registry flag${missingKeys.length === 1 ? '' : 's'} not found on the platform:\n${list}`,
+    `\u2717 ${missingKeys.length} registry flag${missingKeys.length === 1 ? '' : 's'} not found on the platform:\n${list}\n\nAdd the missing flag${missingKeys.length === 1 ? '' : 's'} via Terraform in the vellum-assistant-platform repo.`,
   );
   process.exit(1);
 }
