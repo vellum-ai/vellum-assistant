@@ -61,7 +61,7 @@ public struct VDiffView: View {
                         diffLine(line)
                     }
                 }
-                .fixedSize(horizontal: true, vertical: true)
+                .fixedSize(horizontal: true, vertical: false)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
