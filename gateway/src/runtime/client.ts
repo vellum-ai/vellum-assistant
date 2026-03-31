@@ -553,8 +553,10 @@ export async function uploadAttachment(
 
   // Always check the breaker for fail-fast (OPEN/HALF_OPEN rejection).
   // skipCb only suppresses success/failure accounting so attachment errors
-  // don't trip the breaker.
-  cbBeforeRequest();
+  // don't trip the breaker — but half-open probes must always record their
+  // outcome to avoid getting stuck in HALF_OPEN permanently.
+  const isProbe = cbBeforeRequest();
+  const recordOutcome = !skipCb || isProbe;
 
   const url = `${config.assistantRuntimeBaseUrl}/v1/attachments`;
 
@@ -569,7 +571,7 @@ export async function uploadAttachment(
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
   } catch (err) {
-    if (!skipCb) cbOnFailure();
+    if (recordOutcome) cbOnFailure();
     throw err;
   }
 
@@ -579,16 +581,16 @@ export async function uploadAttachment(
     // extension, missing fields). Distinguish from transient 5xx/network errors
     // so callers can decide whether to skip or propagate.
     if (response.status >= 400 && response.status < 500) {
-      if (!skipCb) cbOnSuccess();
+      if (recordOutcome) cbOnSuccess();
       throw new AttachmentValidationError(
         `Attachment rejected (${response.status}): ${body}`,
       );
     }
-    if (!skipCb) cbOnFailure();
+    if (recordOutcome) cbOnFailure();
     throw new Error(`Attachment upload failed (${response.status}): ${body}`);
   }
 
-  if (!skipCb) cbOnSuccess();
+  if (recordOutcome) cbOnSuccess();
   return (await response.json()) as UploadAttachmentResponse;
 }
 
