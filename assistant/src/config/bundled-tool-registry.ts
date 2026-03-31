@@ -56,7 +56,7 @@ import * as contactMerge from "./bundled-skills/contacts/tools/contact-merge.js"
 import * as contactSearch from "./bundled-skills/contacts/tools/contact-search.js";
 import * as contactUpsert from "./bundled-skills/contacts/tools/contact-upsert.js";
 import * as googleContacts from "./bundled-skills/contacts/tools/google-contacts.js";
-// ── conversations ─────────────────────────────────────────────────────────────
+// ── conversations ──────────────────────────────────────────────────────────────
 import * as renameConversation from "./bundled-skills/conversations/tools/rename-conversation.js";
 // ── document ───────────────────────────────────────────────────────────────────
 import * as documentCreate from "./bundled-skills/document/tools/document-create.js";
@@ -107,7 +107,7 @@ import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.
 import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
 // ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
-// ── outlook ───────────────────────────────────────────────────────────────────
+// ── outlook ────────────────────────────────────────────────────────────────────
 import * as outlookAttachments from "./bundled-skills/outlook/tools/outlook-attachments.js";
 import * as outlookCategories from "./bundled-skills/outlook/tools/outlook-categories.js";
 import * as outlookDraft from "./bundled-skills/outlook/tools/outlook-draft.js";
@@ -304,18 +304,18 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["notifications:tools/send-notification.ts", sendNotification],
 
   // outlook
-  ["outlook:tools/outlook-attachments.ts", outlookAttachments],
-  ["outlook:tools/outlook-categories.ts", outlookCategories],
-  ["outlook:tools/outlook-draft.ts", outlookDraft],
-  ["outlook:tools/outlook-follow-up.ts", outlookFollowUp],
-  ["outlook:tools/outlook-forward.ts", outlookForward],
-  ["outlook:tools/outlook-outreach-scan.ts", outlookOutreachScan],
   ["outlook:tools/outlook-rules.ts", outlookRules],
-  ["outlook:tools/outlook-send-draft.ts", outlookSendDraft],
-  ["outlook:tools/outlook-sender-digest.ts", outlookSenderDigest],
-  ["outlook:tools/outlook-trash.ts", outlookTrash],
-  ["outlook:tools/outlook-unsubscribe.ts", outlookUnsubscribe],
   ["outlook:tools/outlook-vacation.ts", outlookVacation],
+  ["outlook:tools/outlook-sender-digest.ts", outlookSenderDigest],
+  ["outlook:tools/outlook-outreach-scan.ts", outlookOutreachScan],
+  ["outlook:tools/outlook-draft.ts", outlookDraft],
+  ["outlook:tools/outlook-send-draft.ts", outlookSendDraft],
+  ["outlook:tools/outlook-forward.ts", outlookForward],
+  ["outlook:tools/outlook-trash.ts", outlookTrash],
+  ["outlook:tools/outlook-categories.ts", outlookCategories],
+  ["outlook:tools/outlook-follow-up.ts", outlookFollowUp],
+  ["outlook:tools/outlook-unsubscribe.ts", outlookUnsubscribe],
+  ["outlook:tools/outlook-attachments.ts", outlookAttachments],
 
   // phone-calls
   ["phone-calls:tools/call-start.ts", callStart],
@@ -349,12 +349,12 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["sequences:tools/sequence-analytics.ts", sequenceAnalytics],
 
   // settings
-  ["settings:tools/avatar-get.ts", avatarGet],
-  ["settings:tools/avatar-update.ts", avatarUpdate],
-  ["settings:tools/avatar-remove.ts", avatarRemove],
   ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
   ["settings:tools/open-system-settings.ts", openSystemSettings],
   ["settings:tools/navigate-settings-tab.ts", navigateSettingsTab],
+  ["settings:tools/avatar-update.ts", avatarUpdate],
+  ["settings:tools/avatar-remove.ts", avatarRemove],
+  ["settings:tools/avatar-get.ts", avatarGet],
 
   // skill-management
   ["skill-management:tools/scaffold-managed.ts", scaffoldManaged],
