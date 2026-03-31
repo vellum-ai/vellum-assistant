@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockPricingOverrides: Array<{
   provider: string;
@@ -26,7 +26,6 @@ import {
   initializeDb,
   rawGet,
   rawRun,
-  resetDb,
 } from "../memory/db.js";
 import { migrateBackfillUsageCacheAccounting } from "../memory/migrations/140-backfill-usage-cache-accounting.js";
 import type { PricingUsage } from "../usage/types.js";
@@ -144,10 +143,6 @@ function foreignResponsePayload(): string {
     },
   });
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("migrateBackfillUsageCacheAccounting", () => {
   beforeEach(() => {

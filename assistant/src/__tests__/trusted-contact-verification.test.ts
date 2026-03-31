@@ -9,7 +9,7 @@
  * 4. Reactivate previously revoked members on re-verification
  * 5. NOT create a guardian binding (trusted contacts are not guardians)
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -31,7 +31,7 @@ import {
   revokeMember,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import {
   createOutboundSession,
@@ -39,10 +39,6 @@ import {
 } from "../runtime/channel-verification-service.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

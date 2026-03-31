@@ -1,14 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -91,7 +83,7 @@ import {
   messageMetadataSchema,
   provenanceFromTrustContext,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import {
   getRecentSegmentsForConversation,
@@ -149,10 +141,6 @@ describe("Memory regressions", () => {
     mockQdrantResults = [];
     resetCleanupScheduleThrottle();
     resetStaleSweepThrottle();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   function semanticRecallConfig() {

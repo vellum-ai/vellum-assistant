@@ -129,14 +129,12 @@ function makePrompter(): PermissionPrompter {
   } as unknown as PermissionPrompter;
 }
 
-import { resetDb } from "../memory/db.js";
 import { initializeDb } from "../memory/db-init.js";
 
 beforeAll(() => {
   initializeDb();
 });
 afterAll(() => {
-  resetDb();
   mock.restore();
 });
 

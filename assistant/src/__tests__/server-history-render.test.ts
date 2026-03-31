@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -14,13 +14,9 @@ import {
   uploadAttachment,
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("renderHistoryContent", () => {
   test("renders text-only content unchanged", () => {

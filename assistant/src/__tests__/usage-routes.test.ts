@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -7,15 +7,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import { usageRouteDefinitions } from "../runtime/routes/usage-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 function clearUsageEvents() {
   getSqlite().run("DELETE FROM llm_usage_events");

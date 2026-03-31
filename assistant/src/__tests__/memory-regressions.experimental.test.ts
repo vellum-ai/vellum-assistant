@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../security/secure-keys.js", () => ({
   getProviderKeyAsync: async () => undefined,
@@ -65,7 +57,7 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => TEST_CONFIG,
   invalidateConfigCache: () => {},
 }));
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import {
@@ -103,10 +95,6 @@ describe("Memory regressions (experimental)", () => {
     resetCleanupScheduleThrottle();
     resetStaleSweepThrottle();
     mockQdrantResults = [];
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   async function withMockOllamaQueryEmbedding<T>(

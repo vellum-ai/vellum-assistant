@@ -8,7 +8,7 @@
  * 5. Inline wait-and-resume for trusted-contact grant-gated tools
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -109,7 +109,7 @@ import {
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import {
@@ -129,10 +129,6 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

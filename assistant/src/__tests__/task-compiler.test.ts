@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
@@ -21,7 +21,7 @@ mock.module("./indexer.js", () => ({
 
 import type { Database } from "bun:sqlite";
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   compileTaskFromConversation,
   saveCompiledTask,
@@ -30,10 +30,6 @@ import { renderTemplate } from "../tasks/task-runner.js";
 import { getTask } from "../tasks/task-store.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

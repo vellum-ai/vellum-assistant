@@ -6,7 +6,7 @@
  * These tests confirm no channel-specific assumptions leaked into the
  * trusted contact code paths.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -78,7 +78,7 @@ import {
   createGuardianBinding,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   createOutboundSession,
   validateAndConsumeVerification,
@@ -86,10 +86,6 @@ import {
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

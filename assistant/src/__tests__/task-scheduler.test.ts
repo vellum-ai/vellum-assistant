@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -7,7 +7,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   createSchedule,
   getSchedule,
@@ -32,10 +32,6 @@ function forceScheduleDue(scheduleId: string): void {
     scheduleId,
   ]);
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 // ── scheduleTask helper ─────────────────────────────────────────────
 

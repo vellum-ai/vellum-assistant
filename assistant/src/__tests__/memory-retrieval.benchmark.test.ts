@@ -9,15 +9,7 @@
  * no candidates are found and injectedText is empty. The tests verify
  * pipeline completion, latency bounds, and token budget enforcement.
  */
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -56,7 +48,7 @@ mock.module("../memory/embedding-backend.js", () => ({
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import type { AssistantConfig } from "../config/types.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";
 
@@ -152,10 +144,6 @@ describe("Memory retrieval benchmark", () => {
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   test("retrieval completes under 500ms for 100 items", async () => {
