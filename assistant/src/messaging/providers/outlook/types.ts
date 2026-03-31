@@ -75,6 +75,21 @@ export interface OutlookSendMessagePayload {
   saveToSentItems?: boolean;
 }
 
+/** Draft message for creating in Drafts folder */
+export interface OutlookDraftMessage {
+  subject: string;
+  body: OutlookItemBody;
+  toRecipients?: OutlookRecipient[];
+  ccRecipients?: OutlookRecipient[];
+  bccRecipients?: OutlookRecipient[];
+}
+
+/** Forward message payload (Graph API's /createForward returns a draft) */
+export interface OutlookForwardMessage {
+  toRecipients: OutlookRecipient[];
+  comment?: string;
+}
+
 /** Microsoft Graph user profile */
 export interface OutlookUserProfile {
   displayName: string;

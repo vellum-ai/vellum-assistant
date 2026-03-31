@@ -3,10 +3,12 @@ import type {
   OAuthConnectionResponse,
 } from "../../../oauth/connection.js";
 import type {
+  OutlookDraftMessage,
   OutlookMailFolder,
   OutlookMailFolderListResponse,
   OutlookMessage,
   OutlookMessageListResponse,
+  OutlookRecipient,
   OutlookSendMessagePayload,
   OutlookUserProfile,
 } from "./types.js";
@@ -280,6 +282,84 @@ export async function moveMessage(
     {
       method: "POST",
       body: JSON.stringify({ destinationId: destinationFolderId }),
+    },
+  );
+}
+
+/** Create a draft message in the user's Drafts folder. */
+export async function createDraft(
+  connection: OAuthConnection,
+  draft: OutlookDraftMessage,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(connection, "/v1.0/me/messages", {
+    method: "POST",
+    body: JSON.stringify(draft),
+  });
+}
+
+/** Send an existing draft message by its ID. Returns void (202 No Content). */
+export async function sendDraft(
+  connection: OAuthConnection,
+  messageId: string,
+): Promise<void> {
+  await request<void>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/send`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+/** Create a reply draft for a message. */
+export async function createReplyDraft(
+  connection: OAuthConnection,
+  messageId: string,
+  comment?: string,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/createReply`,
+    {
+      method: "POST",
+      body: JSON.stringify(comment !== undefined ? { comment } : {}),
+    },
+  );
+}
+
+/** Create a reply-all draft for a message. */
+export async function createReplyAllDraft(
+  connection: OAuthConnection,
+  messageId: string,
+  comment?: string,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/createReplyAll`,
+    {
+      method: "POST",
+      body: JSON.stringify(comment !== undefined ? { comment } : {}),
+    },
+  );
+}
+
+/** Create a forward draft for a message. */
+export async function createForwardDraft(
+  connection: OAuthConnection,
+  messageId: string,
+  toRecipients?: OutlookRecipient[],
+  comment?: string,
+): Promise<OutlookMessage> {
+  const body: Record<string, unknown> = {};
+  if (toRecipients !== undefined) body.toRecipients = toRecipients;
+  if (comment !== undefined) body.comment = comment;
+
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/createForward`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
     },
   );
 }
