@@ -357,7 +357,7 @@ public final class AuthService {
         assistantId: String,
         organizationId: String
     ) async throws -> PlatformAssistant {
-        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/enter-maintenance-mode/"
+        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/maintenance-mode/enter/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -386,7 +386,7 @@ public final class AuthService {
         let httpResponse = response as? HTTPURLResponse
         let statusCode = httpResponse?.statusCode ?? 0
 
-        log.debug("Platform request POST assistants/\(assistantId)/enter-maintenance-mode/ -> \(statusCode)")
+        log.debug("Platform request POST assistants/\(assistantId)/maintenance-mode/enter/ -> \(statusCode)")
 
         if statusCode == 401 || statusCode == 403 {
             throw PlatformAPIError.authenticationRequired
@@ -412,7 +412,7 @@ public final class AuthService {
         assistantId: String,
         organizationId: String
     ) async throws -> PlatformAssistant {
-        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/exit-maintenance-mode/"
+        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/maintenance-mode/exit/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -441,7 +441,7 @@ public final class AuthService {
         let httpResponse = response as? HTTPURLResponse
         let statusCode = httpResponse?.statusCode ?? 0
 
-        log.debug("Platform request POST assistants/\(assistantId)/exit-maintenance-mode/ -> \(statusCode)")
+        log.debug("Platform request POST assistants/\(assistantId)/maintenance-mode/exit/ -> \(statusCode)")
 
         if statusCode == 401 || statusCode == 403 {
             throw PlatformAPIError.authenticationRequired
