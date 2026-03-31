@@ -655,6 +655,16 @@ export async function runDaemon(): Promise<void> {
       } catch (err) {
         log.warn({ err }, "CLI command memory seeding failed — continuing");
       }
+
+      // Seed capability graph nodes (new memory graph system)
+      try {
+        const { seedSkillGraphNodes, seedCliGraphNodes } =
+          await import("../memory/graph/capability-seed.js");
+        seedSkillGraphNodes();
+        seedCliGraphNodes();
+      } catch (err) {
+        log.warn({ err }, "Graph capability seeding failed — continuing");
+      }
     }
 
     // Fire-and-forget: Qdrant init runs concurrently with the rest of startup

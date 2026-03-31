@@ -57,6 +57,7 @@ import {
   migrateContactsUserFileColumn,
   migrateConversationForkLineage,
   migrateConversationsThreadTypeIndex,
+  migrateCreateMemoryGraphTables,
   migrateCreateMemoryRecallLogs,
   migrateCreateThreadStartersTable,
   migrateCreateTraceEventsTable,
@@ -548,6 +549,9 @@ export function initializeDb(): void {
   // 100. Drop the vestigial callback_transport column from oauth_providers
   // (transport is now chosen per-flow via the callbackTransport option, not per-provider)
   migrateDropCallbackTransportColumn(database);
+
+  // 101. Memory graph tables (nodes, edges, triggers)
+  migrateCreateMemoryGraphTables(database);
 
   validateMigrationState(database);
 

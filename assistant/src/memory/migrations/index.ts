@@ -142,6 +142,7 @@ export { migrateGuardianRequestEnrichmentColumns } from "./199-guardian-request-
 export { migrateUsageLlmCallCount } from "./200-usage-llm-call-count.js";
 export { migrateOAuthProvidersFeatureFlag } from "./201-oauth-providers-feature-flag.js";
 export { migrateDropCallbackTransportColumn } from "./202-drop-callback-transport-column.js";
+export { migrateCreateMemoryGraphTables } from "./202-memory-graph-tables.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

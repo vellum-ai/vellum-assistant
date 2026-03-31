@@ -3,7 +3,7 @@
  *
  * Generates hypothetical memory documents that bridge the semantic gap between
  * how users query ("moments that changed everything") and how memories are
- * actually stored ("Sidd gave Velissa a collar on March 24"). The expanded
+ * actually stored ("User mentioned their favorite restaurant on March 24"). The expanded
  * queries are embedded alongside the original query to improve recall.
  */
 

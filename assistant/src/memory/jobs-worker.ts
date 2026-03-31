@@ -1,13 +1,10 @@
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
+import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { rawAll, rawRun } from "./db.js";
 import { backfillJob } from "./job-handlers/backfill.js";
-import { batchExtractJob } from "./job-handlers/batch-extraction.js";
-import {
-  cleanupStaleSupersededItemsJob,
-  pruneOldConversationsJob,
-} from "./job-handlers/cleanup.js";
+import { pruneOldConversationsJob } from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
@@ -17,13 +14,21 @@ import {
   embedSegmentJob,
   embedSummaryJob,
 } from "./job-handlers/embedding.js";
-import { extractItemsJob } from "./job-handlers/extraction.js";
 import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
-import { journalCarryForwardJob } from "./job-handlers/journal-carry-forward.js";
+import { graphExtractJob } from "./graph/extraction-job.js";
+import {
+  embedGraphNodeJob,
+  embedGraphTriggerJob,
+} from "./graph/graph-search.js";
+import { runConsolidation } from "./graph/consolidation.js";
+import { runDecayTick } from "./graph/decay.js";
+import { runPatternScan } from "./graph/pattern-scan.js";
+import { runNarrativeRefinement } from "./graph/narrative.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
+import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import {
   BackendUnavailableError,
   classifyError,
@@ -40,6 +45,7 @@ import {
   failMemoryJob,
   failStalledJobs,
   type MemoryJob,
+  type MemoryJobType,
   resetRunningJobsToPending,
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
@@ -58,31 +64,6 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
   const recovered = resetRunningJobsToPending();
   if (recovered > 0) {
     log.info({ recovered }, "Recovered stale running memory jobs");
-  }
-
-  // Startup recovery: enqueue batch_extract for conversations with pending
-  // unextracted messages (e.g. after a crash mid-conversation).
-  try {
-    const pendingRows = rawAll<{ key: string; value: string }>(
-      `SELECT key, value FROM memory_checkpoints WHERE key LIKE 'batch_extract:%:pending_count' AND CAST(value AS INTEGER) > 0`,
-    );
-    for (const row of pendingRows) {
-      // Extract conversationId from key: "batch_extract:<conversationId>:pending_count"
-      const parts = row.key.split(":");
-      if (parts.length >= 3) {
-        const conversationId = parts.slice(1, -1).join(":");
-        enqueueMemoryJob("batch_extract", { conversationId });
-        log.info(
-          { conversationId, pendingCount: row.value },
-          "Recovered pending batch extraction on startup",
-        );
-      }
-    }
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "Failed to recover pending batch extractions on startup",
-    );
   }
 
   let stopped = false;
@@ -161,6 +142,7 @@ export async function runMemoryJobsOnce(
     if (enableScheduledCleanup) {
       maybeEnqueueScheduledCleanupJobs(config);
     }
+    maybeEnqueueGraphMaintenanceJobs();
     return 0;
   }
 
@@ -256,7 +238,65 @@ export async function runMemoryJobsOnce(
   if (enableScheduledCleanup) {
     maybeEnqueueScheduledCleanupJobs(config);
   }
+  maybeEnqueueGraphMaintenanceJobs();
   return processed;
+}
+
+// ── Graph lifecycle job handlers ──────────────────────────────────
+
+function graphDecayJob(job: MemoryJob): void {
+  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
+  const result = runDecayTick(scopeId);
+  log.info({ jobId: job.id, ...result }, "Graph decay tick complete");
+}
+
+async function graphConsolidateJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
+  const result = await runConsolidation(scopeId, config);
+  log.info(
+    {
+      jobId: job.id,
+      updated: result.totalUpdated,
+      deleted: result.totalDeleted,
+      mergeEdges: result.totalMergeEdges,
+    },
+    "Graph consolidation complete",
+  );
+}
+
+async function graphPatternScanJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
+  const result = await runPatternScan(scopeId, config);
+  log.info(
+    {
+      jobId: job.id,
+      patterns: result.patternsDetected,
+      edges: result.edgesCreated,
+    },
+    "Graph pattern scan complete",
+  );
+}
+
+async function graphNarrativeRefineJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
+  const result = await runNarrativeRefinement(scopeId, config);
+  log.info(
+    {
+      jobId: job.id,
+      updated: result.nodesUpdated,
+      arcs: result.arcsIdentified,
+    },
+    "Graph narrative refinement complete",
+  );
 }
 
 // ── Job error handling ─────────────────────────────────────────────
@@ -328,27 +368,16 @@ async function processJob(
       await embedSummaryJob(job, config);
       return;
     case "extract_items":
-      await extractItemsJob(job);
-      return;
     case "batch_extract":
-      await batchExtractJob(job);
-      return;
     case "extract_entities":
-      // Entity extraction has been removed — silently drop legacy jobs
-      return;
     case "cleanup_stale_superseded_items":
-      cleanupStaleSupersededItemsJob(job, config);
+      // Old extraction pipeline replaced by memory graph — silently drop
       return;
     case "prune_old_conversations":
       pruneOldConversationsJob(job, config);
       return;
     case "build_conversation_summary":
-      // Deprecated: conversation summaries are now produced as a side-effect
-      // of batch extraction. Silently skip legacy jobs.
-      log.debug(
-        { jobId: job.id },
-        "Skipping deprecated build_conversation_summary job — handled by batch extraction",
-      );
+      await buildConversationSummaryJob(job, config);
       return;
     case "backfill":
       await backfillJob(job, config);
@@ -376,7 +405,28 @@ async function processJob(
       await embedAttachmentJob(job, config);
       return;
     case "journal_carry_forward":
-      await journalCarryForwardJob(job);
+      // Journal carry-forward replaced by graph extraction — silently drop
+      return;
+    case "embed_graph_node":
+      await embedGraphNodeJob(job, config);
+      return;
+    case "graph_trigger_embed":
+      await embedGraphTriggerJob(job, config);
+      return;
+    case "graph_extract":
+      await graphExtractJob(job, config);
+      return;
+    case "graph_decay":
+      graphDecayJob(job);
+      return;
+    case "graph_consolidate":
+      await graphConsolidateJob(job, config);
+      return;
+    case "graph_pattern_scan":
+      await graphPatternScanJob(job, config);
+      return;
+    case "graph_narrative_refine":
+      await graphNarrativeRefineJob(job, config);
       return;
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);
@@ -435,6 +485,62 @@ export function maybeEnqueueScheduledCleanupJobs(
     "Enqueued scheduled memory cleanup jobs",
   );
   return true;
+}
+
+// ── Graph maintenance scheduling ──────────────────────────────────
+
+const GRAPH_DECAY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const GRAPH_CONSOLIDATE_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const GRAPH_PATTERN_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
+const GRAPH_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
+
+const GRAPH_MAINTENANCE_CHECKPOINTS = {
+  decay: "graph_maintenance:decay:last_run",
+  consolidate: "graph_maintenance:consolidate:last_run",
+  patternScan: "graph_maintenance:pattern_scan:last_run",
+  narrative: "graph_maintenance:narrative:last_run",
+} as const;
+
+/**
+ * Enqueue periodic graph maintenance jobs (decay, consolidation, pattern scan, narrative).
+ * Uses durable checkpoints so intervals survive daemon restarts — jobs only fire
+ * when the actual elapsed time since last run exceeds the interval.
+ */
+function maybeEnqueueGraphMaintenanceJobs(nowMs = Date.now()): void {
+  const schedule: Array<{
+    key: string;
+    intervalMs: number;
+    jobType: MemoryJobType;
+  }> = [
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
+      intervalMs: GRAPH_DECAY_INTERVAL_MS,
+      jobType: "graph_decay",
+    },
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.consolidate,
+      intervalMs: GRAPH_CONSOLIDATE_INTERVAL_MS,
+      jobType: "graph_consolidate",
+    },
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.patternScan,
+      intervalMs: GRAPH_PATTERN_SCAN_INTERVAL_MS,
+      jobType: "graph_pattern_scan",
+    },
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.narrative,
+      intervalMs: GRAPH_NARRATIVE_INTERVAL_MS,
+      jobType: "graph_narrative_refine",
+    },
+  ];
+
+  for (const { key, intervalMs, jobType } of schedule) {
+    const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
+    if (nowMs - lastRun >= intervalMs) {
+      enqueueMemoryJob(jobType, {});
+      setMemoryCheckpoint(key, String(nowMs));
+    }
+  }
 }
 
 // ── Stale item sweep ───────────────────────────────────────────────

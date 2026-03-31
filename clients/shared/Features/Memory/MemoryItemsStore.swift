@@ -22,7 +22,10 @@ public final class MemoryItemsStore {
         self.memoryItemClient = memoryItemClient
     }
 
-    /// Load memory items using the current filter state.
+    /// Whether more items are available beyond what's been loaded.
+    public var hasMore: Bool { items.count < total }
+
+    /// Load memory items using the current filter state (resets to first page).
     public func loadItems() async {
         isLoading = true
         let response = await memoryItemClient.fetchMemoryItems(
@@ -48,6 +51,26 @@ public final class MemoryItemsStore {
                 }
                 kindCounts = derived
             }
+        }
+        isLoading = false
+    }
+
+    /// Load the next page of items (appends to existing).
+    public func loadMore() async {
+        guard !isLoading, hasMore else { return }
+        isLoading = true
+        let response = await memoryItemClient.fetchMemoryItems(
+            kind: kindFilter,
+            status: statusFilter,
+            search: searchText.isEmpty ? nil : searchText,
+            sort: sortField,
+            order: sortOrder,
+            limit: 100,
+            offset: items.count
+        )
+        if let response {
+            items.append(contentsOf: response.items)
+            total = response.total
         }
         isLoading = false
     }

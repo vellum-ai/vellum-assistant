@@ -14,7 +14,7 @@ import {
 } from "./jobs-store.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
-import { queryMemoryForCli } from "./retriever.js";
+import { handleRecall, type RecallResult } from "./graph/tool-handlers.js";
 import { conversations, memorySegments, memorySummaries, messages } from "./schema.js";
 
 const log = getLogger("memory-admin");
@@ -111,8 +111,12 @@ export function requestMemoryCleanup(retentionMs?: number): {
   return { staleSupersededItemsJobId };
 }
 
-export async function queryMemory(query: string, conversationId: string) {
-  return queryMemoryForCli(query, conversationId, getConfig());
+export async function queryMemory(
+  query: string,
+  _conversationId: string,
+): Promise<RecallResult> {
+  const config = getConfig();
+  return handleRecall({ query }, config, "default");
 }
 
 // ── Short segment cleanup ─────────────────────────────────────────────

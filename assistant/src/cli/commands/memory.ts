@@ -156,7 +156,7 @@ Examples:
       "after",
       `
 Removes segments shorter than the minimum character threshold from both
-SQLite and Qdrant. Short fragments (e.g. "Collar Touched") burn embedding
+SQLite and Qdrant. Short fragments (e.g. "OK sounds good") burn embedding
 budget, retrieval slots, and injection tokens without adding value.
 
 New segments are already filtered at creation time. This command cleans up
@@ -176,7 +176,9 @@ Examples:
       } else {
         log.info(`Removed ${result.removed} short segment(s).`);
         if (result.failed > 0) {
-          log.warn(`${result.failed} segment(s) skipped — Qdrant deletion failed. Re-run when Qdrant is available.`);
+          log.warn(
+            `${result.failed} segment(s) skipped — Qdrant deletion failed. Re-run when Qdrant is available.`,
+          );
         }
       }
     });
@@ -215,18 +217,19 @@ Examples:
         conversationId = latest?.id ?? "";
       }
       const result = await queryMemory(text, conversationId ?? "");
-      if (result.degraded) {
-        log.info(`Memory degraded: ${result.reason ?? "unknown reason"}`);
-      }
-      log.info(`Semantic hits: ${result.semanticHits}`);
-      log.info(`Merged count: ${result.mergedCount}`);
-      log.info(`Injected tokens: ${result.injectedTokens}`);
-      log.info(`Latency: ${result.latencyMs}ms`);
-      if (result.injectedText.length > 0) {
+      log.info(`Results: ${result.results.length}`);
+      log.info(`Mode: ${result.mode}`);
+      if (result.results.length > 0) {
         log.info("");
-        log.info(result.injectedText);
+        for (const r of result.results) {
+          log.info(
+            `[${r.type}] (confidence: ${r.confidence.toFixed(2)}, score: ${r.score.toFixed(3)})`,
+          );
+          log.info(r.content);
+          log.info("");
+        }
       } else {
-        log.info("No memory injected.");
+        log.info("No results found.");
       }
     });
 
@@ -265,10 +268,7 @@ Examples:
       (val: string, prev: string[]) => [...prev, val],
       [] as string[],
     )
-    .option(
-      "-t, --top <n>",
-      "Auto-select top N conversations by message count",
-    )
+    .option("-t, --top <n>", "Auto-select top N conversations by message count")
     .option("--dry-run", "Show what would be re-extracted without doing it")
     .addHelpText(
       "after",
@@ -292,11 +292,7 @@ Examples:
   $ assistant memory re-extract --top 10 --dry-run`,
     )
     .action(
-      (opts: {
-        conversation?: string[];
-        top?: string;
-        dryRun?: boolean;
-      }) => {
+      (opts: { conversation?: string[]; top?: string; dryRun?: boolean }) => {
         initializeDb();
 
         const targets = [];
@@ -342,9 +338,7 @@ Examples:
         log.info(`\nRe-extraction targets (${targets.length}):`);
         for (const t of targets) {
           const title = t.title ?? "(untitled)";
-          log.info(
-            `  ${t.conversationId}  ${t.messageCount} msgs  "${title}"`,
-          );
+          log.info(`  ${t.conversationId}  ${t.messageCount} msgs  "${title}"`);
         }
 
         if (opts.dryRun) {

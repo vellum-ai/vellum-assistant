@@ -91,7 +91,7 @@ import {
 } from "./conversation-error.js";
 import { consolidateAssistantMessages } from "./conversation-history.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
-import { prepareMemoryContext } from "./conversation-memory.js";
+import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {
@@ -113,10 +113,7 @@ import {
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
-import {
-  buildTemporalContext,
-  extractUserTimeZoneFromRecall,
-} from "./date-context.js";
+import { buildTemporalContext } from "./date-context.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -205,6 +202,7 @@ export interface AgentLoopConversationContext {
   contextCompactedAt: number | null;
 
   readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
+  readonly graphMemory: ConversationGraphMemory;
 
   currentActiveSurfaceId?: string;
   currentPage?: string;
@@ -525,6 +523,9 @@ export async function runAgentLoopImpl(
       ctx.messages = compacted.messages;
       ctx.contextCompactedMessageCount += compacted.compactedPersistedMessages;
       ctx.contextCompactedAt = Date.now();
+      // Notify memory graph that compaction happened — triggers full context
+      // reload on the next turn to replenish lost memory context.
+      ctx.graphMemory.onCompacted(compacted.compactedPersistedMessages);
       updateConversationContextWindow(
         ctx.conversationId,
         compacted.summaryText,
@@ -597,50 +598,39 @@ export async function runAgentLoopImpl(
 
     let runMessages = ctx.messages;
 
-    const memoryResult = await prepareMemoryContext(
-      {
-        conversationId: ctx.conversationId,
-        messages: ctx.messages,
-        systemPrompt: ctx.systemPrompt,
-        provider: ctx.provider,
-        scopeId: ctx.memoryPolicy.scopeId,
-        includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
-        trustClass: resolveTrustClass(ctx.trustContext),
-      },
-      content,
-      userMessageId,
-      abortController.signal,
-      onEvent,
-    );
+    // Memory graph retrieval — dispatches to context-load / per-turn / refresh
+    // based on conversation state.
+    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
+    if (isTrustedActor) {
+      const graphResult = await ctx.graphMemory.prepareMemory(
+        ctx.messages,
+        getConfig(),
+        abortController.signal,
+        onEvent,
+      );
+      runMessages = graphResult.runMessages;
 
-    const { recall } = memoryResult;
-
-    try {
-      recordMemoryRecallLog({
-        conversationId: ctx.conversationId,
-        enabled: recall.enabled,
-        degraded: recall.degraded,
-        provider: recall.provider,
-        model: recall.model,
-        degradationJson: recall.degradation,
-        semanticHits: recall.semanticHits,
-        mergedCount: recall.mergedCount,
-        selectedCount: recall.selectedCount,
-        tier1Count: recall.tier1Count ?? 0,
-        tier2Count: recall.tier2Count ?? 0,
-        hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,
-        sparseVectorUsed: recall.sparseVectorUsed ?? false,
-        injectedTokens: recall.injectedTokens,
-        latencyMs: recall.latencyMs,
-        topCandidatesJson: recall.topCandidates,
-        injectedText: recall.injectedText || undefined,
-        reason: recall.reason,
-      });
-    } catch (err) {
-      log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
+      try {
+        recordMemoryRecallLog({
+          conversationId: ctx.conversationId,
+          enabled: true,
+          degraded: false,
+          semanticHits: 0,
+          mergedCount: 0,
+          selectedCount: 0,
+          tier1Count: 0,
+          tier2Count: 0,
+          hybridSearchLatencyMs: 0,
+          sparseVectorUsed: false,
+          injectedTokens: graphResult.injectedTokens,
+          latencyMs: graphResult.latencyMs,
+          topCandidatesJson: [],
+          reason: `graph:${graphResult.mode}`,
+        });
+      } catch (err) {
+        log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
+      }
     }
-
-    runMessages = memoryResult.runMessages;
 
     // Build active surface context
     let activeSurface: ActiveSurfaceContext | null = null;
@@ -676,9 +666,7 @@ export async function runAgentLoopImpl(
     // date semantics prefer configured user timezone, then recalled memory.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
-    const recalledUserTimeZone = extractUserTimeZoneFromRecall(
-      recall.injectedText,
-    );
+    const recalledUserTimeZone = null;
     const temporalContext = buildTemporalContext({
       hostTimeZone,
       configuredUserTimeZone,
@@ -724,15 +712,7 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Read NOW.md scratchpad fresh each turn so mid-conversation edits are
-    // picked up without caching or conversation eviction.  Only inject for
-    // guardian conversations — the scratchpad may contain private context
-    // (mood, relationship state, personal details) that should not be
-    // exposed to trusted contacts or unknown actors.
-    const nowScratchpad =
-      resolveTrustClass(ctx.trustContext) === "guardian"
-        ? readNowScratchpad()
-        : null;
+    // NOW.md scratchpad removed — replaced by the memory graph `remember` tool.
 
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
@@ -747,7 +727,7 @@ export async function runAgentLoopImpl(
       interfaceTurnContext,
       inboundActorContext: resolvedInboundActorContext,
       temporalContext,
-      nowScratchpad,
+      nowScratchpad: readNowScratchpad(),
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
@@ -1609,7 +1589,10 @@ export async function runAgentLoopImpl(
       collapseRawResponses(state.exchangeRawResponses),
       state.exchangeProviderName,
       state.exchangeLlmCallCount,
-      { tokens: postLoopContextEstimate, maxTokens: config.contextWindow.maxInputTokens },
+      {
+        tokens: postLoopContextEstimate,
+        maxTokens: config.contextWindow.maxInputTokens,
+      },
     );
 
     void getHookManager().trigger("post-message", {

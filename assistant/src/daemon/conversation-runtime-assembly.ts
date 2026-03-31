@@ -1049,6 +1049,8 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<turn_context>",
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
+  // NOTE: <memory __injected> is intentionally NOT stripped — memory
+  // injections persist in history so the assistant can reference them.
   "<voice_call_control>",
   "<workspace_top_level>",
   TEMPORAL_INJECTED_PREFIX,

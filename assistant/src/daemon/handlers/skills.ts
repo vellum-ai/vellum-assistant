@@ -694,6 +694,13 @@ export async function uninstallSkill(
       // Best-effort cleanup of capability memory for uninstalled skill
       // (managed path handles this internally via deleteManagedSkill)
       deleteSkillCapabilityMemory(skillId);
+      try {
+        const { deleteSkillCapabilityNode } =
+          await import("../../memory/graph/capability-seed.js");
+        deleteSkillCapabilityNode(skillId);
+      } catch {
+        /* best effort */
+      }
     }
 
     // Clean config entry

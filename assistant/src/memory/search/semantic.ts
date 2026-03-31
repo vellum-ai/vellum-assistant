@@ -15,8 +15,41 @@ import {
   memorySegments,
   memorySummaries,
 } from "../schema.js";
-import { computeRecencyScore } from "./ranking.js";
-import type { Candidate } from "./types.js";
+// ── Types (inlined from deleted types.ts) ──────────────────────────
+
+type CandidateType = "segment" | "item" | "summary" | "media";
+
+export interface Candidate {
+  key: string;
+  type: CandidateType;
+  id: string;
+  source: "semantic";
+  text: string;
+  kind: string;
+  modality?: "text" | "image" | "audio" | "video";
+  conversationId?: string;
+  messageId?: string;
+  confidence: number;
+  importance: number;
+  createdAt: number;
+  semantic: number;
+  recency: number;
+  finalScore: number;
+}
+
+// ── Recency scoring (inlined from deleted ranking.ts) ──────────────
+
+/**
+ * Logarithmic recency decay (ACT-R inspired).
+ *
+ *   1 day -> 0.50, 7 days -> 0.25, 30 days -> 0.17
+ *   90 days -> 0.15, 1 year -> 0.12, 2 years -> 0.10
+ */
+function computeRecencyScore(createdAt: number): number {
+  const ageMs = Math.max(0, Date.now() - createdAt);
+  const ageDays = ageMs / (24 * 60 * 60 * 1000);
+  return 1 / (1 + Math.log2(1 + ageDays));
+}
 
 const _log = getLogger("semantic-search");
 

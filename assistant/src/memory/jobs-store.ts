@@ -33,6 +33,13 @@ export type MemoryJobType =
   | "embed_attachment"
   | "generate_conversation_starters"
   | "journal_carry_forward"
+  | "embed_graph_node"
+  | "graph_extract"
+  | "graph_decay"
+  | "graph_consolidate"
+  | "graph_pattern_scan"
+  | "graph_narrative_refine"
+  | "graph_trigger_embed"
   | "generate_capability_cards" // legacy compat — silently dropped by worker (capability cards removed)
   | "generate_thread_starters"; // legacy compat — silently dropped by worker (renamed to generate_conversation_starters)
 
@@ -42,6 +49,8 @@ const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_summary",
   "embed_media",
   "embed_attachment",
+  "embed_graph_node",
+  "graph_trigger_embed",
 ];
 
 export interface MemoryJob<T = Record<string, unknown>> {

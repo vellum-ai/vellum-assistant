@@ -43,6 +43,7 @@ import {
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { updateConversationContextWindow } from "../memory/conversation-crud.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -243,6 +244,7 @@ export class Conversation {
   public readonly traceEmitter: TraceEmitter;
   public readonly hasSystemPromptOverride: boolean;
   public memoryPolicy: ConversationMemoryPolicy;
+  /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -280,6 +282,7 @@ export class Conversation {
     this.memoryPolicy = memoryPolicy
       ? { ...memoryPolicy }
       : { ...DEFAULT_MEMORY_POLICY };
+    this.graphMemory = new ConversationGraphMemory(this.memoryPolicy.scopeId, conversationId);
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {

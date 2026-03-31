@@ -3,65 +3,54 @@ import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import {
-  memoryManageDefinition,
-  memoryRecallDefinition,
-} from "./definitions.js";
+  graphRecallDefinition,
+  graphRememberDefinition,
+} from "../../memory/graph/tools.js";
 import {
-  handleMemoryDelete,
-  handleMemoryRecall,
-  handleMemorySave,
-  handleMemoryUpdate,
-} from "./handlers.js";
+  handleRecall,
+  handleRemember,
+  type RecallInput,
+  type RememberInput,
+} from "../../memory/graph/tool-handlers.js";
 
-// ── memory_manage ────────────────────────────────────────────────────
+// ── remember ────────────────────────────────────────────────────────
 
-class MemoryManageTool implements Tool {
-  name = "memory_manage";
-  description = memoryManageDefinition.description;
+class RememberTool implements Tool {
+  name = "remember";
+  description = graphRememberDefinition.description;
   category = "memory";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
-    return memoryManageDefinition;
+    return graphRememberDefinition;
   }
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const config = getConfig();
-    switch (input.op) {
-      case "save":
-        return handleMemorySave(
-          input,
-          config,
-          context.conversationId,
-          context.requestId,
-          context.memoryScopeId,
-        );
-      case "update":
-        return handleMemoryUpdate(input, config, context.memoryScopeId);
-      case "delete":
-        return handleMemoryDelete(input, config, context.memoryScopeId);
-      default:
-        return {
-          content: `Error: unknown op "${input.op}". Must be one of: save, update, delete`,
-          isError: true,
-        };
-    }
+    const result = handleRemember(
+      input as unknown as RememberInput,
+      context.conversationId,
+      context.memoryScopeId ?? "default",
+    );
+    return {
+      content: result.message,
+      isError: !result.success,
+    };
   }
 }
 
-// ── memory_recall ────────────────────────────────────────────────────
+// ── recall ──────────────────────────────────────────────────────────
 
-class MemoryRecallTool implements Tool {
-  name = "memory_recall";
-  description = memoryRecallDefinition.description;
+class RecallTool implements Tool {
+  name = "recall";
+  description = graphRecallDefinition.description;
   category = "memory";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
-    return memoryRecallDefinition;
+    return graphRecallDefinition;
   }
 
   async execute(
@@ -69,16 +58,31 @@ class MemoryRecallTool implements Tool {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const config = getConfig();
-    return handleMemoryRecall(
-      input,
+    const result = await handleRecall(
+      input as unknown as RecallInput,
       config,
-      context.memoryScopeId,
-      context.conversationId,
+      context.memoryScopeId ?? "default",
     );
+
+    if (result.results.length === 0) {
+      return { content: "No results found.", isError: false };
+    }
+
+    const formatted = result.results
+      .map((r) => {
+        const meta =
+          result.mode === "memory"
+            ? `[${r.type}] (confidence: ${r.confidence.toFixed(2)}, score: ${r.score.toFixed(3)})`
+            : `[archive]`;
+        return `${meta}\n${r.content}`;
+      })
+      .join("\n\n---\n\n");
+
+    return { content: formatted, isError: false };
   }
 }
 
 // ── Exported tool instances ──────────────────────────────────────────
 
-export const memoryManageTool = new MemoryManageTool();
-export const memoryRecallTool = new MemoryRecallTool();
+export const rememberTool = new RememberTool();
+export const recallTool = new RecallTool();

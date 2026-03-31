@@ -20,7 +20,7 @@ export interface QdrantClientConfig {
 }
 
 export interface QdrantPointPayload {
-  target_type: "segment" | "item" | "summary" | "media";
+  target_type: "segment" | "item" | "summary" | "media" | "graph_node";
   target_id: string;
   text: string;
   kind?: string;
@@ -230,7 +230,7 @@ export class VellumQdrantClient {
   }
 
   async upsert(
-    targetType: "segment" | "item" | "summary" | "media",
+    targetType: QdrantPointPayload["target_type"],
     targetId: string,
     vector: number[],
     payload: Omit<QdrantPointPayload, "target_type" | "target_id">,

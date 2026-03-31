@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
@@ -19,7 +19,7 @@ import { memorySegments, memorySummaries } from "../schema.js";
 const log = getLogger("memory-jobs-worker");
 
 const SUMMARY_LLM_TIMEOUT_MS = 20_000;
-const SUMMARY_MAX_TOKENS = 500;
+const SUMMARY_MAX_TOKENS = 1000;
 
 const CONVERSATION_SUMMARY_SYSTEM_PROMPT = [
   "You compress conversation transcripts into compact summaries for semantic search and memory retrieval.",
@@ -37,7 +37,7 @@ const CONVERSATION_SUMMARY_SYSTEM_PROMPT = [
   "## Open Items",
   "Unresolved questions, pending tasks, or follow-ups (omit section if none).",
   "",
-  "Target 200-400 tokens. Be dense.",
+  "Target 400-800 tokens. Be thorough — capture nuance, tone, and relationship dynamics, not just facts.",
 ].join("\n");
 
 export async function buildConversationSummaryJob(
@@ -47,14 +47,6 @@ export async function buildConversationSummaryJob(
   const conversationId = asString(job.payload.conversationId);
   if (!conversationId) return;
   const db = getDb();
-  const rows = db
-    .select()
-    .from(memorySegments)
-    .where(eq(memorySegments.conversationId, conversationId))
-    .orderBy(desc(memorySegments.createdAt))
-    .limit(40)
-    .all();
-  if (rows.length === 0) return;
 
   const existing = db
     .select()
@@ -67,9 +59,27 @@ export async function buildConversationSummaryJob(
     )
     .get();
 
-  // Build segment text for LLM input (chronological order)
+  // Fetch only segments newer than what the existing summary already covers.
+  // For first-time summaries, fetch all segments.
+  const lastCoveredAt = existing
+    ? Math.max(existing.startAt, existing.endAt)
+    : 0;
+
+  const conditions = [eq(memorySegments.conversationId, conversationId)];
+  if (lastCoveredAt > 0) {
+    conditions.push(gt(memorySegments.createdAt, lastCoveredAt));
+  }
+
+  const rows = db
+    .select()
+    .from(memorySegments)
+    .where(and(...conditions))
+    .orderBy(asc(memorySegments.createdAt))
+    .all();
+  if (rows.length === 0) return;
+
+  // Build segment text for LLM input (already in chronological order)
   const segmentTexts = rows
-    .reverse()
     .map((row) => `[${row.role}] ${truncate(row.text, 600)}`)
     .join("\n\n");
 
@@ -88,6 +98,11 @@ export async function buildConversationSummaryJob(
   const now = Date.now();
   const summaryId = existing?.id ?? uuid();
   const nextVersion = (existing?.version ?? 0) + 1;
+  const earliestCovered = existing
+    ? Math.min(existing.startAt, existing.endAt, rows[0].createdAt)
+    : rows[0].createdAt;
+  const latestCovered = rows[rows.length - 1].createdAt;
+
   db.insert(memorySummaries)
     .values({
       id: summaryId,
@@ -97,8 +112,8 @@ export async function buildConversationSummaryJob(
       summary: summaryText,
       tokenEstimate: estimateTextTokens(summaryText),
       version: nextVersion,
-      startAt: rows[rows.length - 1].createdAt,
-      endAt: rows[0].createdAt,
+      startAt: earliestCovered,
+      endAt: latestCovered,
       createdAt: now,
       updatedAt: now,
     })
@@ -109,8 +124,8 @@ export async function buildConversationSummaryJob(
         tokenEstimate: estimateTextTokens(summaryText),
         version: sql`${memorySummaries.version} + 1`,
         scopeId,
-        startAt: rows[rows.length - 1].createdAt,
-        endAt: rows[0].createdAt,
+        startAt: earliestCovered,
+        endAt: latestCovered,
         updatedAt: now,
       },
     })

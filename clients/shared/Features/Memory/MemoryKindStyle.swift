@@ -1,22 +1,22 @@
 import SwiftUI
 
-/// Memory kinds with display metadata (label, color, icon).
+/// Memory graph node types with display metadata (label, color, icon).
 public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
-    case identity
-    case preference
-    case project
-    case decision
-    case constraint
-    case event
-    case journal
-    case capability
+    case episodic
+    case semantic
+    case procedural
+    case emotional
+    case prospective
+    case behavioral
+    case narrative
+    case shared
 
     public var id: String { rawValue }
 
     /// Kinds that users may select when creating or editing memory items.
-    /// Excludes system-managed kinds like `.capability` (Skill).
+    /// Excludes system-managed kinds like `.procedural` (capabilities).
     public static var userCreatableKinds: [MemoryKind] {
-        allCases.filter { $0 != .capability }
+        allCases.filter { $0 != .procedural }
     }
 
     /// Kinds to show when editing an existing item.
@@ -29,39 +29,45 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
         return kinds
     }
 
-    /// Capitalised display label for the kind.
+    /// Display label for the kind.
     public var label: String {
         switch self {
-        case .capability: return "Skill"
-        default: return rawValue.capitalized
+        case .episodic:    return "Event"
+        case .semantic:    return "Knowledge"
+        case .procedural:  return "Skill"
+        case .emotional:   return "Feeling"
+        case .prospective: return "Plan"
+        case .behavioral:  return "Pattern"
+        case .narrative:   return "Story"
+        case .shared:      return "Shared"
         }
     }
 
     /// Distinct fun-palette color for each kind.
     public var color: Color {
         switch self {
-        case .identity:   return VColor.funTeal
-        case .preference: return VColor.funPurple
-        case .project:    return VColor.funGreen
-        case .decision:   return VColor.funYellow
-        case .constraint: return VColor.funCoral
-        case .event:      return VColor.funPink
-        case .journal:    return VColor.funBlue
-        case .capability: return VColor.funRed
+        case .episodic:    return VColor.funPink
+        case .semantic:    return VColor.funTeal
+        case .procedural:  return VColor.funRed
+        case .emotional:   return VColor.funPurple
+        case .prospective: return VColor.funGreen
+        case .behavioral:  return VColor.funYellow
+        case .narrative:   return VColor.funBlue
+        case .shared:      return VColor.funCoral
         }
     }
 
     /// Lucide icon raw value matching `VIcon` cases.
     public var icon: String {
         switch self {
-        case .identity:   return VIcon.user.rawValue
-        case .preference: return VIcon.heart.rawValue
-        case .project:    return VIcon.folder.rawValue
-        case .decision:   return VIcon.gitBranch.rawValue
-        case .constraint: return VIcon.shield.rawValue
-        case .event:      return VIcon.calendar.rawValue
-        case .journal:    return VIcon.bookOpen.rawValue
-        case .capability: return VIcon.zap.rawValue
+        case .episodic:    return VIcon.calendar.rawValue
+        case .semantic:    return VIcon.brain.rawValue
+        case .procedural:  return VIcon.zap.rawValue
+        case .emotional:   return VIcon.heart.rawValue
+        case .prospective: return VIcon.compass.rawValue
+        case .behavioral:  return VIcon.refreshCw.rawValue
+        case .narrative:   return VIcon.bookOpen.rawValue
+        case .shared:      return VIcon.users.rawValue
         }
     }
 }

@@ -30,35 +30,34 @@ extension MemoryItemDetailSheet {
                 kindBadge
             }
             metadataRow(label: "Status", value: displayItem.status.capitalized)
-            metadataRow(label: "Confidence", value: "\(Int(displayItem.confidence * 100))%")
+            metadataRow(label: "Confidence", value: "\(Int((displayItem.confidence ?? 0) * 100))%")
             if let importance = displayItem.importance {
                 metadataRow(label: "Importance", value: "\(Int(importance * 100))%")
             }
 
-            HStack(spacing: VSpacing.xs) {
-                Text("Verification")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .frame(width: 110, alignment: .leading)
-                if displayItem.isUserConfirmed {
-                    VIconView(.circleCheck, size: 13)
-                        .foregroundStyle(VColor.systemPositiveStrong)
-                    Text("Confirmed by you")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                } else if displayItem.isUserReported {
-                    VIconView(.user, size: 12)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text("Reported by you")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                } else {
-                    VIconView(.sparkles, size: 13)
+            if let sourceType = displayItem.sourceType {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Source")
+                        .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentTertiary)
-                    Text("Inferred by assistant")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
+                        .frame(width: 110, alignment: .leading)
+                    switch sourceType {
+                    case "direct":
+                        VIconView(.circleCheck, size: 13)
+                            .foregroundStyle(VColor.systemPositiveStrong)
+                        Text("Told directly")
+                    case "observed":
+                        VIconView(.eye, size: 13)
+                            .foregroundStyle(VColor.contentSecondary)
+                        Text("Observed pattern")
+                    default:
+                        VIconView(.sparkles, size: 13)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Text("Inferred")
+                    }
                 }
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentSecondary)
             }
 
             if let scopeLabel = displayItem.scopeLabel {
@@ -80,13 +79,11 @@ extension MemoryItemDetailSheet {
             if let lastUsedDate = displayItem.lastUsedDate {
                 metadataRow(label: "Last used", value: formattedDate(lastUsedDate))
             }
-            metadataRow(label: "Access count", value: "\(displayItem.accessCount)")
-
-            if let supersededBySubject = displayItem.supersededBySubject {
-                metadataRow(label: "Superseded by", value: supersededBySubject)
+            if let fidelity = displayItem.fidelity {
+                metadataRow(label: "Fidelity", value: fidelity.capitalized)
             }
-            if let supersedesSubject = displayItem.supersedesSubject {
-                metadataRow(label: "Supersedes", value: supersedesSubject)
+            if let reinforcementCount = displayItem.reinforcementCount, reinforcementCount > 0 {
+                metadataRow(label: "Reinforced", value: "\(reinforcementCount) time\(reinforcementCount == 1 ? "" : "s")")
             }
         }
     }

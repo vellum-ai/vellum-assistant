@@ -1,0 +1,182 @@
+// ---------------------------------------------------------------------------
+// Memory Graph — Qdrant vector search for graph nodes
+// ---------------------------------------------------------------------------
+
+import type { AssistantConfig } from "../../config/types.js";
+import { getLogger } from "../../util/logger.js";
+import { embedAndUpsert } from "../job-utils.js";
+import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import { asString } from "../job-utils.js";
+import { isQdrantBreakerOpen } from "../qdrant-circuit-breaker.js";
+import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
+import { getQdrantClient, type QdrantSearchResult } from "../qdrant-client.js";
+import { getNode } from "./store.js";
+import type { MemoryNode } from "./types.js";
+
+const log = getLogger("graph-search");
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+export interface GraphSearchResult {
+  nodeId: string;
+  score: number;
+  text: string;
+}
+
+/**
+ * Semantic search across graph nodes in Qdrant. Returns scored node IDs
+ * that the caller can hydrate from the graph store.
+ *
+ * Filters to `target_type: "graph_node"` and optionally by scope.
+ */
+export async function searchGraphNodes(
+  queryVector: number[],
+  limit: number,
+  scopeIds?: string[],
+): Promise<GraphSearchResult[]> {
+  if (isQdrantBreakerOpen()) {
+    log.warn("Qdrant circuit breaker open, skipping graph search");
+    return [];
+  }
+
+  const client = getQdrantClient();
+
+  const filter: Record<string, unknown> = {
+    must: [
+      {
+        key: "target_type",
+        match: { value: "graph_node" },
+      },
+    ],
+  };
+
+  if (scopeIds && scopeIds.length > 0) {
+    (filter.must as unknown[]).push({
+      key: "memory_scope_id",
+      match: { any: scopeIds },
+    });
+  }
+
+  const results: QdrantSearchResult[] = await withQdrantBreaker(async () => {
+    return client.search(queryVector, limit, filter);
+  });
+
+  return results.map((r) => ({
+    nodeId: r.payload.target_id,
+    score: r.score,
+    text: r.payload.text,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Embedding job
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a graph node's content for embedding. Prepends type metadata
+ * so the embedding captures structural information alongside content.
+ */
+function formatNodeForEmbedding(node: MemoryNode): string {
+  const parts = [`[${node.type}]`];
+  if (node.emotionalCharge.intensity > 0.3) {
+    const valenceLabel =
+      node.emotionalCharge.valence > 0.3
+        ? "positive"
+        : node.emotionalCharge.valence < -0.3
+          ? "negative"
+          : "neutral";
+    parts.push(`[${valenceLabel}]`);
+  }
+  parts.push(node.content);
+  return parts.join(" ");
+}
+
+/**
+ * Embed a graph node and upsert to Qdrant. Can be called directly
+ * (synchronous embedding during bootstrap) or via the job handler.
+ */
+export async function embedGraphNodeDirect(
+  node: MemoryNode,
+  config: AssistantConfig,
+): Promise<void> {
+  if (node.fidelity === "gone") return;
+
+  const text = formatNodeForEmbedding(node);
+
+  await embedAndUpsert(config, "graph_node", node.id, text, {
+    created_at: node.created,
+    memory_scope_id: node.scopeId,
+    confidence: node.confidence,
+    importance: node.significance,
+    kind: node.type,
+  });
+}
+
+/**
+ * Job handler: embed a graph node and upsert to Qdrant.
+ */
+export async function embedGraphNodeJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const nodeId = asString(job.payload.nodeId);
+  if (!nodeId) return;
+
+  const node = getNode(nodeId);
+  if (!node) return;
+
+  await embedGraphNodeDirect(node, config);
+}
+
+/**
+ * Enqueue an embedding job for a graph node (async, for live conversations).
+ */
+export function enqueueGraphNodeEmbed(nodeId: string): void {
+  enqueueMemoryJob("embed_graph_node", { nodeId });
+}
+
+/**
+ * Job handler: embed a trigger's condition text and store the
+ * embedding on the trigger row.
+ */
+export async function embedGraphTriggerJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const triggerId = asString(job.payload.triggerId);
+  if (!triggerId) return;
+
+  // Import here to avoid circular dependency
+  const { getDb } = await import("../db.js");
+  const { eq } = await import("drizzle-orm");
+  const { memoryGraphTriggers } = await import("../schema.js");
+  const { embedWithBackend } = await import("../embedding-backend.js");
+
+  const db = getDb();
+  const row = db
+    .select()
+    .from(memoryGraphTriggers)
+    .where(eq(memoryGraphTriggers.id, triggerId))
+    .get();
+
+  if (!row || !row.condition) return;
+
+  const result = await embedWithBackend(config, [row.condition]);
+  const vector = result.vectors[0];
+  if (!vector) return;
+
+  const buffer = Buffer.from(new Float32Array(vector).buffer);
+  db.update(memoryGraphTriggers)
+    .set({ conditionEmbedding: buffer })
+    .where(eq(memoryGraphTriggers.id, triggerId))
+    .run();
+}
+
+/**
+ * Enqueue a trigger embedding job.
+ */
+export function enqueueGraphTriggerEmbed(triggerId: string): void {
+  enqueueMemoryJob("graph_trigger_embed", { triggerId });
+}

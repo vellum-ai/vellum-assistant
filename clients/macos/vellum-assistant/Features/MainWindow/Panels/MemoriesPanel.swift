@@ -8,21 +8,19 @@ private enum MemorySortOption: String, CaseIterable {
     case newest = "Newest"
     case oldest = "Oldest"
     case importance = "Importance"
-    case accessCount = "Access Count"
     case kind = "Kind"
 
     var sortField: String {
         switch self {
         case .newest, .oldest: return "lastSeenAt"
         case .importance: return "importance"
-        case .accessCount: return "accessCount"
         case .kind: return "kind"
         }
     }
 
     var sortOrder: String {
         switch self {
-        case .newest, .importance, .accessCount: return "desc"
+        case .newest, .importance: return "desc"
         case .oldest, .kind: return "asc"
         }
     }
@@ -32,7 +30,6 @@ private enum MemorySortOption: String, CaseIterable {
         case .newest: return .arrowDown
         case .oldest: return .arrowUp
         case .importance: return .star
-        case .accessCount: return .eye
         case .kind: return .tag
         }
     }
@@ -82,9 +79,7 @@ struct MemoriesPanel: View {
     }
 
     /// Kinds to show in the sidebar filter. Excludes system-managed kinds.
-    private static let filterableKinds: [MemoryKind] = [
-        .constraint, .decision, .event, .identity, .journal, .preference, .project
-    ]
+    private static let filterableKinds: [MemoryKind] = MemoryKind.userCreatableKinds
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -199,6 +194,8 @@ struct MemoriesPanel: View {
             isActive: selectedKind == kind,
             action: {
                 withAnimation(VAnimation.fast) { selectedKind = kind }
+                store.kindFilter = kind?.rawValue
+                Task { await store.loadItems() }
             }
         ) {
             Text("\(kindCount(for: kind))")
@@ -214,12 +211,6 @@ struct MemoriesPanel: View {
             return store.kindCounts.values.reduce(0, +)
         }
         return store.kindCounts[kind.rawValue] ?? 0
-    }
-
-    /// Items filtered by selected kind (client-side only — store always holds all items).
-    private var filteredItems: [MemoryItemPayload] {
-        guard let kind = selectedKind else { return store.items }
-        return store.items.filter { $0.kind == kind.rawValue }
     }
 
     // MARK: - Escape Key
@@ -250,7 +241,7 @@ struct MemoriesPanel: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if filteredItems.isEmpty {
+        } else if store.items.isEmpty {
             VEmptyState(
                 title: selectedKind == nil ? "No Memories Yet" : "No \(selectedKind!.label) Memories",
                 subtitle: selectedKind == nil
@@ -261,7 +252,7 @@ struct MemoriesPanel: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: VSpacing.sm) {
-                    ForEach(filteredItems) { item in
+                    ForEach(store.items) { item in
                         MemoryItemRow(
                             item: item,
                             onSelect: { withAnimation(VAnimation.fast) { selectedItem = item } },
@@ -269,6 +260,14 @@ struct MemoriesPanel: View {
                                 Task { _ = await store.deleteItem(id: item.id) }
                             }
                         )
+                    }
+                    if store.hasMore {
+                        VLoadingIndicator()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, VSpacing.md)
+                            .onAppear {
+                                Task { await store.loadMore() }
+                            }
                     }
                 }
                 .background { OverlayScrollerStyle() }

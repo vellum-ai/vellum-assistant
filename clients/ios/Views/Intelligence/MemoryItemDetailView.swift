@@ -176,7 +176,9 @@ struct MemoryItemDetailView: View {
                 .accessibilityLabel("Kind: \(MemoryKind(rawValue: liveItem.kind)?.label ?? liveItem.kind)")
 
                 detailRow(label: "Status", value: liveItem.status.capitalized)
-                detailRow(label: "Verification", value: formatVerificationState(liveItem.verificationState))
+                if let sourceType = liveItem.sourceType {
+                    detailRow(label: "Source", value: sourceType.capitalized)
+                }
 
                 if let scopeLabel = liveItem.scopeLabel {
                     HStack {
@@ -217,9 +219,14 @@ struct MemoryItemDetailView: View {
                     Slider(value: $editImportance, in: 0...1, step: 0.1)
                 }
             } else {
-                detailRow(label: "Confidence", value: "\(Int(liveItem.confidence * 100))%")
+                detailRow(label: "Confidence", value: "\(Int((liveItem.confidence ?? 0) * 100))%")
                 detailRow(label: "Importance", value: "\(Int((liveItem.importance ?? 0) * 100))%")
-                detailRow(label: "Access Count", value: "\(liveItem.accessCount)")
+                if let fidelity = liveItem.fidelity {
+                    detailRow(label: "Fidelity", value: fidelity.capitalized)
+                }
+                if let count = liveItem.reinforcementCount, count > 0 {
+                    detailRow(label: "Reinforced", value: "\(count) time\(count == 1 ? "" : "s")")
+                }
             }
         }
     }
@@ -325,13 +332,5 @@ struct MemoryItemDetailView: View {
         return formatter.string(from: date)
     }
 
-    private func formatVerificationState(_ state: String) -> String {
-        switch state {
-        case "user_confirmed": return "User Confirmed"
-        case "auto_confirmed": return "Auto Confirmed"
-        case "unverified": return "Unverified"
-        default: return state.capitalized
-        }
-    }
 }
 #endif

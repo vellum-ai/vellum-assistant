@@ -1,5 +1,14 @@
 import Foundation
 
+/// Emotional charge metadata for a graph memory node.
+public struct EmotionalChargePayload: Codable, Hashable, Sendable {
+    public let valence: Double?
+    public let intensity: Double?
+    public let decayCurve: String?
+    public let decayRate: Double?
+    public let originalIntensity: Double?
+}
+
 /// A single memory item returned by the assistant's memory API.
 public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
     public let id: String
@@ -7,27 +16,30 @@ public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
     public let subject: String
     public let statement: String
     public let status: String
-    public let confidence: Double
+    public let confidence: Double?
     public let importance: Double?
-    public let accessCount: Int
-    public let verificationState: String
-    public let scopeId: String
-    public let scopeLabel: String?
     public let firstSeenAt: Int      // epoch ms
     public let lastSeenAt: Int       // epoch ms
+
+    // Graph-specific fields
+    public let fidelity: String?
+    public let sourceType: String?
+    public let narrativeRole: String?
+    public let partOfStory: String?
+    public let reinforcementCount: Int?
+    public let stability: Double?
+    public let emotionalCharge: EmotionalChargePayload?
+
+    // Legacy fields — optional for backward compatibility
+    public let accessCount: Int?
+    public let verificationState: String?
+    public let scopeId: String?
+    public let scopeLabel: String?
     public let lastUsedAt: Int?      // epoch ms
     public let supersedes: String?
     public let supersededBy: String?
-    public let supersedesSubject: String?    // populated by GET detail
-    public let supersededBySubject: String?  // populated by GET detail
-
-    enum CodingKeys: String, CodingKey {
-        case id, kind, subject, statement, status, confidence, importance
-        case accessCount, verificationState, scopeId, scopeLabel
-        case firstSeenAt, lastSeenAt, lastUsedAt
-        case supersedes, supersededBy
-        case supersedesSubject, supersededBySubject
-    }
+    public let supersedesSubject: String?
+    public let supersededBySubject: String?
 
     // MARK: - Date Helpers
 

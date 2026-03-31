@@ -21,7 +21,6 @@ import {
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
-import { buildJournalContext } from "./journal-context.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
@@ -130,27 +129,8 @@ export function ensurePromptFiles(): void {
     }
   }
 
-  // Seed NOW.md scratchpad — always created if missing, regardless of whether
-  // this is a fresh install or not.  Kept out of PROMPT_FILES because NOW.md is
-  // ephemeral state, not identity context.
-  const nowDest = getWorkspacePromptPath("NOW.md");
-  if (!existsSync(nowDest)) {
-    const nowSrc = join(templatesDir, "NOW.md");
-    try {
-      if (existsSync(nowSrc)) {
-        copyFileSync(nowSrc, nowDest);
-        log.info(
-          { file: "NOW.md", dest: nowDest },
-          "Created NOW.md scratchpad from template",
-        );
-      }
-    } catch (err) {
-      log.warn(
-        { err, file: "NOW.md" },
-        "Failed to create NOW.md from template",
-      );
-    }
-  }
+  // NOW.md scratchpad removed — replaced by the `remember` tool which
+  // writes immediately to the memory graph.
 
   // Seed users/default.md persona template
   try {
@@ -296,11 +276,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const integrationSection = buildIntegrationSection();
   if (integrationSection) dynamicParts.push(integrationSection);
 
-  const journalContext = buildJournalContext(
-    getConfig().journal?.contextWindowSize ?? 10,
-    options?.userSlug,
-  );
-  if (journalContext) dynamicParts.push(journalContext);
+  // Journal context removed — memories are now managed by the memory graph.
+  // Journal files remain writable and are extracted into graph nodes.
 
   const dynamic = dynamicParts.join("\n\n");
 
@@ -489,4 +466,3 @@ export function buildCoreIdentityContext(opts?: {
   if (opts?.userPersona) parts.push(opts.userPersona);
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
-

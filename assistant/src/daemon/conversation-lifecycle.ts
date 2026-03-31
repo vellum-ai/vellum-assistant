@@ -282,6 +282,15 @@ export function disposeConversation(ctx: DisposeContext): void {
     // Best-effort — don't block conversation disposal
   }
 
+  // Trigger graph extraction for end-of-conversation sweep
+  try {
+    enqueueMemoryJob("graph_extract", {
+      conversationId: ctx.conversationId,
+    });
+  } catch {
+    // Best-effort — don't block conversation disposal
+  }
+
   ctx.abort();
   unregisterCallNotifiers(ctx.conversationId);
   unregisterConversationSender(ctx.conversationId);
