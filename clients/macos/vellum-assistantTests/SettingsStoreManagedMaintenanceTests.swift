@@ -114,8 +114,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
 
     /// Backup of the lockfile contents before the test modifies it.
     private var lockfileBackup: Data?
-    private var defaultsSuiteName: String!
-    private var defaults: UserDefaults!
     private var previousToken: String?
 
     override func setUp() {
@@ -139,13 +137,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         ]
         let data = try! JSONSerialization.data(withJSONObject: lockfileContent)
         try! data.write(to: primaryURL, options: .atomic)
-
-        // Isolated UserDefaults so we don't pollute the real app state.
-        defaultsSuiteName = "SettingsStoreManagedMaintenanceTests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: defaultsSuiteName)!
-        defaults.removePersistentDomain(forName: defaultsSuiteName)
-        defaults.set(testAssistantId, forKey: "connectedAssistantId")
-        defaults.set(testOrgId, forKey: "connectedOrganizationId")
 
         // Register stub network handler and a session token.
         URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
@@ -175,9 +166,10 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         }
         lockfileBackup = nil
 
-        defaults.removePersistentDomain(forName: defaultsSuiteName)
-        defaults = nil
-        defaultsSuiteName = nil
+        // Unconditionally clean up any test-specific values written to UserDefaults.standard
+        // by makeStore() so they don't leak into subsequent tests.
+        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
 
         super.tearDown()
     }
@@ -185,18 +177,12 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     // MARK: - Helpers
 
     private func makeStore() -> SettingsStore {
-        // Pass in the isolated UserDefaults via the connectedAssistantId / connectedOrganizationId
-        // that were already set in setUp(). SettingsStore reads from UserDefaults.standard, so we
-        // mirror those values there for the duration of each test.
+        // SettingsStore reads connectedAssistantId / connectedOrganizationId from
+        // UserDefaults.standard. Write them here for the duration of each test;
+        // tearDown unconditionally removes them afterwards.
         UserDefaults.standard.set(testAssistantId, forKey: "connectedAssistantId")
         UserDefaults.standard.set(testOrgId, forKey: "connectedOrganizationId")
         return SettingsStore(settingsClient: MockSettingsClient())
-    }
-
-    private func cleanupStandard() {
-        // Remove the test-specific values from standard UserDefaults.
-        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
-        UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
     }
 
     private func stubSuccess(
@@ -233,7 +219,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     // MARK: - Initial state
 
     func testInitialMaintenanceModeStateIsNil() {
-        defer { cleanupStandard() }
         let store = makeStore()
 
         XCTAssertNil(store.managedAssistantMaintenanceMode)
@@ -248,7 +233,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     // MARK: - refreshManagedAssistantMaintenanceMode
 
     func testRefreshSetsMaintenanceModeEnabledFromSuccessResponse() async {
-        defer { cleanupStandard() }
         stubSuccess(
             maintenanceEnabled: true,
             debugPodName: "debug-pod-abc",
@@ -267,7 +251,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     }
 
     func testRefreshSetsMaintenanceModeDisabled() async {
-        defer { cleanupStandard() }
         stubSuccess(maintenanceEnabled: false)
 
         let store = makeStore()
@@ -280,7 +263,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     }
 
     func testRefreshSetsErrorOnPlatformFailure() async {
-        defer { cleanupStandard() }
         stubFailure(statusCode: 500)
 
         let store = makeStore()
@@ -292,7 +274,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     }
 
     func testRefreshClearsRefreshErrorOnSuccess() async {
-        defer { cleanupStandard() }
 
         let store = makeStore()
 
@@ -308,12 +289,9 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     }
 
     func testRefreshIsNoOpWhenNoConnectedAssistantId() async {
-        // Remove the connected assistant ID.
+        // Remove the connected assistant ID to exercise the no-op path.
+        // tearDown will clean up UserDefaults.standard uniformly.
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
-        defer {
-            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
-            UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
-        }
 
         // If refresh were to hit the network, the nil handler would cause an error.
         MaintenanceStoreURLProtocol.requestHandler = nil
@@ -329,7 +307,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     // MARK: - enterManagedAssistantMaintenanceMode
 
     func testEnterMaintenanceModeUpdatesStateOnSuccess() async {
-        defer { cleanupStandard() }
         stubSuccess(
             maintenanceEnabled: true,
             debugPodName: "debug-pod-enter",
@@ -359,7 +336,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     }
 
     func testEnterMaintenanceModeStoresErrorOnFailure() async {
-        defer { cleanupStandard() }
         stubFailure(statusCode: 409)
 
         let store = makeStore()
@@ -384,7 +360,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     // MARK: - exitManagedAssistantMaintenanceMode
 
     func testExitMaintenanceModeUpdatesStateOnSuccess() async {
-        defer { cleanupStandard() }
         stubSuccess(maintenanceEnabled: false)
 
         let store = makeStore()
@@ -416,7 +391,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     }
 
     func testExitMaintenanceModeStoresErrorOnFailure() async {
-        defer { cleanupStandard() }
         stubFailure(statusCode: 409)
 
         let store = makeStore()
@@ -441,7 +415,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     // MARK: - Error cleared on next action
 
     func testEnterClearsPreviousEnterError() async {
-        defer { cleanupStandard() }
 
         let store = makeStore()
 
@@ -479,7 +452,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     }
 
     func testExitClearsPreviousExitError() async {
-        defer { cleanupStandard() }
 
         let store = makeStore()
 
@@ -521,7 +493,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     /// Verifies that `refreshManagedAssistantMaintenanceMode` discards the response when
     /// `connectedAssistantId` changes while the request is in flight.
     func testRefreshDiscardsStaleResponseWhenAssistantIdChangesMidFlight() async {
-        defer { cleanupStandard() }
 
         // Stage a success response for the blocking stub.
         let url = URL(string: "https://example.com")!
@@ -579,7 +550,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     /// Verifies that `refreshManagedAssistantMaintenanceMode` discards the response when
     /// `connectedOrganizationId` changes while the request is in flight.
     func testRefreshDiscardsStaleResponseWhenOrgIdChangesMidFlight() async {
-        defer { cleanupStandard() }
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
@@ -630,7 +600,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     /// Verifies that `enterManagedAssistantMaintenanceMode` does not overwrite
     /// `managedAssistantMaintenanceMode` when `connectedAssistantId` changes mid-flight.
     func testEnterDiscardsStaleResponseWhenAssistantIdChangesMidFlight() async {
-        defer { cleanupStandard() }
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
