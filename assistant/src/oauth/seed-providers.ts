@@ -629,7 +629,7 @@ const PROVIDER_SEED_DATA: Record<
       "email",
       "offline_access",
       "User.Read",
-      "Mail.Read",
+      "Mail.ReadWrite",
       "Mail.Send",
       "Calendars.Read",
       "Calendars.ReadWrite",

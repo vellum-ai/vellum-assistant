@@ -134,7 +134,7 @@ export async function listMessages(
   },
 ): Promise<OutlookMessageListResponse> {
   const path = options?.folderId
-    ? `/v1.0/me/mailFolders/${options.folderId}/messages`
+    ? `/v1.0/me/mailFolders/${encodeURIComponent(options.folderId)}/messages`
     : "/v1.0/me/messages";
 
   const query: Record<string, string> = {};
@@ -163,7 +163,7 @@ export async function getMessage(
 
   return request<OutlookMessage>(
     connection,
-    `/v1.0/me/messages/${messageId}`,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
     undefined,
     Object.keys(query).length > 0 ? query : undefined,
   );
@@ -214,10 +214,14 @@ export async function replyToMessage(
   messageId: string,
   comment: string,
 ): Promise<void> {
-  await request<void>(connection, `/v1.0/me/messages/${messageId}/reply`, {
-    method: "POST",
-    body: JSON.stringify({ comment }),
-  });
+  await request<void>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/reply`,
+    {
+      method: "POST",
+      body: JSON.stringify({ comment }),
+    },
+  );
 }
 
 /** List mail folders. */
@@ -254,10 +258,14 @@ export async function markMessageRead(
   connection: OAuthConnection,
   messageId: string,
 ): Promise<void> {
-  await request<void>(connection, `/v1.0/me/messages/${messageId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ isRead: true }),
-  });
+  await request<void>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ isRead: true }),
+    },
+  );
 }
 
 /** Move a message to a different folder (e.g. for archiving). */
@@ -268,7 +276,7 @@ export async function moveMessage(
 ): Promise<OutlookMessage> {
   return request<OutlookMessage>(
     connection,
-    `/v1.0/me/messages/${messageId}/move`,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/move`,
     {
       method: "POST",
       body: JSON.stringify({ destinationId: destinationFolderId }),
