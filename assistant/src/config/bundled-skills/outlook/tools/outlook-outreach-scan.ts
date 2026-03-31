@@ -53,7 +53,7 @@ export async function run(
   const timeRange = (input.time_range as string) ?? "90d";
 
   try {
-    const connection = await resolveOAuthConnection("microsoft", {
+    const connection = await resolveOAuthConnection("outlook", {
       account,
     });
 

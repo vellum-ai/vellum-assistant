@@ -22,7 +22,7 @@ export async function run(
   }
 
   try {
-    const connection = await resolveOAuthConnection("microsoft", {
+    const connection = await resolveOAuthConnection("outlook", {
       account,
     });
     switch (action) {

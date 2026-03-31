@@ -28,7 +28,7 @@ export async function run(
   if (!to) return err("to is required.");
 
   try {
-    const connection = await resolveOAuthConnection("microsoft", {
+    const connection = await resolveOAuthConnection("outlook", {
       account,
     });
 

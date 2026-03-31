@@ -39,7 +39,7 @@ export async function run(
   const maxSenders = (input.max_senders as number) ?? 50;
 
   try {
-    const connection = await resolveOAuthConnection("microsoft", {
+    const connection = await resolveOAuthConnection("outlook", {
       account,
     });
 
