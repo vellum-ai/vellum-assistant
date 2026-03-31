@@ -15,7 +15,7 @@
 
 <p align="center"><b>It's yours to shape:</b> Give it a name, a personality, and new skills, with as much autonomy as you're comfortable giving. Talk to it from the macOS app, Telegram, or Slack, with the same memory and identity everywhere.</p>
 
-<p align="center"><b>It's yours to trust:</b> Credentials never reach the model, every tool runs in a sandbox, and access to your apps, files, and data is earned, not assumed.</p>
+<p align="center"><b>It earns your trust:</b> Credentials are protected from the model, every tool runs in a sandbox, and access to your apps, files, and data is earned, not assumed.</p>
 
 ---
 
@@ -43,7 +43,7 @@
 
 ### Desktop App (Recommended)
 
-The Desktop App comes with the Vellum CLI bundled in, so you won't need to pre-install the CLI.
+The macOS Desktop App comes with the Vellum CLI bundled in, no extra install needed.
 
 1. Download the [latest release](https://github.com/vellum-ai/vellum-assistant/releases)
 2. On install, choose your mode:
@@ -55,7 +55,7 @@ The app installs dependencies, starts the runtime, and handles updates automatic
 ### CLI
 
 *Note: The CLI is functional but not our primary focus. It's available for advanced users,
-contributors, and non-macOS environments, but the desktop app is where we invest most of our effort and testing. Expect rough edges.*
+contributors, and non-macOS environments, but the desktop app is where we're currently investing most of our effort and testing. Expect rough edges.*
 
 **Install**
 
@@ -118,7 +118,7 @@ We are not currently accepting external contributions. See the [Contributing](ht
 
 MIT — see [License](https://github.com/vellum-ai/vellum-assistant?tab=MIT-1-ov-file).
 
-Vellum Assistant is open-source software built by [Vellum AI](https://vellum.ai), a for-profit company. We also offer a managed product — the [Vellum Platform](https://vellum.ai/platform) — which sustains the business. This project is free to use, modify, and contribute to under the MIT license, and we're committed to keeping it that way.
+Vellum Assistant is open-source software built by [Vellum AI](https://vellum.ai), a for-profit company. We also offer a managed product — the [Vellum Platform](https://vellum.ai/platform) — which sustains the business. This project is free to use and modify under the MIT license, and we're committed to keeping it that way.
 
 ---
 
