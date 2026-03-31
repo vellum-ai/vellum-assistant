@@ -70,7 +70,7 @@ struct ComposerView: View {
     #if os(macOS)
     @Environment(\.dropActions) private var dropActions
     #endif
-    @FocusState private var composerFocus: Bool
+    @State private var composerFocus: Bool = false
     @State private var isComposerFocused = false
     @State private var measuredTextHeight: CGFloat = 32
     @State private var textViewIsFocused: Bool = false
