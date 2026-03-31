@@ -257,30 +257,6 @@ function classifyAssistantSubcommand(args: string[]): RiskLevel {
     return RiskLevel.Low;
   }
 
-  if (sub === "memory") {
-    const memorySub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (
-      memorySub === "backfill" ||
-      memorySub === "cleanup" ||
-      memorySub === "cleanup-segments" ||
-      memorySub === "rebuild-index" ||
-      memorySub === "re-extract"
-    )
-      return RiskLevel.Medium;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "skills") {
-    const skillsSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (
-      skillsSub === "install" ||
-      skillsSub === "uninstall" ||
-      skillsSub === "add"
-    )
-      return RiskLevel.Medium;
-    return RiskLevel.Low;
-  }
-
   return RiskLevel.Low;
 }
 

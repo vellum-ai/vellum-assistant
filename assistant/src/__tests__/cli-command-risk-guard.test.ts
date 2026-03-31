@@ -293,60 +293,6 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
       expectLowRisk(command, risk);
     }
   });
-
-  test("assistant memory mutating subcommands are Medium risk", async () => {
-    const mediumRiskMemoryCommands = [
-      "assistant memory backfill",
-      "assistant memory cleanup",
-      "assistant memory cleanup-segments",
-      "assistant memory rebuild-index",
-      "assistant memory re-extract",
-    ];
-
-    for (const command of mediumRiskMemoryCommands) {
-      const risk = await classifyRisk("bash", { command });
-      expect(risk).toBe(RiskLevel.Medium);
-    }
-  });
-
-  test("non-sensitive memory subcommands remain Low risk", async () => {
-    const lowRiskMemoryCommands = [
-      "assistant memory",
-      "assistant memory status",
-      "assistant memory query foo",
-    ];
-
-    for (const command of lowRiskMemoryCommands) {
-      const risk = await classifyRisk("bash", { command });
-      expectLowRisk(command, risk);
-    }
-  });
-
-  test("assistant skills mutating subcommands are Medium risk", async () => {
-    const mediumRiskSkillsCommands = [
-      "assistant skills install some-skill",
-      "assistant skills uninstall some-skill",
-      "assistant skills add ./path",
-    ];
-
-    for (const command of mediumRiskSkillsCommands) {
-      const risk = await classifyRisk("bash", { command });
-      expect(risk).toBe(RiskLevel.Medium);
-    }
-  });
-
-  test("non-sensitive skills subcommands remain Low risk", async () => {
-    const lowRiskSkillsCommands = [
-      "assistant skills",
-      "assistant skills list",
-      "assistant skills search query",
-    ];
-
-    for (const command of lowRiskSkillsCommands) {
-      const risk = await classifyRisk("bash", { command });
-      expectLowRisk(command, risk);
-    }
-  });
 });
 
 describe("CLI command risk guard: wrapper program propagation", () => {
