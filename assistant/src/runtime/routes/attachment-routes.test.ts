@@ -9,6 +9,7 @@ const testWorkspaceDir = mkdtempSync(
 const testHomeDir = mkdtempSync(join(tmpdir(), "attachment-routes-home-"));
 
 const attachmentsDir = join(testWorkspaceDir, "data", "attachments");
+const conversationsDir = join(testWorkspaceDir, "conversations");
 const recordingsDir = join(
   testHomeDir,
   "Library/Application Support/vellum-assistant/recordings",
@@ -26,6 +27,7 @@ import { resolveAllowedFileBackedAttachmentPath } from "./attachment-routes.js";
 
 beforeAll(() => {
   mkdirSync(attachmentsDir, { recursive: true });
+  mkdirSync(conversationsDir, { recursive: true });
   mkdirSync(recordingsDir, { recursive: true });
 });
 
@@ -53,6 +55,15 @@ describe("resolveAllowedFileBackedAttachmentPath", () => {
     expect(resolveAllowedFileBackedAttachmentPath(recordingFile)).toBe(
       recordingFile,
     );
+  });
+
+  test("allows files in conversation attachments directory", () => {
+    const convAttachDir = join(conversationsDir, "conv-123", "attachments");
+    mkdirSync(convAttachDir, { recursive: true });
+    const convFile = join(convAttachDir, "photo.jpg");
+    writeFileSync(convFile, "ok");
+
+    expect(resolveAllowedFileBackedAttachmentPath(convFile)).toBe(convFile);
   });
 
   test("rejects files outside allowed directories", () => {

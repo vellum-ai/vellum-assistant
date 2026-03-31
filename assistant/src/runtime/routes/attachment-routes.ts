@@ -37,17 +37,20 @@ function resolveAllowedAttachmentDirectories(): string[] {
     "data",
     "attachments",
   );
+  const conversationsDir = join(getWorkspaceDir(), "conversations");
   const recordingsDir = join(
     process.env.HOME ?? "",
     "Library/Application Support/vellum-assistant/recordings",
   );
-  return [workspaceAttachmentsDir, recordingsDir].map((dir) => {
-    try {
-      return realpathSync(dir);
-    } catch {
-      return resolve(dir);
-    }
-  });
+  return [workspaceAttachmentsDir, conversationsDir, recordingsDir].map(
+    (dir) => {
+      try {
+        return realpathSync(dir);
+      } catch {
+        return resolve(dir);
+      }
+    },
+  );
 }
 
 export function resolveAllowedFileBackedAttachmentPath(
