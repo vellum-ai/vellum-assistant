@@ -86,7 +86,7 @@ export function registerConnectCommand(oauth: Command): void {
     .option("--client-id <id>", "BYO app client ID disambiguation")
     .option(
       "--callback-transport <transport>",
-      `How the OAuth callback is delivered after authorization. Use "loopback" when the assistant runs locally (starts a temporary localhost server to receive the callback — no tunnel or public URL needed). Use "gateway" when the assistant runs on a remote server (routes the callback through the public ingress URL — requires ingress.publicBaseUrl to be configured).`,
+      `How the OAuth callback is delivered after authorization. Use "loopback" when oauth connection is initiated from a local client, such as the macos desktop app (starts a temporary localhost server to receive the callback — no tunnel or public URL needed). Use "gateway" when the oauth connection is initiated from a web client (routes the callback through the public ingress URL — requires ingress.publicBaseUrl to be configured).`,
       "loopback",
     )
     .hook("preAction", (thisCommand) => {
