@@ -516,7 +516,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func patchConfig(_ partial: [String: Any]) async -> Bool {
         do {
             let response = try await GatewayHTTPClient.patch(
-                path: "config", json: partial, timeout: 10
+                path: "assistants/{assistantId}/config", json: partial, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("patchConfig failed (HTTP \(response.statusCode))")
@@ -532,7 +532,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchConfig() async -> [String: Any]? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "config", timeout: 10
+                path: "assistants/{assistantId}/config", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchConfig failed (HTTP \(response.statusCode))")

@@ -2294,59 +2294,71 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func setInferenceMode(_ mode: String) {
+    @discardableResult
+    func setInferenceMode(_ mode: String) -> Task<Bool, Never> {
         inferenceMode = mode
-        Task {
+        let task = Task {
             let success = await settingsClient.patchConfig([
                 "services": ["inference": ["mode": mode]]
             ])
             if !success {
                 log.error("Failed to patch config for inference mode")
             }
+            return success
         }
         scheduleRoutingSourceRefresh()
+        return task
     }
 
-    func setImageGenMode(_ mode: String) {
+    @discardableResult
+    func setImageGenMode(_ mode: String) -> Task<Bool, Never> {
         imageGenMode = mode
-        Task {
+        let task = Task {
             let success = await settingsClient.patchConfig([
                 "services": ["image-generation": ["mode": mode]]
             ])
             if !success {
                 log.error("Failed to patch config for image-generation mode")
             }
+            return success
         }
         scheduleRoutingSourceRefresh()
+        return task
     }
 
-    func setWebSearchMode(_ mode: String) {
+    @discardableResult
+    func setWebSearchMode(_ mode: String) -> Task<Bool, Never> {
         webSearchMode = mode
-        Task {
+        let task = Task {
             let success = await settingsClient.patchConfig([
                 "services": ["web-search": ["mode": mode]]
             ])
             if !success {
                 log.error("Failed to patch config for web search mode")
             }
+            return success
         }
         scheduleRoutingSourceRefresh()
+        return task
     }
 
-    func setManagedOAuthMode(_ mode: String, providerKey: String) {
+    @discardableResult
+    func setManagedOAuthMode(_ mode: String, providerKey: String) -> Task<Bool, Never> {
         managedOAuthMode[providerKey] = mode
         // Derive the config service key from providerKey (e.g. "google" → "google-oauth")
         // so it matches the key that loadServiceModes() reads on startup.
         let serviceKey = "\(providerKey)-oauth"
-        Task {
+        let task = Task {
             let success = await settingsClient.patchConfig([
                 "services": [serviceKey: ["mode": mode]]
             ])
             if !success {
                 log.error("Failed to patch config for \(serviceKey) mode")
             }
+            return success
         }
         scheduleRoutingSourceRefresh()
+        return task
     }
 
     // MARK: - Managed OAuth Provider List
@@ -2977,30 +2989,36 @@ public final class SettingsStore: ObservableObject {
         managedOAuthError[providerKey]
     }
 
-    func setWebSearchProvider(_ provider: String) {
+    @discardableResult
+    func setWebSearchProvider(_ provider: String) -> Task<Bool, Never> {
         webSearchProvider = provider
-        Task {
+        let task = Task {
             let success = await settingsClient.patchConfig([
                 "services": ["web-search": ["provider": provider]]
             ])
             if !success {
                 log.error("Failed to patch config for web search provider")
             }
+            return success
         }
         scheduleRoutingSourceRefresh()
+        return task
     }
 
-    func setInferenceProvider(_ provider: String) {
+    @discardableResult
+    func setInferenceProvider(_ provider: String) -> Task<Bool, Never> {
         selectedInferenceProvider = provider
-        Task {
+        let task = Task {
             let success = await settingsClient.patchConfig([
                 "services": ["inference": ["provider": provider]]
             ])
             if !success {
                 log.error("Failed to patch config for inference provider")
             }
+            return success
         }
         scheduleRoutingSourceRefresh()
+        return task
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the
