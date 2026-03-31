@@ -141,7 +141,7 @@ struct SettingsDeveloperTab: View {
                 resolvePlatformUuid()
                 await refreshAwakeStates()
             }
-            identity = IdentityInfo.load()
+            Task { identity = await IdentityInfo.loadAsync() }
             Task { await fetchHealthz() }
 
             // Advanced dev setup

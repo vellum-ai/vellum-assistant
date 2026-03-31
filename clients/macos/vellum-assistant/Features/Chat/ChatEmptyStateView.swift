@@ -35,11 +35,9 @@ struct ChatEmptyStateView: View {
     @State private var visible = false
     @State private var fallbackPlaceholder: String = placeholderTexts.randomElement()!
 
-    // Stable random pick from SOUL.md (computed once per view lifecycle)
-    @State private var soulGreeting: String? = {
-        let custom = IdentityInfo.loadGreetings()
-        return custom.isEmpty ? nil : custom.randomElement()!
-    }()
+    // Stable random pick from SOUL.md (loaded asynchronously, computed once per view lifecycle)
+    @State private var soulGreeting: String?
+    @State private var soulGreetingLoaded = false
 
     // The greeting to display: SOUL.md takes priority, then daemon, then nil (loading)
     private var effectiveGreeting: String? {
@@ -83,6 +81,16 @@ struct ChatEmptyStateView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear(perform: handleAppear)
         .onDisappear { visible = false }
+        .task {
+            guard !soulGreetingLoaded else { return }
+            let greetings = await IdentityInfo.loadGreetingsAsync()
+            if !greetings.isEmpty {
+                soulGreeting = greetings.randomElement()!
+            } else {
+                onRequestGreeting?()
+            }
+            soulGreetingLoaded = true
+        }
     }
 
     // MARK: - Shared Sections
@@ -162,7 +170,7 @@ struct ChatEmptyStateView: View {
     }
 
     private func handleAppear() {
-        if soulGreeting == nil {
+        if soulGreetingLoaded && soulGreeting == nil {
             onRequestGreeting?()
         }
         onFetchConversationStarters?()

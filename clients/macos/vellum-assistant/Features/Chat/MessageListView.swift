@@ -115,7 +115,6 @@ struct MessageListView: View {
     var containerWidth: CGFloat = 0
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
-    @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
     /// Read at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared manager.

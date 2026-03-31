@@ -327,7 +327,8 @@ struct ContactsContainerView: View {
         .scrollContentBackground(.hidden)
         .contentMargins(0)
         .task {
-            cachedAssistantName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
+            let info = await IdentityInfo.loadAsync()
+            cachedAssistantName = AssistantDisplayName.firstUserFacing(from: [info?.name]) ?? AssistantDisplayName.placeholder
         }
     }
 

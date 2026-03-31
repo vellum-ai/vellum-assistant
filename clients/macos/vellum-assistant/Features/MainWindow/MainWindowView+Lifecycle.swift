@@ -11,7 +11,11 @@ extension MainWindowView {
             .onAppear { handleCoreLayoutAppear() }
             .onDisappear { handleCoreLayoutDisappear() }
             .onReceive(NotificationCenter.default.publisher(for: .identityFileDidChange)) { _ in
-                cachedAssistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
+                Task {
+                    let info = await IdentityInfo.loadAsync()
+                    cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
+                    if info != nil { assistantNameResolved = true }
+                }
             }
             .onReceive(connectionManager.$isConnected) { connected in
                 handleDaemonConnectionChange(connected)
@@ -99,7 +103,11 @@ extension MainWindowView {
         // Without this, isAppChatOpen could remain persisted as true with
         // no UI to disable it, leaving panels stuck in split mode.
         isAppChatOpen = false
-        cachedAssistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
+        Task {
+            let info = await IdentityInfo.loadAsync()
+            cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
+            if info != nil { assistantNameResolved = true }
+        }
         startIdentityFileWatcher()
         selectedConversationId = conversationManager.activeConversationId
         if let activeId = conversationManager.activeConversationId {

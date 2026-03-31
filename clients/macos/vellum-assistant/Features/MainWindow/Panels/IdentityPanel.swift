@@ -159,8 +159,8 @@ struct IdentityPanel: View {
                 .frame(width: 360)
                 .fixedSize(horizontal: false, vertical: true)
             }
-            .onAppear {
-                identity = IdentityInfo.load()
+            .task {
+                identity = await IdentityInfo.loadAsync()
                 metadata = AssistantMetadata.load()
                 lockfileAssistant = LockfileAssistant.loadLatest()
                 workspaceFiles = WorkspaceFileNode.scan()
@@ -179,7 +179,7 @@ struct IdentityPanel: View {
                     isBootstrapActive = fileResponse != nil
 
                     if !isBootstrapActive && introText == nil {
-                        if let soulIntro = IdentityInfo.loadIdentityIntro() {
+                        if let soulIntro = await IdentityInfo.loadIdentityIntroAsync() {
                             introText = soulIntro
                         } else {
                             generateIntro()
@@ -255,14 +255,14 @@ struct IdentityPanel: View {
             )
 
             if success {
-                identity = IdentityInfo.load()
+                identity = await IdentityInfo.loadAsync()
                 isEditingName = false
                 isEditingRole = false
 
                 if field == "Name" {
                     introText = nil
                     if !isBootstrapActive {
-                        if let soulIntro = IdentityInfo.loadIdentityIntro() {
+                        if let soulIntro = await IdentityInfo.loadIdentityIntroAsync() {
                             introText = soulIntro
                         } else {
                             generateIntro()
