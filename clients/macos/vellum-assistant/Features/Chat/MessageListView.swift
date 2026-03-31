@@ -61,12 +61,12 @@ struct MessageListView: View {
     let providerCatalog: [ProviderCatalogEntry]
     let activeSubagents: [SubagentInfo]
     let dismissedDocumentSurfaceIds: Set<String>
-    let onConfirmationAllow: (String) -> Void
-    let onConfirmationDeny: (String) -> Void
+    var onConfirmationAllow: ((String) -> Void)?
+    var onConfirmationDeny: ((String) -> Void)?
     let onAlwaysAllow: (String, String, String, String) -> Void
     /// Called when a temporary approval option is selected: (requestId, decision).
     var onTemporaryAllow: ((String, String) -> Void)?
-    let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    var onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
     /// Called when a guardian decision action button is clicked: (requestId, action).
     var onGuardianAction: ((String, String) -> Void)?
     let onDismissDocumentWidget: ((String) -> Void)?
@@ -1248,12 +1248,12 @@ private struct MessageCellView: View, Equatable {
     let activeSurfaceId: String?
     let isHighlighted: Bool
     let mediaEmbedSettings: MediaEmbedResolverSettings?
-    let onConfirmationAllow: (String) -> Void
-    let onConfirmationDeny: (String) -> Void
+    var onConfirmationAllow: ((String) -> Void)?
+    var onConfirmationDeny: ((String) -> Void)?
     let onAlwaysAllow: (String, String, String, String) -> Void
     var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
-    let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    var onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
     let onDismissDocumentWidget: ((String) -> Void)?
     var onForkFromMessage: ((String) -> Void)?
     var showInspectButton: Bool = false
@@ -1304,7 +1304,7 @@ private struct MessageCellView: View, Equatable {
             ChatBubble(
                 message: commandListFallbackMessage(for: message),
                 decidedConfirmation: nil,
-                onSurfaceAction: onSurfaceAction,
+                onSurfaceAction: onSurfaceAction ?? { _, _, _ in },
                 onDismissDocumentWidget: { surfaceId in
                     onDismissDocumentWidget?(surfaceId)
                 },
@@ -1356,8 +1356,8 @@ private struct MessageCellView: View, Equatable {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
                         isKeyboardActive: confirmation.requestId == activePendingRequestId,
-                        onAllow: { onConfirmationAllow(confirmation.requestId) },
-                        onDeny: { onConfirmationDeny(confirmation.requestId) },
+                        onAllow: { onConfirmationAllow?(confirmation.requestId) },
+                        onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow,
                         onTemporaryAllow: onTemporaryAllow
                     )
@@ -1367,8 +1367,8 @@ private struct MessageCellView: View, Equatable {
                 if !hasPrecedingAssistant {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
-                        onAllow: { onConfirmationAllow(confirmation.requestId) },
-                        onDeny: { onConfirmationDeny(confirmation.requestId) },
+                        onAllow: { onConfirmationAllow?(confirmation.requestId) },
+                        onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow,
                         onTemporaryAllow: onTemporaryAllow
                     )
@@ -1393,7 +1393,7 @@ private struct MessageCellView: View, Equatable {
             ChatBubble(
                 message: message,
                 decidedConfirmation: nextDecidedConfirmation,
-                onSurfaceAction: onSurfaceAction,
+                onSurfaceAction: onSurfaceAction ?? { _, _, _ in },
                 onDismissDocumentWidget: { surfaceId in
                     onDismissDocumentWidget?(surfaceId)
                 },
