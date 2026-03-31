@@ -2,6 +2,187 @@
   "version": 1,
   "tools": [
     {
+      "name": "outlook_rules",
+      "description": "List, create, or delete Outlook inbox message rules for automatic mail processing. Include a confidence score (0-1) for create and delete actions.",
+      "category": "outlook",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["list", "create", "delete"],
+            "description": "Rule action"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Display name for the rule (required for create)"
+          },
+          "from_contains": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Condition: sender contains (for create)"
+          },
+          "subject_contains": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Condition: subject contains (for create)"
+          },
+          "body_contains": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Condition: body contains (for create)"
+          },
+          "has_attachment": {
+            "type": "boolean",
+            "description": "Condition: message has attachment (for create)"
+          },
+          "importance": {
+            "type": "string",
+            "enum": ["low", "normal", "high"],
+            "description": "Condition: message importance level (for create)"
+          },
+          "move_to_folder": {
+            "type": "string",
+            "description": "Action: move to folder ID (for create)"
+          },
+          "delete": {
+            "type": "boolean",
+            "description": "Action: delete message (for create)"
+          },
+          "mark_as_read": {
+            "type": "boolean",
+            "description": "Action: mark as read (for create)"
+          },
+          "mark_importance": {
+            "type": "string",
+            "enum": ["low", "normal", "high"],
+            "description": "Action: set importance level (for create)"
+          },
+          "forward_to": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Action: forward to email address(es) (for create)"
+          },
+          "stop_processing": {
+            "type": "boolean",
+            "description": "Action: stop processing subsequent rules (for create)"
+          },
+          "rule_id": {
+            "type": "string",
+            "description": "Rule ID (required for delete)"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Microsoft accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["action"]
+      },
+      "executor": "tools/outlook-rules.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "outlook_vacation",
+      "description": "Get, enable, or disable Outlook automatic reply (out-of-office) settings. Include a confidence score (0-1) for enable and disable actions.",
+      "category": "outlook",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["get", "enable", "disable"],
+            "description": "Vacation action"
+          },
+          "internal_message": {
+            "type": "string",
+            "description": "Auto-reply message for internal (same organization) senders (required for enable)"
+          },
+          "external_message": {
+            "type": "string",
+            "description": "Auto-reply message for external senders (for enable)"
+          },
+          "external_audience": {
+            "type": "string",
+            "enum": ["none", "contactsOnly", "all"],
+            "description": "Who receives the external auto-reply: none, contactsOnly, or all (default none)"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Scheduled start date/time in ISO 8601 format (for enable with schedule)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Scheduled end date/time in ISO 8601 format (for enable with schedule)"
+          },
+          "time_zone": {
+            "type": "string",
+            "description": "IANA time zone for scheduled dates (default: system timezone)"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Microsoft accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["action"]
+      },
+      "executor": "tools/outlook-vacation.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "outlook_sender_digest",
       "description": "Scan Outlook inbox and group messages by sender to identify high-volume senders (e.g. newsletters). Returns top senders sorted by message count with metadata for bulk cleanup.",
       "category": "outlook",
