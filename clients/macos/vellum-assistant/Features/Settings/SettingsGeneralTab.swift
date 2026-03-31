@@ -60,7 +60,7 @@ struct SettingsGeneralTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
-            if !lockfileAssistants.isEmpty {
+            if !lockfileAssistants.isEmpty, let updateManager = AppDelegate.shared?.updateManager {
                 AssistantUpgradeSection(
                     currentVersion: connectionManager?.assistantVersion ?? healthz?.version,
                     topology: topology,
@@ -70,7 +70,8 @@ struct SettingsGeneralTab: View {
                     sparkleUpdateVersion: sparkleUpdateVersion,
                     isServiceGroupUpdateInProgress: isServiceGroupUpdateInProgress,
                     updateStatusMessage: updateStatusMessage,
-                    healthzLoaded: healthzLoaded
+                    healthzLoaded: healthzLoaded,
+                    updateManager: updateManager
                 )
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("mobile-pairing") {
