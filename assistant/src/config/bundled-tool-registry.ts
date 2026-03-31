@@ -107,6 +107,8 @@ import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.
 import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
 // ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
+// ── outlook ───────────────────────────────────────────────────────────────────
+import * as outlookAttachments from "./bundled-skills/outlook/tools/outlook-attachments.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -289,6 +291,9 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // notifications
   ["notifications:tools/send-notification.ts", sendNotification],
+
+  // outlook
+  ["outlook:tools/outlook-attachments.ts", outlookAttachments],
 
   // phone-calls
   ["phone-calls:tools/call-start.ts", callStart],
