@@ -137,13 +137,13 @@ export async function initializeProvidersAndTools(
 export function registerWatcherProviders(): void {
   registerWatcherProvider(gmailProvider);
   registerWatcherProvider(googleCalendarProvider);
-  registerWatcherProvider(outlookCalendarProvider);
   registerWatcherProvider(githubProvider);
   registerWatcherProvider(linearProvider);
 
   const config = getConfig();
   if (isAssistantFeatureFlagEnabled("outlook-oauth-integration", config)) {
     registerWatcherProvider(outlookProvider);
+    registerWatcherProvider(outlookCalendarProvider);
   }
 
   initWatcherEngine();
