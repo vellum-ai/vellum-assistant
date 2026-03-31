@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -13,7 +13,7 @@ import {
   upsertContact,
 } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
 import {
   createInvite,
   revokeInvite as revokeStoreFn,
@@ -26,10 +26,6 @@ import {
 import { hashVoiceCode } from "../util/voice-code.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");

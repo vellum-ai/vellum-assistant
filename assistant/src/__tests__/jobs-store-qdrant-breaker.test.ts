@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -21,7 +13,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   claimMemoryJobs,
   enqueueMemoryJob,
@@ -41,10 +33,6 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
     const db = getDb();
     db.run("DELETE FROM memory_jobs");
     _resetQdrantBreaker();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   test("claims embed jobs when circuit breaker is closed (healthy)", () => {

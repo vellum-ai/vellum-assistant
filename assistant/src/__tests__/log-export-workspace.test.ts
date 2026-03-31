@@ -21,7 +21,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 // Set up temp directories before mocking
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
@@ -40,14 +40,10 @@ mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
-import { initializeDb, resetDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db.js";
 import { logExportRouteDefinitions } from "../runtime/routes/log-export-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -6,15 +6,7 @@
  * Non-tool-approval requests and rejections must NOT mint grants.
  */
 
-import {
-  afterAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  spyOn,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -30,7 +22,7 @@ mock.module("../util/logger.js", () => ({
 import { GRANT_TTL_MS } from "../approvals/guardian-decision-primitive.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   createApprovalRequest,
   getPendingApprovalForRequest,
@@ -45,10 +37,6 @@ import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import "../memory/scoped-approval-grants.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -16,7 +16,7 @@
 
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -38,7 +38,7 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   type GuardianReplyContext,
   routeGuardianReply,
@@ -54,10 +54,6 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_requests");
   pendingInteractions.clear();
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Helpers
