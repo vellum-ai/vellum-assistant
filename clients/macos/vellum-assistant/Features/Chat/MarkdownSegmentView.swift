@@ -44,6 +44,21 @@ struct MarkdownSegmentView: View, Equatable {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
                 case .selectableRun(let runSegments):
+                    #if os(macOS)
+                    let attributed = buildCombinedAttributedString(from: runSegments)
+                    let nsAttributed = Self.convertToNSAttributedString(
+                        attributed,
+                        font: VFont.nsChat,
+                        textColor: NSColor(textColor)
+                    )
+                    SelectableTextView(
+                        attributedString: nsAttributed,
+                        maxWidth: maxContentWidth,
+                        lineSpacing: 4,
+                        tintColor: NSColor(tintColor)
+                    )
+                    .optionalMaxWidth(maxContentWidth)
+                    #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
                         .font(chatFont)
@@ -51,12 +66,9 @@ struct MarkdownSegmentView: View, Equatable {
                         .foregroundStyle(textColor)
                         .tint(tintColor)
                         .optionalMaxWidth(maxContentWidth)
-                        // lineLimit(nil) removes the line count limit.
-                        // fixedSize(vertical) forces the Text to use its ideal height,
-                        // preventing LazyVStack from proposing insufficient height for
-                        // very long messages (which causes tail truncation with "...").
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
+                    #endif
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
@@ -395,6 +407,39 @@ struct MarkdownSegmentView: View, Equatable {
 
         return result
     }
+
+    // MARK: - NSAttributedString Conversion
+
+    #if os(macOS)
+    /// Converts a SwiftUI `AttributedString` to `NSAttributedString` with a
+    /// base font and text color applied as defaults. Runs that already carry
+    /// explicit font or color attributes (e.g. inline code, bold, italic)
+    /// keep their values; the defaults fill in where no attribute is set.
+    static func convertToNSAttributedString(
+        _ source: AttributedString,
+        font: NSFont,
+        textColor: NSColor
+    ) -> NSAttributedString {
+        let ns = NSMutableAttributedString(source)
+        let fullRange = NSRange(location: 0, length: ns.length)
+
+        // Apply base font where no explicit font attribute exists
+        ns.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
+            if value == nil {
+                ns.addAttribute(.font, value: font, range: range)
+            }
+        }
+
+        // Apply base text color where no explicit foreground color exists
+        ns.enumerateAttribute(.foregroundColor, in: fullRange, options: []) { value, range, _ in
+            if value == nil {
+                ns.addAttribute(.foregroundColor, value: textColor, range: range)
+            }
+        }
+
+        return ns
+    }
+    #endif
 }
 
 // MARK: - Code Block View
