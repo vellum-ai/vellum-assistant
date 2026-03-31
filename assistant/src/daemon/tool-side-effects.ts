@@ -10,6 +10,7 @@
 import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
+import { findActiveSession } from "../memory/channel-verification-sessions.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -225,6 +226,25 @@ registerHook("bash", (_name, input, result) => {
   const dispatch = (parsed: Parsed) => {
     if (parsed._pendingSlackDm) {
       const { userId, text, assistantId } = parsed._pendingSlackDm;
+
+      // Validate that an active Slack verification session exists and
+      // that the destination matches the userId in the parsed payload.
+      const session = findActiveSession("slack");
+      if (!session) {
+        log.warn(
+          { userId, assistantId },
+          "Bash hook: no active Slack verification session — ignoring _pendingSlackDm",
+        );
+        return true;
+      }
+      if (session.destinationAddress !== userId) {
+        log.warn(
+          { userId, expected: session.destinationAddress, assistantId },
+          "Bash hook: Slack DM userId does not match active session destination — ignoring",
+        );
+        return true;
+      }
+
       deliverVerificationSlack(userId, text, assistantId);
       return true;
     }
