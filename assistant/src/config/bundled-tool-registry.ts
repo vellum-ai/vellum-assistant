@@ -113,7 +113,9 @@ import * as outlookCategories from "./bundled-skills/outlook/tools/outlook-categ
 import * as outlookDraft from "./bundled-skills/outlook/tools/outlook-draft.js";
 import * as outlookFollowUp from "./bundled-skills/outlook/tools/outlook-follow-up.js";
 import * as outlookForward from "./bundled-skills/outlook/tools/outlook-forward.js";
+import * as outlookOutreachScan from "./bundled-skills/outlook/tools/outlook-outreach-scan.js";
 import * as outlookSendDraft from "./bundled-skills/outlook/tools/outlook-send-draft.js";
+import * as outlookSenderDigest from "./bundled-skills/outlook/tools/outlook-sender-digest.js";
 import * as outlookTrash from "./bundled-skills/outlook/tools/outlook-trash.js";
 import * as outlookUnsubscribe from "./bundled-skills/outlook/tools/outlook-unsubscribe.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
@@ -305,7 +307,9 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["outlook:tools/outlook-draft.ts", outlookDraft],
   ["outlook:tools/outlook-follow-up.ts", outlookFollowUp],
   ["outlook:tools/outlook-forward.ts", outlookForward],
+  ["outlook:tools/outlook-outreach-scan.ts", outlookOutreachScan],
   ["outlook:tools/outlook-send-draft.ts", outlookSendDraft],
+  ["outlook:tools/outlook-sender-digest.ts", outlookSenderDigest],
   ["outlook:tools/outlook-trash.ts", outlookTrash],
   ["outlook:tools/outlook-unsubscribe.ts", outlookUnsubscribe],
 
