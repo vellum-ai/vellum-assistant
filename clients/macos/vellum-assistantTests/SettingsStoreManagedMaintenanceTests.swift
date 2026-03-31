@@ -29,6 +29,42 @@ private final class MaintenanceStoreURLProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+// MARK: - Blocking URLProtocol stub for mid-flight staleness tests
+
+/// A URLProtocol stub that suspends the network response until `resume()` is called.
+/// This lets tests mutate UserDefaults *between* the request being sent and the
+/// response being delivered, exercising staleness-guard code paths.
+private final class BlockingMaintenanceURLProtocol: URLProtocol {
+    // The pending instance waiting to deliver its response.
+    static var pendingInstance: BlockingMaintenanceURLProtocol?
+    // The (response, data) to deliver when resume() is called.
+    static var stagedResponse: (HTTPURLResponse, Data)?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        // Park ourselves so the test can call resume() after mutating UserDefaults.
+        Self.pendingInstance = self
+    }
+
+    override func stopLoading() {
+        Self.pendingInstance = nil
+    }
+
+    /// Deliver the staged response to the URLSession machinery.
+    func resume() {
+        guard let (response, data) = Self.stagedResponse else {
+            client?.urlProtocol(self, didFailWithError: URLError(.unknown))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+        Self.pendingInstance = nil
+    }
+}
+
 // MARK: - Helpers
 
 private func assistantPayload(
@@ -478,5 +514,180 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         await fulfillment(of: [secondDone], timeout: 5)
         task2.cancel()
         XCTAssertNil(store.maintenanceModeExitError)
+    }
+
+    // MARK: - Staleness-guard regression tests
+
+    /// Verifies that `refreshManagedAssistantMaintenanceMode` discards the response when
+    /// `connectedAssistantId` changes while the request is in flight.
+    func testRefreshDiscardsStaleResponseWhenAssistantIdChangesMidFlight() async {
+        defer { cleanupStandard() }
+
+        // Stage a success response for the blocking stub.
+        let url = URL(string: "https://example.com")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        BlockingMaintenanceURLProtocol.stagedResponse = (
+            response,
+            assistantPayload(id: testAssistantId, maintenanceEnabled: true, debugPodName: "stale-pod")
+        )
+        BlockingMaintenanceURLProtocol.pendingInstance = nil
+
+        // Swap the normal stub for the blocking variant.
+        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        defer {
+            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
+            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
+            BlockingMaintenanceURLProtocol.stagedResponse = nil
+        }
+
+        let store = makeStore()
+
+        // Start the refresh in the background — it will block waiting for the stub to respond.
+        let refreshTask = Task { @MainActor in
+            await store.refreshManagedAssistantMaintenanceMode()
+        }
+
+        // Wait until the blocking stub has received the request (i.e. startLoading() was called).
+        let requestReceived = expectation(description: "blocking stub received request")
+        let waitTask = Task {
+            var ticks = 0
+            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+                try? await Task.sleep(nanoseconds: 10_000_000) // 10 ms
+                ticks += 1
+            }
+            requestReceived.fulfill()
+        }
+        await fulfillment(of: [requestReceived], timeout: 5)
+        waitTask.cancel()
+
+        // Simulate assistant switch mid-flight by changing UserDefaults.
+        UserDefaults.standard.set("different-assistant-id", forKey: "connectedAssistantId")
+
+        // Now unblock the response.
+        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+
+        // Wait for the refresh Task to complete.
+        await refreshTask.value
+
+        // Staleness guard should have discarded the response — mode must remain nil.
+        XCTAssertNil(store.managedAssistantMaintenanceMode,
+            "managedAssistantMaintenanceMode must not be updated with a stale response when connectedAssistantId changed mid-flight")
+        XCTAssertFalse(store.maintenanceModeRefreshing)
+    }
+
+    /// Verifies that `refreshManagedAssistantMaintenanceMode` discards the response when
+    /// `connectedOrganizationId` changes while the request is in flight.
+    func testRefreshDiscardsStaleResponseWhenOrgIdChangesMidFlight() async {
+        defer { cleanupStandard() }
+
+        let url = URL(string: "https://example.com")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        BlockingMaintenanceURLProtocol.stagedResponse = (
+            response,
+            assistantPayload(id: testAssistantId, maintenanceEnabled: true, debugPodName: "stale-pod-org")
+        )
+        BlockingMaintenanceURLProtocol.pendingInstance = nil
+
+        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        defer {
+            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
+            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
+            BlockingMaintenanceURLProtocol.stagedResponse = nil
+        }
+
+        let store = makeStore()
+
+        let refreshTask = Task { @MainActor in
+            await store.refreshManagedAssistantMaintenanceMode()
+        }
+
+        let requestReceived = expectation(description: "blocking stub received request (org)")
+        let waitTask = Task {
+            var ticks = 0
+            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                ticks += 1
+            }
+            requestReceived.fulfill()
+        }
+        await fulfillment(of: [requestReceived], timeout: 5)
+        waitTask.cancel()
+
+        // Simulate organization switch mid-flight.
+        UserDefaults.standard.set("different-org-id", forKey: "connectedOrganizationId")
+
+        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+
+        await refreshTask.value
+
+        XCTAssertNil(store.managedAssistantMaintenanceMode,
+            "managedAssistantMaintenanceMode must not be updated with a stale response when connectedOrganizationId changed mid-flight")
+        XCTAssertFalse(store.maintenanceModeRefreshing)
+    }
+
+    /// Verifies that `enterManagedAssistantMaintenanceMode` does not overwrite
+    /// `managedAssistantMaintenanceMode` when `connectedAssistantId` changes mid-flight.
+    func testEnterDiscardsStaleResponseWhenAssistantIdChangesMidFlight() async {
+        defer { cleanupStandard() }
+
+        let url = URL(string: "https://example.com")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        BlockingMaintenanceURLProtocol.stagedResponse = (
+            response,
+            assistantPayload(id: testAssistantId, maintenanceEnabled: true, debugPodName: "enter-stale-pod")
+        )
+        BlockingMaintenanceURLProtocol.pendingInstance = nil
+
+        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        defer {
+            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
+            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
+            BlockingMaintenanceURLProtocol.stagedResponse = nil
+        }
+
+        let store = makeStore()
+
+        // Kick off enter — it fires a Task internally and returns immediately.
+        store.enterManagedAssistantMaintenanceMode()
+
+        // Wait for the stub to receive the in-flight request.
+        let requestReceived = expectation(description: "enter: blocking stub received request")
+        let waitTask = Task {
+            var ticks = 0
+            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                ticks += 1
+            }
+            requestReceived.fulfill()
+        }
+        await fulfillment(of: [requestReceived], timeout: 5)
+        waitTask.cancel()
+
+        // Simulate assistant switch mid-flight.
+        UserDefaults.standard.set("different-assistant-id-enter", forKey: "connectedAssistantId")
+
+        // Unblock the response.
+        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+
+        // Wait for the enter task to finish.
+        let done = expectation(description: "enter finishes")
+        let pollTask = Task {
+            var ticks = 0
+            while store.maintenanceModeEntering && ticks < 200 {
+                await Task.yield()
+                ticks += 1
+            }
+            done.fulfill()
+        }
+        await fulfillment(of: [done], timeout: 5)
+        pollTask.cancel()
+
+        // The staleness guard should discard the stale response.
+        XCTAssertNil(store.managedAssistantMaintenanceMode,
+            "managedAssistantMaintenanceMode must not be updated with a stale enter response when connectedAssistantId changed mid-flight")
+        XCTAssertFalse(store.maintenanceModeEntering)
     }
 }
