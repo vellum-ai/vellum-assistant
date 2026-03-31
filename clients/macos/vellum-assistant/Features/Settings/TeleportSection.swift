@@ -359,8 +359,8 @@ struct TeleportSection: View {
         }
 
         // Step 3 — Import bundle to managed assistant
-        phase = .transferring(step: "Importing data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
+        phase = .transferring(step: "Uploading data to cloud...")
+        try await importBundleToManaged(bundleData: bundleData)
 
         // Step 4 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
@@ -477,8 +477,8 @@ struct TeleportSection: View {
         }
 
         // Step 3 — Import bundle to managed assistant
-        phase = .transferring(step: "Importing data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
+        phase = .transferring(step: "Uploading data to cloud...")
+        try await importBundleToManaged(bundleData: bundleData)
 
         // Step 4 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
@@ -505,28 +505,29 @@ struct TeleportSection: View {
         return response.data
     }
 
-    /// Imports a `.vbundle` archive into the managed assistant via the platform API.
-    private func importBundleToManaged(bundleData: Data, managedAssistantId: String) async throws {
-        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        UserDefaults.standard.set(managedAssistantId, forKey: "connectedAssistantId")
-        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
+    /// Imports a `.vbundle` archive into the managed assistant via the signed URL upload flow.
+    ///
+    /// Uses 3 steps: request signed URL → upload to GCS → trigger import from GCS.
+    /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
+    private func importBundleToManaged(bundleData: Data) async throws {
+        // Step 1: Request a signed upload URL from the platform
+        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
 
-        let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/migrations/import",
-            body: bundleData,
-            contentType: "application/octet-stream",
-            timeout: 120
-        )
+        // Step 2: Upload bundle directly to GCS via signed URL
+        try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)
 
-        guard response.isSuccess else {
-            if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+        // Step 3: Trigger import from GCS
+        let (statusCode, data) = try await PlatformMigrationClient.importFromGcs(bundleKey: uploadInfo.bundleKey)
+
+        guard (200..<300).contains(statusCode) else {
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errorMsg = json["error"] as? String {
                 throw TeleportError.importFailed(message: errorMsg)
             }
-            throw TeleportError.importFailed(message: "HTTP \(response.statusCode)")
+            throw TeleportError.importFailed(message: "HTTP \(statusCode)")
         }
 
-        if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let success = json["success"] as? Bool, !success {
             let errorMsg = (json["error"] as? String) ?? "Import reported failure"
             throw TeleportError.importFailed(message: errorMsg)
