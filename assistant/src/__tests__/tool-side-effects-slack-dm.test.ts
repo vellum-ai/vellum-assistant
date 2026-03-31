@@ -57,13 +57,15 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Import after mocks
+// Import after mocks — dynamic import ensures mock.module() calls above
+// are registered before tool-side-effects.ts evaluates its top-level
+// `const log = getLogger(...)`.
 // ---------------------------------------------------------------------------
 
-import {
-  runPostExecutionSideEffects,
-  type SideEffectContext,
-} from "../daemon/tool-side-effects.js";
+import type { SideEffectContext } from "../daemon/tool-side-effects.js";
+
+const { runPostExecutionSideEffects } =
+  await import("../daemon/tool-side-effects.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
