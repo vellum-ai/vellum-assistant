@@ -201,8 +201,8 @@ describe("config set — platform connection guard for service mode paths", () =
     expect(mockSetNestedValueCalls).toHaveLength(0);
   });
 
-  test("config set services.image-generation.mode your-own — fails when not connected", async () => {
-    const { exitCode, stdout } = await runCli([
+  test("config set services.image-generation.mode your-own — succeeds without platform connection", async () => {
+    const { exitCode } = await runCli([
       "node",
       "assistant",
       "--json",
@@ -212,13 +212,14 @@ describe("config set — platform connection guard for service mode paths", () =
       "your-own",
     ]);
 
-    expect(exitCode).toBe(1);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("vellum platform connect");
-    // Config should NOT have been written
-    expect(mockSaveRawConfigCalls).toHaveLength(0);
-    expect(mockSetNestedValueCalls).toHaveLength(0);
+    expect(exitCode).toBe(0);
+    // Config should have been written — setting to "your-own" doesn't need platform
+    expect(mockSetNestedValueCalls).toHaveLength(1);
+    expect(mockSetNestedValueCalls[0]!.key).toBe(
+      "services.image-generation.mode",
+    );
+    expect(mockSetNestedValueCalls[0]!.value).toBe("your-own");
+    expect(mockSaveRawConfigCalls).toHaveLength(1);
   });
 
   test("config set calls.enabled true — succeeds without platform connection", async () => {

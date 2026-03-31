@@ -1287,7 +1287,7 @@ describe("assistant oauth mode", () => {
     expect(parsed.error).toContain("vellum platform connect");
   });
 
-  test("oauth mode <provider> --set your-own fails when not connected to platform", async () => {
+  test("oauth mode <provider> --set your-own succeeds without platform connection", async () => {
     mockPlatformClientCreate = async () => null;
     const { exitCode, stdout } = await runCli([
       "mode",
@@ -1296,10 +1296,11 @@ describe("assistant oauth mode", () => {
       "your-own",
       "--json",
     ]);
-    expect(exitCode).toBe(1);
+    // Setting to "your-own" doesn't need platform — it's a local-only operation
+    expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("vellum platform connect");
+    expect(parsed.ok).toBe(true);
+    expect(parsed.mode).toBe("your-own");
   });
 
   test("oauth mode <provider> (read) succeeds without platform connection", async () => {

@@ -86,8 +86,8 @@ Examples:
     )
     .action(
       async (key: string, value: string, _opts: unknown, cmd: Command) => {
-        // Require platform connection when setting a service mode
-        if (SERVICE_MODE_PATH_RE.test(key)) {
+        // Require platform connection when setting a service mode to "managed"
+        if (SERVICE_MODE_PATH_RE.test(key) && value === "managed") {
           const connected = await requirePlatformConnection(cmd);
           if (!connected) return;
         }

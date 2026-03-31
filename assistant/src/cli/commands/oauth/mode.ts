@@ -95,8 +95,8 @@ Examples:
           return;
         }
 
-        // Require platform connection for mode changes
-        if (opts.set !== undefined) {
+        // Require platform connection when switching to managed mode
+        if (opts.set === "managed") {
           const connected = await requirePlatformConnection(cmd);
           if (!connected) return;
         }
