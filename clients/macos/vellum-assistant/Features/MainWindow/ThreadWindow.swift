@@ -206,9 +206,11 @@ private struct ThreadWindowContentView: View {
                     onForkFromMessage: (conversation?.isChannelConversation ?? false) ? nil : { daemonMessageId in onFork(daemonMessageId) },
                     onAddFunds: {
                         settingsStore.pendingSettingsTab = .billing
+                        AppDelegate.shared?.showSettingsWindow(nil)
                     },
                     onOpenModelsAndServices: {
                         settingsStore.pendingSettingsTab = .modelsAndServices
+                        AppDelegate.shared?.showSettingsWindow(nil)
                     },
                     maintenanceMode: settingsStore.managedAssistantMaintenanceMode,
                     isMaintenanceModeExiting: settingsStore.maintenanceModeExiting,
