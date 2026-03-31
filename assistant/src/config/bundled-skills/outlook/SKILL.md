@@ -99,7 +99,7 @@ Gmail uses labels - a message can have multiple labels and removing the INBOX la
 
 When a user asks to declutter, clean up, or organize their email - start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning - but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
-**CRITICAL**: Never call `outlook_archive`, `outlook_unsubscribe`, or similar bulk actions unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table - NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, the system records those deselections as user preferences. Before building the next cleanup table, check `<dynamic-user-profile>` for previously deselected senders and exclude them from future cleanup tables - the user already indicated they want to keep those.
+**CRITICAL**: Never call `messaging_archive_by_sender`, `outlook_unsubscribe`, or similar bulk actions unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table - NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, the system records those deselections as user preferences. Before building the next cleanup table, check `<dynamic-user-profile>` for previously deselected senders and exclude them from future cleanup tables - the user already indicated they want to keep those.
 
 ### Workflow
 
@@ -115,12 +115,12 @@ When a user asks to declutter, clean up, or organize their email - start scannin
    - **Show a `task_progress` card** with steps for each phase (e.g., "Archiving 89 senders (2,400 emails)", "Unsubscribing from 72 senders"). Update each step from `in_progress` to `completed` as each phase finishes.
    - When all senders are processed, set the progress card's `status: "completed"`.
 4. **Act on selection** - batch, don't loop:
-   - **Archive all at once**: Call `outlook_archive` **once** with `scan_id` + **all** selected senders' `id` values in the `sender_ids` array. The tool resolves message IDs server-side and batches the API calls internally - never loop sender-by-sender.
+   - **Archive all at once**: Call `messaging_archive_by_sender` **once** with `scan_id` + **all** selected senders' `id` values in the `sender_ids` array. The tool resolves message IDs server-side and batches the API calls internally - never loop sender-by-sender.
    - **Unsubscribe in bulk**: If the action is "Archive & Unsubscribe", call `outlook_unsubscribe` for each sender that has `has_unsubscribe: true` - but emit **all** unsubscribe tool calls in a **single assistant response** (parallel tool use) rather than one-at-a-time across separate turns.
 5. **Accurate summary**: The scan counts are exact - the `message_count` shown in the table matches the number of messages archived. Format: "Cleaned up [total_archived] emails from [sender_count] senders. Unsubscribed from [unsub_count]."
 6. **Ongoing protection offer**: After reporting results, offer inbox rules:
    - "Want me to set up inbox rules so future emails from these senders skip your inbox?"
-   - If yes, call `outlook_mail_rules` with `action: "create"` for each sender.
+   - If yes, call `outlook_rules` with `action: "create"` for each sender.
    - Then offer a recurring declutter schedule: "Want me to scan for new clutter monthly?" If yes, use `schedule_create` to set up a monthly declutter check.
 
 ### Edge Cases
@@ -134,14 +134,14 @@ When a user asks to declutter, clean up, or organize their email - start scannin
 
 Scan tools (`outlook_sender_digest`, `outlook_outreach_scan`) return a `scan_id` that references message IDs stored server-side. This keeps thousands of message IDs out of the conversation context.
 
-- Pass `scan_id` + `sender_ids` to `outlook_archive` instead of `message_ids`
+- Pass `scan_id` + `sender_ids` to `messaging_archive_by_sender` instead of `message_ids`
 - Scan results expire after **30 minutes** - if archiving fails with an expiration error, re-run the scan
 - Raw `message_ids` still work as a fallback for non-scan workflows
 
 ## Batch Operations
 
-- `outlook_archive` supports `scan_id` + `sender_ids` (preferred for declutter workflows) or raw `message_ids`.
-- First scan to get a `scan_id`, then use `outlook_archive` to batch-archive by sender.
+- `messaging_archive_by_sender` supports `scan_id` + `sender_ids` (preferred for declutter workflows) or raw `message_ids`.
+- First scan to get a `scan_id`, then use `messaging_archive_by_sender` to batch-archive by sender.
 - Always confirm with the user before batch operations on large numbers of messages.
 
 ## Common Workflows
@@ -151,7 +151,7 @@ Scan tools (`outlook_sender_digest`, `outlook_outreach_scan`) return a `scan_id`
 1. Call `outlook_sender_digest` to scan for newsletters and promotions
 2. Present results via `ui_show` table (see Email Decluttering section for full workflow)
 3. Wait for user to select senders and click an action button
-4. Call `outlook_archive` with `scan_id` + selected `sender_ids`
+4. Call `messaging_archive_by_sender` with `scan_id` + selected `sender_ids`
 5. If "Archive & Unsubscribe", also call `outlook_unsubscribe` for senders with `has_unsubscribe: true`
 6. Offer to create inbox rules for ongoing protection
 
