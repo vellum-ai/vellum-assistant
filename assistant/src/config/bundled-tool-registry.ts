@@ -120,6 +120,12 @@ import * as outlookSenderDigest from "./bundled-skills/outlook/tools/outlook-sen
 import * as outlookTrash from "./bundled-skills/outlook/tools/outlook-trash.js";
 import * as outlookUnsubscribe from "./bundled-skills/outlook/tools/outlook-unsubscribe.js";
 import * as outlookVacation from "./bundled-skills/outlook/tools/outlook-vacation.js";
+// ── outlook-calendar ──────────────────────────────────────────────────────────
+import * as outlookCalendarCheckAvailability from "./bundled-skills/outlook-calendar/tools/outlook-calendar-check-availability.js";
+import * as outlookCalendarCreateEvent from "./bundled-skills/outlook-calendar/tools/outlook-calendar-create-event.js";
+import * as outlookCalendarGetEvent from "./bundled-skills/outlook-calendar/tools/outlook-calendar-get-event.js";
+import * as outlookCalendarListEvents from "./bundled-skills/outlook-calendar/tools/outlook-calendar-list-events.js";
+import * as outlookCalendarRsvp from "./bundled-skills/outlook-calendar/tools/outlook-calendar-rsvp.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -273,6 +279,25 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
     calendarCheckAvailability,
   ],
   ["google-calendar:tools/calendar-rsvp.ts", calendarRsvp],
+
+  // outlook-calendar
+  [
+    "outlook-calendar:tools/outlook-calendar-list-events.ts",
+    outlookCalendarListEvents,
+  ],
+  [
+    "outlook-calendar:tools/outlook-calendar-get-event.ts",
+    outlookCalendarGetEvent,
+  ],
+  [
+    "outlook-calendar:tools/outlook-calendar-create-event.ts",
+    outlookCalendarCreateEvent,
+  ],
+  [
+    "outlook-calendar:tools/outlook-calendar-check-availability.ts",
+    outlookCalendarCheckAvailability,
+  ],
+  ["outlook-calendar:tools/outlook-calendar-rsvp.ts", outlookCalendarRsvp],
 
   // image-studio
   ["image-studio:tools/media-generate-image.ts", mediaGenerateImage],
