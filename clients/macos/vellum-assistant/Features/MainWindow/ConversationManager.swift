@@ -42,6 +42,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @Published var conversations: [ConversationModel] = []
     @Published var groups: [ConversationGroup] = []
+    /// Whether the daemon returned a non-empty groups array, indicating it supports
+    /// the group system. When true, `groupId: null` from the server means "explicitly
+    /// ungrouped" and the client should NOT override it with source-based heuristics.
+    /// When false (old daemon), the heuristic fallback in `deriveGroupId` is needed.
+    var daemonSupportsGroups: Bool = false
     @Published var hasMoreConversations: Bool = false
     @Published var isLoadingMoreConversations: Bool = false
     private struct AssistantActivitySnapshot: Equatable {
@@ -1153,12 +1158,17 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ) -> ConversationModel {
         let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
         let isPinned = item.isPinned ?? false
-        let groupId = ConversationModel.deriveGroupId(
-            serverGroupId: item.groupId,
-            isPinned: isPinned,
-            source: item.source,
-            title: item.title
-        )
+        // When the daemon supports groups, groupId: null means "explicitly ungrouped" —
+        // use the server value as-is. Only fall back to source-based heuristics for
+        // old daemons that don't return groupId at all.
+        let groupId: String? = daemonSupportsGroups
+            ? (item.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil))
+            : ConversationModel.deriveGroupId(
+                serverGroupId: item.groupId,
+                isPinned: isPinned,
+                source: item.source,
+                title: item.title
+            )
         return ConversationModel(
             id: localId,
             title: item.title,
@@ -1452,6 +1462,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             // Old daemon or empty response — keep existing groups (or system defaults)
             return
         }
+        daemonSupportsGroups = true
         groups = responseGroups.map { ConversationGroup(from: $0) }
     }
 

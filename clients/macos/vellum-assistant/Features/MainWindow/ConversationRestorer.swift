@@ -11,6 +11,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Conve
 protocol ConversationRestorerDelegate: AnyObject {
     var conversations: [ConversationModel] { get set }
     var groups: [ConversationGroup] { get set }
+    var daemonSupportsGroups: Bool { get set }
     var restoreRecentConversations: Bool { get }
     var isLoadingMoreConversations: Bool { get set }
     var hasMoreConversations: Bool { get set }
@@ -205,10 +206,16 @@ final class ConversationRestorer {
         // Seed groups from the response if available, otherwise fall back to system defaults.
         // This must run before the restoreRecentConversations guard so that users who
         // disable restore still get groups initialized for the session.
+        let daemonSupportsGroups: Bool
         if let responseGroups = response.groups, !responseGroups.isEmpty {
             delegate.groups = responseGroups.map { ConversationGroup(from: $0) }
-        } else if delegate.groups.isEmpty {
-            delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+            delegate.daemonSupportsGroups = true
+            daemonSupportsGroups = true
+        } else {
+            if delegate.groups.isEmpty {
+                delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+            }
+            daemonSupportsGroups = false
         }
 
         guard delegate.restoreRecentConversations else {
@@ -233,12 +240,14 @@ final class ConversationRestorer {
         var restoredConversations: [ConversationModel] = []
         for session in recentConversations {
             let isPinned = session.isPinned ?? false
-            let groupId = ConversationModel.deriveGroupId(
-                serverGroupId: session.groupId,
-                isPinned: isPinned,
-                source: session.source,
-                title: session.title
-            )
+            let groupId: String? = daemonSupportsGroups
+                ? (session.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil))
+                : ConversationModel.deriveGroupId(
+                    serverGroupId: session.groupId,
+                    isPinned: isPinned,
+                    source: session.source,
+                    title: session.title
+                )
 
             // If a local conversation already exists (e.g. created by
             // createNotificationConversation before the session list response arrived),
