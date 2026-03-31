@@ -310,7 +310,7 @@ final class VellumCli {
 
     /// How long to wait for the `sleep` CLI before giving up.
     /// The CLI sends SIGTERM then waits up to 5s (daemon) + 7s (gateway).
-    nonisolated(unsafe) private static let stopTimeout: TimeInterval = 15.0
+    nonisolated private static let stopTimeout: TimeInterval = 15.0
 
     /// Stops the daemon and gateway processes via `vellum sleep --force`.
     /// Waits asynchronously until the CLI exits or `stopTimeout` expires (15 seconds).
