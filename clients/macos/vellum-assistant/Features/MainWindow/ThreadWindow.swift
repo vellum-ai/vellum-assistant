@@ -212,7 +212,7 @@ private struct ThreadWindowContentView: View {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         AppDelegate.shared?.showSettingsWindow(nil)
                     },
-                    maintenanceMode: settingsStore.managedAssistantRecoveryMode,
+                    recoveryMode: settingsStore.managedAssistantRecoveryMode,
                     isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                     onResumeAssistant: {
                         settingsStore.exitManagedAssistantRecoveryMode()

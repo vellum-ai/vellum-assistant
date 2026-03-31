@@ -632,7 +632,7 @@ struct ActiveChatViewWrapper: View {
                 onBootstrapSendLogs: {
                     AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
                 },
-                maintenanceMode: settingsStore.managedAssistantRecoveryMode,
+                recoveryMode: settingsStore.managedAssistantRecoveryMode,
                 isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                 onResumeAssistant: {
                     settingsStore.exitManagedAssistantRecoveryMode()
