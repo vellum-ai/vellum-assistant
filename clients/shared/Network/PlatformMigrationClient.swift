@@ -71,10 +71,7 @@ public enum PlatformMigrationClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: ["content_type": "application/octet-stream"])
 
-        log.info("POST \(url.absoluteString, privacy: .public) — requesting upload URL")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        log.info("POST \(url.absoluteString, privacy: .public) → \(statusCode)")
+        let (data, statusCode) = try await executeWithRetry(request: request, label: "upload-url")
 
         if statusCode == 503 || statusCode == 404 {
             throw PlatformMigrationError.signedUrlsNotAvailable
@@ -106,10 +103,7 @@ public enum PlatformMigrationClient {
         request.httpBody = bundleData
         request.timeoutInterval = 600
 
-        log.info("PUT \(uploadURL.host() ?? "signed-url", privacy: .public) — uploading bundle (\(bundleData.count) bytes)")
-        let (_, response) = try await URLSession.shared.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        log.info("PUT \(uploadURL.host() ?? "signed-url", privacy: .public) → \(statusCode)")
+        let (_, statusCode) = try await executeWithRetry(request: request, label: "signed-url-upload")
 
         guard (200..<300).contains(statusCode) else {
             throw PlatformMigrationError.uploadFailed(statusCode: statusCode)
@@ -138,15 +132,55 @@ public enum PlatformMigrationClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: ["bundle_key": bundleKey])
 
-        log.info("POST \(url.absoluteString, privacy: .public) — importing from GCS (key: \(bundleKey, privacy: .public))")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        log.info("POST \(url.absoluteString, privacy: .public) → \(statusCode)")
+        let (data, statusCode) = try await executeWithRetry(request: request, label: "import-from-gcs")
 
         return (statusCode: statusCode, data: data)
     }
 
     // MARK: - Internals
+
+    /// Status codes that indicate a transient server error worth retrying.
+    private static let retryableStatusCodes: Set<Int> = [500, 502, 503, 504]
+
+    /// Maximum number of retry attempts for transient server errors.
+    private static let maxRetries = 3
+
+    /// Executes a URLRequest with automatic retry on transient server errors (500/502/503/504).
+    /// Uses exponential backoff: 1s, 2s, 4s between attempts.
+    private static func executeWithRetry(
+        request: URLRequest,
+        label: String
+    ) async throws -> (data: Data, statusCode: Int) {
+        let urlPath = request.url.flatMap { logPath(from: $0) } ?? label
+
+        for attempt in 0...maxRetries {
+            log.info("\(request.httpMethod ?? "?", privacy: .public) \(urlPath, privacy: .public)\(attempt > 0 ? " (retry \(attempt)/\(maxRetries))" : "")")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            log.info("\(request.httpMethod ?? "?", privacy: .public) \(urlPath, privacy: .public) → \(statusCode)")
+
+            if attempt < maxRetries && retryableStatusCodes.contains(statusCode) {
+                let delay = UInt64(pow(2.0, Double(attempt))) * 1_000_000_000
+                log.warning("Transient server error (\(statusCode)) — retrying in \(1 << attempt)s")
+                try await Task.sleep(nanoseconds: delay)
+                continue
+            }
+
+            return (data: data, statusCode: statusCode)
+        }
+
+        // Unreachable — the loop always returns on the last attempt.
+        throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Unexpected retry loop exit")
+    }
+
+    /// Extracts the URL path for logging (strips query parameters and scheme).
+    private static func logPath(from url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.query = nil
+        return components.path
+    }
 
     /// Resolves the platform base URL, session token, and org ID for authenticated requests.
     private static func resolveAuthContext() throws -> (baseURL: String, token: String, orgId: String?) {
