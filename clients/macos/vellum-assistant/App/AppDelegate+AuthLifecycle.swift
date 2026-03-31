@@ -529,11 +529,7 @@ extension AppDelegate {
     func performRetireAsync() async -> Bool {
         let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
-        if assistantName == nil {
-            log.error("No stored connected assistant ID found — skipping retire")
-        }
-
-        if let name = assistantName {
+        if let assistantName {
             // Disconnect SSE and health checks *before* the CLI kills the
             // daemon/gateway. Otherwise the EventStreamClient reconnect loop
             // hits the gateway while the upstream daemon is already dead,
@@ -541,7 +537,7 @@ extension AppDelegate {
             connectionManager.disconnect()
 
             do {
-                try await vellumCli.retire(name: name)
+                try await vellumCli.retire(name: assistantName)
             } catch {
                 log.error("CLI retire failed: \(error.localizedDescription)")
                 let alert = NSAlert()
@@ -559,44 +555,52 @@ extension AppDelegate {
                 }
                 // Retire failed but user chose Force Remove — stop the assistant
                 // before cleaning up local state.
-                await vellumCli.stop(name: name)
-                self.removeLockfileEntry(assistantId: name)
+                await vellumCli.stop(name: assistantName)
+                self.removeLockfileEntry(assistantId: assistantName)
+            }
+
+            // Check if other assistants remain in the lockfile.
+            // Prefer remote assistants (always reachable), then try waking local ones.
+            let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName && $0.isCurrentEnvironment }
+            if !remaining.isEmpty {
+                // Try remote assistants first — they're always reachable
+                if let remote = remaining.first(where: { $0.isRemote }) {
+                    performSwitchAssistant(to: remote)
+                    return true
+                }
+
+                // Try local assistants — check if awake, otherwise wake them
+                for candidate in remaining {
+                    if await HealthCheckClient.isReachable(for: candidate) {
+                        performSwitchAssistant(to: candidate)
+                        return true
+                    }
+
+                    // Sleeping — try to wake it
+                    do {
+                        try await vellumCli.wake(name: candidate.assistantId)
+                        performSwitchAssistant(to: candidate)
+                        return true
+                    } catch {
+                        log.warning("Failed to wake \(candidate.assistantId): \(error.localizedDescription)")
+                        continue
+                    }
+                }
+                // All local wake attempts failed — fall through to onboarding
             }
         } else {
-            await vellumCli.stop(name: assistantName)
+            // Corrupted state: no connectedAssistantId in UserDefaults.
+            // Skip CLI retire/stop (no name to pass) but fall through to
+            // full teardown + onboarding so the user can recover.
+            log.warning("No stored connected assistant ID found — skipping CLI retire, falling through to teardown")
+            mainWindow?.windowState.showToast(
+                message: "No assistant selected — resetting to onboarding.",
+                style: .warning
+            )
+            connectionManager.disconnect()
         }
 
-        // Check if other assistants remain in the lockfile.
-        // Prefer remote assistants (always reachable), then try waking local ones.
-        let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName && $0.isCurrentEnvironment }
-        if !remaining.isEmpty {
-            // Try remote assistants first — they're always reachable
-            if let remote = remaining.first(where: { $0.isRemote }) {
-                performSwitchAssistant(to: remote)
-                return true
-            }
-
-            // Try local assistants — check if awake, otherwise wake them
-            for candidate in remaining {
-                if await HealthCheckClient.isReachable(for: candidate) {
-                    performSwitchAssistant(to: candidate)
-                    return true
-                }
-
-                // Sleeping — try to wake it
-                do {
-                    try await vellumCli.wake(name: candidate.assistantId)
-                    performSwitchAssistant(to: candidate)
-                    return true
-                } catch {
-                    log.warning("Failed to wake \(candidate.assistantId): \(error.localizedDescription)")
-                    continue
-                }
-            }
-            // All local wake attempts failed — fall through to onboarding
-        }
-
-        // No assistants left — tear down fully and show onboarding
+        // No assistants left (or corrupted state) — tear down fully and show onboarding
         AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
