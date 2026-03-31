@@ -474,6 +474,7 @@ export async function platformImportPreflightFromGcs(
         "Vellum-Organization-Id": orgId,
       },
       body: JSON.stringify({ bundle_key: bundleKey }),
+      signal: AbortSignal.timeout(120_000),
     },
   );
 
@@ -501,6 +502,7 @@ export async function platformImportBundleFromGcs(
         "Vellum-Organization-Id": orgId,
       },
       body: JSON.stringify({ bundle_key: bundleKey }),
+      signal: AbortSignal.timeout(120_000),
     },
   );
 
