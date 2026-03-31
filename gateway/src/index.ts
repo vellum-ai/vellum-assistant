@@ -781,7 +781,8 @@ async function main() {
     {
       path: "/v1/admin/upgrade-broadcast",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "internal.write",
       handler: (req) => upgradeBroadcastProxy(req),
     },
 
@@ -803,7 +804,8 @@ async function main() {
     {
       path: "/v1/admin/workspace-commit",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "internal.write",
       handler: (req) => workspaceCommitProxy(req),
     },
 
@@ -811,7 +813,8 @@ async function main() {
     {
       path: "/v1/admin/rollback-migrations",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "internal.write",
       handler: (req) => migrationRollbackProxy(req),
     },
 
@@ -1252,10 +1255,7 @@ async function main() {
 
               // Filter oversized attachments
               const eligible = eventAttachments.filter((att) => {
-                if (
-                  att.fileSize !== undefined &&
-                  att.fileSize > maxBytes
-                ) {
+                if (att.fileSize !== undefined && att.fileSize > maxBytes) {
                   log.warn(
                     {
                       fileId: att.fileId,
@@ -1363,7 +1363,13 @@ async function main() {
                 "Unhandled error in Slack forward (thread reply)",
               );
             });
-        } else if (channel.startsWith("D") && botToken && messageTs && !isEdit && !isCallback) {
+        } else if (
+          channel.startsWith("D") &&
+          botToken &&
+          messageTs &&
+          !isEdit &&
+          !isCallback
+        ) {
           fetchDmContext(channel, messageTs, botToken)
             .then((context) => context ?? undefined)
             .catch(() => undefined)
