@@ -108,6 +108,37 @@ const platformImportBundleMock = mock(async () => ({
     },
   } as Record<string, unknown>,
 }));
+const platformRequestUploadUrlMock = mock(async () => ({
+  uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
+  bundleKey: "bundle-key-123",
+  expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+}));
+const platformUploadToSignedUrlMock = mock(async () => {});
+const platformImportPreflightFromGcsMock = mock(async () => ({
+  statusCode: 200,
+  body: {
+    can_import: true,
+    summary: {
+      files_to_create: 2,
+      files_to_overwrite: 1,
+      files_unchanged: 0,
+      total_files: 3,
+    },
+  } as Record<string, unknown>,
+}));
+const platformImportBundleFromGcsMock = mock(async () => ({
+  statusCode: 200,
+  body: {
+    success: true,
+    summary: {
+      total_files: 3,
+      files_created: 2,
+      files_overwritten: 1,
+      files_skipped: 0,
+      backups_created: 1,
+    },
+  } as Record<string, unknown>,
+}));
 
 mock.module("../lib/platform-client.js", () => ({
   readPlatformToken: readPlatformTokenMock,
@@ -119,6 +150,10 @@ mock.module("../lib/platform-client.js", () => ({
   platformDownloadExport: platformDownloadExportMock,
   platformImportPreflight: platformImportPreflightMock,
   platformImportBundle: platformImportBundleMock,
+  platformRequestUploadUrl: platformRequestUploadUrlMock,
+  platformUploadToSignedUrl: platformUploadToSignedUrlMock,
+  platformImportPreflightFromGcs: platformImportPreflightFromGcsMock,
+  platformImportBundleFromGcs: platformImportBundleFromGcsMock,
 }));
 
 const hatchLocalMock = mock(async () => {});
