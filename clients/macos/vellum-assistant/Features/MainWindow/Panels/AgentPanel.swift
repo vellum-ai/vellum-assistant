@@ -318,7 +318,7 @@ struct SkillItemRow: View {
                 )
                 .disabled(!isRemovable)
                 .opacity(isRemovable ? 1.0 : 0.3)
-                .vTooltip(isRemovable ? "Remove skill" : "Bundled skills cannot be removed")
+                .if(!isRemovable) { $0.vTooltip("Bundled skills cannot be removed") }
                 .accessibilityLabel(isRemovable ? "Uninstall skill" : "Core skill cannot be removed")
             }
         }
