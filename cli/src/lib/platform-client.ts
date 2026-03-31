@@ -143,7 +143,7 @@ export async function fetchOrganizationId(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/organizations/`;
   const response = await fetch(url, {
-    headers: { "X-Session-Token": token },
+    headers: { ...authHeaders(token) },
   });
 
   if (!response.ok) {
@@ -178,7 +178,7 @@ export async function fetchCurrentUser(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/_allauth/app/v1/auth/session`;
   const response = await fetch(url, {
-    headers: { "X-Session-Token": token },
+    headers: { ...authHeaders(token) },
   });
 
   if (!response.ok) {
@@ -213,7 +213,7 @@ export async function rollbackPlatformAssistant(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: JSON.stringify(version ? { version } : {}),
@@ -258,7 +258,7 @@ export async function platformInitiateExport(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: JSON.stringify({ description: description ?? "CLI backup" }),
@@ -292,7 +292,7 @@ export async function platformPollExportStatus(
     `${resolvedUrl}/v1/migrations/export/${jobId}/status/`,
     {
       headers: {
-        "X-Session-Token": token,
+        ...authHeaders(token),
         "Vellum-Organization-Id": orgId,
       },
     },
