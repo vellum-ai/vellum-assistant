@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
@@ -242,6 +242,39 @@ mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
     create: () => mockPlatformClientCreate(),
   },
+}));
+
+// ---------------------------------------------------------------------------
+// Mock config/loader (needed by isManagedMode in shared.ts)
+// ---------------------------------------------------------------------------
+
+let mockGetConfig: () => Record<string, unknown> = () => ({
+  services: {},
+});
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => mockGetConfig(),
+  loadConfig: () => mockGetConfig(),
+  saveConfig: () => {},
+  invalidateConfigCache: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  applyNestedDefaults: (c: unknown) => c,
+  deepMergeMissing: (a: unknown) => a,
+  deepMergeOverwrite: (a: unknown) => a,
+  mergeDefaultWorkspaceConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  API_KEY_PROVIDERS: [
+    "anthropic",
+    "openai",
+    "gemini",
+    "ollama",
+    "fireworks",
+    "openrouter",
+    "brave",
+    "perplexity",
+  ],
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -955,6 +988,111 @@ describe("assistant oauth ping <provider-key>", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("No access token");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// oauth connect — managed mode 401/403 error messages
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth connect managed mode — platform 401/403 errors", () => {
+  /**
+   * Helper: create a mock platform client whose `fetch` always returns the
+   * given status code and body text.
+   */
+  function makeMockPlatformClient(status: number, body = "") {
+    return {
+      platformAssistantId: "asst-test-123",
+      fetch: async () =>
+        new Response(body, { status, statusText: `HTTP ${status}` }),
+    };
+  }
+
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockOrchestrateOAuthConnect = async () => ({
+      success: true,
+      deferred: false,
+      grantedScopes: [],
+    });
+    mockGetAppByProviderAndClientId = () => undefined;
+    mockGetMostRecentAppByProvider = () => undefined;
+    mockGetSecureKey = () => undefined;
+    mockGetCredentialMetadata = () => undefined;
+
+    // Set up managed mode: provider has managedServiceConfigKey, config
+    // returns the matching service with mode "managed".
+    mockGetProvider = () => ({
+      providerKey: "google",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      managedServiceConfigKey: "google-oauth",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    mockGetConfig = () => ({
+      services: {
+        "google-oauth": { mode: "managed" },
+      },
+    });
+  });
+
+  afterEach(() => {
+    mockPlatformClientCreate = async () => null;
+    mockGetConfig = () => ({ services: {} });
+  });
+
+  test("401 response includes 'vellum platform connect' suggestion", async () => {
+    mockPlatformClientCreate = async () =>
+      makeMockPlatformClient(401, "Unauthorized");
+    const { exitCode, stdout } = await runCli([
+      "connect",
+      "google",
+      "--no-browser",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Platform returned HTTP 401");
+    expect(parsed.error).toContain("Unauthorized");
+    expect(parsed.error).toContain("vellum platform connect");
+  });
+
+  test("403 response includes 'vellum platform connect' suggestion", async () => {
+    mockPlatformClientCreate = async () =>
+      makeMockPlatformClient(403, "Forbidden");
+    const { exitCode, stdout } = await runCli([
+      "connect",
+      "google",
+      "--no-browser",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Platform returned HTTP 403");
+    expect(parsed.error).toContain("Forbidden");
+    expect(parsed.error).toContain("vellum platform connect");
+  });
+
+  test("500 response does NOT include 'vellum platform connect' suggestion", async () => {
+    mockPlatformClientCreate = async () =>
+      makeMockPlatformClient(500, "Internal Server Error");
+    const { exitCode, stdout } = await runCli([
+      "connect",
+      "google",
+      "--no-browser",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Platform returned HTTP 500");
+    expect(parsed.error).not.toContain("vellum platform connect");
   });
 });
 

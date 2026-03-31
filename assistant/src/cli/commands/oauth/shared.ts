@@ -126,9 +126,13 @@ export async function fetchActiveConnections(
 
   if (!response.ok) {
     if (!options?.silent) {
+      const hint =
+        response.status === 401 || response.status === 403
+          ? `. Your platform session may have expired. Run \`vellum platform connect\` to reconnect.`
+          : "";
       writeOutput(cmd, {
         ok: false,
-        error: `Platform returned HTTP ${response.status}`,
+        error: `Platform returned HTTP ${response.status}${hint}`,
       });
       process.exitCode = 1;
     }
