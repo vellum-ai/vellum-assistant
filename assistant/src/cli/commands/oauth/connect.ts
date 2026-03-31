@@ -84,6 +84,11 @@ export function registerConnectCommand(oauth: Command): void {
       "Print the auth URL instead of opening it in the browser",
     )
     .option("--client-id <id>", "BYO app client ID disambiguation")
+    .option(
+      "--callback-transport <transport>",
+      `How the OAuth callback is delivered after authorization. Use "loopback" when the assistant runs locally (starts a temporary localhost server to receive the callback — no tunnel or public URL needed). Use "gateway" when the assistant runs on a remote server (routes the callback through the public ingress URL — requires ingress.publicBaseUrl to be configured).`,
+      "loopback",
+    )
     .addHelpText(
       "after",
       `
@@ -110,6 +115,7 @@ Examples:
           scopes?: string[];
           browser?: boolean;
           clientId?: string;
+          callbackTransport: "loopback" | "gateway";
         },
         cmd: Command,
       ) => {
@@ -358,7 +364,7 @@ Examples:
               service: provider,
               clientId,
               clientSecret,
-              callbackTransport: "loopback",
+              callbackTransport: opts.callbackTransport,
               isInteractive: opts.browser !== false,
               openUrl: opts.browser !== false ? openInBrowser : undefined,
               ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
