@@ -80,6 +80,35 @@ function parseEsbuildStderr(stderr: string): {
 }
 
 /**
+ * Decode JS string escape sequences (\xHH, \uHHHH, \u{H+}, standard
+ * escapes) so that obfuscated specifiers like `"\x2e\x2e/etc/passwd"` are
+ * normalised before the path-containment check.
+ */
+function decodeJsEscapes(raw: string): string {
+  return raw.replace(
+    /\\(?:x([0-9a-fA-F]{2})|u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|([nrtbfv0'"\\]))/g,
+    (_, hex2, codePoint, hex4, std) => {
+      if (hex2) return String.fromCharCode(parseInt(hex2, 16));
+      if (codePoint) return String.fromCodePoint(parseInt(codePoint, 16));
+      if (hex4) return String.fromCharCode(parseInt(hex4, 16));
+      const map: Record<string, string> = {
+        n: "\n",
+        r: "\r",
+        t: "\t",
+        b: "\b",
+        f: "\f",
+        v: "\v",
+        "0": "\0",
+        "'": "'",
+        '"': '"',
+        "\\": "\\",
+      };
+      return map[std] ?? std;
+    },
+  );
+}
+
+/**
  * Validate that all relative/absolute import paths in source files resolve
  * within the app directory. This prevents crafted apps from importing
  * arbitrary host files (e.g. `import data from '../../../../etc/passwd'`).
@@ -120,10 +149,13 @@ async function validateImportPaths(
     }
 
     for (const { specifier, index } of specifiers) {
-      // Only validate path-based imports (starting with . or /)
-      if (!specifier.startsWith(".") && !specifier.startsWith("/")) continue;
+      // Decode JS string escapes so \x2e\x2e/… is normalised to ../../…
+      const decoded = isJs ? decodeJsEscapes(specifier) : specifier;
 
-      const resolved = resolve(fileDir, specifier);
+      // Only validate path-based imports (starting with . or /)
+      if (!decoded.startsWith(".") && !decoded.startsWith("/")) continue;
+
+      const resolved = resolve(fileDir, decoded);
       if (
         !resolved.startsWith(resolvedAppDir + "/") &&
         resolved !== resolvedAppDir

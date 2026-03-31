@@ -257,6 +257,38 @@ console.log("styled");`,
     expect(result.errors).toHaveLength(0);
   });
 
+  test("rejects hex-escaped import that decodes to path traversal", async () => {
+    const appDir = await scaffold("escape-hex", {
+      // \x2e = '.', so this decodes to ../../../../etc/passwd
+      "main.tsx": `import data from "\\x2e\\x2e/\\x2e\\x2e/\\x2e\\x2e/\\x2e\\x2e/etc/passwd";\nconsole.log(data);`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].text).toContain(
+      "resolves outside the app directory",
+    );
+  });
+
+  test("rejects unicode-escaped import that decodes to path traversal", async () => {
+    const appDir = await scaffold("escape-unicode", {
+      // \u002e = '.', \u002f = '/'
+      "main.tsx": `import data from "\\u002e\\u002e\\u002f\\u002e\\u002e/etc/passwd";\nconsole.log(data);`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].text).toContain(
+      "resolves outside the app directory",
+    );
+  });
+
   test("rejects dynamic import escaping app directory", async () => {
     const appDir = await scaffold("escape-dynamic", {
       "main.tsx": `const data = await import("../../../../etc/hosts");\nconsole.log(data);`,
