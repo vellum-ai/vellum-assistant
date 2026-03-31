@@ -388,3 +388,129 @@ export async function platformImportBundle(
   >;
   return { statusCode: response.status, body };
 }
+
+// ---------------------------------------------------------------------------
+// Signed-URL upload flow
+// ---------------------------------------------------------------------------
+
+export async function platformRequestUploadUrl(
+  token: string,
+  orgId: string,
+  platformUrl?: string,
+): Promise<{ uploadUrl: string; bundleKey: string; expiresAt: string }> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/migrations/upload-url/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token),
+      "Vellum-Organization-Id": orgId,
+    },
+    body: JSON.stringify({ content_type: "application/octet-stream" }),
+  });
+
+  if (response.status === 201) {
+    const body = (await response.json()) as {
+      upload_url: string;
+      bundle_key: string;
+      expires_at: string;
+    };
+    return {
+      uploadUrl: body.upload_url,
+      bundleKey: body.bundle_key,
+      expiresAt: body.expires_at,
+    };
+  }
+
+  if (response.status === 503) {
+    throw new Error(
+      "Signed uploads are not available on this platform instance",
+    );
+  }
+
+  const errorBody = (await response.json().catch(() => ({}))) as {
+    detail?: string;
+  };
+  throw new Error(
+    errorBody.detail ??
+      `Failed to request upload URL: ${response.status} ${response.statusText}`,
+  );
+}
+
+export async function platformUploadToSignedUrl(
+  uploadUrl: string,
+  bundleData: Uint8Array<ArrayBuffer>,
+): Promise<void> {
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/octet-stream",
+    },
+    body: new Blob([bundleData]),
+    signal: AbortSignal.timeout(600_000),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Upload to signed URL failed: ${response.status} ${response.statusText}`,
+    );
+  }
+}
+
+export async function platformImportPreflightFromGcs(
+  bundleKey: string,
+  token: string,
+  orgId: string,
+  platformUrl?: string,
+): Promise<{ statusCode: number; body: Record<string, unknown> }> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(
+    `${resolvedUrl}/v1/migrations/import-preflight-from-gcs/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(token),
+        "Vellum-Organization-Id": orgId,
+      },
+      body: JSON.stringify({ bundle_key: bundleKey }),
+    },
+  );
+
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  return { statusCode: response.status, body };
+}
+
+export async function platformImportBundleFromGcs(
+  bundleKey: string,
+  token: string,
+  orgId: string,
+  platformUrl?: string,
+): Promise<{ statusCode: number; body: Record<string, unknown> }> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(
+    `${resolvedUrl}/v1/migrations/import-from-gcs/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(token),
+        "Vellum-Organization-Id": orgId,
+      },
+      body: JSON.stringify({ bundle_key: bundleKey }),
+    },
+  );
+
+  if (response.status === 413) {
+    throw new Error("Bundle too large to import");
+  }
+
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  return { statusCode: response.status, body };
+}
