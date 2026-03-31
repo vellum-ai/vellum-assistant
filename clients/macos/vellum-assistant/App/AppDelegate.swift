@@ -735,7 +735,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             await cli.stop()
             sem.signal()
         }
-        sem.wait(timeout: .now() + 16)
+        _ = sem.wait(timeout: .now() + 16)
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)
