@@ -89,6 +89,14 @@ export function registerConnectCommand(oauth: Command): void {
       `How the OAuth callback is delivered after authorization. Use "loopback" when the assistant runs locally (starts a temporary localhost server to receive the callback — no tunnel or public URL needed). Use "gateway" when the assistant runs on a remote server (routes the callback through the public ingress URL — requires ingress.publicBaseUrl to be configured).`,
       "loopback",
     )
+    .hook("preAction", (thisCommand) => {
+      const transport = thisCommand.opts().callbackTransport;
+      if (transport !== "loopback" && transport !== "gateway") {
+        thisCommand.error(
+          `Invalid --callback-transport value "${transport}". Must be "loopback" or "gateway".`,
+        );
+      }
+    })
     .addHelpText(
       "after",
       `
