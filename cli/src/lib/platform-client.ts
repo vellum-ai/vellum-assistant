@@ -349,7 +349,7 @@ export async function platformImportPreflight(
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
-        "X-Session-Token": token,
+        ...authHeaders(token),
         "Vellum-Organization-Id": orgId,
       },
       body: new Blob([bundleData]),
@@ -375,7 +375,7 @@ export async function platformImportBundle(
     method: "POST",
     headers: {
       "Content-Type": "application/octet-stream",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: new Blob([bundleData]),
