@@ -180,6 +180,7 @@ extension AppDelegate {
             }
         }
 
+        let generation = self.switchGeneration
         actorTokenBootstrapTask = Task { [weak self] in
             guard let self else { return }
 
@@ -196,10 +197,20 @@ extension AppDelegate {
                 await self.performInitialBootstrap()
             }
 
+            guard self.switchGeneration == generation else {
+                log.info("Actor credential bootstrap aborted — assistant switch generation changed (after initial bootstrap)")
+                return
+            }
+
             // Run proactive refresh loop
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000) // Check every 5 minutes
                 guard !Task.isCancelled else { return }
+
+                guard self.switchGeneration == generation else {
+                    log.info("Actor credential refresh loop exiting — assistant switch generation changed")
+                    return
+                }
 
                 if ActorTokenManager.needsProactiveRefresh {
                     guard self.connectionManager.isConnected else { continue }
@@ -240,13 +251,23 @@ extension AppDelegate {
             return
         }
 
+        let generation = self.switchGeneration
         let deviceId = PairingQRCodeSheet.computeHostId()
         let retryDelay: UInt64 = 500_000_000
 
         while !Task.isCancelled {
+            guard self.switchGeneration == generation else {
+                log.info("Initial actor bootstrap aborted — assistant switch generation changed")
+                return
+            }
+
             if !connectionManager.isConnected {
                 await awaitConnectionEstablished()
                 guard !Task.isCancelled else { return }
+                guard self.switchGeneration == generation else {
+                    log.info("Initial actor bootstrap aborted — assistant switch generation changed (after connection wait)")
+                    return
+                }
             }
 
             let success = await GuardianClient().bootstrapActorToken(
