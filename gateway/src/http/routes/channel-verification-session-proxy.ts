@@ -257,11 +257,21 @@ export function createChannelVerificationSessionProxyHandler(
         secretsInFlight.add(providedIndex);
       }
       try {
+        // Strip x-forwarded-for by omitting clientIp when a bootstrap secret
+        // was provided. In Docker / shared-network topologies the gateway and
+        // runtime share localhost, so the runtime's peer-IP check passes.
+        // Forwarding the external client IP would cause the runtime's secondary
+        // "reject if x-forwarded-for present" check to 403 even though the
+        // request is already authenticated by the bootstrap secret above.
+        // In bare-metal mode (no secret), preserve the header so the runtime
+        // can reject non-loopback origins as defense-in-depth.
+        const forwardClientIp =
+          expectedSecrets.length > 0 ? undefined : clientIp;
         const response = await proxyToRuntime(
           req,
           "/v1/guardian/init",
           "",
-          clientIp,
+          forwardClientIp,
         );
 
         if (response.status >= 200 && response.status < 300) {
