@@ -327,6 +327,26 @@ public final class SettingsStore: ObservableObject {
     private let verificationSessionTimeoutDuration: TimeInterval
     private let verificationStatusPollInterval: TimeInterval
     private let verificationStatusPollWindow: TimeInterval
+
+    /// DispatchSource monitoring workspace config.json for external changes.
+    private var configFileMonitor: DispatchSourceFileSystemObject?
+    /// DispatchSource monitoring the workspace directory when config.json doesn't exist yet.
+    private var configDirMonitor: DispatchSourceFileSystemObject?
+    /// Debounce work item for config file change handling.
+    private var configRefreshWorkItem: DispatchWorkItem?
+
+    private var workspaceConfigURL: URL {
+        let base: String
+        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+           let assistant = LockfileAssistant.loadByName(assistantId),
+           let workspace = assistant.workspaceDir {
+            base = workspace
+        } else {
+            base = NSHomeDirectory() + "/.vellum/workspace"
+        }
+        return URL(fileURLWithPath: base).appendingPathComponent("config.json")
+    }
+
     private static func reflectedString(_ value: Any, key: String) -> String? {
         for child in Mirror(reflecting: value).children {
             guard child.label == key else { continue }
@@ -558,6 +578,10 @@ public final class SettingsStore: ObservableObject {
         }
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
+
+        // Watch workspace config.json for external mutations (e.g. model
+        // change via chat) so the Settings UI stays in sync.
+        watchConfigFile()
 
     }
 
@@ -3115,6 +3139,136 @@ public final class SettingsStore: ObservableObject {
             return nil
         }
         return canonicalizeTimeZoneIdentifier(trimmed)
+    }
+
+    // MARK: - Config File Watcher
+
+    /// Watch workspace config.json for external changes (e.g. model set via chat).
+    /// Follows the same `DispatchSource` pattern as `SoundManager.watchConfigFile()`
+    /// and `AvatarAppearanceManager.watchAvatarFile()`.
+    private func watchConfigFile() {
+        configFileMonitor?.cancel()
+        configFileMonitor = nil
+
+        let path = workspaceConfigURL.path
+        let fd = open(path, O_EVTONLY)
+
+        if fd < 0 {
+            // File doesn't exist yet — watch the parent directory instead.
+            watchConfigDirectory()
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: .global(qos: .utility)
+        )
+
+        source.setEventHandler { [weak self] in
+            let flags = source.data
+            Task { @MainActor [weak self] in
+                self?.handleConfigFileChange()
+                if flags.contains(.delete) || flags.contains(.rename) {
+                    // File was deleted or renamed (atomic write) — re-establish
+                    // the watcher (may fall back to directory watching if file is gone).
+                    self?.watchConfigFile()
+                }
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        configFileMonitor = source
+        source.resume()
+    }
+
+    /// Watch the workspace directory for file creation when config.json doesn't
+    /// exist yet. Switches to file-level watching once config.json appears.
+    private func watchConfigDirectory() {
+        configDirMonitor?.cancel()
+        configDirMonitor = nil
+
+        let dirPath = (workspaceConfigURL.path as NSString).deletingLastPathComponent
+        let fd = open(dirPath, O_EVTONLY)
+        guard fd >= 0 else {
+            // Directory doesn't exist either — create it and retry.
+            let dirURL = workspaceConfigURL.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+            let retryFd = open(dirURL.path, O_EVTONLY)
+            guard retryFd >= 0 else { return }
+
+            let retrySource = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: retryFd,
+                eventMask: .write,
+                queue: .global(qos: .utility)
+            )
+
+            retrySource.setEventHandler { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if FileManager.default.fileExists(atPath: self.workspaceConfigURL.path) {
+                        self.handleConfigFileChange()
+                        self.watchConfigFile()
+                    }
+                }
+            }
+
+            retrySource.setCancelHandler {
+                close(retryFd)
+            }
+
+            configDirMonitor = retrySource
+            retrySource.resume()
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: .write,
+            queue: .global(qos: .utility)
+        )
+
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if FileManager.default.fileExists(atPath: self.workspaceConfigURL.path) {
+                    self.handleConfigFileChange()
+                    self.watchConfigFile()
+                }
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        configDirMonitor = source
+        source.resume()
+    }
+
+    /// Debounced handler for config file changes. Refreshes model info and
+    /// daemon config after a 300ms quiet period to avoid rapid re-fetches
+    /// when multiple writes happen in quick succession.
+    private func handleConfigFileChange() {
+        configRefreshWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refreshModelInfo()
+                await self.loadConfigFromDaemon()
+            }
+        }
+        configRefreshWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    deinit {
+        configFileMonitor?.cancel()
+        configDirMonitor?.cancel()
+        configRefreshWorkItem?.cancel()
     }
 }
 
