@@ -108,7 +108,7 @@ describe("AssistantConfigSchema", () => {
       providerStreamTimeoutSec: 300,
     });
     expect(result.sandbox).toEqual({
-      enabled: false,
+      enabled: true,
     });
     expect(result.rateLimit).toEqual({
       maxRequestsPerMinute: 0,
