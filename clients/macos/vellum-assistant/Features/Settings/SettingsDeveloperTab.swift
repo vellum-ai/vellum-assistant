@@ -163,13 +163,13 @@ struct SettingsDeveloperTab: View {
                 let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
                 lockfileAssistants = assistants
                 refreshDisplayNames()
+                resolvePlatformUuid()
                 await refreshAwakeStates()
                 // Fetch skip-permissions state for Docker assistants after
                 // the lockfile-derived cache has been populated.
                 store.refreshDangerouslySkipPermissions()
             }
             identity = IdentityInfo.load()
-            resolvePlatformUuid()
             Task { await fetchHealthz() }
 
             // Advanced dev setup
