@@ -34,6 +34,7 @@ import type { ToolContext } from "../tools/types.js";
 const ctx: ToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conv",
+  trustClass: "guardian",
 };
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -115,8 +116,8 @@ describe("outlook_categories tool", () => {
         ctx,
       );
 
-      const calledCategories = mockUpdateMessageCategories.mock
-        .calls[0][2] as string[];
+      const callArgs = mockUpdateMessageCategories.mock.calls[0] as unknown[];
+      const calledCategories = callArgs[2] as string[];
       expect(calledCategories).toHaveLength(1);
       expect(calledCategories).toContain("Red category");
     });

@@ -21,6 +21,7 @@ import type { ToolContext } from "../tools/types.js";
 const ctx: ToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conv",
+  trustClass: "guardian",
 };
 
 // ── Tests ────────────────────────────────────────────────────────────────────
