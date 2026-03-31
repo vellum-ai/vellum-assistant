@@ -103,14 +103,14 @@ export async function handleGuardianBootstrap(
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 
-  // In non-containerized mode, any x-forwarded-for header means the request
-  // came through the gateway from a non-loopback client. Legitimate bare-metal
+  // In bare-metal mode, any x-forwarded-for header means the request came
+  // through the gateway from a non-loopback client. Legitimate bare-metal
   // bootstrap clients connect from localhost; the gateway does not inject
   // x-forwarded-for for loopback peers (see gateway/src/index.ts). Reject
   // forwarded requests to prevent LAN-adjacent clients from bootstrapping.
   //
-  // In containerized mode, skip this check: the peer IP was already validated
-  // above (Docker bridge network = private), and the x-forwarded-for header
+  // In Docker mode, skip this check: the peer IP was already validated above
+  // (Docker bridge network = private), and the x-forwarded-for header
   // reflects the original external client which is not meaningful for
   // local-only enforcement in this topology.
   const forwarded = req.headers.get("x-forwarded-for");
