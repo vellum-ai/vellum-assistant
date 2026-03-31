@@ -1,13 +1,12 @@
 /**
  * Standalone Bun script that validates every feature flag key in the local
- * registry exists in LaunchDarkly (via the platform's public feature-flags
- * endpoint).
+ * registry exists on the platform (via the public feature-flags endpoint).
  *
  * Usage:
- *   PLATFORM_API_URL=https://... bun run meta/feature-flags/check-launchdarkly-sync.ts
+ *   PLATFORM_API_URL=https://... bun run meta/feature-flags/check-platform-sync.ts
  *
  * Exit codes:
- *   0 — all registry flags found in LaunchDarkly
+ *   0 — all registry flags found on the platform
  *   1 — missing flags, missing env var, or API error
  */
 
@@ -79,12 +78,12 @@ const apiKeys = new Set(apiData.flags.map((f) => f.key));
 const missingKeys = [...registryKeys].filter((k) => !apiKeys.has(k));
 
 if (missingKeys.length === 0) {
-  console.log(`\u2713 All ${registryKeys.size} registry flags found in LaunchDarkly`);
+  console.log(`\u2713 All ${registryKeys.size} registry flags found on the platform`);
   process.exit(0);
 } else {
   const list = missingKeys.map((k) => `  - ${k}`).join('\n');
   console.error(
-    `\u2717 ${missingKeys.length} registry flag${missingKeys.length === 1 ? '' : 's'} not found in LaunchDarkly:\n${list}`,
+    `\u2717 ${missingKeys.length} registry flag${missingKeys.length === 1 ? '' : 's'} not found on the platform:\n${list}`,
   );
   process.exit(1);
 }

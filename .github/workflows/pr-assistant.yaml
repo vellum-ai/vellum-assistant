@@ -222,8 +222,8 @@ jobs:
         with:
           bun-version: '1.3.9'
 
-      - name: Check registry flags exist in LaunchDarkly
-        run: bun run meta/feature-flags/check-launchdarkly-sync.ts
+      - name: Check registry flags exist on the platform
+        run: bun run meta/feature-flags/check-platform-sync.ts
         env:
           PLATFORM_API_URL: ${{ secrets.PLATFORM_API_URL }}
 

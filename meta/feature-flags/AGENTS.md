@@ -42,7 +42,7 @@ The `id` and `key` fields in `feature-flag-registry.json` **must match** and bot
    bun run meta/feature-flags/sync-bundled-copies.ts
    ```
 
-3. **Create the flag in LaunchDarkly** (via the LaunchDarkly dashboard or API). The CI feature-flag sync check will fail if a flag exists in the registry but not in LaunchDarkly.
+3. **Create the flag on the platform** (via the feature flag provider dashboard or API). The CI feature-flag sync check will fail if a flag exists in the registry but not on the platform.
 
 ## Creating a Feature Gate
 
