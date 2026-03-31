@@ -1259,7 +1259,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Restore the group the conversation belonged to before pinning.
         // Falls back to heuristic routing when no pre-pin groupId was recorded
         // (e.g. conversations pinned before this feature was added).
-        if let stored = prePinGroupIds.removeValue(forKey: id) {
+        if let stored = prePinGroupIds.removeValue(forKey: id),
+           stored == nil || groups.contains(where: { $0.id == stored }) {
+            // Restore the saved group only if it still exists (or was nil/ungrouped).
+            // If the group was deleted while pinned, fall through to heuristics.
             conversations[index].groupId = stored
         } else if conversations[index].isScheduleConversation {
             conversations[index].groupId = ConversationGroup.scheduled.id

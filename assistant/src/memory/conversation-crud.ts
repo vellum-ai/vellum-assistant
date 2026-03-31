@@ -1780,7 +1780,7 @@ export function batchSetDisplayOrders(
                CASE
                  WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
                  WHEN source IN ('heartbeat', 'task') THEN 'system:background'
-                 WHEN conversation_type = 'background' THEN 'system:background'
+                 WHEN conversation_type = 'background' AND COALESCE(source, '') != 'notification' THEN 'system:background'
                  ELSE NULL
                END
              ELSE group_id END
