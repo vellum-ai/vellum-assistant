@@ -43,15 +43,15 @@ struct ChatView: View {
     var onOpenModelsAndServices: (() -> Void)? = nil
     var onBootstrapSendLogs: (() -> Void)?
 
-    // MARK: - Maintenance Mode (managed assistants only)
+    // MARK: - Recovery Mode (managed assistants only)
 
-    /// Non-nil when the connected managed assistant is in maintenance mode.
-    /// When set and `enabled == true`, a `MaintenanceModeBanner` is rendered
+    /// Non-nil when the connected managed assistant is in recovery mode.
+    /// When set and `enabled == true`, a `RecoveryModeBanner` is rendered
     /// between the message list and the composer.
-    var maintenanceMode: PlatformAssistantMaintenanceMode? = nil
+    var recoveryMode: PlatformAssistantRecoveryMode? = nil
 
-    /// `true` while an exit-maintenance-mode request is in flight.
-    var isMaintenanceModeExiting: Bool = false
+    /// `true` while an exit-recovery-mode request is in flight.
+    var isRecoveryModeExiting: Bool = false
 
     /// Invoked when the user taps "Resume Assistant" in the maintenance banner.
     var onResumeAssistant: (() -> Void)? = nil
@@ -359,12 +359,12 @@ struct ChatView: View {
                 .padding(.bottom, -VSpacing.sm)
             }
 
-            if let mode = maintenanceMode, mode.enabled {
-                MaintenanceModeBanner(
-                    maintenanceMode: mode,
+            if let mode = recoveryMode, mode.enabled {
+                RecoveryModeBanner(
+                    recoveryMode: mode,
                     onResumeAssistant: { onResumeAssistant?() },
                     onOpenSSHSettings: { onOpenSSHSettings?() },
-                    isExiting: isMaintenanceModeExiting
+                    isExiting: isRecoveryModeExiting
                 )
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .frame(maxWidth: .infinity)

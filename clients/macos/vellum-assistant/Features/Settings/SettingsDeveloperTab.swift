@@ -686,39 +686,39 @@ struct SettingsDeveloperTab: View {
 
     /// `true` while either a maintenance-enter or maintenance-exit request is in flight.
     private var maintenanceTransitionInFlight: Bool {
-        store.maintenanceModeEntering || store.maintenanceModeExiting
+        store.recoveryModeEntering || store.recoveryModeExiting
     }
 
     private var sshTerminalSection: some View {
         SettingsCard(
             title: "SSH Terminal",
-            subtitle: "Maintenance mode pauses the normal assistant pod and routes terminal sessions into the mounted debug pod, giving you direct access to the assistant's workspace PVC."
+            subtitle: "Recovery mode pauses the normal assistant pod and routes terminal sessions into the mounted debug pod, giving you direct access to the assistant's workspace PVC."
         ) {
-            // Maintenance mode status row
-            maintenanceModeStatusRow
+            // Recovery mode status row
+            recoveryModeStatusRow
 
             SettingsDivider()
 
-            // Maintenance mode action buttons
+            // Recovery mode action buttons
             HStack(spacing: VSpacing.sm) {
-                if store.managedAssistantMaintenanceMode?.enabled == true {
+                if store.managedAssistantRecoveryMode?.enabled == true {
                     VButton(
                         label: "Resume Assistant",
                         style: .outlined,
                         isDisabled: maintenanceTransitionInFlight
                     ) {
-                        store.exitManagedAssistantMaintenanceMode()
+                        store.exitManagedAssistantRecoveryMode()
                     }
                     .accessibilityLabel("Resume Assistant")
                 } else {
                     VButton(
-                        label: "Enter Maintenance Mode",
+                        label: "Enter Recovery Mode",
                         style: .outlined,
                         isDisabled: maintenanceTransitionInFlight
                     ) {
-                        store.enterManagedAssistantMaintenanceMode()
+                        store.enterManagedAssistantRecoveryMode()
                     }
-                    .accessibilityLabel("Enter Maintenance Mode")
+                    .accessibilityLabel("Enter Recovery Mode")
                 }
 
                 VButton(label: "Open Terminal", style: .primary) {
@@ -728,12 +728,12 @@ struct SettingsDeveloperTab: View {
             }
 
             // Show inline error messages if a maintenance operation fails.
-            if let enterError = store.maintenanceModeEnterError {
+            if let enterError = store.recoveryModeEnterError {
                 Text(enterError)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.systemNegativeStrong)
             }
-            if let exitError = store.maintenanceModeExitError {
+            if let exitError = store.recoveryModeExitError {
                 Text(exitError)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.systemNegativeStrong)
@@ -742,17 +742,17 @@ struct SettingsDeveloperTab: View {
     }
 
     @ViewBuilder
-    private var maintenanceModeStatusRow: some View {
-        if store.maintenanceModeRefreshing {
+    private var recoveryModeStatusRow: some View {
+        if store.recoveryModeRefreshing {
             HStack(spacing: VSpacing.sm) {
                 ProgressView()
                     .controlSize(.mini)
                     .progressViewStyle(.circular)
-                Text("Loading maintenance status…")
+                Text("Loading recovery status…")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
-        } else if let maintenance = store.managedAssistantMaintenanceMode {
+        } else if let maintenance = store.managedAssistantRecoveryMode {
             if maintenance.enabled {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(spacing: VSpacing.xs) {
@@ -760,10 +760,10 @@ struct SettingsDeveloperTab: View {
                             .fill(VColor.systemMidStrong)
                             .frame(width: 8, height: 8)
                             .accessibilityHidden(true)
-                        Text("Maintenance mode active")
+                        Text("Recovery mode active")
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentDefault)
-                            .accessibilityValue("Maintenance mode active")
+                            .accessibilityValue("Recovery mode active")
                     }
                     if let podName = maintenance.debug_pod_name, !podName.isEmpty {
                         Text("Debug pod: \(podName)")
@@ -786,10 +786,10 @@ struct SettingsDeveloperTab: View {
             }
         } else {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Maintenance status unavailable")
+                Text("Recovery status unavailable")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
-                if let refreshError = store.maintenanceModeRefreshError {
+                if let refreshError = store.recoveryModeRefreshError {
                     Text(refreshError)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.systemNegativeStrong)

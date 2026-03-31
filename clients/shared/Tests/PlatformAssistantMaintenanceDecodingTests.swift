@@ -2,9 +2,9 @@ import XCTest
 
 @testable import VellumAssistantShared
 
-// MARK: - URLProtocol stub for maintenance-mode network calls
+// MARK: - URLProtocol stub for recovery-mode network calls
 
-private final class MaintenanceModeURLProtocol: URLProtocol {
+private final class RecoveryModeURLProtocol: URLProtocol {
     static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -36,14 +36,14 @@ private final class MaintenanceModeURLProtocol: URLProtocol {
 // MARK: - Tests
 
 @MainActor
-final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
+final class PlatformAssistantRecoveryDecodingTests: XCTestCase {
     private let decoder = JSONDecoder()
     private var previousToken: String?
 
     override func setUp() {
         super.setUp()
-        MaintenanceModeURLProtocol.requestHandler = nil
-        URLProtocol.registerClass(MaintenanceModeURLProtocol.self)
+        RecoveryModeURLProtocol.requestHandler = nil
+        URLProtocol.registerClass(RecoveryModeURLProtocol.self)
         // Save any existing token so we can restore it in tearDown, preventing
         // a test-abort from leaving a bogus token in the real credential store.
         previousToken = SessionTokenManager.getToken()
@@ -53,8 +53,8 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
     }
 
     override func tearDown() {
-        URLProtocol.unregisterClass(MaintenanceModeURLProtocol.self)
-        MaintenanceModeURLProtocol.requestHandler = nil
+        URLProtocol.unregisterClass(RecoveryModeURLProtocol.self)
+        RecoveryModeURLProtocol.requestHandler = nil
         // Restore the credential store to its pre-test state.
         if let token = previousToken {
             SessionTokenManager.setToken(token)
@@ -65,9 +65,9 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - PlatformAssistant decoding with maintenance_mode present
+    // MARK: - PlatformAssistant decoding with recovery_mode (maintenance_mode JSON key)
 
-    func testDecodesAssistantWithMaintenanceModeEnabled() throws {
+    func testDecodesAssistantWithRecoveryModeEnabled() throws {
         let data = Data(
             """
             {
@@ -84,7 +84,7 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         )
 
         let assistant = try decoder.decode(PlatformAssistant.self, from: data)
-        let maintenance = try XCTUnwrap(assistant.maintenance_mode)
+        let maintenance = try XCTUnwrap(assistant.recovery_mode)
 
         XCTAssertEqual(assistant.id, "asst-123")
         XCTAssertTrue(maintenance.enabled)
@@ -92,7 +92,7 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         XCTAssertEqual(maintenance.debug_pod_name, "debug-asst-123-abc")
     }
 
-    func testDecodesAssistantWithMaintenanceModeDisabled() throws {
+    func testDecodesAssistantWithRecoveryModeDisabled() throws {
         let data = Data(
             """
             {
@@ -109,14 +109,14 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         )
 
         let assistant = try decoder.decode(PlatformAssistant.self, from: data)
-        let maintenance = try XCTUnwrap(assistant.maintenance_mode)
+        let maintenance = try XCTUnwrap(assistant.recovery_mode)
 
         XCTAssertFalse(maintenance.enabled)
         XCTAssertNil(maintenance.entered_at)
         XCTAssertNil(maintenance.debug_pod_name)
     }
 
-    func testDecodesAssistantWithMaintenanceModeAbsent() throws {
+    func testDecodesAssistantWithRecoveryModeAbsent() throws {
         let data = Data(
             """
             {
@@ -130,10 +130,10 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         let assistant = try decoder.decode(PlatformAssistant.self, from: data)
 
         XCTAssertEqual(assistant.id, "asst-789")
-        XCTAssertNil(assistant.maintenance_mode)
+        XCTAssertNil(assistant.recovery_mode)
     }
 
-    func testDecodesAssistantPreservesExistingFieldsWithMaintenanceMode() throws {
+    func testDecodesAssistantPreservesExistingFieldsWithRecoveryMode() throws {
         let data = Data(
             """
             {
@@ -158,14 +158,14 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         XCTAssertEqual(assistant.description, "A complete assistant payload")
         XCTAssertEqual(assistant.created_at, "2025-01-15T09:00:00Z")
         XCTAssertEqual(assistant.status, "provisioned")
-        let maintenance = try XCTUnwrap(assistant.maintenance_mode)
+        let maintenance = try XCTUnwrap(assistant.recovery_mode)
         XCTAssertTrue(maintenance.enabled)
         XCTAssertEqual(maintenance.debug_pod_name, "debug-asst-full-xyz")
     }
 
-    // MARK: - PlatformAssistantMaintenanceMode standalone decoding
+    // MARK: - PlatformAssistantRecoveryMode standalone decoding
 
-    func testDecodeMaintenanceModeWithOnlyRequiredField() throws {
+    func testDecodeRecoveryModeWithOnlyRequiredField() throws {
         let data = Data(
             """
             {
@@ -174,7 +174,7 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
             """.utf8
         )
 
-        let mode = try decoder.decode(PlatformAssistantMaintenanceMode.self, from: data)
+        let mode = try decoder.decode(PlatformAssistantRecoveryMode.self, from: data)
         XCTAssertFalse(mode.enabled)
         XCTAssertNil(mode.entered_at)
         XCTAssertNil(mode.debug_pod_name)
@@ -182,19 +182,19 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
 
     // MARK: - AuthService error mapping for enter/exit routes
 
-    func testEnterMaintenanceModeNon2xxMapsToServerError() async {
-        MaintenanceModeURLProtocol.requestHandler = { request in
+    func testEnterRecoveryModeNon2xxMapsToServerError() async {
+        RecoveryModeURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
                 url: request.url!,
                 statusCode: 409,
                 httpVersion: nil,
                 headerFields: nil
             )!
-            return (response, Data("{\"detail\": \"Already in maintenance mode\"}".utf8))
+            return (response, Data("{\"detail\": \"Already in recovery mode\"}".utf8))
         }
 
         do {
-            _ = try await AuthService.shared.enterMaintenanceMode(
+            _ = try await AuthService.shared.enterRecoveryMode(
                 assistantId: "asst-123",
                 organizationId: "org-1"
             )
@@ -210,19 +210,19 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         }
     }
 
-    func testExitMaintenanceModeNon2xxMapsToServerError() async {
-        MaintenanceModeURLProtocol.requestHandler = { request in
+    func testExitRecoveryModeNon2xxMapsToServerError() async {
+        RecoveryModeURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
                 url: request.url!,
                 statusCode: 409,
                 httpVersion: nil,
                 headerFields: nil
             )!
-            return (response, Data("{\"detail\": \"Not in maintenance mode\"}".utf8))
+            return (response, Data("{\"detail\": \"Not in recovery mode\"}".utf8))
         }
 
         do {
-            _ = try await AuthService.shared.exitMaintenanceMode(
+            _ = try await AuthService.shared.exitRecoveryMode(
                 assistantId: "asst-123",
                 organizationId: "org-1"
             )
@@ -238,8 +238,8 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         }
     }
 
-    func testEnterMaintenanceModeUnauthenticatedMapsToAuthRequired() async {
-        MaintenanceModeURLProtocol.requestHandler = { request in
+    func testEnterRecoveryModeUnauthenticatedMapsToAuthRequired() async {
+        RecoveryModeURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
                 url: request.url!,
                 statusCode: 401,
@@ -250,7 +250,7 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         }
 
         do {
-            _ = try await AuthService.shared.enterMaintenanceMode(
+            _ = try await AuthService.shared.enterRecoveryMode(
                 assistantId: "asst-123",
                 organizationId: "org-1"
             )
@@ -266,8 +266,8 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         }
     }
 
-    func testExitMaintenanceModeForbiddenMapsToAuthRequired() async {
-        MaintenanceModeURLProtocol.requestHandler = { request in
+    func testExitRecoveryModeForbiddenMapsToAuthRequired() async {
+        RecoveryModeURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
                 url: request.url!,
                 statusCode: 403,
@@ -278,7 +278,7 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
         }
 
         do {
-            _ = try await AuthService.shared.exitMaintenanceMode(
+            _ = try await AuthService.shared.exitRecoveryMode(
                 assistantId: "asst-789",
                 organizationId: "org-2"
             )

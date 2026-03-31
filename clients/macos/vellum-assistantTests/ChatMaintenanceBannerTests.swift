@@ -3,21 +3,21 @@ import SwiftUI
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
-// MARK: - MaintenanceModeBanner Logic Tests
+// MARK: - RecoveryModeBanner Logic Tests
 
-/// Tests for `MaintenanceModeBanner` and the maintenance-banner props on `ChatView`.
+/// Tests for `RecoveryModeBanner` and the maintenance-banner props on `ChatView`.
 ///
 /// These tests focus on observable behaviour — callback invocation and conditional
 /// rendering logic — rather than pixel-level layout, because the app's no-Preview
 /// policy means we don't spin up full SwiftUI rendering in tests.
 
-@Suite("MaintenanceModeBanner — Banner visibility")
-struct MaintenanceBannerVisibilityTests {
+@Suite("RecoveryModeBanner — Banner visibility")
+struct RecoveryBannerVisibilityTests {
 
-    /// Banner should be shown when maintenance mode is enabled.
+    /// Banner should be shown when recovery mode is enabled.
     @Test @MainActor
-    func bannerShownWhenMaintenanceModeEnabled() {
-        let mode = PlatformAssistantMaintenanceMode(
+    func bannerShownWhenRecoveryModeEnabled() {
+        let mode = PlatformAssistantRecoveryMode(
             enabled: true,
             entered_at: "2026-03-30T10:00:00Z",
             debug_pod_name: "debug-pod-alpha"
@@ -27,10 +27,10 @@ struct MaintenanceBannerVisibilityTests {
         #expect(mode.debug_pod_name == "debug-pod-alpha")
     }
 
-    /// Banner should not be shown when maintenance mode is disabled.
+    /// Banner should not be shown when recovery mode is disabled.
     @Test @MainActor
-    func bannerHiddenWhenMaintenanceModeDisabled() {
-        let mode = PlatformAssistantMaintenanceMode(
+    func bannerHiddenWhenRecoveryModeDisabled() {
+        let mode = PlatformAssistantRecoveryMode(
             enabled: false,
             entered_at: nil,
             debug_pod_name: nil
@@ -39,19 +39,19 @@ struct MaintenanceBannerVisibilityTests {
         #expect(mode.enabled == false)
     }
 
-    /// Banner should not be shown when maintenanceMode is nil (non-managed or unloaded).
+    /// Banner should not be shown when recoveryMode is nil (non-managed or unloaded).
     @Test @MainActor
-    func bannerHiddenWhenMaintenanceModeNil() {
-        let mode: PlatformAssistantMaintenanceMode? = nil
-        // ChatView guards with `if let mode = maintenanceMode, mode.enabled`
+    func bannerHiddenWhenRecoveryModeNil() {
+        let mode: PlatformAssistantRecoveryMode? = nil
+        // ChatView guards with `if let mode = recoveryMode, mode.enabled`
         #expect(mode == nil)
     }
 }
 
-// MARK: - MaintenanceModeBanner — Callback Invocation
+// MARK: - RecoveryModeBanner — Callback Invocation
 
-@Suite("MaintenanceModeBanner — Primary action: Resume Assistant")
-struct MaintenanceBannerResumeActionTests {
+@Suite("RecoveryModeBanner — Primary action: Resume Assistant")
+struct RecoveryBannerResumeActionTests {
 
     /// Tapping "Resume Assistant" invokes `onResumeAssistant`.
     @Test @MainActor
@@ -59,7 +59,7 @@ struct MaintenanceBannerResumeActionTests {
         var resumeCallCount = 0
         var openSSHCallCount = 0
 
-        let mode = PlatformAssistantMaintenanceMode(
+        let mode = PlatformAssistantRecoveryMode(
             enabled: true,
             entered_at: "2026-03-30T10:00:00Z",
             debug_pod_name: "debug-pod-beta"
@@ -110,10 +110,10 @@ struct MaintenanceBannerResumeActionTests {
     }
 }
 
-// MARK: - MaintenanceModeBanner — Exiting State
+// MARK: - RecoveryModeBanner — Exiting State
 
-@Suite("MaintenanceModeBanner — Exiting (in-flight) state")
-struct MaintenanceBannerExitingStateTests {
+@Suite("RecoveryModeBanner — Exiting (in-flight) state")
+struct RecoveryBannerExitingStateTests {
 
     /// While exiting, `isExiting` is true; after completion it should be false.
     @Test @MainActor
@@ -130,15 +130,15 @@ struct MaintenanceBannerExitingStateTests {
     }
 }
 
-// MARK: - MaintenanceModeBanner — Debug Pod Name Display
+// MARK: - RecoveryModeBanner — Debug Pod Name Display
 
-@Suite("MaintenanceModeBanner — Debug pod name")
-struct MaintenanceBannerDebugPodNameTests {
+@Suite("RecoveryModeBanner — Debug pod name")
+struct RecoveryBannerDebugPodNameTests {
 
     /// When `debug_pod_name` is set, it should be surfaced to the user.
     @Test @MainActor
     func debugPodNamePresent() {
-        let mode = PlatformAssistantMaintenanceMode(
+        let mode = PlatformAssistantRecoveryMode(
             enabled: true,
             entered_at: "2026-03-30T10:00:00Z",
             debug_pod_name: "debug-pod-gamma"
@@ -149,7 +149,7 @@ struct MaintenanceBannerDebugPodNameTests {
     /// When `debug_pod_name` is nil, the banner still renders (fallback copy).
     @Test @MainActor
     func debugPodNameAbsentShowsFallback() {
-        let mode = PlatformAssistantMaintenanceMode(
+        let mode = PlatformAssistantRecoveryMode(
             enabled: true,
             entered_at: "2026-03-30T10:00:00Z",
             debug_pod_name: nil
@@ -162,7 +162,7 @@ struct MaintenanceBannerDebugPodNameTests {
     /// Empty string `debug_pod_name` is treated the same as nil (falls back to generic copy).
     @Test @MainActor
     func emptyDebugPodNameTreatedAsAbsent() {
-        let mode = PlatformAssistantMaintenanceMode(
+        let mode = PlatformAssistantRecoveryMode(
             enabled: true,
             entered_at: nil,
             debug_pod_name: ""
@@ -173,31 +173,31 @@ struct MaintenanceBannerDebugPodNameTests {
     }
 }
 
-// MARK: - ChatView Maintenance Banner Props
+// MARK: - ChatView Recovery Banner Props
 
-@Suite("ChatView — Maintenance banner prop wiring")
-struct ChatViewMaintenancePropTests {
+@Suite("ChatView — Recovery banner prop wiring")
+struct ChatViewRecoveryPropTests {
 
-    /// ChatView renders the banner only for managed assistants in maintenance mode.
+    /// ChatView renders the banner only for managed assistants in recovery mode.
     @Test @MainActor
-    func bannerOnlyRenderedForManagedAssistantInMaintenanceMode() {
-        // Non-managed: nil maintenanceMode → banner absent
-        let nonManagedMode: PlatformAssistantMaintenanceMode? = nil
+    func bannerOnlyRenderedForManagedAssistantInRecoveryMode() {
+        // Non-managed: nil recoveryMode → banner absent
+        let nonManagedMode: PlatformAssistantRecoveryMode? = nil
         let showForNonManaged = nonManagedMode.map { $0.enabled } ?? false
         #expect(showForNonManaged == false)
 
         // Managed, not in maintenance: enabled == false → banner absent
-        let managedNotInMaintenance = PlatformAssistantMaintenanceMode(enabled: false)
-        let showForManagedNotActive = managedNotInMaintenance.enabled
+        let managedNotInRecovery = PlatformAssistantRecoveryMode(enabled: false)
+        let showForManagedNotActive = managedNotInRecovery.enabled
         #expect(showForManagedNotActive == false)
 
         // Managed, in maintenance: enabled == true → banner shown
-        let managedInMaintenance = PlatformAssistantMaintenanceMode(
+        let managedInRecovery = PlatformAssistantRecoveryMode(
             enabled: true,
             entered_at: "2026-03-30T10:00:00Z",
             debug_pod_name: "debug-pod-delta"
         )
-        let showForManagedActive = managedInMaintenance.enabled
+        let showForManagedActive = managedInRecovery.enabled
         #expect(showForManagedActive == true)
     }
 }

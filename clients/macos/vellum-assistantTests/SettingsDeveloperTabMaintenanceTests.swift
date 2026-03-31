@@ -4,7 +4,7 @@ import XCTest
 
 // MARK: - URLProtocol stub for SSH maintenance UI endpoint calls
 
-private final class DevTabMaintenanceURLProtocol: URLProtocol {
+private final class DevTabRecoveryURLProtocol: URLProtocol {
     static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -55,11 +55,11 @@ private func maintenancePayload(
 
 // MARK: - Tests
 
-/// Tests for the store state that drives the SSH Terminal section maintenance-mode
+/// Tests for the store state that drives the SSH Terminal section recovery-mode
 /// controls in `SettingsDeveloperTab`: button visibility logic, disabled states
-/// during mutation, and the active-maintenance status copy values.
+/// during mutation, and the active-recovery status copy values.
 @MainActor
-final class SettingsDeveloperTabMaintenanceTests: XCTestCase {
+final class SettingsDeveloperTabRecoveryTests: XCTestCase {
 
     private let testAssistantId = "devtab-maint-\(UUID().uuidString.prefix(8))"
     private let testOrgId = "org-devtab-\(UUID().uuidString.prefix(8))"
@@ -91,8 +91,8 @@ final class SettingsDeveloperTabMaintenanceTests: XCTestCase {
         UserDefaults.standard.set(testAssistantId, forKey: "connectedAssistantId")
         UserDefaults.standard.set(testOrgId, forKey: "connectedOrganizationId")
 
-        URLProtocol.registerClass(DevTabMaintenanceURLProtocol.self)
-        DevTabMaintenanceURLProtocol.requestHandler = nil
+        URLProtocol.registerClass(DevTabRecoveryURLProtocol.self)
+        DevTabRecoveryURLProtocol.requestHandler = nil
         // Save any existing token so we can restore it in tearDown, preventing
         // the test run from destroying the developer's real session token.
         previousToken = SessionTokenManager.getToken()
@@ -100,8 +100,8 @@ final class SettingsDeveloperTabMaintenanceTests: XCTestCase {
     }
 
     override func tearDown() {
-        URLProtocol.unregisterClass(DevTabMaintenanceURLProtocol.self)
-        DevTabMaintenanceURLProtocol.requestHandler = nil
+        URLProtocol.unregisterClass(DevTabRecoveryURLProtocol.self)
+        DevTabRecoveryURLProtocol.requestHandler = nil
         if let token = previousToken {
             SessionTokenManager.setToken(token)
         } else {
@@ -129,7 +129,7 @@ final class SettingsDeveloperTabMaintenanceTests: XCTestCase {
     }
 
     private func stubSuccess(enabled: Bool, debugPodName: String? = nil, enteredAt: String? = nil) {
-        DevTabMaintenanceURLProtocol.requestHandler = { _ in
+        DevTabRecoveryURLProtocol.requestHandler = { _ in
             let url = URL(string: "https://example.com")!
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (response, maintenancePayload(
@@ -142,158 +142,158 @@ final class SettingsDeveloperTabMaintenanceTests: XCTestCase {
     }
 
     private func stubFailure(statusCode: Int = 500) {
-        DevTabMaintenanceURLProtocol.requestHandler = { request in
+        DevTabRecoveryURLProtocol.requestHandler = { request in
             let url = request.url ?? URL(string: "https://example.com")!
             let response = HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
             return (response, Data("{\"detail\": \"server error\"}".utf8))
         }
     }
 
-    // MARK: - Button visibility: Enter Maintenance Mode shown when not active
+    // MARK: - Button visibility: Enter Recovery Mode shown when not active
 
-    /// When `managedAssistantMaintenanceMode` is nil (initial state), no maintenance
+    /// When `managedAssistantRecoveryMode` is nil (initial state), no maintenance
     /// transition should be in flight and the store should not indicate maintenance is active.
-    func testNoMaintenanceModeActive_whenStateIsNil() {
+    func testNoRecoveryModeActive_whenStateIsNil() {
         let store = makeStore()
-        XCTAssertNil(store.managedAssistantMaintenanceMode,
-                     "Initial maintenance mode state should be nil")
-        XCTAssertFalse(store.maintenanceModeEntering,
-                       "Should not be entering maintenance mode initially")
-        XCTAssertFalse(store.maintenanceModeExiting,
-                       "Should not be exiting maintenance mode initially")
+        XCTAssertNil(store.managedAssistantRecoveryMode,
+                     "Initial recovery mode state should be nil")
+        XCTAssertFalse(store.recoveryModeEntering,
+                       "Should not be entering recovery mode initially")
+        XCTAssertFalse(store.recoveryModeExiting,
+                       "Should not be exiting recovery mode initially")
     }
 
     /// After a successful refresh that returns enabled=false, the SSH section should
-    /// show "Enter Maintenance Mode" (not "Resume Assistant").
-    func testRefreshWithMaintenanceDisabled_stateShowsNotActive() async {
+    /// show "Enter Recovery Mode" (not "Resume Assistant").
+    func testRefreshWithRecoveryDisabled_stateShowsNotActive() async {
         stubSuccess(enabled: false)
         let store = makeStore()
 
-        await store.refreshManagedAssistantMaintenanceMode()
+        await store.refreshManagedAssistantRecoveryMode()
 
-        XCTAssertNotNil(store.managedAssistantMaintenanceMode,
-                        "Maintenance mode state should be populated after refresh")
-        XCTAssertFalse(store.managedAssistantMaintenanceMode!.enabled,
-                       "Maintenance mode should be disabled after refresh with enabled=false")
+        XCTAssertNotNil(store.managedAssistantRecoveryMode,
+                        "Recovery mode state should be populated after refresh")
+        XCTAssertFalse(store.managedAssistantRecoveryMode!.enabled,
+                       "Recovery mode should be disabled after refresh with enabled=false")
     }
 
     // MARK: - Button visibility: Resume Assistant shown when maintenance is active
 
     /// After a successful refresh that returns enabled=true, the SSH section should
-    /// show "Resume Assistant" instead of "Enter Maintenance Mode".
-    func testRefreshWithMaintenanceEnabled_stateShowsActive() async {
+    /// show "Resume Assistant" instead of "Enter Recovery Mode".
+    func testRefreshWithRecoveryEnabled_stateShowsActive() async {
         stubSuccess(enabled: true, debugPodName: "debug-pod-abc123")
         let store = makeStore()
 
-        await store.refreshManagedAssistantMaintenanceMode()
+        await store.refreshManagedAssistantRecoveryMode()
 
-        XCTAssertNotNil(store.managedAssistantMaintenanceMode)
-        XCTAssertTrue(store.managedAssistantMaintenanceMode!.enabled,
-                      "Maintenance mode should be active after refresh with enabled=true")
+        XCTAssertNotNil(store.managedAssistantRecoveryMode)
+        XCTAssertTrue(store.managedAssistantRecoveryMode!.enabled,
+                      "Recovery mode should be active after refresh with enabled=true")
     }
 
-    // MARK: - Active maintenance status copy: debug pod name is surfaced
+    // MARK: - Active recovery status copy: debug pod name is surfaced
 
-    /// When maintenance mode is active and a debug pod name is present, the store
+    /// When recovery mode is active and a debug pod name is present, the store
     /// should expose it so the status row can display "Debug pod: <name>".
-    func testActiveMaintenanceMode_debugPodNameIsPresent() async {
+    func testActiveRecoveryMode_debugPodNameIsPresent() async {
         let expectedPodName = "debug-pod-xyz789"
         stubSuccess(enabled: true, debugPodName: expectedPodName)
         let store = makeStore()
 
-        await store.refreshManagedAssistantMaintenanceMode()
+        await store.refreshManagedAssistantRecoveryMode()
 
-        XCTAssertEqual(store.managedAssistantMaintenanceMode?.debug_pod_name, expectedPodName,
+        XCTAssertEqual(store.managedAssistantRecoveryMode?.debug_pod_name, expectedPodName,
                        "Debug pod name should match what the platform returned")
     }
 
-    /// When maintenance mode is active but no debug pod has been assigned yet,
+    /// When recovery mode is active but no debug pod has been assigned yet,
     /// `debug_pod_name` should be nil (no debug pod copy rendered).
-    func testActiveMaintenanceMode_withoutDebugPod_podNameIsNil() async {
+    func testActiveRecoveryMode_withoutDebugPod_podNameIsNil() async {
         stubSuccess(enabled: true, debugPodName: nil)
         let store = makeStore()
 
-        await store.refreshManagedAssistantMaintenanceMode()
+        await store.refreshManagedAssistantRecoveryMode()
 
-        XCTAssertTrue(store.managedAssistantMaintenanceMode!.enabled)
-        XCTAssertNil(store.managedAssistantMaintenanceMode?.debug_pod_name,
+        XCTAssertTrue(store.managedAssistantRecoveryMode!.enabled)
+        XCTAssertNil(store.managedAssistantRecoveryMode?.debug_pod_name,
                      "Debug pod name should be nil when the platform did not assign one")
     }
 
-    // MARK: - Disabled state during enter-maintenance-mode mutation
+    // MARK: - Disabled state during enter-recovery-mode mutation
 
-    /// `maintenanceModeEntering` flips true while the enter call is in flight and
+    /// `recoveryModeEntering` flips true while the enter call is in flight and
     /// false when it resolves — the SSH section buttons are disabled while this is true.
-    func testEnteringMaintenanceMode_flagIsSetDuringRequest() async throws {
+    func testEnteringRecoveryMode_flagIsSetDuringRequest() async throws {
         stubSuccess(enabled: true)
         let store = makeStore()
 
         // Observe the entering flag via a brief window — fire the action but don't await it;
         // just confirm the flag is false before and after the full async resolution.
-        XCTAssertFalse(store.maintenanceModeEntering, "Should not be entering before action")
-        XCTAssertFalse(store.maintenanceModeExiting, "Should not be exiting before action")
+        XCTAssertFalse(store.recoveryModeEntering, "Should not be entering before action")
+        XCTAssertFalse(store.recoveryModeExiting, "Should not be exiting before action")
 
-        store.enterManagedAssistantMaintenanceMode()
+        store.enterManagedAssistantRecoveryMode()
         // Give the task a chance to settle.
         try await Task.sleep(nanoseconds: 500_000_000)
 
-        XCTAssertFalse(store.maintenanceModeEntering, "Should not be entering after request completes")
-        XCTAssertNil(store.maintenanceModeEnterError, "Enter error should be nil on success")
-        XCTAssertTrue(store.managedAssistantMaintenanceMode?.enabled == true,
-                      "Maintenance mode should be enabled after successful enter")
+        XCTAssertFalse(store.recoveryModeEntering, "Should not be entering after request completes")
+        XCTAssertNil(store.recoveryModeEnterError, "Enter error should be nil on success")
+        XCTAssertTrue(store.managedAssistantRecoveryMode?.enabled == true,
+                      "Recovery mode should be enabled after successful enter")
     }
 
-    // MARK: - Disabled state during exit-maintenance-mode mutation
+    // MARK: - Disabled state during exit-recovery-mode mutation
 
-    /// `maintenanceModeExiting` flips true while the exit call is in flight and
+    /// `recoveryModeExiting` flips true while the exit call is in flight and
     /// false when it resolves — the SSH section buttons are disabled while this is true.
-    func testExitingMaintenanceMode_flagIsSetDuringRequest() async throws {
+    func testExitingRecoveryMode_flagIsSetDuringRequest() async throws {
         stubSuccess(enabled: false)
         let store = makeStore()
         // Pre-seed an active maintenance state.
-        store.managedAssistantMaintenanceMode = PlatformAssistantMaintenanceMode(
+        store.managedAssistantRecoveryMode = PlatformAssistantRecoveryMode(
             enabled: true, debug_pod_name: "debug-pod-pre"
         )
 
-        store.exitManagedAssistantMaintenanceMode()
+        store.exitManagedAssistantRecoveryMode()
         try await Task.sleep(nanoseconds: 500_000_000)
 
-        XCTAssertFalse(store.maintenanceModeExiting, "Should not be exiting after request completes")
-        XCTAssertNil(store.maintenanceModeExitError, "Exit error should be nil on success")
-        XCTAssertFalse(store.managedAssistantMaintenanceMode?.enabled == true,
-                       "Maintenance mode should be disabled after successful exit")
+        XCTAssertFalse(store.recoveryModeExiting, "Should not be exiting after request completes")
+        XCTAssertNil(store.recoveryModeExitError, "Exit error should be nil on success")
+        XCTAssertFalse(store.managedAssistantRecoveryMode?.enabled == true,
+                       "Recovery mode should be disabled after successful exit")
     }
 
     // MARK: - Error state surfaces inline error copy
 
-    /// When entering maintenance mode fails, `maintenanceModeEnterError` is non-nil
+    /// When entering recovery mode fails, `recoveryModeEnterError` is non-nil
     /// so the SSH section can render the inline error text.
-    func testEnterMaintenanceModeFailure_setsEnterError() async throws {
+    func testEnterRecoveryModeFailure_setsEnterError() async throws {
         stubFailure(statusCode: 500)
         let store = makeStore()
 
-        store.enterManagedAssistantMaintenanceMode()
+        store.enterManagedAssistantRecoveryMode()
         try await Task.sleep(nanoseconds: 500_000_000)
 
-        XCTAssertFalse(store.maintenanceModeEntering, "Entering flag should be cleared after failure")
-        XCTAssertNotNil(store.maintenanceModeEnterError,
+        XCTAssertFalse(store.recoveryModeEntering, "Entering flag should be cleared after failure")
+        XCTAssertNotNil(store.recoveryModeEnterError,
                         "Enter error should be set when the request fails")
     }
 
-    /// When exiting maintenance mode fails, `maintenanceModeExitError` is non-nil
+    /// When exiting recovery mode fails, `recoveryModeExitError` is non-nil
     /// so the SSH section can render the inline error text.
-    func testExitMaintenanceModeFailure_setsExitError() async throws {
+    func testExitRecoveryModeFailure_setsExitError() async throws {
         stubFailure(statusCode: 503)
         let store = makeStore()
-        store.managedAssistantMaintenanceMode = PlatformAssistantMaintenanceMode(
+        store.managedAssistantRecoveryMode = PlatformAssistantRecoveryMode(
             enabled: true, debug_pod_name: "debug-pod-pre"
         )
 
-        store.exitManagedAssistantMaintenanceMode()
+        store.exitManagedAssistantRecoveryMode()
         try await Task.sleep(nanoseconds: 500_000_000)
 
-        XCTAssertFalse(store.maintenanceModeExiting, "Exiting flag should be cleared after failure")
-        XCTAssertNotNil(store.maintenanceModeExitError,
+        XCTAssertFalse(store.recoveryModeExiting, "Exiting flag should be cleared after failure")
+        XCTAssertNotNil(store.recoveryModeExitError,
                         "Exit error should be set when the request fails")
     }
 
@@ -305,25 +305,25 @@ final class SettingsDeveloperTabMaintenanceTests: XCTestCase {
         let store = makeStore()
 
         // The `maintenanceTransitionInFlight` helper in the view is:
-        //   store.maintenanceModeEntering || store.maintenanceModeExiting
-        let transitionInFlight = store.maintenanceModeEntering || store.maintenanceModeExiting
+        //   store.recoveryModeEntering || store.recoveryModeExiting
+        let transitionInFlight = store.recoveryModeEntering || store.recoveryModeExiting
         XCTAssertFalse(transitionInFlight, "No transition should be in flight on fresh store")
     }
 
     // MARK: - Refresh error does not leave entering/exiting flags set
 
-    /// A failed refresh should clear `maintenanceModeRefreshing` and set the error,
+    /// A failed refresh should clear `recoveryModeRefreshing` and set the error,
     /// without affecting the enter/exit flags.
     func testRefreshFailure_setsRefreshErrorAndClearsRefreshingFlag() async {
         stubFailure(statusCode: 404)
         let store = makeStore()
 
-        await store.refreshManagedAssistantMaintenanceMode()
+        await store.refreshManagedAssistantRecoveryMode()
 
-        XCTAssertFalse(store.maintenanceModeRefreshing, "Refreshing flag should be cleared after failure")
-        XCTAssertNotNil(store.maintenanceModeRefreshError,
+        XCTAssertFalse(store.recoveryModeRefreshing, "Refreshing flag should be cleared after failure")
+        XCTAssertNotNil(store.recoveryModeRefreshError,
                         "Refresh error should be populated when the request fails")
-        XCTAssertFalse(store.maintenanceModeEntering, "Enter flag should not be set by a failed refresh")
-        XCTAssertFalse(store.maintenanceModeExiting, "Exit flag should not be set by a failed refresh")
+        XCTAssertFalse(store.recoveryModeEntering, "Enter flag should not be set by a failed refresh")
+        XCTAssertFalse(store.recoveryModeExiting, "Exit flag should not be set by a failed refresh")
     }
 }

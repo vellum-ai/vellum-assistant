@@ -212,10 +212,10 @@ private struct ThreadWindowContentView: View {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         AppDelegate.shared?.showSettingsWindow(nil)
                     },
-                    maintenanceMode: settingsStore.managedAssistantMaintenanceMode,
-                    isMaintenanceModeExiting: settingsStore.maintenanceModeExiting,
+                    maintenanceMode: settingsStore.managedAssistantRecoveryMode,
+                    isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                     onResumeAssistant: {
-                        settingsStore.exitManagedAssistantMaintenanceMode()
+                        settingsStore.exitManagedAssistantRecoveryMode()
                     },
                     onOpenSSHSettings: {
                         settingsStore.pendingSettingsTab = .developer

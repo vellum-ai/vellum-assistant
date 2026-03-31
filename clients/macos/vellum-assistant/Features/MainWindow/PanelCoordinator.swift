@@ -632,10 +632,10 @@ struct ActiveChatViewWrapper: View {
                 onBootstrapSendLogs: {
                     AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
                 },
-                maintenanceMode: settingsStore.managedAssistantMaintenanceMode,
-                isMaintenanceModeExiting: settingsStore.maintenanceModeExiting,
+                maintenanceMode: settingsStore.managedAssistantRecoveryMode,
+                isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                 onResumeAssistant: {
-                    settingsStore.exitManagedAssistantMaintenanceMode()
+                    settingsStore.exitManagedAssistantRecoveryMode()
                 },
                 onOpenSSHSettings: {
                     settingsStore.pendingSettingsTab = .developer

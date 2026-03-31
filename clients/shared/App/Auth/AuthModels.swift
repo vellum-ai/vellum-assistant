@@ -125,10 +125,10 @@ public struct PaginatedOrganizationsResponse: Codable, Sendable {
 
 // MARK: - Platform Assistant API Models
 
-public struct PlatformAssistantMaintenanceMode: Codable, Sendable {
-    /// Whether maintenance mode is currently active for this assistant.
+public struct PlatformAssistantRecoveryMode: Codable, Sendable {
+    /// Whether recovery mode is currently active for this assistant.
     public let enabled: Bool
-    /// ISO 8601 timestamp of when maintenance mode was entered, or `nil` if not currently active.
+    /// ISO 8601 timestamp of when recovery mode was entered, or `nil` if not currently active.
     public let entered_at: String?
     /// Name of the debug pod that has the assistant's workspace PVC mounted, or `nil` when not active.
     public let debug_pod_name: String?
@@ -146,9 +146,16 @@ public struct PlatformAssistant: Codable, Sendable {
     public let description: String?
     public let created_at: String?
     public let status: String?
-    /// Present when the platform includes maintenance-mode state in the assistant payload.
+    /// Present when the platform includes recovery-mode state in the assistant payload.
     /// `nil` when the field is absent (e.g. older platform versions or endpoints that omit it).
-    public let maintenance_mode: PlatformAssistantMaintenanceMode?
+    public let recovery_mode: PlatformAssistantRecoveryMode?
+
+    /// Maps Swift property names to JSON keys. `recovery_mode` is stored as
+    /// `maintenance_mode` in the platform API response.
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, created_at, status
+        case recovery_mode = "maintenance_mode"
+    }
 
     public init(
         id: String,
@@ -156,14 +163,14 @@ public struct PlatformAssistant: Codable, Sendable {
         description: String? = nil,
         created_at: String? = nil,
         status: String? = nil,
-        maintenance_mode: PlatformAssistantMaintenanceMode? = nil
+        recovery_mode: PlatformAssistantRecoveryMode? = nil
     ) {
         self.id = id
         self.name = name
         self.description = description
         self.created_at = created_at
         self.status = status
-        self.maintenance_mode = maintenance_mode
+        self.recovery_mode = recovery_mode
     }
 }
 
