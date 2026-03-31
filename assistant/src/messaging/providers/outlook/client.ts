@@ -3,10 +3,14 @@ import type {
   OAuthConnectionResponse,
 } from "../../../oauth/connection.js";
 import type {
+  OutlookAttachmentListResponse,
   OutlookDraftMessage,
+  OutlookFileAttachment,
   OutlookMailFolder,
   OutlookMailFolderListResponse,
+  OutlookMasterCategoryListResponse,
   OutlookMessage,
+  OutlookMessageFlag,
   OutlookMessageListResponse,
   OutlookRecipient,
   OutlookSendMessagePayload,
@@ -388,4 +392,102 @@ export async function batchGetMessages(
     results.push(...waveResults);
   }
   return results;
+}
+
+/** List attachments on a message. */
+export async function listAttachments(
+  connection: OAuthConnection,
+  messageId: string,
+): Promise<OutlookAttachmentListResponse> {
+  return request<OutlookAttachmentListResponse>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/attachments`,
+    undefined,
+    { $select: "id,name,contentType,size,isInline" },
+  );
+}
+
+/** Get a single attachment by ID (includes file content). */
+export async function getAttachment(
+  connection: OAuthConnection,
+  messageId: string,
+  attachmentId: string,
+): Promise<OutlookFileAttachment> {
+  return request<OutlookFileAttachment>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+  );
+}
+
+/** Move a message to the Deleted Items folder. */
+export async function trashMessage(
+  connection: OAuthConnection,
+  messageId: string,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/move`,
+    {
+      method: "POST",
+      body: JSON.stringify({ destinationId: "deleteditems" }),
+    },
+  );
+}
+
+/** Update the categories on a message. */
+export async function updateMessageCategories(
+  connection: OAuthConnection,
+  messageId: string,
+  categories: string[],
+): Promise<void> {
+  await request<void>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ categories }),
+    },
+  );
+}
+
+/** Update the flag on a message. */
+export async function updateMessageFlag(
+  connection: OAuthConnection,
+  messageId: string,
+  flag: OutlookMessageFlag,
+): Promise<void> {
+  await request<void>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ flag }),
+    },
+  );
+}
+
+/** List the user's master categories. */
+export async function listMasterCategories(
+  connection: OAuthConnection,
+): Promise<OutlookMasterCategoryListResponse> {
+  return request<OutlookMasterCategoryListResponse>(
+    connection,
+    "/v1.0/me/outlook/masterCategories",
+  );
+}
+
+/** Get a message with internet message headers included. */
+export async function getMessageWithHeaders(
+  connection: OAuthConnection,
+  messageId: string,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    undefined,
+    {
+      $select:
+        "id,subject,from,internetMessageHeaders,bodyPreview,body,hasAttachments,receivedDateTime",
+    },
+  );
 }
