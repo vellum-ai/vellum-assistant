@@ -157,15 +157,15 @@ describe("contact_upsert tool", () => {
 
     const row = getRawDb()
       .query(
-        "SELECT externalUserId, externalChatId FROM contact_channels WHERE type = 'slack' AND address = '@eve'",
+        "SELECT external_user_id, external_chat_id FROM contact_channels WHERE type = 'slack' AND address = '@eve'",
       )
       .get() as {
-      externalUserId: string | null;
-      externalChatId: string | null;
+      external_user_id: string | null;
+      external_chat_id: string | null;
     };
 
-    expect(row.externalUserId).toBeNull();
-    expect(row.externalChatId).toBeNull();
+    expect(row.external_user_id).toBeNull();
+    expect(row.external_chat_id).toBeNull();
   });
 
   test("updates an existing contact by ID", async () => {
