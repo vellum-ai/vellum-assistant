@@ -313,6 +313,7 @@ struct SkillItemRow: View {
                     label: "Remove",
                     leftIcon: VIcon.trash.rawValue,
                     style: .dangerGhost,
+                    size: .compact,
                     action: onDelete
                 )
                 .disabled(!isRemovable)
@@ -371,6 +372,7 @@ struct AvailableSkillItemRow: View {
                         label: "Install",
                         leftIcon: VIcon.arrowDownToLine.rawValue,
                         style: .ghost,
+                        size: .compact,
                         action: onInstall
                     )
                 }
