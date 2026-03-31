@@ -155,7 +155,7 @@ struct AssistantTransferSection: View {
             }
 
             // Step 3 — Import bundle to managed assistant
-            currentStep = "Importing data to cloud..."
+            currentStep = "Uploading data to cloud..."
             try await importBundleToManaged(bundleData: bundleData)
 
             // Step 4 — Switch to managed assistant

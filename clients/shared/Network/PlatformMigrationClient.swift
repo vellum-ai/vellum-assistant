@@ -159,7 +159,10 @@ public enum PlatformMigrationClient {
             userDefaults: .standard
         )
 
-        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        let orgId: String? = {
+            guard let id = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !id.isEmpty else { return nil }
+            return id
+        }()
 
         return (baseURL: baseURL, token: token, orgId: orgId)
     }
