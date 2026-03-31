@@ -541,8 +541,10 @@ struct AssistantUpgradeSection: View {
             if !isRollback && isAppBehindTarget {
                 successMessage! += " Checking for app update…"
                 sparkleCheckTriggered = true
-                AppDelegate.shared?.updateManager.checkForUpdates()
-                sparkleCheckCompleted = true
+                Task {
+                    _ = await AppDelegate.shared?.updateManager.checkForUpdatesAsync()
+                    sparkleCheckCompleted = true
+                }
             }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
