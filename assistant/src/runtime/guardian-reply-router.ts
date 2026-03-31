@@ -157,7 +157,7 @@ function parseRequestCode(
 ): CodeParseResult | null {
   // Strip common channel formatting delimiters (backticks, bold, italic,
   // strikethrough) that messaging platforms wrap around inline code.
-  const cleaned = text.replace(/[`*_~]/g, "").trim();
+  const cleaned = text.replace(/^[`*_~]+/, "").replace(/[`*_~]+$/, "").trim();
   // Request codes are 6 hex chars (A-F, 0-9), uppercase
   const upper = cleaned.toUpperCase();
   const match = upper.match(/^([A-F0-9]{6})(?:\s|$)/);
