@@ -775,11 +775,7 @@ describe("Outlook messaging provider", () => {
 
       await createReplyDraft(conn, "orig-msg-1");
 
-      expect(mockCreateReplyDraft).toHaveBeenCalledWith(
-        conn,
-        "orig-msg-1",
-        undefined,
-      );
+      expect(mockCreateReplyDraft).toHaveBeenCalledWith(conn, "orig-msg-1");
     });
 
     test("returns OutlookMessage for the reply draft", async () => {
@@ -819,11 +815,7 @@ describe("Outlook messaging provider", () => {
 
       await createReplyAllDraft(conn, "orig-msg-2");
 
-      expect(mockCreateReplyAllDraft).toHaveBeenCalledWith(
-        conn,
-        "orig-msg-2",
-        undefined,
-      );
+      expect(mockCreateReplyAllDraft).toHaveBeenCalledWith(conn, "orig-msg-2");
     });
 
     test("returns OutlookMessage for the reply-all draft", async () => {
@@ -869,12 +861,7 @@ describe("Outlook messaging provider", () => {
 
       await createForwardDraft(conn, "orig-msg-3");
 
-      expect(mockCreateForwardDraft).toHaveBeenCalledWith(
-        conn,
-        "orig-msg-3",
-        undefined,
-        undefined,
-      );
+      expect(mockCreateForwardDraft).toHaveBeenCalledWith(conn, "orig-msg-3");
     });
 
     test("returns OutlookMessage for the forward draft", async () => {

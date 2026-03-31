@@ -205,7 +205,8 @@ describe("Outlook client — automation and delta APIs", () => {
           method: "GET",
           path: "/v1.0/me/mailFolders/inbox-id/messages/delta",
           query: {
-            $select: "id,subject,from,receivedDateTime,isRead,parentFolderId",
+            $select:
+              "id,subject,from,receivedDateTime,isRead,parentFolderId,conversationId,bodyPreview,hasAttachments",
             $top: "50",
           },
         }),

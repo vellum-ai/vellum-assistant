@@ -44,12 +44,12 @@ const mockResolveOAuthConnection = mock(() =>
   Promise.resolve({ id: "conn-1" }),
 );
 
-mock.module("../../../../messaging/providers/outlook/client.js", () => ({
+mock.module("../messaging/providers/outlook/client.js", () => ({
   listAttachments: mockListAttachments,
   getAttachment: mockGetAttachment,
 }));
 
-mock.module("../../../../oauth/connection-resolver.js", () => ({
+mock.module("../oauth/connection-resolver.js", () => ({
   resolveOAuthConnection: mockResolveOAuthConnection,
 }));
 
