@@ -357,7 +357,6 @@ struct AvailableSkillItemRow: View {
                         } else if skill.source == "catalog" {
                             VSkillTypePill(type: .vellum)
                         }
-                        VSkillTypePill(type: .available)
                         Spacer()
                     }
                     Text(skill.description)
