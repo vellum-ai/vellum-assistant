@@ -726,13 +726,15 @@ async function main() {
     {
       path: "/v1/oauth/providers",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => oauthProvidersProxy.handleListProviders(req),
     },
     {
       path: /^\/v1\/oauth\/providers\/([^/]+)\/?$/,
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req, params) =>
         oauthProvidersProxy.handleGetProvider(req, params[0]),
     },
@@ -741,39 +743,45 @@ async function main() {
     {
       path: "/v1/oauth/apps",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => oauthAppsProxy.handleListApps(req),
     },
     {
       path: "/v1/oauth/apps",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => oauthAppsProxy.handleCreateApp(req),
     },
     {
       path: /^\/v1\/oauth\/apps\/([^/]+)\/?$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => oauthAppsProxy.handleDeleteApp(req, params[0]),
     },
     {
       path: /^\/v1\/oauth\/apps\/([^/]+)\/connections\/?$/,
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req, params) =>
         oauthAppsProxy.handleListConnections(req, params[0]),
     },
     {
       path: /^\/v1\/oauth\/connections\/([^/]+)\/?$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) =>
         oauthAppsProxy.handleDeleteConnection(req, params[0]),
     },
     {
       path: /^\/v1\/oauth\/apps\/([^/]+)\/connect\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => oauthAppsProxy.handleConnect(req, params[0]),
     },
 
