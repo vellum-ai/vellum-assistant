@@ -227,6 +227,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "gateway",
+    loopbackPort: 17335,
     injectionTemplates: [
       {
         hostPattern: "api.x.com",
@@ -640,8 +641,14 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { prompt: "consent" },
+    // client_secret_post is safe with loopback: the token exchange is a
+    // server-side HTTP call from the assistant process to Microsoft's token
+    // endpoint — the client secret is never exposed to the browser. The
+    // callback transport only affects where the browser redirects with the
+    // authorization code.
     tokenEndpointAuthMethod: "client_secret_post",
     callbackTransport: "gateway",
+    loopbackPort: 17334,
     managedServiceConfigKey: "outlook-oauth",
     injectionTemplates: [
       {
