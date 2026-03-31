@@ -775,10 +775,6 @@ if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
         <string>$PLATFORM_URL_OVERRIDE</string>"
 fi
 if [ "$CONFIG" = "debug" ]; then
-    echo "Embedding VELLUM_FLAG_PLATFORM_HOSTED_ENABLED for debug build"
-    _LSE_ENTRIES+="
-        <key>VELLUM_FLAG_PLATFORM_HOSTED_ENABLED</key>
-        <string>1</string>"
     echo "Embedding VELLUM_FLAG_LOCAL_DOCKER_ENABLED for debug build"
     _LSE_ENTRIES+="
         <key>VELLUM_FLAG_LOCAL_DOCKER_ENABLED</key>
