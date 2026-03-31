@@ -285,21 +285,16 @@ export function createConversation(
 
   // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
   // contention can cause the first attempt to fail even under normal load.
-  // group_id is set via raw SQL immediately after the Drizzle INSERT (not in
-  // Drizzle schema). No explicit BEGIN/COMMIT here — callers that need
-  // atomicity (e.g. forkConversation) wrap in their own transaction, and
-  // nesting raw BEGIN inside Drizzle's db.transaction() would crash SQLite.
+  // INSERT and group_id UPDATE are retried independently so a transient failure
+  // on the UPDATE doesn't re-execute the already-succeeded INSERT (which would
+  // hit a unique constraint violation).
+  // No explicit BEGIN/COMMIT here — callers that need atomicity (e.g.
+  // forkConversation) wrap in their own transaction, and nesting raw BEGIN
+  // inside Drizzle's db.transaction() would crash SQLite.
   const MAX_RETRIES = 3;
   for (let attempt = 0; ; attempt++) {
     try {
       db.insert(conversations).values(conversation).run();
-      if (groupId) {
-        rawRun(
-          "UPDATE conversations SET group_id = ? WHERE id = ?",
-          groupId,
-          id,
-        );
-      }
       break;
     } catch (err) {
       const code = (err as { code?: string }).code ?? "";
@@ -309,14 +304,41 @@ export function createConversation(
       ) {
         log.warn(
           { attempt, conversationId: id, code },
-          "createConversation: transient SQLite error, retrying",
+          "createConversation: INSERT transient error, retrying",
         );
-        // Synchronous sleep — createConversation is synchronous and the
-        // retry window is short (50-150ms), so Bun.sleepSync is appropriate.
         Bun.sleepSync(50 * (attempt + 1));
         continue;
       }
       throw err;
+    }
+  }
+
+  // group_id is NOT in the Drizzle schema (raw-query-only pattern).
+  // Set via raw SQL after the INSERT succeeds.
+  if (groupId) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        rawRun(
+          "UPDATE conversations SET group_id = ? WHERE id = ?",
+          groupId,
+          id,
+        );
+        break;
+      } catch (err) {
+        const code = (err as { code?: string }).code ?? "";
+        if (
+          attempt < MAX_RETRIES &&
+          (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_IOERR"))
+        ) {
+          log.warn(
+            { attempt, conversationId: id, code },
+            "createConversation: group_id UPDATE transient error, retrying",
+          );
+          Bun.sleepSync(50 * (attempt + 1));
+          continue;
+        }
+        throw err;
+      }
     }
   }
 
@@ -1717,13 +1739,25 @@ export function batchSetDisplayOrders(
   try {
     for (const update of updates) {
       if (update.groupId !== undefined) {
-        // New client: groupId is authoritative
-        // Derive is_pinned from groupId
+        // New client: groupId is authoritative.
+        // Derive is_pinned from groupId.
+        // Sanitize: if groupId references a deleted/unknown group, fall back
+        // to NULL to avoid FK violation that would roll back the entire batch.
+        let safeGroupId = update.groupId;
+        if (
+          safeGroupId !== null &&
+          !rawGet<{ id: string }>(
+            "SELECT id FROM conversation_groups WHERE id = ?",
+            safeGroupId,
+          )
+        ) {
+          safeGroupId = null;
+        }
         rawRun(
           "UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ? WHERE id = ?",
           update.displayOrder,
-          update.groupId === "system:pinned" ? 1 : 0,
-          update.groupId,
+          safeGroupId === "system:pinned" ? 1 : 0,
+          safeGroupId,
           update.id,
         );
       } else {
