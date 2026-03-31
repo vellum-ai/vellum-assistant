@@ -559,8 +559,13 @@ struct AssistantUpgradeSection: View {
                 ? "Rollback initiated. The assistant may be briefly unavailable."
                 : "Upgrade initiated. The assistant may be briefly unavailable."
             if !isRollback && isAppBehindTarget {
-                successMessage! += " Checking for app update…"
-                AppDelegate.shared?.updateManager.checkForUpdates()
+                successMessage! += " Checking for app update in the background…"
+                // Use background check (no modal) — the managed upgrade only means
+                // the platform accepted the request, not that the service group has
+                // restarted. A modal Sparkle dialog would be premature here.
+                Task {
+                    _ = await AppDelegate.shared?.updateManager.checkForUpdatesAsync()
+                }
             }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
