@@ -71,7 +71,11 @@ public enum PlatformMigrationClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: ["content_type": "application/octet-stream"])
 
-        let (data, statusCode) = try await executeWithRetry(request: request, label: "upload-url")
+        let (data, statusCode) = try await executeWithRetry(
+            request: request,
+            label: "upload-url",
+            nonRetryableStatusCodes: [503, 404]
+        )
 
         if statusCode == 503 || statusCode == 404 {
             throw PlatformMigrationError.signedUrlsNotAvailable
@@ -147,9 +151,17 @@ public enum PlatformMigrationClient {
 
     /// Executes a URLRequest with automatic retry on transient server errors (500/502/503/504).
     /// Uses exponential backoff: 1s, 2s, 4s between attempts.
+    ///
+    /// - Parameters:
+    ///   - request: The URLRequest to execute.
+    ///   - label: A label for logging when the URL path is unavailable.
+    ///   - nonRetryableStatusCodes: Status codes that should NOT be retried even if they
+    ///     appear in `retryableStatusCodes`. Use this when a caller treats certain status
+    ///     codes (e.g. 503, 404) as permanent semantic signals rather than transient errors.
     private static func executeWithRetry(
         request: URLRequest,
-        label: String
+        label: String,
+        nonRetryableStatusCodes: Set<Int> = []
     ) async throws -> (data: Data, statusCode: Int) {
         let urlPath = request.url.flatMap { logPath(from: $0) } ?? label
 
@@ -159,7 +171,10 @@ public enum PlatformMigrationClient {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             log.info("\(request.httpMethod ?? "?", privacy: .public) \(urlPath, privacy: .public) → \(statusCode)")
 
-            if attempt < maxRetries && retryableStatusCodes.contains(statusCode) {
+            if attempt < maxRetries
+                && retryableStatusCodes.contains(statusCode)
+                && !nonRetryableStatusCodes.contains(statusCode)
+            {
                 let delay = UInt64(pow(2.0, Double(attempt))) * 1_000_000_000
                 log.warning("Transient server error (\(statusCode)) — retrying in \(1 << attempt)s")
                 try await Task.sleep(nanoseconds: delay)
