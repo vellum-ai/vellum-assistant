@@ -391,7 +391,7 @@ struct NavigationGallerySection: View {
                 // MARK: - VSubMenuItem (Cascading Submenu)
                 GallerySectionHeader(
                     title: "VSubMenuItem",
-                    description: "Cascading submenu item that opens a child panel on hover (150ms debounce) or click. Anchored to the item's trailing edge with screen-edge flip. Grace-period close (200ms) prevents accidental dismiss when moving between panels. On iOS, falls back to native SwiftUI Menu."
+                    description: "Cascading submenu item that opens a child panel on hover (150ms debounce) or click. Anchored to the item's trailing edge with screen-edge flip. Grace-period close (200ms) prevents accidental dismiss when moving between panels. On iOS, falls back to native SwiftUI Menu.\n\nNote: The inline examples below show the component's visual appearance. For interactive submenu behavior (flyout panel), right-click the demo card at the bottom — .vContextMenu provides the required VMenuCoordinator."
                 )
 
                 VCard {
