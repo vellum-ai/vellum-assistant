@@ -75,6 +75,9 @@ const loopbackServer = mockServer("127.0.0.1");
 /** Mock non-loopback server -- returns a public IP for all requests. */
 const nonLoopbackServer = mockServer("203.0.113.50");
 
+/** Mock LAN peer -- returns a private RFC 1918 IP (not loopback). */
+const lanPeerServer = mockServer("192.168.1.100");
+
 initializeDb();
 
 beforeEach(() => {
@@ -715,5 +718,51 @@ describe("bootstrap private-network guard", () => {
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(200);
+  });
+
+  test("rejects LAN peer in non-containerized mode", async () => {
+    // Default IS_CONTAINERIZED is unset (non-containerized).
+    delete process.env.IS_CONTAINERIZED;
+
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
+
+    const req = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "macos", deviceId: "test-device-lan" }),
+    });
+
+    const res = await handleGuardianBootstrap(req, lanPeerServer);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("local-only");
+  });
+
+  test("accepts LAN peer in containerized mode", async () => {
+    const prev = process.env.IS_CONTAINERIZED;
+    process.env.IS_CONTAINERIZED = "true";
+    try {
+      const { handleGuardianBootstrap } =
+        await import("../runtime/routes/guardian-bootstrap-routes.js");
+
+      const req = new Request("http://localhost/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "macos",
+          deviceId: "test-device-docker",
+        }),
+      });
+
+      const res = await handleGuardianBootstrap(req, lanPeerServer);
+      expect(res.status).toBe(200);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.IS_CONTAINERIZED;
+      } else {
+        process.env.IS_CONTAINERIZED = prev;
+      }
+    }
   });
 });
