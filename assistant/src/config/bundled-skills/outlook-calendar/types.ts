@@ -1,7 +1,7 @@
-/** Microsoft Graph date+time pair (always includes time zone). */
+/** Microsoft Graph date+time pair. timeZone may be omitted when dateTime carries an offset. */
 export interface OutlookDateTimeZone {
   dateTime: string;
-  timeZone: string;
+  timeZone?: string;
 }
 
 /** Attendee on a calendar event. */
