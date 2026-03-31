@@ -331,10 +331,16 @@ public struct ToolCallChip: View {
         .onChange(of: toolCall.result) {
             if isExpanded, let result = toolCall.result {
                 cachedResultLineCount = Self.countLines(in: result)
+                let lineCount = cachedResultLineCount!
+                if lineCount > 500 && !Self.isFileEditTool(toolCall.toolName) {
+                    cachedResultLines = result.components(separatedBy: "\n")
+                } else {
+                    cachedResultLines = nil
+                }
             } else {
                 cachedResultLineCount = nil
+                cachedResultLines = nil
             }
-            cachedResultLines = nil
         }
     }
 }
