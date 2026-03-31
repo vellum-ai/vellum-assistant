@@ -238,4 +238,39 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
       "aid2",
     );
   });
+
+  test("multi-line — rejected first line does not block valid second line", () => {
+    mockFindActiveSession.mockReturnValue({
+      destinationAddress: "U200",
+      status: "awaiting_response",
+    });
+
+    const staleResult = JSON.stringify({
+      _pendingSlackDm: {
+        userId: "U100",
+        text: "stale-code",
+        assistantId: "aid",
+      },
+    });
+    const validResult = JSON.stringify({
+      _pendingSlackDm: {
+        userId: "U200",
+        text: "valid-code",
+        assistantId: "aid2",
+      },
+    });
+    const multiLineOutput = `${staleResult}\n${validResult}`;
+
+    callWithBashHook(
+      "assistant channel-verification-sessions create ...",
+      multiLineOutput,
+    );
+
+    expect(mockDeliverVerificationSlack).toHaveBeenCalledTimes(1);
+    expect(mockDeliverVerificationSlack).toHaveBeenCalledWith(
+      "U200",
+      "valid-code",
+      "aid2",
+    );
+  });
 });

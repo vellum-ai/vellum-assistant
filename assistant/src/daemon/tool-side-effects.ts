@@ -223,7 +223,9 @@ registerHook("bash", (_name, input, result) => {
   type PendingDm = { userId: string; text: string; assistantId: string };
   type Parsed = { _pendingSlackDm?: PendingDm };
 
-  const dispatch = (parsed: Parsed) => {
+  // Returns "delivered" when DM was sent, "rejected" when _pendingSlackDm
+  // was found but failed validation, or null when the field was absent.
+  const dispatch = (parsed: Parsed): "delivered" | "rejected" | null => {
     if (parsed._pendingSlackDm) {
       const { userId, text, assistantId } = parsed._pendingSlackDm;
 
@@ -235,20 +237,20 @@ registerHook("bash", (_name, input, result) => {
           { userId, assistantId },
           "Bash hook: no active Slack verification session — ignoring _pendingSlackDm",
         );
-        return true;
+        return "rejected";
       }
       if (session.destinationAddress !== userId) {
         log.warn(
           { userId, expected: session.destinationAddress, assistantId },
           "Bash hook: Slack DM userId does not match active session destination — ignoring",
         );
-        return true;
+        return "rejected";
       }
 
       deliverVerificationSlack(userId, text, assistantId);
-      return true;
+      return "delivered";
     }
-    return false;
+    return null;
   };
 
   // Try full content first (handles pretty-printed single-object JSON)
@@ -262,7 +264,7 @@ registerHook("bash", (_name, input, result) => {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
     try {
-      if (dispatch(JSON.parse(trimmed) as Parsed)) return;
+      if (dispatch(JSON.parse(trimmed) as Parsed) === "delivered") return;
     } catch {
       continue;
     }
