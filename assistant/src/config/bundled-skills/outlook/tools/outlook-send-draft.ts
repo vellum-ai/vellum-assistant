@@ -21,7 +21,7 @@ export async function run(
   }
 
   try {
-    const connection = await resolveOAuthConnection("microsoft", {
+    const connection = await resolveOAuthConnection("outlook", {
       account,
     });
     await sendDraft(connection, draftId);

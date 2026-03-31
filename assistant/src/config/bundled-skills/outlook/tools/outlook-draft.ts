@@ -37,7 +37,7 @@ export async function run(
   if (!body) return err("body is required.");
 
   try {
-    const connection = await resolveOAuthConnection("microsoft", {
+    const connection = await resolveOAuthConnection("outlook", {
       account,
     });
 
