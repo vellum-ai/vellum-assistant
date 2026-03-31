@@ -477,8 +477,6 @@ extension AppDelegate {
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         SentryDeviceInfo.updateOrganizationTag(nil)
         // Clear stale actor token for the previous assistant
-        actorTokenBootstrapTask?.cancel()
-        actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
         // 4. Reconfigure transport and reconnect
