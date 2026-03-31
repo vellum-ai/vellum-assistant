@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -39,7 +39,7 @@ mock.module("../calls/call-domain.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
 import {
   handleCreateInvite,
   handleListInvites,
@@ -54,10 +54,6 @@ initializeDb();
 function createTargetContact(displayName = "Test Contact"): string {
   return upsertContact({ displayName, role: "contact" }).id;
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");

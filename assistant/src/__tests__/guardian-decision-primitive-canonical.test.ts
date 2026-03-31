@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -23,7 +23,7 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 
 initializeDb();
@@ -34,10 +34,6 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -736,8 +732,12 @@ describe("mintCanonicalRequestGrant", () => {
     const db = getDb();
     const grants = db.select().from(scopedApprovalGrants).all();
     expect(grants.length).toBe(1);
-    expect(grants[0].expiresAt).toBeGreaterThanOrEqual(before + GRANT_TTL_10M_MS);
-    expect(grants[0].expiresAt).toBeLessThanOrEqual(Date.now() + GRANT_TTL_10M_MS);
+    expect(grants[0].expiresAt).toBeGreaterThanOrEqual(
+      before + GRANT_TTL_10M_MS,
+    );
+    expect(grants[0].expiresAt).toBeLessThanOrEqual(
+      Date.now() + GRANT_TTL_10M_MS,
+    );
   });
 
   test("mints grant with no wall-clock expiry for approve_conversation", () => {

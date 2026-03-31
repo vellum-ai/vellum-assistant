@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -7,7 +7,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
@@ -20,10 +20,6 @@ import type { PricingResult, UsageEventInput } from "../usage/types.js";
 
 // Initialize db once before all tests
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 function makeInput(overrides?: Partial<UsageEventInput>): UsageEventInput {
   return {

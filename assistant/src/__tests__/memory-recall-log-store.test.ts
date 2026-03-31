@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -18,7 +18,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   backfillMemoryRecallLogMessageId,
   getMemoryRecallLogByMessageIds,
@@ -32,10 +32,6 @@ function resetTables(): void {
   const db = getDb();
   db.delete(memoryRecallLogs).run();
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("memory-recall-log-store", () => {
   beforeEach(() => {

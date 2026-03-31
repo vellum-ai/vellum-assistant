@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -11,7 +11,7 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   createGuardianActionDelivery,
   createGuardianActionRequest,
@@ -131,10 +131,6 @@ function createFailingGenerator(): GuardianFollowUpConversationGenerator {
 describe("guardian-action-conversation-turn", () => {
   beforeEach(() => {
     resetTables();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   // ── processGuardianFollowUpTurn: classification ─────────────────────

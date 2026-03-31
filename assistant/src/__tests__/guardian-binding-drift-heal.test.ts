@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -9,7 +9,7 @@ mock.module("../util/logger.js", () => ({
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { healGuardianBindingDrift } from "../runtime/guardian-vellum-migration.js";
 
 initializeDb();
@@ -23,10 +23,6 @@ function resetTables(): void {
 describe("healGuardianBindingDrift", () => {
   beforeEach(() => {
     resetTables();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   test("heals drift when both principals have vellum-principal- prefix", () => {

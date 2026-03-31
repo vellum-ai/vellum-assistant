@@ -16,7 +16,7 @@
  * processes and is not tested here.
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -59,7 +59,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import {
   conversations,
@@ -70,10 +70,6 @@ import {
 
 // Initialize DB once for the entire file. Each test cleans its own tables.
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 function resetTables() {
   const db = getDb();

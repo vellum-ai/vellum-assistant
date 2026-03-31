@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -56,7 +56,7 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { initializeDb, resetDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db.js";
 import { getDb } from "../memory/db.js";
 import {
   createGuardianActionDelivery,
@@ -158,10 +158,6 @@ function createDispatchingRequest(convId: string, action: "call_back") {
 describe("guardian-action-followup-executor", () => {
   beforeEach(() => {
     resetTables();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   // ── Counterparty resolution ─────────────────────────────────────────
