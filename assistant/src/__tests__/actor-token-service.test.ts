@@ -649,6 +649,25 @@ describe("pairing credential flow", () => {
 // ---------------------------------------------------------------------------
 
 describe("bootstrap private-network guard", () => {
+  test("rejects bootstrap request with private X-Forwarded-For", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
+
+    const req = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "192.168.1.10",
+      },
+      body: JSON.stringify({ platform: "macos", deviceId: "test-device" }),
+    });
+
+    const res = await handleGuardianBootstrap(req, loopbackServer);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("local-only");
+  });
+
   test("rejects bootstrap request with public X-Forwarded-For", async () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
