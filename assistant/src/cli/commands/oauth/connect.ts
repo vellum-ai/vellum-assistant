@@ -358,6 +358,7 @@ Examples:
               service: provider,
               clientId,
               clientSecret,
+              callbackTransport: "loopback",
               isInteractive: opts.browser !== false,
               openUrl: opts.browser !== false ? openInBrowser : undefined,
               ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),

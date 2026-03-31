@@ -253,7 +253,10 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        let body: { scopes?: string[] } = {};
+        let body: {
+          scopes?: string[];
+          callback_transport?: "loopback" | "gateway";
+        } = {};
         try {
           const text = await req.text();
           if (text) {
@@ -263,6 +266,19 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           // No body or invalid JSON — use defaults
         }
 
+        // Validate callback_transport if present
+        if (
+          body.callback_transport !== undefined &&
+          body.callback_transport !== "loopback" &&
+          body.callback_transport !== "gateway"
+        ) {
+          return httpError(
+            "BAD_REQUEST",
+            'callback_transport must be "loopback" or "gateway"',
+            400,
+          );
+        }
+
         const clientSecret = await getAppClientSecret(app);
 
         const result = await orchestrateOAuthConnect({
@@ -270,6 +286,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           clientId: app.clientId,
           clientSecret,
           requestedScopes: body.scopes,
+          callbackTransport: body.callback_transport ?? "loopback",
           isInteractive: false,
         });
 
