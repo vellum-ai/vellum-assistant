@@ -606,11 +606,16 @@ public final class SettingsStore: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] _ in
                 guard let self else { return }
-                // Reset stale maintenance state immediately before async refresh
+                // Reset stale maintenance state immediately before async refresh.
+                // Also clear in-flight flags so the new assistant's UI starts clean
+                // rather than inheriting a spinner from the previous assistant's
+                // in-progress mutation.
                 self.managedAssistantMaintenanceMode = nil
                 self.maintenanceModeRefreshError = nil
                 self.maintenanceModeEnterError = nil
                 self.maintenanceModeExitError = nil
+                self.maintenanceModeEntering = false
+                self.maintenanceModeExiting = false
                 Task { @MainActor [weak self] in
                     await self?.refreshManagedAssistantMaintenanceMode()
                 }
@@ -624,10 +629,14 @@ public final class SettingsStore: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] _ in
                 guard let self else { return }
+                // Same as the connectedAssistantId sink: clear in-flight flags so
+                // the new context's UI starts clean.
                 self.managedAssistantMaintenanceMode = nil
                 self.maintenanceModeRefreshError = nil
                 self.maintenanceModeEnterError = nil
                 self.maintenanceModeExitError = nil
+                self.maintenanceModeEntering = false
+                self.maintenanceModeExiting = false
                 Task { @MainActor [weak self] in
                     await self?.refreshManagedAssistantMaintenanceMode()
                 }
@@ -2552,6 +2561,19 @@ public final class SettingsStore: ObservableObject {
                     assistantId: assistant.assistantId,
                     organizationId: orgId
                 )
+                // Guard against stale responses: only apply the result if both the
+                // connected assistant and connected organization haven't changed while
+                // the request was in flight (same pattern as refreshManagedAssistantMaintenanceMode).
+                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                guard currentConnectedId == connectedId else {
+                    log.info("Discarding stale enter-maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
+                    return
+                }
+                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                guard currentOrgId == orgId else {
+                    log.info("Discarding stale enter-maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
+                    return
+                }
                 managedAssistantMaintenanceMode = updated.maintenance_mode
                 log.info("Entered maintenance mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
@@ -2590,6 +2612,19 @@ public final class SettingsStore: ObservableObject {
                     assistantId: assistant.assistantId,
                     organizationId: orgId
                 )
+                // Guard against stale responses: only apply the result if both the
+                // connected assistant and connected organization haven't changed while
+                // the request was in flight (same pattern as refreshManagedAssistantMaintenanceMode).
+                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                guard currentConnectedId == connectedId else {
+                    log.info("Discarding stale exit-maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
+                    return
+                }
+                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                guard currentOrgId == orgId else {
+                    log.info("Discarding stale exit-maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
+                    return
+                }
                 managedAssistantMaintenanceMode = updated.maintenance_mode
                 log.info("Exited maintenance mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
