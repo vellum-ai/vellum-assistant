@@ -526,6 +526,7 @@ struct MessageListView: View {
         scrollState.wasPaginationTriggerInRange = isInRange
         scrollState.isPaginationInFlight = true
         let anchorId = scrollState.cachedFirstVisibleMessageId
+        let taskConversationId = scrollState.currentConversationId
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         scrollState.paginationTask = Task { [scrollState] in
             defer {
@@ -533,7 +534,8 @@ struct MessageListView: View {
                     scrollState.lastPaginationCompletedAt = Date()
                     scrollState.isPaginationInFlight = false
                     scrollState.paginationTask = nil
-                } else if scrollState.paginationTask == nil {
+                } else if scrollState.paginationTask == nil,
+                          scrollState.currentConversationId == taskConversationId {
                     scrollState.lastPaginationCompletedAt = Date()
                     scrollState.isPaginationInFlight = false
                 }
