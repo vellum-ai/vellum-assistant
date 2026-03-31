@@ -290,16 +290,17 @@ struct OnboardingFlowView: View {
         isResolvingAssociatedManagedAssistant = true
         defer { isResolvingAssociatedManagedAssistant = false }
 
-        // Only auto-proceed if there's already a managed assistant in the lockfile.
+        // Only auto-proceed if there's already a managed assistant in the lockfile
+        // AND this is a fresh onboarding (not a re-hatch from the developer tab).
         // Do NOT create a new managed assistant here — that should only happen if
         // the user explicitly selects Vellum Cloud on the hosting selector.
-        if let existing = LockfileAssistant.loadLatest(), existing.isManaged {
+        if let existing = LockfileAssistant.loadLatest(), existing.isManaged, !state.isRehatch {
             log.info("Authenticated with existing managed assistant \(existing.assistantId, privacy: .public); proceeding to app")
             onComplete()
             return
         }
 
-        log.info("Authenticated account has no existing managed assistant — advancing to hosting selector")
+        log.info("Authenticated account has \(state.isRehatch ? "rehatch requested" : "no existing managed assistant", privacy: .public) — advancing to hosting selector")
         state.advance()
     }
 

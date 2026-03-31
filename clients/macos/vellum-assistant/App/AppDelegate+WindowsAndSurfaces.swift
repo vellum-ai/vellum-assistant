@@ -340,6 +340,7 @@ extension AppDelegate {
         OnboardingState.clearPersistedState()
 
         let onboarding = OnboardingWindow(connectionManager: connectionManager, authManager: authManager)
+        onboarding.state.isRehatch = true
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
