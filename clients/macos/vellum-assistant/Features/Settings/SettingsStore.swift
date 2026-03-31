@@ -609,6 +609,8 @@ public final class SettingsStore: ObservableObject {
                 // Reset stale maintenance state immediately before async refresh
                 self.managedAssistantMaintenanceMode = nil
                 self.maintenanceModeRefreshError = nil
+                self.maintenanceModeEnterError = nil
+                self.maintenanceModeExitError = nil
                 Task { @MainActor [weak self] in
                     await self?.refreshManagedAssistantMaintenanceMode()
                 }
@@ -624,6 +626,8 @@ public final class SettingsStore: ObservableObject {
                 guard let self else { return }
                 self.managedAssistantMaintenanceMode = nil
                 self.maintenanceModeRefreshError = nil
+                self.maintenanceModeEnterError = nil
+                self.maintenanceModeExitError = nil
                 Task { @MainActor [weak self] in
                     await self?.refreshManagedAssistantMaintenanceMode()
                 }
