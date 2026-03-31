@@ -99,7 +99,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var bundleConfirmationWindow: BundleConfirmationWindow?
 
     var pairingApprovalWindow: PairingApprovalWindow?
-    var acpPermissionWindow: AcpPermissionWindow?
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
     /// Background task that retries actor-token bootstrap until success.
