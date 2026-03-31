@@ -368,6 +368,14 @@
       "label": "Fast Mode",
       "description": "Enable Anthropic fast mode for Opus 4.6, delivering up to 2.5x higher output tokens per second at premium pricing",
       "defaultEnabled": false
+    },
+    {
+      "id": "teleport",
+      "scope": "macos",
+      "key": "teleport",
+      "label": "Teleport",
+      "description": "Enable teleport UI in General settings for moving assistants between hosting environments",
+      "defaultEnabled": false
     }
   ]
 }
