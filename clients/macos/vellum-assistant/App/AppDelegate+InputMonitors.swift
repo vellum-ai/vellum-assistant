@@ -78,6 +78,12 @@ extension UserDefaults {
         }
         return string(forKey: "popOutShortcut") ?? ""
     }
+    @objc dynamic var connectedAssistantId: String? {
+        return string(forKey: "connectedAssistantId")
+    }
+    @objc dynamic var connectedOrganizationId: String? {
+        return string(forKey: "connectedOrganizationId")
+    }
 }
 
 // MARK: - Input Monitors
