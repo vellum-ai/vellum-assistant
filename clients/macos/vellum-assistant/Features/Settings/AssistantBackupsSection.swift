@@ -363,7 +363,7 @@ extension AssistantBackupsSection {
 
         do {
             let fileData = try Data(contentsOf: fileURL)
-            let response = try await GatewayHTTPClient.post(path: "migrations/import", body: fileData, timeout: 120)
+            let response = try await GatewayHTTPClient.post(path: "migrations/import", body: fileData, contentType: "application/octet-stream", timeout: 120)
 
             if response.isSuccess {
                 if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
