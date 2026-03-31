@@ -88,6 +88,9 @@ beforeEach(() => {
   initAuthSigningKey(TEST_KEY);
   // Reset the external assistant ID cache so tests don't leak state
   resetExternalAssistantIdCache();
+  // Reset env vars that bootstrap tests mutate so no test leaks state.
+  delete process.env.IS_CONTAINERIZED;
+  delete process.env.VELLUM_CLOUD;
   // Clear DB state between tests.
   resetDb();
   initializeDb();
