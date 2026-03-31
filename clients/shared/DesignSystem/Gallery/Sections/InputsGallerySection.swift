@@ -218,7 +218,7 @@ struct InputsGallerySection: View {
                                 VTextField(
                                     "Label",
                                     placeholder: "Small size...",
-                                    text: $smallTextFieldValue,
+                                    text: $smallTextFieldValue
                                 )
                             }
                         }
@@ -240,7 +240,7 @@ struct InputsGallerySection: View {
                                     placeholder: "Search...",
                                     text: $smallTextFieldValue,
                                     leadingIcon: VIcon.search.rawValue,
-                                    trailingIcon: VIcon.circleX.rawValue,
+                                    trailingIcon: VIcon.circleX.rawValue
                                 )
                             }
                         }

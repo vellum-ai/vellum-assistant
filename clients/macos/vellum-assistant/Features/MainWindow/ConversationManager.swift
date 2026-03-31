@@ -1921,7 +1921,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s
                 guard !Task.isCancelled, let self else { return }
                 guard let vm = self.chatViewModels[localId],
-                      !vm.isAssistantBusy else { continue }
+                      !vm.isAssistantBusy,
+                      !vm.isLoadingMoreMessages,
+                      !vm.isLoadingHistory else { continue }
                 vm.prepareForNotificationCatchUp()
                 self.conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
             }

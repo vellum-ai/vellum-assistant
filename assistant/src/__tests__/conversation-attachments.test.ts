@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -48,13 +48,9 @@ mock.module("../permissions/types.js", () => ({
 import type { AssistantAttachmentDraft } from "../daemon/assistant-attachments.js";
 import { getFilePathForAttachment } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 function resetTables() {
   const db = getDb();

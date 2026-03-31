@@ -8,7 +8,7 @@
  * 4. Missing guardian binding causes a skip
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -76,7 +76,7 @@ import {
   generateCanonicalRequestCode,
   listCanonicalGuardianDeliveries,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 
 initializeDb();
@@ -86,10 +86,6 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

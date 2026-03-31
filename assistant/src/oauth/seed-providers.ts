@@ -5,7 +5,7 @@ import { seedProviders } from "./oauth-store.js";
  *
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
+ * tokenEndpointAuthMethod, userinfoUrl, extraParams,
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
@@ -36,7 +36,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: string[];
     };
     extraParams?: Record<string, string>;
-    callbackTransport?: string;
     managedServiceConfigKey?: string;
     displayName: string;
     description: string;
@@ -91,7 +90,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { access_type: "offline", prompt: "consent" },
-    callbackTransport: "loopback",
     managedServiceConfigKey: "google-oauth",
     injectionTemplates: [
       {
@@ -152,7 +150,6 @@ const PROVIDER_SEED_DATA: Record<
       user_scope:
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
-    callbackTransport: "loopback",
     loopbackPort: 17322,
     injectionTemplates: [
       {
@@ -188,7 +185,6 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "loopback",
     loopbackPort: 17323,
     injectionTemplates: [
       {
@@ -226,7 +222,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "gateway",
+    loopbackPort: 17335,
     injectionTemplates: [
       {
         hostPattern: "api.x.com",
@@ -262,7 +258,6 @@ const PROVIDER_SEED_DATA: Record<
       ],
       forbiddenScopes: ["delete_repo", "admin:org"],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17332,
     injectionTemplates: [
       {
@@ -298,7 +293,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { prompt: "consent" },
-    callbackTransport: "loopback",
     loopbackPort: 17324,
     injectionTemplates: [
       {
@@ -343,7 +337,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "loopback",
     loopbackPort: 17333,
     injectionTemplates: [
       {
@@ -374,7 +367,6 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: ["data:delete"],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17325,
     injectionTemplates: [
       {
@@ -413,7 +405,6 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: ["bot"],
       forbiddenScopes: [],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17326,
     injectionTemplates: [
       {
@@ -451,7 +442,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { token_access_type: "offline" },
-    callbackTransport: "loopback",
     loopbackPort: 17327,
     injectionTemplates: [
       {
@@ -489,7 +479,6 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17328,
     injectionTemplates: [
       {
@@ -525,7 +514,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "loopback",
     loopbackPort: 17329,
     injectionTemplates: [
       {
@@ -565,7 +553,6 @@ const PROVIDER_SEED_DATA: Record<
       ],
       forbiddenScopes: [],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17330,
     injectionTemplates: [
       {
@@ -597,7 +584,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "loopback",
     loopbackPort: 17331,
     injectionTemplates: [
       {
@@ -629,10 +615,11 @@ const PROVIDER_SEED_DATA: Record<
       "email",
       "offline_access",
       "User.Read",
-      "Mail.Read",
+      "Mail.ReadWrite",
       "Mail.Send",
       "Calendars.Read",
       "Calendars.ReadWrite",
+      "MailboxSettings.ReadWrite",
     ],
     scopePolicy: {
       allowAdditionalScopes: true,
@@ -641,7 +628,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { prompt: "consent" },
     tokenEndpointAuthMethod: "client_secret_post",
-    callbackTransport: "gateway",
+    loopbackPort: 17334,
     managedServiceConfigKey: "outlook-oauth",
     injectionTemplates: [
       {

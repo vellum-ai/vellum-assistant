@@ -1,13 +1,16 @@
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   setPlatformAssistantId,
   setPlatformBaseUrl,
   setPlatformOrganizationId,
   setPlatformUserId,
 } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { setSentryOrganizationId, setSentryUserId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
+import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";
 import { slackProvider as slackMessagingProvider } from "../messaging/providers/slack/adapter.js";
 import { telegramBotMessagingProvider } from "../messaging/providers/telegram-bot/adapter.js";
 import { whatsappMessagingProvider } from "../messaging/providers/whatsapp/adapter.js";
@@ -24,6 +27,7 @@ import { githubProvider } from "../watcher/providers/github.js";
 import { gmailProvider } from "../watcher/providers/gmail.js";
 import { googleCalendarProvider } from "../watcher/providers/google-calendar.js";
 import { linearProvider } from "../watcher/providers/linear.js";
+import { outlookProvider } from "../watcher/providers/outlook.js";
 const log = getLogger("lifecycle");
 
 export async function initializeProvidersAndTools(
@@ -134,12 +138,19 @@ export function registerWatcherProviders(): void {
   registerWatcherProvider(googleCalendarProvider);
   registerWatcherProvider(githubProvider);
   registerWatcherProvider(linearProvider);
+
+  const config = getConfig();
+  if (isAssistantFeatureFlagEnabled("outlook-oauth-integration", config)) {
+    registerWatcherProvider(outlookProvider);
+  }
+
   initWatcherEngine();
 }
 
 export function registerMessagingProviders(): void {
   registerMessagingProvider(slackMessagingProvider);
   registerMessagingProvider(gmailMessagingProvider);
+  registerMessagingProvider(outlookMessagingProvider);
   registerMessagingProvider(telegramBotMessagingProvider);
   registerMessagingProvider(whatsappMessagingProvider);
 }

@@ -82,10 +82,15 @@ struct SettingsGeneralTab: View {
         .onAppear {
             Task { await authManager.checkSession() }
             store.refreshApprovedDevices()
-            lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+            Task {
+                // Load lockfile on a background thread — the underlying
+                // Data(contentsOf:) file I/O can block the main thread.
+                let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
+                lockfileAssistants = assistants
+            }
             Task { await fetchHealthz() }
         }
         .onReceive(updateInProgressPublisher) { inProgress in

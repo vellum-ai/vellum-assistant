@@ -339,6 +339,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Self.shared = self
 
+        // Kick off the PTT activator UserDefaults read on a background
+        // thread as early as possible so it completes before proceedToApp()
+        // sets up voice input monitors.
+        PTTActivator.warmCache()
+
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
         _ = ChatDiagnosticsStore.shared
@@ -474,9 +479,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         installFileMenuDelegate()
         setupHotKey()
 
-        // Install CLI symlinks early so they are available before the daemon
-        // starts, regardless of auth or onboarding state.
-        installCLISymlinkIfNeeded()
+        // Install CLI symlinks in the background. installSymlink() spawns
+        // /usr/bin/which via Process.waitUntilExit() which internally blocks
+        // on a DispatchSemaphore — running it on the main thread causes a
+        // ~2s app hang (LUM-630). The symlinks are best-effort and don't
+        // need to complete before the daemon starts.
+        let isDevMode = DevModeManager.shared.isDevMode
+        Task.detached(priority: .utility) {
+            Self.installCLISymlinkIfNeeded(isDevMode: isDevMode)
+        }
 
         let hasAssistants = lockfileHasAssistants()
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
@@ -725,7 +736,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()
-        vellumCli.stop()
+        // Blocking is intentional here — the process exits immediately after
+        // this callback returns, so we must wait synchronously for the CLI to
+        // finish stopping the daemon/gateway.  stop() is nonisolated so
+        // Task.detached avoids a deadlock with the main-thread semaphore.
+        let cli = vellumCli
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            await cli.stop()
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 16)
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)

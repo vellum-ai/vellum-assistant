@@ -5,7 +5,7 @@
  * POST /v1/calls/:id/cancel, and POST /v1/calls/:id/answer
  * through RuntimeHttpServer.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -105,7 +105,7 @@ import {
   createPendingQuestion,
   updateCallSession,
 } from "../calls/call-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
@@ -160,10 +160,6 @@ describe("runtime call routes — HTTP layer", () => {
 
   beforeEach(() => {
     resetTables();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   async function startServer(): Promise<void> {

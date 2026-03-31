@@ -3,7 +3,7 @@
  * job also deletes the schedule, preventing orphaned scheduled automations.
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -23,15 +23,11 @@ import {
   createConversation,
   getConversation,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
 import { createSchedule, getSchedule } from "../schedule/schedule-store.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

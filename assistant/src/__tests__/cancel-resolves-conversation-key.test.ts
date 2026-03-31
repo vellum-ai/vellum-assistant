@@ -6,7 +6,7 @@
  * from the daemon's internal ID), fails to find the conversation, and
  * silently ignores the cancel — leaving the stream running.
  */
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -43,14 +43,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb, resetDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db.js";
 import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("POST /v1/conversations/:id/cancel", () => {
   test("resolves conversation key to internal ID before cancelling", () => {

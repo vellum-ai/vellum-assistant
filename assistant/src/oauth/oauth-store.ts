@@ -44,7 +44,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
+ * tokenEndpointAuthMethod, userinfoUrl, extraParams,
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
@@ -72,7 +72,6 @@ export function seedProviders(
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
     extraParams?: Record<string, string>;
-    callbackTransport?: string;
     managedServiceConfigKey?: string;
     displayName?: string;
     description?: string;
@@ -114,7 +113,6 @@ export function seedProviders(
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
     const extraParams = p.extraParams ? JSON.stringify(p.extraParams) : null;
-    const callbackTransport = p.callbackTransport ?? null;
     const managedServiceConfigKey = p.managedServiceConfigKey ?? null;
     const displayName = p.displayName ?? null;
     const description = p.description ?? null;
@@ -152,7 +150,6 @@ export function seedProviders(
         defaultScopes,
         scopePolicy,
         extraParams,
-        callbackTransport,
         pingUrl,
         pingMethod,
         pingHeaders,
@@ -187,7 +184,6 @@ export function seedProviders(
           userinfoUrl,
           baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
           extraParams,
-          callbackTransport,
           pingUrl,
           pingMethod,
           pingHeaders,
@@ -251,7 +247,6 @@ export function registerProvider(params: {
   defaultScopes: string[];
   scopePolicy: Record<string, unknown>;
   extraParams?: Record<string, string>;
-  callbackTransport?: string;
   managedServiceConfigKey?: string;
   displayName?: string;
   description?: string;
@@ -294,7 +289,6 @@ export function registerProvider(params: {
     defaultScopes: JSON.stringify(params.defaultScopes),
     scopePolicy: JSON.stringify(params.scopePolicy),
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
-    callbackTransport: params.callbackTransport ?? null,
     pingUrl: params.pingUrl ?? null,
     pingMethod: params.pingMethod ?? null,
     pingHeaders: params.pingHeaders ? JSON.stringify(params.pingHeaders) : null,
@@ -360,7 +354,6 @@ export function updateProvider(
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
     extraParams: Record<string, string>;
-    callbackTransport: string;
     displayName: string;
     description: string;
     dashboardUrl: string;
@@ -409,8 +402,6 @@ export function updateProvider(
     set.scopePolicy = JSON.stringify(params.scopePolicy);
   if (params.extraParams !== undefined)
     set.extraParams = JSON.stringify(params.extraParams);
-  if (params.callbackTransport !== undefined)
-    set.callbackTransport = params.callbackTransport;
   if (params.displayName !== undefined) set.displayName = params.displayName;
   if (params.description !== undefined) set.description = params.description;
   if (params.dashboardUrl !== undefined) set.dashboardUrl = params.dashboardUrl;

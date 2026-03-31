@@ -10,6 +10,7 @@ import {
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import { log } from "../logger.js";
+import { requirePlatformConnection } from "./oauth/shared.js";
 
 /**
  * Flatten a nested config object into dotted key paths.
@@ -33,6 +34,9 @@ function flattenConfig(
   }
   return result;
 }
+
+/** Matches config paths like `services.inference.mode`, `services.image-generation.mode`, etc. */
+const SERVICE_MODE_PATH_RE = /^services\.[^.]+\.mode$/;
 
 export function registerConfigCommand(program: Command): void {
   const config = program.command("config").description("Manage configuration");
@@ -80,19 +84,28 @@ Examples:
   $ assistant config set services.inference.provider anthropic
   $ assistant config set calls.enabled true`,
     )
-    .action((key: string, value: string) => {
-      const raw = loadRawConfig();
-      // Try to parse as JSON for booleans/numbers, fall back to string
-      let parsed: unknown = value;
-      try {
-        parsed = JSON.parse(value);
-      } catch {
-        // keep as string
-      }
-      setNestedValue(raw, key, parsed);
-      saveRawConfig(raw);
-      log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
-    });
+    .action(
+      async (key: string, value: string, _opts: unknown, cmd: Command) => {
+        // Try to parse as JSON for booleans/numbers, fall back to string
+        let parsed: unknown = value;
+        try {
+          parsed = JSON.parse(value);
+        } catch {
+          // keep as string
+        }
+
+        // Require platform connection when setting a service mode to "managed"
+        if (SERVICE_MODE_PATH_RE.test(key) && parsed === "managed") {
+          const connected = await requirePlatformConnection(cmd);
+          if (!connected) return;
+        }
+
+        const raw = loadRawConfig();
+        setNestedValue(raw, key, parsed);
+        saveRawConfig(raw);
+        log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
+      },
+    );
 
   config
     .command("get <key>")

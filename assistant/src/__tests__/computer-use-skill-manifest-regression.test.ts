@@ -52,9 +52,19 @@ describe("computer-use skill manifest regression", () => {
     }
   });
 
-  test("all manifest tools have risk: low", () => {
+  test("read-only tools have risk: low, side-effect tools have risk: medium", () => {
+    const readOnlyTools = new Set([
+      "computer_use_observe",
+      "computer_use_wait",
+      "computer_use_done",
+      "computer_use_respond",
+    ]);
     for (const tool of manifest.tools) {
-      expect(tool.risk).toBe("low");
+      if (readOnlyTools.has(tool.name)) {
+        expect(tool.risk).toBe("low");
+      } else {
+        expect(tool.risk).toBe("medium");
+      }
     }
   });
 

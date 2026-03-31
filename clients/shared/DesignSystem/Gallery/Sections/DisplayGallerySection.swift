@@ -292,6 +292,34 @@ struct DisplayGallerySection: View {
 
             }
 
+            if filter == nil || filter == "vSelectableTextView" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VSelectableTextView
+                #if os(macOS)
+                GallerySectionHeader(
+                    title: "VSelectableTextView",
+                    description: "Read-only selectable text wrapping NSTextView for native text selection and copy in lazy containers."
+                )
+
+                VCard {
+                    VSelectableTextView(
+                        attributedString: NSAttributedString(
+                            string: "This text is selectable. Try clicking and dragging to select, then Cmd+C to copy.",
+                            attributes: [
+                                .font: VFont.nsChat,
+                                .foregroundColor: NSColor(VColor.contentDefault),
+                            ]
+                        ),
+                        lineSpacing: 4
+                    )
+                    .padding(VSpacing.sm)
+                }
+                #endif
+
+            }
+
             if filter == nil || filter == "vDiffView" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -408,6 +436,7 @@ extension DisplayGallerySection {
         case "vListRow": DisplayGallerySection(filter: "vListRow")
         case "vAvatarImage": DisplayGallerySection(filter: "vAvatarImage")
         case "vCodeView": DisplayGallerySection(filter: "vCodeView")
+        case "vSelectableTextView": DisplayGallerySection(filter: "vSelectableTextView")
         case "vDiffView": DisplayGallerySection(filter: "vDiffView")
         case "vStreamingWaveform": DisplayGallerySection(filter: "vStreamingWaveform")
         default:

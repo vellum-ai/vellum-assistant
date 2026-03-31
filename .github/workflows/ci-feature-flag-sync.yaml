@@ -1,0 +1,34 @@
+name: Feature Flag Sync Check
+
+on:
+  pull_request:
+    types: [labeled, synchronize, opened, reopened]
+    paths:
+      - 'meta/feature-flags/feature-flag-registry.json'
+  push:
+    branches: [main]
+    paths:
+      - 'meta/feature-flags/feature-flag-registry.json'
+
+concurrency:
+  group: feature-flag-sync-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  feature-flag-sync-check:
+    name: Feature Flag Sync Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Check registry flags exist on the platform
+        run: bun run meta/feature-flags/check-platform-sync.ts
+        env:
+          PLATFORM_API_URL: ${{ secrets.PLATFORM_API_URL }}

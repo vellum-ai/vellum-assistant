@@ -92,12 +92,6 @@ public final class SettingsStore: ObservableObject {
     @Published var mediaEmbedVideoAllowlistDomains: [String]
     @Published var userTimezone: String?
 
-    // MARK: - Permissions Settings
-
-    @Published var dangerouslySkipPermissions: Bool
-    /// Monotonic counter to ignore stale rollback responses from rapid toggles.
-    private var skipPermissionsToggleGeneration: UInt = 0
-
     // MARK: - Telegram Integration State
 
     @Published var telegramHasBotToken: Bool = false
@@ -283,10 +277,9 @@ public final class SettingsStore: ObservableObject {
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
     /// Read-only gateway target derived from daemon config.
-    /// Initial value reads env var > lockfile runtimeUrl > default 7830; updated by HTTP.
-    @Published var localGatewayTarget: String = LockfilePaths.resolveGatewayUrl(
-        connectedAssistantId: UserDefaults.standard.string(forKey: "connectedAssistantId")
-    )
+    /// Seeded with the default port; resolved asynchronously from the lockfile
+    /// so that file I/O does not block the main thread during init.
+    @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
 
     /// Set to `true` once the first ingress config response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
@@ -335,18 +328,9 @@ public final class SettingsStore: ObservableObject {
     /// Whether the connected assistant is remote (not running locally).
     /// When true, local workspace config writes are skipped to avoid creating
     /// a `.vellum/` directory that doesn't belong to any local assistant.
-    private var isCurrentAssistantRemote: Bool {
-        UserDefaults.standard.string(forKey: "connectedAssistantId")
-            .flatMap { LockfileAssistant.loadByName($0) }?.isRemote ?? false
-    }
-
-    /// Whether the connected assistant runs in Docker on the local machine.
-    /// Docker assistants are "remote" for filesystem purposes (workspace is on
-    /// a Docker volume) but support config changes via the HTTP API.
-    private var isCurrentAssistantDocker: Bool {
-        UserDefaults.standard.string(forKey: "connectedAssistantId")
-            .flatMap { LockfileAssistant.loadByName($0) }?.isDocker ?? false
-    }
+    /// Cached to avoid synchronous lockfile I/O on every access; refreshed
+    /// asynchronously during init and when the connected assistant changes.
+    private var isCurrentAssistantRemote: Bool = false
 
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
@@ -367,6 +351,26 @@ public final class SettingsStore: ObservableObject {
     private let verificationSessionTimeoutDuration: TimeInterval
     private let verificationStatusPollInterval: TimeInterval
     private let verificationStatusPollWindow: TimeInterval
+
+    /// DispatchSource monitoring workspace config.json for external changes.
+    private var configFileMonitor: DispatchSourceFileSystemObject?
+    /// DispatchSource monitoring the workspace directory when config.json doesn't exist yet.
+    private var configDirMonitor: DispatchSourceFileSystemObject?
+    /// Debounce work item for config file change handling.
+    private var configRefreshWorkItem: DispatchWorkItem?
+
+    private var workspaceConfigURL: URL {
+        let base: String
+        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+           let assistant = LockfileAssistant.loadByName(assistantId),
+           let workspace = assistant.workspaceDir {
+            base = workspace
+        } else {
+            base = NSHomeDirectory() + "/.vellum/workspace"
+        }
+        return URL(fileURLWithPath: base).appendingPathComponent("config.json")
+    }
+
     private static func reflectedString(_ value: Any, key: String) -> String? {
         for child in Mirror(reflecting: value).children {
             guard child.label == key else { continue }
@@ -465,9 +469,6 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
         self.userTimezone = Self.loadUserTimezone(config: emptyConfig)
 
-        // Permissions default to false until daemon provides config
-        self.dangerouslySkipPermissions = false
-
         // Service modes use defaults until daemon provides config
         loadServiceModes(config: emptyConfig)
 
@@ -486,6 +487,14 @@ public final class SettingsStore: ObservableObject {
         Task { @MainActor [weak self] in
             self?.refreshAPIKeyState()
         }
+
+        // Resolve lockfile-derived state (gateway URL, assistant topology)
+        // on a background thread so that synchronous Data(contentsOf:)
+        // file I/O does not block the main thread during init.
+        // Uses the shared refreshLockfileState() path so the startup read
+        // is tracked in lockfileRefreshTask and can be cancelled if an
+        // assistant switch arrives before it completes.
+        refreshLockfileState()
 
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
         // dropFirst must come before debounce: it consumes the synchronous initial emission so that
@@ -551,6 +560,14 @@ public final class SettingsStore: ObservableObject {
         $popOutShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "popOutShortcut") }
+            .store(in: &cancellables)
+
+        // Re-resolve lockfile-derived state whenever the connected assistant changes
+        // so that isCurrentAssistantRemote and localGatewayTarget stay in sync.
+        UserDefaults.standard.publisher(for: \.connectedAssistantId)
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshLockfileState() }
             .store(in: &cancellables)
 
         // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons
@@ -663,6 +680,51 @@ public final class SettingsStore: ObservableObject {
             await self?.refreshManagedAssistantMaintenanceMode()
         }
 
+        // Watch workspace config.json for external mutations (e.g. model
+        // change via chat) so the Settings UI stays in sync.
+        watchConfigFile()
+
+    }
+
+    // MARK: - Lockfile State
+
+    private struct LockfileState {
+        let gatewayUrl: String
+        let isRemote: Bool
+    }
+
+    /// Reads lockfile-derived state off the main thread. The result is applied
+    /// to @Published properties on the main actor via `applyLockfileState`.
+    private nonisolated static func loadLockfileState() -> LockfileState {
+        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let gatewayUrl = LockfilePaths.resolveGatewayUrl(connectedAssistantId: assistantId)
+        let assistant = assistantId.flatMap { LockfileAssistant.loadByName($0) }
+        return LockfileState(
+            gatewayUrl: gatewayUrl,
+            isRemote: assistant?.isRemote ?? false
+        )
+    }
+
+    private func applyLockfileState(_ state: LockfileState) {
+        localGatewayTarget = state.gatewayUrl
+        isCurrentAssistantRemote = state.isRemote
+    }
+
+    /// In-flight lockfile refresh task. Cancelled when a new refresh is
+    /// requested so that stale reads from a prior assistant switch cannot
+    /// overwrite the latest state.
+    private var lockfileRefreshTask: Task<Void, Never>?
+
+    /// Refreshes cached lockfile-derived state on a background thread.
+    /// Cancels any in-flight refresh to prevent stale overwrites when
+    /// assistant switches happen in quick succession.
+    private func refreshLockfileState() {
+        lockfileRefreshTask?.cancel()
+        lockfileRefreshTask = Task { [weak self] in
+            let result = await Task.detached { Self.loadLockfileState() }.value
+            guard !Task.isCancelled else { return }
+            self?.applyLockfileState(result)
+        }
     }
 
     // MARK: - API Key Actions
@@ -1058,17 +1120,6 @@ public final class SettingsStore: ObservableObject {
                 self.embeddingEnabled = status.enabled
                 self.embeddingDegraded = status.degraded
             }
-        }
-    }
-
-    /// Fetches the current dangerouslySkipPermissions state from the daemon
-    /// over HTTP. Only meaningful for Docker assistants where the config lives
-    /// inside the container and cannot be read from the host filesystem.
-    func refreshDangerouslySkipPermissions() {
-        guard isCurrentAssistantDocker else { return }
-        Task { @MainActor in
-            guard let enabled = await settingsClient.fetchDangerouslySkipPermissions() else { return }
-            self.dangerouslySkipPermissions = enabled
         }
     }
 
@@ -2989,18 +3040,12 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func handleIngressConfigResponse(_ response: IngressConfigResponseMessage) {
-        // For remote assistants, prefer the lockfile's runtimeUrl because the
-        // daemon reports its own loopback address which is not reachable from
-        // the client. For local assistants, use the daemon's authoritative value
-        // since it reflects the daemon's actual runtime environment.
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
-            ?? LockfileAssistant.loadLatest()
-        if let assistant, assistant.isRemote {
-            self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
-                connectedAssistantId: assistant.assistantId
-            )
-        } else {
+        // For remote assistants, keep the cached localGatewayTarget (set by
+        // applyLockfileState) because the daemon reports its own loopback
+        // address which is not reachable from the client. For local assistants,
+        // use the daemon's authoritative value since it reflects the daemon's
+        // actual runtime environment.
+        if !isCurrentAssistantRemote {
             self.localGatewayTarget = response.localGatewayTarget
         }
         if response.success {
@@ -3207,19 +3252,6 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func setDangerouslySkipPermissions(_ enabled: Bool) {
-        skipPermissionsToggleGeneration &+= 1
-        let requestGeneration = skipPermissionsToggleGeneration
-        dangerouslySkipPermissions = enabled
-        Task { @MainActor in
-            let success = await settingsClient.setDangerouslySkipPermissions(enabled)
-            if !success, self.skipPermissionsToggleGeneration == requestGeneration {
-                // Revert optimistic toggle on failure only if no newer toggle has fired
-                self.dangerouslySkipPermissions = !enabled
-            }
-        }
-    }
-
     /// Replaces the video-embed domain allowlist, normalizing the input and
     /// persisting the result to the workspace config.
     func setMediaEmbedVideoAllowlistDomains(_ domains: [String]) {
@@ -3355,9 +3387,6 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
         self.userTimezone = Self.loadUserTimezone(config: config)
 
-        let permissionsConfig = config["permissions"] as? [String: Any]
-        self.dangerouslySkipPermissions = (permissionsConfig?["dangerouslySkipPermissions"] as? Bool) ?? false
-
         if let services = config["services"] as? [String: Any],
            let webSearch = services["web-search"] as? [String: Any],
            let provider = webSearch["provider"] as? String {
@@ -3383,6 +3412,138 @@ public final class SettingsStore: ObservableObject {
             return nil
         }
         return canonicalizeTimeZoneIdentifier(trimmed)
+    }
+
+    // MARK: - Config File Watcher
+
+    /// Watch workspace config.json for external changes (e.g. model set via chat).
+    /// Follows the same `DispatchSource` pattern as `SoundManager.watchConfigFile()`
+    /// and `AvatarAppearanceManager.watchAvatarFile()`.
+    private func watchConfigFile() {
+        configFileMonitor?.cancel()
+        configFileMonitor = nil
+        configDirMonitor?.cancel()
+        configDirMonitor = nil
+
+        let path = workspaceConfigURL.path
+        let fd = open(path, O_EVTONLY)
+
+        if fd < 0 {
+            // File doesn't exist yet — watch the parent directory instead.
+            watchConfigDirectory()
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: .global(qos: .utility)
+        )
+
+        source.setEventHandler { [weak self] in
+            let flags = source.data
+            Task { @MainActor [weak self] in
+                self?.handleConfigFileChange()
+                if flags.contains(.delete) || flags.contains(.rename) {
+                    // File was deleted or renamed (atomic write) — re-establish
+                    // the watcher (may fall back to directory watching if file is gone).
+                    self?.watchConfigFile()
+                }
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        configFileMonitor = source
+        source.resume()
+    }
+
+    /// Watch the workspace directory for file creation when config.json doesn't
+    /// exist yet. Switches to file-level watching once config.json appears.
+    private func watchConfigDirectory() {
+        configDirMonitor?.cancel()
+        configDirMonitor = nil
+
+        let dirPath = (workspaceConfigURL.path as NSString).deletingLastPathComponent
+        let fd = open(dirPath, O_EVTONLY)
+        guard fd >= 0 else {
+            // Directory doesn't exist either — create it and retry.
+            let dirURL = workspaceConfigURL.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+            let retryFd = open(dirURL.path, O_EVTONLY)
+            guard retryFd >= 0 else { return }
+
+            let retrySource = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: retryFd,
+                eventMask: .write,
+                queue: .global(qos: .utility)
+            )
+
+            retrySource.setEventHandler { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if FileManager.default.fileExists(atPath: self.workspaceConfigURL.path) {
+                        self.handleConfigFileChange()
+                        self.watchConfigFile()
+                    }
+                }
+            }
+
+            retrySource.setCancelHandler {
+                close(retryFd)
+            }
+
+            configDirMonitor = retrySource
+            retrySource.resume()
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: .write,
+            queue: .global(qos: .utility)
+        )
+
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if FileManager.default.fileExists(atPath: self.workspaceConfigURL.path) {
+                    self.handleConfigFileChange()
+                    self.watchConfigFile()
+                }
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        configDirMonitor = source
+        source.resume()
+    }
+
+    /// Debounced handler for config file changes. Refreshes model info and
+    /// daemon config after a 300ms quiet period to avoid rapid re-fetches
+    /// when multiple writes happen in quick succession.
+    private func handleConfigFileChange() {
+        configRefreshWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refreshModelInfo()
+                await self.loadConfigFromDaemon()
+            }
+        }
+        configRefreshWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    deinit {
+        configFileMonitor?.cancel()
+        configDirMonitor?.cancel()
+        configRefreshWorkItem?.cancel()
     }
 }
 

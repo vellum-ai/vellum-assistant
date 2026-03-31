@@ -64,7 +64,7 @@ public struct VContextWindowIndicator: View {
                 .popover(isPresented: $isHovered, arrowEdge: .top) {
                     popoverContent
                 }
-                .accessibilityLabel("Context window \(Int((fillRatio ?? 0) * 100)) percent used")
+                .accessibilityLabel("Context window \(Int((clampedRatio ?? 0) * 100)) percent used")
         }
     }
 

@@ -79,7 +79,6 @@ struct ComposerView: View {
     @State var slashFilter = ""
     @State var slashSelectedIndex = 0
     @State var suppressSlashReopen = false
-    @State private var avatarSeed: String = "default"
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
@@ -135,10 +134,6 @@ struct ComposerView: View {
         .frame(maxWidth: .infinity)
         .disabled(!isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
-        .onAppear {
-            let identity = IdentityInfo.load()
-            avatarSeed = identity?.name ?? "default"
-        }
         .task {
             // Delay focus slightly so the NSTextView is fully installed
             // in the view hierarchy before requesting first-responder
@@ -628,7 +623,7 @@ VStreamingWaveform(
 
     /// Tooltip text for the mic button. Includes the PTT hold hint only when PTT is enabled.
     private var micTooltipText: String {
-        let activator = PTTActivator.fromStored()
+        let activator = PTTActivator.cached
         if activator.kind == .none {
             return "Click to dictate"
         }

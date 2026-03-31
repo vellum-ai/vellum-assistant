@@ -13,7 +13,7 @@ import {
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — must come before any imports that depend on them
@@ -59,13 +59,9 @@ import {
   getConversationDirPath,
   syncMessageToDisk,
 } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 function resetTables() {
   const db = getDb();

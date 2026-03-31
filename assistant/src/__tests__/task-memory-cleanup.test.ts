@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -47,7 +39,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import {
   conversations,
@@ -85,10 +77,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     db.run("DELETE FROM task_runs");
     db.run("DELETE FROM tasks");
     db.run("DELETE FROM conversations");
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   function seedConversations() {

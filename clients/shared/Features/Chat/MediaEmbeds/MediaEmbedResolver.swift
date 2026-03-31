@@ -7,7 +7,7 @@ public enum MediaEmbedIntent: Equatable {
 }
 
 /// Snapshot of user-facing settings that gate media embed resolution.
-public struct MediaEmbedResolverSettings {
+public struct MediaEmbedResolverSettings: Equatable {
     public let enabled: Bool
     public let enabledSince: Date?
     public let allowedDomains: [String]

@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -13,7 +13,7 @@ import {
   getConversationByKey,
   setConversationKey,
 } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   clearPayload,
   findMessageBySourceId,
@@ -39,10 +39,6 @@ import {
 import { handleDeleteConversation } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 function resetTables() {
   const db = getDb();
