@@ -619,6 +619,7 @@ const PROVIDER_SEED_DATA: Record<
       "Mail.Send",
       "Calendars.Read",
       "Calendars.ReadWrite",
+      "MailboxSettings.ReadWrite",
     ],
     scopePolicy: {
       allowAdditionalScopes: true,
