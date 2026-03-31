@@ -680,12 +680,19 @@ struct SettingsDeveloperTab: View {
         isSwitching = true
         let targetName = displayLabel(for: assistant)
         AppDelegate.shared?.performSwitchAssistant(to: assistant)
-        // performSwitchAssistant is synchronous (validation runs in a background Task),
-        // so we show the loading state briefly and then report success.
+        // performSwitchAssistant kicks off validation in a background Task.
+        // Wait briefly, then verify the switch actually stuck by checking
+        // the persisted connectedAssistantId — managed switches can trigger
+        // auth flows and post-switch readiness checks may roll back.
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             isSwitching = false
-            showSwitchStatus("Switched to \(targetName)", isError: false)
+            let currentId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            if currentId == assistant.assistantId {
+                showSwitchStatus("Switched to \(targetName)", isError: false)
+            } else {
+                showSwitchStatus("Switch to \(targetName) did not complete", isError: true)
+            }
         }
     }
 
