@@ -61,6 +61,8 @@ struct AssistantUpgradeSection: View {
     @State private var backwardReleasesEnabled = false
     /// Whether a Sparkle check was triggered as part of the coordinated upgrade flow.
     @State private var sparkleCheckTriggered = false
+    /// Whether the triggered Sparkle check has actually finished resolving.
+    @State private var sparkleCheckCompleted = false
     private let featureFlagClient = FeatureFlagClient()
 
     private var latestRelease: AssistantRelease? {
@@ -370,7 +372,7 @@ struct AssistantUpgradeSection: View {
                     .foregroundStyle(VColor.systemPositiveStrong)
             }
 
-            if sparkleCheckTriggered && successMessage != nil {
+            if sparkleCheckTriggered && sparkleCheckCompleted && successMessage != nil {
                 if updateManager.isUpdateAvailable {
                     VInlineMessage(
                         "An app update is available. Follow the Sparkle dialog to install it, or use Check for Updates in the menu bar.",
@@ -540,6 +542,7 @@ struct AssistantUpgradeSection: View {
                 successMessage! += " Checking for app update…"
                 sparkleCheckTriggered = true
                 AppDelegate.shared?.updateManager.checkForUpdates()
+                sparkleCheckCompleted = true
             }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
@@ -586,6 +589,7 @@ struct AssistantUpgradeSection: View {
                 // restarted. A modal Sparkle dialog would be premature here.
                 Task {
                     _ = await AppDelegate.shared?.updateManager.checkForUpdatesAsync()
+                    sparkleCheckCompleted = true
                 }
             }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
@@ -638,6 +642,7 @@ struct AssistantUpgradeSection: View {
         successMessage = nil
         showFeedbackOption = false
         sparkleCheckTriggered = false
+        sparkleCheckCompleted = false
     }
 
     private func guidanceForError(_ error: VellumCli.CliError) -> String {
