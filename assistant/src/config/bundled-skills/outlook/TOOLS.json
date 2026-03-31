@@ -1,1 +1,63 @@
-[]
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "outlook_sender_digest",
+      "description": "Scan Outlook inbox and group messages by sender to identify high-volume senders (e.g. newsletters). Returns top senders sorted by message count with metadata for bulk cleanup.",
+      "category": "outlook",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Optional search query to narrow results. If omitted, scans all inbox messages from the last 90 days."
+          },
+          "max_senders": {
+            "type": "number",
+            "description": "Maximum senders to return (default 50)"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Microsoft accounts are connected. If omitted, uses the most recently connected account."
+          }
+        }
+      },
+      "executor": "tools/outlook-sender-digest.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "outlook_outreach_scan",
+      "description": "Scan Outlook inbox for senders without List-Unsubscribe headers (potential cold outreach). Returns top senders with message counts and sample subjects. Read-only - use outlook_archive and outlook_mail_rules for cleanup.",
+      "category": "outlook",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "max_senders": {
+            "type": "number",
+            "description": "Maximum senders to return (default 30)"
+          },
+          "time_range": {
+            "type": "string",
+            "description": "Time range filter (default '90d'). Accepts values like '30d', '7d', '90d'."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Microsoft accounts are connected. If omitted, uses the most recently connected account."
+          }
+        }
+      },
+      "executor": "tools/outlook-outreach-scan.ts",
+      "execution_target": "host"
+    }
+  ]
+}
