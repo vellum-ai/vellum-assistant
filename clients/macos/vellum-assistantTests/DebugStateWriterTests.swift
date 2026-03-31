@@ -31,9 +31,9 @@ struct DebugStateWriterTests {
             contentHeight: 5000.0,
             viewportHeight: 800.0,
             isNearBottom: true,
-            hasReceivedScrollEvent: true,
+            hasBeenInteracted: true,
             isPaginationInFlight: false,
-            suppressionReason: "pagination-restore",
+            scrollMode: "pagination-restore",
             anchorMessageId: "msg-anchor-123",
             highlightedMessageId: "msg-highlight-456",
             anchorMinY: 120.5,
@@ -106,9 +106,9 @@ struct DebugStateWriterTests {
         #expect(td["contentHeight"] as? Double == 5000.0)
         #expect(td["viewportHeight"] as? Double == 800.0)
         #expect(td["isNearBottom"] as? Bool == true)
-        #expect(td["hasReceivedScrollEvent"] as? Bool == true)
+        #expect(td["hasBeenInteracted"] as? Bool == true)
         #expect(td["isPaginationInFlight"] as? Bool == false)
-        #expect(td["suppressionReason"] as? String == "pagination-restore")
+        #expect(td["scrollMode"] as? String == "pagination-restore")
         #expect(td["anchorMessageId"] as? String == "msg-anchor-123")
         #expect(td["highlightedMessageId"] as? String == "msg-highlight-456")
         #expect(td["anchorMinY"] as? Double == 120.5)
@@ -154,8 +154,8 @@ struct DebugStateWriterTests {
 
         // Extended fields that were nil should be absent or null.
         let extendedKeys = [
-            "isNearBottom", "hasReceivedScrollEvent", "isPaginationInFlight",
-            "suppressionReason", "anchorMessageId", "highlightedMessageId",
+            "isNearBottom", "hasBeenInteracted", "isPaginationInFlight",
+            "scrollMode", "anchorMessageId", "highlightedMessageId",
             "anchorMinY", "tailAnchorY", "scrollViewportHeight", "containerWidth",
             "lastScrollToReason", "lastLoopWarningTimestamp"
         ]
@@ -238,9 +238,9 @@ struct DebugStateWriterTests {
             contentHeight: 3000.0,
             viewportHeight: 700.0,
             isNearBottom: true,
-            hasReceivedScrollEvent: true,
+            hasBeenInteracted: true,
             isPaginationInFlight: false,
-            suppressionReason: nil,
+            scrollMode: nil,
             anchorMessageId: "msg-1",
             highlightedMessageId: nil,
             anchorMinY: 100.0,
@@ -342,9 +342,9 @@ struct DebugStateWriterTests {
             contentHeight: 3000.0,
             viewportHeight: 750.0,
             isNearBottom: false,
-            hasReceivedScrollEvent: true,
+            hasBeenInteracted: true,
             isPaginationInFlight: true,
-            suppressionReason: "pagination-in-progress",
+            scrollMode: "pagination-in-progress",
             anchorMessageId: "msg-999",
             highlightedMessageId: "msg-888",
             anchorMinY: 50.0,
@@ -366,9 +366,9 @@ struct DebugStateWriterTests {
         #expect(diagnostics.contentHeight == 3000.0)
         #expect(diagnostics.viewportHeight == 750.0)
         #expect(diagnostics.isNearBottom == false)
-        #expect(diagnostics.hasReceivedScrollEvent == true)
+        #expect(diagnostics.hasBeenInteracted == true)
         #expect(diagnostics.isPaginationInFlight == true)
-        #expect(diagnostics.suppressionReason == "pagination-in-progress")
+        #expect(diagnostics.scrollMode == "pagination-in-progress")
         #expect(diagnostics.anchorMessageId == "msg-999")
         #expect(diagnostics.highlightedMessageId == "msg-888")
         #expect(diagnostics.anchorMinY == 50.0)
@@ -403,7 +403,7 @@ struct DebugStateWriterTests {
             contentHeight: nil,
             viewportHeight: nil,
             isNearBottom: true,
-            hasReceivedScrollEvent: false
+            hasBeenInteracted: false
         ))
 
         let transcriptSnapshot = store.snapshot(for: conversationId)!
@@ -529,7 +529,7 @@ struct DebugStateWriterTests {
             contentHeight: nil,
             viewportHeight: safeViewportHeight,
             isNearBottom: true,
-            hasReceivedScrollEvent: true,
+            hasBeenInteracted: true,
             isPaginationInFlight: false,
             anchorMinY: safeAnchorMinY,
             tailAnchorY: safeTailAnchorY,

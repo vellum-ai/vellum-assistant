@@ -33,6 +33,7 @@ export type Scope =
   | "calls.write"
   | "ingress.write"
   | "internal.write"
+  | "admin.write"
   | "feature_flags.read"
   | "feature_flags.write"
   | "local.all";

@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -365,6 +366,61 @@ describe("QdrantManager", () => {
 
       const binaryPath = join(testDataDir, "data", "qdrant", "bin", "qdrant");
       expect(existsSync(binaryPath)).toBe(true);
+    }, 10_000);
+  });
+
+  // ── Symlink Safety ────────────────────────────────────────────
+
+  describe("vellum-qdrant symlink safety", () => {
+    test("ignores pre-existing non-symlink vellum-qdrant file", async () => {
+      const realMarkerPath = join(qdrantDir, "real-executed.txt");
+      const hijackMarkerPath = join(qdrantDir, "hijack-executed.txt");
+
+      placeFakeBinary(`#!/bin/sh\necho real > "${realMarkerPath}"\nexit 1`);
+
+      const hijackPath = join(qdrantBinDir, "vellum-qdrant");
+      writeFileSync(
+        hijackPath,
+        `#!/bin/sh\necho hijack > "${hijackMarkerPath}"\nexit 0`,
+      );
+      chmodSync(hijackPath, 0o755);
+
+      const port = getTestPort();
+      const mgr = new QdrantManager({
+        url: `http://127.0.0.1:${port}`,
+        ...FAST_TIMEOUTS,
+      });
+
+      await expect(mgr.start()).rejects.toThrow("before becoming ready");
+      expect(existsSync(realMarkerPath)).toBe(true);
+      expect(existsSync(hijackMarkerPath)).toBe(false);
+    }, 10_000);
+
+    test("ignores symlink that does not point to real qdrant binary", async () => {
+      const realMarkerPath = join(qdrantDir, "real-executed.txt");
+      const hijackMarkerPath = join(qdrantDir, "hijack-executed.txt");
+
+      placeFakeBinary(`#!/bin/sh\necho real > "${realMarkerPath}"\nexit 1`);
+
+      const evilBinaryPath = join(qdrantBinDir, "evil-qdrant");
+      writeFileSync(
+        evilBinaryPath,
+        `#!/bin/sh\necho hijack > "${hijackMarkerPath}"\nexit 0`,
+      );
+      chmodSync(evilBinaryPath, 0o755);
+
+      const vellumQdrantPath = join(qdrantBinDir, "vellum-qdrant");
+      symlinkSync(evilBinaryPath, vellumQdrantPath);
+
+      const port = getTestPort();
+      const mgr = new QdrantManager({
+        url: `http://127.0.0.1:${port}`,
+        ...FAST_TIMEOUTS,
+      });
+
+      await expect(mgr.start()).rejects.toThrow("before becoming ready");
+      expect(existsSync(realMarkerPath)).toBe(true);
+      expect(existsSync(hijackMarkerPath)).toBe(false);
     }, 10_000);
   });
 });

@@ -124,6 +124,10 @@ const DEPRECATED_FIELDS: Record<string, string> = {
     "providerOrder has been removed from the config schema. " +
     "Provider selection is now handled automatically. " +
     "The field will be removed from your config file.",
+  "permissions.dangerouslySkipPermissions":
+    "permissions.dangerouslySkipPermissions has been removed. " +
+    "Permission prompts are now always shown when required. " +
+    "The field will be removed from your config file.",
 };
 
 /**

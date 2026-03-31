@@ -1,7 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-let appVersion = "0.5.14"
+let appVersion = "0.5.15"
 
 let package = Package(
     name: "vellum-assistant",

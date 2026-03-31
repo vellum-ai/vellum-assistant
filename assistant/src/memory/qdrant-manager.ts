@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -361,14 +363,33 @@ export class QdrantManager {
    */
   private ensureVellumSymlink(binaryPath: string): string {
     const symlinkPath = join(dirname(binaryPath), "vellum-qdrant");
-    if (!existsSync(symlinkPath)) {
+    const expectedTarget = realpathSync(binaryPath);
+
+    if (existsSync(symlinkPath)) {
       try {
-        symlinkSync(binaryPath, symlinkPath);
+        const symlinkStat = lstatSync(symlinkPath);
+        if (symlinkStat.isSymbolicLink()) {
+          const actualTarget = realpathSync(symlinkPath);
+          if (actualTarget === expectedTarget) {
+            return symlinkPath;
+          }
+        }
       } catch {
-        // Fall back to the real binary if symlink creation fails
-        return binaryPath;
+        // Fall back to the real binary if existing symlink cannot be verified
       }
+      log.warn(
+        { symlinkPath },
+        "Existing vellum-qdrant is not a valid symlink to the Qdrant binary; ignoring it",
+      );
+      return binaryPath;
     }
-    return symlinkPath;
+
+    try {
+      symlinkSync(binaryPath, symlinkPath);
+      return symlinkPath;
+    } catch {
+      // Fall back to the real binary if symlink creation fails
+      return binaryPath;
+    }
   }
 }

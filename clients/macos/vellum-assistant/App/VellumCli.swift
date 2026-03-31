@@ -310,15 +310,24 @@ final class VellumCli {
 
     /// How long to wait for the `sleep` CLI before giving up.
     /// The CLI sends SIGTERM then waits up to 5s (daemon) + 7s (gateway).
-    private static let stopTimeout: TimeInterval = 15.0
+    nonisolated private static let stopTimeout: TimeInterval = 15.0
 
     /// Stops the daemon and gateway processes via `vellum sleep --force`.
-    /// Blocks until the CLI exits or `stopTimeout` expires (15 seconds).
+    /// Waits asynchronously until the CLI exits or `stopTimeout` expires (15 seconds).
     ///
     /// Uses `--force` to bypass the phone-call keepalive lease check so
     /// the app can always shut down cleanly.
-    func stop(name: String? = nil) {
-        guard let binaryURL = cliBinaryURL else {
+    ///
+    /// Marked `nonisolated` so callers can await this without holding the
+    /// main actor — important for `applicationWillTerminate` where the main
+    /// thread blocks on a semaphore while waiting for this to complete.
+    nonisolated func stop(name: String? = nil) async {
+        guard let execURL = Bundle.main.executableURL else {
+            log.info("No bundled CLI binary found — skipping stop (dev mode)")
+            return
+        }
+        let binaryURL = execURL.deletingLastPathComponent().appendingPathComponent("vellum-cli")
+        guard FileManager.default.fileExists(atPath: binaryURL.path) else {
             log.info("No bundled CLI binary found — skipping stop (dev mode)")
             return
         }
@@ -331,29 +340,50 @@ final class VellumCli {
         log.info("[audit] CLI invoke: stop args=\(arguments.dropFirst().joined(separator: " "), privacy: .public)")
 
         let startTime = ContinuousClock.now
-        let proc = Process()
-        proc.executableURL = binaryURL
-        proc.arguments = arguments
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        proc.environment = Self.makeBaseEnvironment()
+        let env = Self.makeBaseEnvironment()
+        let timeout = Self.stopTimeout
 
-        do {
-            let sem = DispatchSemaphore(value: 0)
-            proc.terminationHandler = { _ in sem.signal() }
-            try proc.run()
+        let status: Int32 = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
+            let proc = Process()
+            proc.executableURL = binaryURL
+            proc.arguments = arguments
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            proc.environment = env
 
-            if sem.wait(timeout: .now() + Self.stopTimeout) == .timedOut {
-                log.warning("CLI sleep timed out after \(Int(Self.stopTimeout))s — terminating process")
-                proc.terminate()
+            let once = OnceFlag()
+            let timeoutSeconds = Int(timeout)
+
+            let timeoutItem = DispatchWorkItem { [weak proc] in
+                if once.trySet() {
+                    log.warning("CLI sleep timed out after \(timeoutSeconds)s — terminating process")
+                    proc?.terminate()
+                    continuation.resume(returning: -1)
+                }
             }
-        } catch {
-            log.error("Failed to launch CLI sleep: \(error.localizedDescription, privacy: .public)")
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+
+            proc.terminationHandler = { finished in
+                timeoutItem.cancel()
+                if once.trySet() {
+                    continuation.resume(returning: finished.terminationStatus)
+                }
+            }
+
+            do {
+                try proc.run()
+            } catch {
+                timeoutItem.cancel()
+                if once.trySet() {
+                    log.error("Failed to launch CLI sleep: \(error.localizedDescription, privacy: .public)")
+                    continuation.resume(returning: -1)
+                }
+            }
         }
 
         let elapsed = ContinuousClock.now - startTime
         let ms = elapsed.components.seconds * 1000 + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
-        log.info("[audit] CLI done: stop exit=\(proc.terminationStatus) duration=\(ms)ms")
+        log.info("[audit] CLI done: stop exit=\(status) duration=\(ms)ms")
     }
 
 

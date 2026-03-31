@@ -39,6 +39,9 @@ func quickInputHotKeyHandler(
 // Using @objc dynamic enables Combine's publisher(for:) key-path KVO without
 // listening to every UserDefaults write app-wide.
 extension UserDefaults {
+    @objc dynamic var connectedAssistantId: String? {
+        string(forKey: "connectedAssistantId")
+    }
     @objc dynamic var globalHotkeyShortcut: String {
         if UserDefaults.standard.object(forKey: "globalHotkeyShortcut") == nil {
             return "cmd+shift+g"
