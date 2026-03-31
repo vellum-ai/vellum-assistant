@@ -184,16 +184,19 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
 }
 
 function handleGetAttachment(attachmentId: string): Response {
+  // Use the file_path column to detect file-backed attachments, not string
+  // truthiness of dataBase64 (which would also match valid zero-byte uploads).
+  const isFileBacked = !!getFilePathForAttachment(attachmentId);
+
+  // Skip hydrating file data for file-backed attachments — clients should
+  // fetch content via GET /attachments/:id/content (which validates the path
+  // against the directory allowlist).
   const attachment = attachmentsStore.getAttachmentById(attachmentId, {
-    hydrateFileData: true,
+    hydrateFileData: !isFileBacked,
   });
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);
   }
-
-  // Use the file_path column to detect file-backed attachments, not string
-  // truthiness of dataBase64 (which would also match valid zero-byte uploads).
-  const isFileBacked = !!getFilePathForAttachment(attachmentId);
 
   return Response.json({
     id: attachment.id,
