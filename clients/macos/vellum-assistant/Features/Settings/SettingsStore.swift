@@ -617,6 +617,7 @@ public final class SettingsStore: ObservableObject {
                 self.maintenanceModeExitError = nil
                 self.maintenanceModeEntering = false
                 self.maintenanceModeExiting = false
+                self.maintenanceModeRefreshing = false
                 Task { @MainActor [weak self] in
                     await self?.refreshManagedAssistantMaintenanceMode()
                 }
@@ -639,6 +640,7 @@ public final class SettingsStore: ObservableObject {
                 self.maintenanceModeExitError = nil
                 self.maintenanceModeEntering = false
                 self.maintenanceModeExiting = false
+                self.maintenanceModeRefreshing = false
                 Task { @MainActor [weak self] in
                     await self?.refreshManagedAssistantMaintenanceMode()
                 }
