@@ -56,10 +56,6 @@ struct APIKeyStepView: View {
         MacOSClientFeatureFlagManager.shared.isEnabled("user-hosted-enabled")
     }
 
-    private var platformHostedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("platform-hosted-enabled")
-    }
-
     private var localDockerEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("local-docker-enabled")
     }
@@ -125,7 +121,7 @@ struct APIKeyStepView: View {
         switch mode {
         case .vellumCloud:
             if !isAuthenticated || state.skippedAuth { return "Requires Account" }
-            return platformHostedEnabled ? nil : "Coming Soon"
+            return nil
         default:
             return nil
         }
@@ -244,7 +240,7 @@ struct APIKeyStepView: View {
 
     private var canContinue: Bool {
         if state.selectedHostingMode == .vellumCloud {
-            return platformHostedEnabled && isAuthenticated && !state.skippedAuth
+            return isAuthenticated && !state.skippedAuth
         }
         return true
     }
