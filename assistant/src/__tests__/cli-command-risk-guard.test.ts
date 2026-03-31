@@ -165,6 +165,12 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
       "assistant oauth request --help",
       "assistant oauth connect --help",
       "assistant oauth disconnect -h",
+      "assistant trust clear --help",
+      "assistant trust remove -h",
+      "assistant credentials set --help",
+      "assistant credentials delete -h",
+      "assistant keys set --help",
+      "assistant keys delete -h",
     ];
 
     for (const command of helpCommands) {
@@ -201,6 +207,66 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     ];
 
     for (const command of lowRiskCredCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
+  test("assistant credentials set is High risk (modifies stored credentials)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant credentials set",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant credentials delete is High risk (removes stored credentials)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant credentials delete",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant keys set is High risk (modifies API keys)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant keys set anthropic sk-ant-xxx",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant keys delete is High risk (removes API keys)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant keys delete openai",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("non-sensitive keys subcommands remain Low risk", async () => {
+    const lowRiskKeysCommands = ["assistant keys", "assistant keys list"];
+
+    for (const command of lowRiskKeysCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
+  test("assistant trust remove is High risk (removes trust rules)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant trust remove abc123",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant trust clear is High risk (clears all trust rules)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant trust clear",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("non-sensitive trust subcommands remain Low risk", async () => {
+    const lowRiskTrustCommands = ["assistant trust", "assistant trust list"];
+
+    for (const command of lowRiskTrustCommands) {
       const risk = await classifyRisk("bash", { command });
       expectLowRisk(command, risk);
     }

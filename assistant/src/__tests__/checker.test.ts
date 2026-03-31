@@ -432,6 +432,12 @@ describe("Permission Checker", () => {
 
     // shell commands - high risk
     describe("shell — high risk", () => {
+      test("assistant trust clear is high risk", async () => {
+        expect(
+          await classifyRisk("bash", { command: "assistant trust clear" }),
+        ).toBe(RiskLevel.High);
+      });
+
       test("sudo is high risk", async () => {
         expect(await classifyRisk("bash", { command: "sudo rm -rf /" })).toBe(
           RiskLevel.High,

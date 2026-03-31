@@ -235,6 +235,19 @@ function classifyAssistantSubcommand(args: string[]): RiskLevel {
   if (sub === "credentials") {
     const credSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
     if (credSub === "reveal") return RiskLevel.High;
+    if (credSub === "set" || credSub === "delete") return RiskLevel.High;
+    return RiskLevel.Low;
+  }
+
+  if (sub === "keys") {
+    const keysSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (keysSub === "set" || keysSub === "delete") return RiskLevel.High;
+    return RiskLevel.Low;
+  }
+
+  if (sub === "trust") {
+    const trustSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (trustSub === "remove" || trustSub === "clear") return RiskLevel.High;
     return RiskLevel.Low;
   }
 
