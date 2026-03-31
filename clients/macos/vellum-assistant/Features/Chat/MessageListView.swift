@@ -1225,6 +1225,7 @@ private struct MessageCellView: View, Equatable {
                 : lhs.providerCatalog.count == rhs.providerCatalog.count
                   && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) }))
             && lhs.isTTSEnabled == rhs.isTTSEnabled
+            && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
     }
 
     let message: ChatMessage
@@ -1326,6 +1327,7 @@ private struct MessageCellView: View, Equatable {
                 activeSurfaceId: activeSurfaceId,
                 hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
             )
+            .equatable()
         }
     }
 
@@ -1414,6 +1416,7 @@ private struct MessageCellView: View, Equatable {
                 activeSurfaceId: activeSurfaceId,
                 hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
             )
+            .equatable()
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(VColor.primaryBase.opacity(isHighlighted ? 0.15 : 0))
