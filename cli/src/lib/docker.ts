@@ -805,6 +805,9 @@ function affectedServices(
  * images and restart their containers.
  */
 function startFileWatcher(opts: {
+  signingKey?: string;
+  bootstrapSecret?: string;
+  cesServiceToken?: string;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
@@ -826,6 +829,9 @@ function startFileWatcher(opts: {
 
   const configs = serviceImageConfigs(repoRoot, imageTags);
   const runArgs = serviceDockerRunArgs({
+    signingKey: opts.signingKey,
+    bootstrapSecret: opts.bootstrapSecret,
+    cesServiceToken: opts.cesServiceToken,
     gatewayPort,
     imageTags,
     instanceName,
@@ -1106,6 +1112,9 @@ export async function hatchDocker(
       saveAssistantEntry({ ...dockerEntry, watcherPid: process.pid });
 
       const stopWatcher = startFileWatcher({
+        signingKey,
+        bootstrapSecret,
+        cesServiceToken,
         gatewayPort,
         imageTags,
         instanceName,
