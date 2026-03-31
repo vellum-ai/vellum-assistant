@@ -602,6 +602,7 @@ public final class SettingsStore: ObservableObject {
         // Uses scoped publisher(for:) + debounce per AGENTS.md to avoid
         // firing on every UserDefaults write app-wide.
         UserDefaults.standard.publisher(for: \.connectedAssistantId)
+            .dropFirst()
             .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
             .removeDuplicates()
             .sink { [weak self] _ in
@@ -620,6 +621,7 @@ public final class SettingsStore: ObservableObject {
         // Refresh when the connected organization changes — switching org without
         // switching assistant can also leave maintenance state stale.
         UserDefaults.standard.publisher(for: \.connectedOrganizationId)
+            .dropFirst()
             .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
             .removeDuplicates()
             .sink { [weak self] _ in
