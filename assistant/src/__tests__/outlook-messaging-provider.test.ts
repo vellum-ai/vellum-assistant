@@ -40,6 +40,12 @@ const mockSearchMessages = mock(() =>
 const mockSendMessage = mock(() => Promise.resolve(undefined));
 const mockMarkMessageRead = mock(() => Promise.resolve(undefined));
 const mockReplyToMessage = mock(() => Promise.resolve(undefined));
+const mockListMailRules = mock(() => Promise.resolve({ value: [] }));
+const mockCreateMailRule = mock(() => Promise.resolve({}));
+const mockDeleteMailRule = mock(() => Promise.resolve(undefined));
+const mockGetAutoReplySettings = mock(() => Promise.resolve({}));
+const mockUpdateAutoReplySettings = mock(() => Promise.resolve(undefined));
+const mockListMessagesDelta = mock(() => Promise.resolve({ value: [] }));
 
 mock.module("../messaging/providers/outlook/client.js", () => ({
   getProfile: mockGetProfile,
@@ -49,6 +55,12 @@ mock.module("../messaging/providers/outlook/client.js", () => ({
   sendMessage: mockSendMessage,
   markMessageRead: mockMarkMessageRead,
   replyToMessage: mockReplyToMessage,
+  listMailRules: mockListMailRules,
+  createMailRule: mockCreateMailRule,
+  deleteMailRule: mockDeleteMailRule,
+  getAutoReplySettings: mockGetAutoReplySettings,
+  updateAutoReplySettings: mockUpdateAutoReplySettings,
+  listMessagesDelta: mockListMessagesDelta,
 }));
 
 import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";
