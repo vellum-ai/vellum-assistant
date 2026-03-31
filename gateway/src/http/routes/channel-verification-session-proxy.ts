@@ -13,6 +13,7 @@ import type { GatewayConfig } from "../../config.js";
 import { getRootDir } from "../../credential-reader.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
+import { isLoopbackAddress } from "../../util/is-loopback-address.js";
 import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("channel-verification-session-proxy");
@@ -61,9 +62,10 @@ export function createChannelVerificationSessionProxyHandler(
 
     // Inject the real client IP so the runtime can enforce loopback-only
     // checks, overwriting any client-supplied value to prevent spoofing.
-    // When clientIp is undefined (loopback peer), strip any client-supplied
-    // header to prevent forged forwarded-for values from reaching the runtime.
-    if (clientIp) {
+    // Strip the header for loopback peers: the runtime rejects any request
+    // with x-forwarded-for in bare-metal mode, and forwarding 127.0.0.1
+    // conveys no useful information.
+    if (clientIp && !isLoopbackAddress(clientIp)) {
       reqHeaders.set("x-forwarded-for", clientIp);
     } else {
       reqHeaders.delete("x-forwarded-for");
