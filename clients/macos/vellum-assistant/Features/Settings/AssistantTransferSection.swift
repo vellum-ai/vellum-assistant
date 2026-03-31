@@ -283,6 +283,7 @@ struct AssistantTransferSection: View {
             let importResponse = try await GatewayHTTPClient.post(
                 path: "assistants/{assistantId}/migrations/import",
                 body: bundleData,
+                contentType: "application/octet-stream",
                 timeout: 120
             )
             guard importResponse.isSuccess else {
@@ -378,6 +379,7 @@ struct AssistantTransferSection: View {
         let response = try await GatewayHTTPClient.post(
             path: "assistants/{assistantId}/migrations/import",
             body: bundleData,
+            contentType: "application/octet-stream",
             timeout: 120
         )
 
