@@ -1,10 +1,18 @@
 import SwiftUI
 import VellumAssistantShared
 
+/// A schedule sub-group: conversations sharing the same scheduleJobId.
+struct ScheduleSubGroup: Identifiable {
+    let key: String
+    let label: String
+    let conversations: [ConversationModel]
+    var id: String { key }
+}
+
 /// Container wrapping a collapsible section header + conversation list.
 ///
-/// Handles expand/collapse, show-more/less truncation, and auto-expand on unread.
-/// All groups are flat (one level deep) — no sub-grouping.
+/// Handles expand/collapse, show-more/less truncation, auto-expand on unread,
+/// and optional schedule sub-grouping for the Scheduled system group.
 struct SidebarSectionView: View {
     let group: ConversationGroup?
     let conversations: [ConversationModel]
@@ -12,6 +20,7 @@ struct SidebarSectionView: View {
     let showAll: Bool
     let maxCollapsed: Int
     let isDropTarget: Bool
+    let countMode: CountMode
 
     let isRenaming: Bool
     @Binding var renamingName: String
@@ -28,15 +37,31 @@ struct SidebarSectionView: View {
     var onToggleShowAll: () -> Void
     var makeRow: (ConversationModel) -> SidebarConversationItem
 
+    /// Schedule sub-group expand/collapse state.
+    var expandedScheduleGroups: Binding<Set<String>>?
     /// Drop delegate plumbing.
     var sidebar: SidebarInteractionState?
     var conversationManager: ConversationManager?
 
+    enum CountMode {
+        case items
+        case subGroups(grouper: (ConversationModel) -> String?)
+    }
+
     /// Auto-show-all when hidden items beyond the truncation cutoff have unread messages.
     private var effectiveShowAll: Bool {
         if showAll { return true }
-        let hidden = conversations.dropFirst(maxCollapsed)
-        return hidden.contains(where: \.hasUnseenLatestAssistantMessage)
+        switch countMode {
+        case .items:
+            let hidden = conversations.dropFirst(maxCollapsed)
+            return hidden.contains(where: \.hasUnseenLatestAssistantMessage)
+        case .subGroups(let grouper):
+            let subGroups = buildSubGroups(grouper: grouper)
+            let hidden = subGroups.dropFirst(maxCollapsed)
+            return hidden.contains(where: { sg in
+                sg.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+            })
+        }
     }
 
     private var unreadCount: Int {
@@ -44,7 +69,6 @@ struct SidebarSectionView: View {
     }
 
     /// Highest-priority interaction state across all conversations in this section.
-    /// Used to show a summary indicator on the collapsed section header.
     /// Guarded by `isExpanded` to skip the iteration when the indicator isn't visible.
     private var aggregateState: SectionAggregateState {
         if isExpanded { return .idle }
@@ -75,11 +99,28 @@ struct SidebarSectionView: View {
         return .idle
     }
 
+    private var displayCount: Int {
+        switch countMode {
+        case .items:
+            return conversations.count
+        case .subGroups(let grouper):
+            var seen = Set<String>()
+            for c in conversations {
+                if let key = grouper(c) {
+                    seen.insert(key)
+                } else {
+                    seen.insert(c.id.uuidString)
+                }
+            }
+            return seen.count
+        }
+    }
+
     var body: some View {
         if let group = group {
             SidebarSectionHeader(
                 group: group,
-                conversationCount: conversations.count,
+                conversationCount: displayCount,
                 isExpanded: isExpanded,
                 isDropTarget: isDropTarget,
                 isGroupReorderTarget: !group.isSystemGroup && sidebar?.dropTargetSectionId == group.id && sidebar?.draggingConversationId == nil,
@@ -102,7 +143,7 @@ struct SidebarSectionView: View {
 
             if isExpanded {
                 VStack(spacing: 0) {
-                    flatContent
+                    sectionContent
                 }
                 .padding(.vertical, VSpacing.xxs)
                 .background(
@@ -118,6 +159,16 @@ struct SidebarSectionView: View {
             }
         } else {
             // Ungrouped -- no header, render conversations directly
+            sectionContent
+        }
+    }
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch countMode {
+        case .subGroups(let grouper):
+            scheduleSubGroupContent(grouper: grouper)
+        case .items:
             flatContent
         }
     }
@@ -158,6 +209,107 @@ struct SidebarSectionView: View {
         showMoreLessButton
     }
 
+    // MARK: - Schedule Sub-Groups
+
+    @ViewBuilder
+    private func scheduleSubGroupContent(grouper: (ConversationModel) -> String?) -> some View {
+        let subGroups = buildSubGroups(grouper: grouper)
+        let displayed = effectiveShowAll ? subGroups : Array(subGroups.prefix(maxCollapsed))
+
+        ForEach(displayed) { subGroup in
+            if subGroup.conversations.count == 1, let conversation = subGroup.conversations.first {
+                // Single-conversation sub-group: render inline as a regular row
+                makeRow(conversation)
+                    .equatable()
+                    .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
+                    .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+            } else {
+                // Multi-conversation sub-group: disclosure header + rows
+                scheduleSubGroupDisclosure(subGroup)
+            }
+        }
+
+        if subGroups.count > maxCollapsed {
+            showMoreLessButton
+        }
+    }
+
+    @ViewBuilder
+    private func scheduleSubGroupDisclosure(_ subGroup: ScheduleSubGroup) -> some View {
+        let isSubGroupExpanded = expandedScheduleGroups?.wrappedValue.contains(subGroup.key) ?? false
+        let hasUnread = !isSubGroupExpanded &&
+            subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+
+        // Disclosure header — layout matches SidebarConversationItem's skeleton
+        // so the chevron aligns with the pin icon and the badge aligns with the ellipsis.
+        Button {
+            withAnimation(VAnimation.fast) {
+                if isSubGroupExpanded {
+                    expandedScheduleGroups?.wrappedValue.remove(subGroup.key)
+                } else {
+                    expandedScheduleGroups?.wrappedValue.insert(subGroup.key)
+                }
+            }
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                // Leading 20x20 slot — chevron centered, matching pin icon position
+                ZStack {
+                    VIconView(.chevronRight, size: 10)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
+                        .animation(VAnimation.fast, value: isSubGroupExpanded)
+                    if hasUnread {
+                        Circle()
+                            .fill(VColor.systemMidStrong)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 7, y: -7)
+                            .transition(.opacity)
+                    }
+                }
+                .frame(width: 20, height: 20)
+
+                Text(subGroup.label)
+                    .font(VFont.menuCompact)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, SidebarLayoutMetrics.trailingIconPadding)
+            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+            .contentShape(Rectangle())
+            // Count badge — trailing overlay matching ellipsis button position
+            .overlay(alignment: .trailing) {
+                Text("\(subGroup.conversations.count)")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(VColor.contentTertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule()
+                            .fill(VColor.contentTertiary.opacity(0.12))
+                    )
+                    .padding(.trailing, VSpacing.xs)
+            }
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+
+        if isSubGroupExpanded {
+            ForEach(subGroup.conversations) { conversation in
+                makeRow(conversation)
+                    .equatable()
+                    .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
+                    .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+            }
+        }
+    }
+
+    // MARK: - Show More/Less
+
     @ViewBuilder
     private var showMoreLessButton: some View {
         if conversations.count > maxCollapsed {
@@ -179,6 +331,35 @@ struct SidebarSectionView: View {
     private var displayedConversations: [ConversationModel] {
         if effectiveShowAll { return conversations }
         return Array(conversations.prefix(maxCollapsed))
+    }
+
+    // MARK: - Sub-group helpers
+
+    private func buildSubGroups(grouper: (ConversationModel) -> String?) -> [ScheduleSubGroup] {
+        var grouped: [String: [ConversationModel]] = [:]
+        var order: [String] = []
+        for conversation in conversations {
+            let key = grouper(conversation) ?? conversation.id.uuidString
+            if grouped[key] == nil {
+                order.append(key)
+            }
+            grouped[key, default: []].append(conversation)
+        }
+        return order.compactMap { key in
+            guard let conversations = grouped[key], let first = conversations.first else { return nil }
+            let label: String
+            if conversations.count > 1 {
+                let base = first.title
+                if let colonRange = base.range(of: ":") {
+                    label = String(base[base.startIndex..<colonRange.lowerBound])
+                } else {
+                    label = base
+                }
+            } else {
+                label = first.title
+            }
+            return ScheduleSubGroup(key: key, label: label, conversations: conversations)
+        }
     }
 }
 
