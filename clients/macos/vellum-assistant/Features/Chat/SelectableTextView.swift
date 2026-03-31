@@ -35,9 +35,10 @@ struct SelectableTextView: NSViewRepresentable {
         textContainer.lineFragmentPadding = 0
         layoutManager.addTextContainer(textContainer)
 
-        let textView = LinkOpeningTextView(frame: .zero, textContainer: textContainer)
+        let textView = NSTextView(frame: .zero, textContainer: textContainer)
         textView.isEditable = false
         textView.isSelectable = isSelectable
+        textView.delegate = context.coordinator
         textView.isRichText = true
         textView.usesFontPanel = false
         textView.isHorizontallyResizable = false
@@ -77,13 +78,25 @@ struct SelectableTextView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, NSTextViewDelegate {
         var lastAttributedString: NSAttributedString?
 
         func applyAttributedString(_ attrStr: NSAttributedString, to textView: NSTextView) {
             lastAttributedString = attrStr
             guard let textStorage = textView.textStorage else { return }
             textStorage.setAttributedString(attrStr)
+        }
+
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            if let url = link as? URL {
+                NSWorkspace.shared.open(url)
+                return true
+            }
+            if let string = link as? String, let url = URL(string: string) {
+                NSWorkspace.shared.open(url)
+                return true
+            }
+            return false
         }
     }
 }
@@ -355,26 +368,4 @@ extension SelectableTextView {
     static func clearCache() {
         cache.removeAllObjects()
     }
-}
-
-// MARK: - LinkOpeningTextView
-
-/// NSTextView subclass that opens clicked links in the default browser.
-private final class LinkOpeningTextView: NSTextView {
-    override func clickedOnLink(_ link: Any, at charIndex: Int) -> Bool {
-        if let url = link as? URL {
-            NSWorkspace.shared.open(url)
-            return true
-        }
-        if let string = link as? String, let url = URL(string: string) {
-            NSWorkspace.shared.open(url)
-            return true
-        }
-        return super.clickedOnLink(link, at: charIndex)
-    }
-
-    // Prevent the text view from stealing focus from the chat input.
-    // Text selection still works — NSTextView handles mouse-drag
-    // selection regardless of first responder status when isSelectable.
-    override var acceptsFirstResponder: Bool { false }
 }
