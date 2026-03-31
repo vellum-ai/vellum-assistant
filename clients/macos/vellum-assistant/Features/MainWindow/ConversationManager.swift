@@ -1292,6 +1292,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// conversation sorts by recency within the target group.
     func moveConversationToGroup(_ conversationId: UUID, groupId: String?) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
+        // Save pre-pin provenance so unpinConversation can restore the original group.
+        if groupId == ConversationGroup.pinned.id {
+            prePinGroupIds[conversationId] = conversations[index].groupId
+        }
         conversations[index].groupId = groupId
         conversations[index].displayOrder = nil
         // When ungrouping, bump lastInteractedAt so the conversation appears
