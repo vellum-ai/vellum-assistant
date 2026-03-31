@@ -81,7 +81,7 @@ struct ChatBubble: View, Equatable {
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
     @State private var hoverState = ChatBubbleHoverState()
-    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
+    @Environment(\.bubbleMaxWidth) var bubbleMaxWidth
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.
     @State var asyncSegments: [String: [MarkdownSegment]] = [:]
