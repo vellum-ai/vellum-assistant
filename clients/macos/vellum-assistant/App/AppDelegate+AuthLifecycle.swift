@@ -340,6 +340,7 @@ extension AppDelegate {
 
         log.info("Starting local assistant API key provisioning for \(assistantId, privacy: .public)")
 
+        let generation = self.switchGeneration
         Task {
             // Wait for the actor token — GatewayHTTPClient requires it for
             // auth and will throw immediately if it's not available yet.
@@ -348,12 +349,21 @@ extension AppDelegate {
                 for attempt in 1...6 {
                     token = await ActorTokenManager.waitForToken(timeout: 10)
                     if token != nil { break }
+                    guard self.switchGeneration == generation else {
+                        log.info("Local API key provisioning aborted — assistant switch generation changed (attempt \(attempt))")
+                        return
+                    }
                     log.info("Actor token not yet available (attempt \(attempt)/6), retrying...")
                 }
                 guard token != nil else {
                     log.warning("No actor token available for local API key provisioning after 60s")
                     return
                 }
+            }
+
+            guard self.switchGeneration == generation else {
+                log.info("Local API key provisioning aborted — assistant switch generation changed (after token wait)")
+                return
             }
 
             // Wait for the assistant (and gateway) to be reachable. The bootstrap
@@ -365,10 +375,19 @@ extension AppDelegate {
                 for attempt in 1...20 {
                     if self.connectionManager.isConnected { break }
                     try? await Task.sleep(nanoseconds: 500_000_000)
+                    guard self.switchGeneration == generation else {
+                        log.info("Local API key provisioning aborted — assistant switch generation changed (connection wait attempt \(attempt))")
+                        return
+                    }
                     if attempt == 20 {
                         log.warning("Assistant not connected after 10s — proceeding with credential bootstrap anyway")
                     }
                 }
+            }
+
+            guard self.switchGeneration == generation else {
+                log.info("Local API key provisioning aborted — assistant switch generation changed (before bootstrap)")
+                return
             }
 
             do {
@@ -381,11 +400,22 @@ extension AppDelegate {
                 )
                 log.info("Local assistant registered: \(platformId, privacy: .public)")
 
+                guard self.switchGeneration == generation else {
+                    log.info("Local API key provisioning completed but assistant switched — discarding result")
+                    return
+                }
+
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
+
+                guard self.switchGeneration == generation else {
+                    log.info("Local API key provisioning failed but assistant switched — suppressing error toast")
+                    return
+                }
+
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
@@ -460,6 +490,12 @@ extension AppDelegate {
     /// synchronous path (non-managed or already-authenticated) and from
     /// the async token-validation path.
     private func performSwitchAssistantCore(to assistant: LockfileAssistant) {
+        // Cancel any in-flight bootstrap tasks from a previous assistant switch.
+        // Incrementing switchGeneration causes running bootstrap tasks to detect
+        // staleness and abort, preventing credential confusion during rapid switches.
+        switchGeneration += 1
+        actorTokenBootstrapTask?.cancel()
+        actorTokenBootstrapTask = nil
         // Cancel any in-flight validation task from a previous switch so a
         // stale timeout doesn't rollback to the wrong assistant (A→B→C race).
         switchValidationTask?.cancel()
@@ -492,8 +528,6 @@ extension AppDelegate {
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         SentryDeviceInfo.updateOrganizationTag(nil)
         // Clear stale actor token for the previous assistant
-        actorTokenBootstrapTask?.cancel()
-        actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
         // 4. Reconfigure transport and reconnect

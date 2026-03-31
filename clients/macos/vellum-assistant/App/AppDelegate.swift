@@ -174,6 +174,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// finished before the observer was registered.
     var localBootstrapDidComplete = false
 
+    /// Monotonically increasing counter incremented on each assistant switch.
+    /// Bootstrap tasks capture this value at start and abort early if the
+    /// current generation has advanced, preventing stale credential operations
+    /// from racing with a newer switch.
+    var switchGeneration: Int = 0
+
     /// Onboarding state retained during first-launch so post-hatch logic
     /// can access the randomly-generated avatar traits.
     var onboardingState: OnboardingState?

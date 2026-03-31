@@ -135,12 +135,18 @@ extension AppDelegate {
         // Subscribe to SSE event stream for UI event routing.
         startEventSubscription()
 
+        let generation = self.switchGeneration
         Task {
             // Import guardian token from CLI file before connecting, so the
             // health check has valid credentials in the credential store.
             if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
                !ActorTokenManager.hasToken {
                 _ = GuardianTokenFileReader.importIfAvailable(assistantId: assistantId)
+            }
+
+            guard self.switchGeneration == generation else {
+                log.info("setupGatewayConnectionManager: aborting connect — assistant switch generation changed")
+                return
             }
 
             if !connectionManager.isConnected && !connectionManager.isConnecting {
@@ -154,6 +160,12 @@ extension AppDelegate {
             } else {
                 log.info("setupGatewayConnectionManager: skipping connect() — isConnected=\(self.connectionManager.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
             }
+
+            guard self.switchGeneration == generation else {
+                log.info("setupGatewayConnectionManager: skipping post-connect setup — assistant switch generation changed")
+                return
+            }
+
             if connectionManager.isConnected {
                 setupAmbientAgent()
                 refreshAppsCache()
