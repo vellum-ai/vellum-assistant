@@ -7,7 +7,7 @@
  *   - Happy path: stream receives a published AssistantEvent
  *   - Unfiltered: streams events from multiple conversations
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -29,7 +29,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { mintToken } from "../runtime/auth/token-service.js";
@@ -54,10 +54,6 @@ describe("SSE assistant-events endpoint", () => {
     const db = getDb();
     db.run("DELETE FROM conversation_keys");
     db.run("DELETE FROM conversations");
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   async function startServer(): Promise<void> {

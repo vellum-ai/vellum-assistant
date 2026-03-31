@@ -7,20 +7,12 @@
  * - recall.injectedTokens: <= computed dynamic budget
  * - recall.enabled: true
  */
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import { ContextWindowManager } from "../context/window-manager.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";
@@ -184,10 +176,6 @@ describe("Memory context benchmark", () => {
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
     mockQdrantResults = [];
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   test("long-session compaction + recall benchmark remains within expected bounds", async () => {

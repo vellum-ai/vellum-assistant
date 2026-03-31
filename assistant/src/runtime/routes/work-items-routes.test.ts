@@ -5,7 +5,7 @@
  * item falls back to the task-level required tools instead of silently
  * skipping permission checks.
  */
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -19,7 +19,7 @@ mock.module("../../permissions/checker.js", () => ({
   classifyRisk: async () => "high",
 }));
 
-import { initializeDb, resetDb } from "../../memory/db.js";
+import { initializeDb } from "../../memory/db.js";
 import { createTask } from "../../tasks/task-store.js";
 import { createWorkItem } from "../../work-items/work-item-store.js";
 import type { RouteContext } from "../http-router.js";
@@ -29,10 +29,6 @@ import {
 } from "./work-items-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("empty required_tools snapshot bypass", () => {
   test("falls back to task required tools when snapshot requiredTools is empty", async () => {

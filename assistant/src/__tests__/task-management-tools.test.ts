@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -22,7 +22,7 @@ mock.module("../tools/registry.js", () => ({
 
 import type { Database } from "bun:sqlite";
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { renderTemplate } from "../tasks/task-runner.js";
 import {
   createTask,
@@ -57,10 +57,6 @@ import {
 } from "../work-items/work-item-store.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 const ctx: ToolContext = {
   workingDir: "/tmp",

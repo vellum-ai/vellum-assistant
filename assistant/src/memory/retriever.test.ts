@@ -5,15 +5,7 @@
  * empty results → no injection, superseded items filtered out,
  * staleness demotion, budget allocation, and degradation scenarios.
  */
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -79,7 +71,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
 import {
   _resetQdrantBreaker,
@@ -292,10 +284,6 @@ describe("Memory Retriever Pipeline", () => {
     _resetQdrantBreaker();
     clearEmbeddingBackendCache();
     mockQdrantResults.length = 0;
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   // -----------------------------------------------------------------------

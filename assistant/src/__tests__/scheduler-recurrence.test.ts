@@ -16,7 +16,7 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   createSchedule,
   getSchedule,
@@ -40,10 +40,6 @@ function forceScheduleDue(scheduleId: string): void {
     scheduleId,
   ]);
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 // Build an RRULE expression anchored at the given start date, recurring every minute.
 // This ensures the rule always has future occurrences relative to the test clock.

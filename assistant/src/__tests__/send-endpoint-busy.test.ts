@@ -6,7 +6,7 @@
  * - Messages are queued (202, queued: true) when the conversation is busy, not 409.
  * - SSE subscribers receive events from messages sent via this endpoint.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -69,7 +69,7 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -314,10 +314,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     });
 
     eventHub = new AssistantEventHub();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   async function startServer(

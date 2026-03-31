@@ -55,7 +55,7 @@ mock.module("../../channels/config.js", () => ({
 
 import { Command } from "commander";
 
-import { getDb, initializeDb, resetDb } from "../../memory/db.js";
+import { getDb, initializeDb } from "../../memory/db.js";
 import { createEvent } from "../../notifications/events-store.js";
 import { registerNotificationsCommand } from "../commands/notifications.js";
 
@@ -129,7 +129,6 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  resetDb();
   process.exitCode = 0;
 });
 

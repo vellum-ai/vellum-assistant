@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
@@ -9,7 +9,7 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { sequenceEnrollments, sequences } from "../memory/schema.js";
 import {
   advanceEnrollment,
@@ -62,10 +62,6 @@ const testSteps: SequenceStep[] = [
     requireApproval: true,
   },
 ];
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("sequence-store", () => {
   beforeEach(() => {

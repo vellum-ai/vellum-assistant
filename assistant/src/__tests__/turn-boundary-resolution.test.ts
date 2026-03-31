@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -23,7 +23,7 @@ import {
   createConversation,
   getAssistantMessageIdsInTurn,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
 
 initializeDb();
@@ -48,10 +48,6 @@ function toolResultContent(toolUseIds: string[]): string {
     })),
   );
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("getAssistantMessageIdsInTurn", () => {
   beforeEach(() => {

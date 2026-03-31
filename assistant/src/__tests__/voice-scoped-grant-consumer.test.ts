@@ -16,7 +16,7 @@
  *   4. Grants are revoked on call end (controller.destroy).
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Platform + logger mocks (must come before any source imports) ────
 
@@ -82,7 +82,7 @@ import {
 } from "../calls/voice-session-bridge.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import {
   _internal,
@@ -94,10 +94,6 @@ const { createScopedApprovalGrant } = _internal;
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Mock session that triggers a confirmation_request on processMessage

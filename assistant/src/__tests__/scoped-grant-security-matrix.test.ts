@@ -23,7 +23,7 @@
  *  11. Guardian identity mismatch cannot mint grant — guardian-grant-minting.test.ts
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -33,7 +33,7 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import {
   _internal,
@@ -50,10 +50,6 @@ function clearTables(): void {
   const db = getDb();
   db.delete(scopedApprovalGrants).run();
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 // ---------------------------------------------------------------------------
 // Helper to build grant params with sensible defaults

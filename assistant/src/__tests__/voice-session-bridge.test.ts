@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -32,7 +32,7 @@ import {
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
 import { createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 
 initializeDb();
 
@@ -1016,8 +1016,4 @@ describe("voice-session-bridge", () => {
 
     expect(abortCalled).toBe(true);
   });
-});
-
-afterAll(() => {
-  resetDb();
 });
