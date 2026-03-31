@@ -34,7 +34,6 @@ private enum TeleportDestination {
 
 private enum TeleportPhase {
     case idle
-    case confirming(TeleportDestination)
     case transferring(step: String)
     case verifying
     case completed(oldAssistantId: String)
@@ -92,10 +91,11 @@ struct TeleportSection: View {
     @State private var pendingDestination: TeleportDestination?
     @State private var transferTask: Task<Void, Never>?
     @State private var originalAssistant: LockfileAssistant?
+    @State private var targetAssistant: LockfileAssistant?
 
     var body: some View {
         Group {
-            if assistant.isManaged || assistant.isRemote {
+            if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {
                 EmptyView()
             } else {
                 teleportContent
@@ -217,17 +217,17 @@ struct TeleportSection: View {
 
             HStack(spacing: VSpacing.sm) {
                 VButton(
-                    label: "Confirm & Retire Old Assistant",
+                    label: "Confirm & Switch",
                     style: .primary
                 ) {
-                    retireOldAssistant()
+                    confirmAndSwitch()
                 }
 
                 VButton(
-                    label: "Restore Previous Assistant",
+                    label: "Cancel",
                     style: .outlined
                 ) {
-                    restorePreviousAssistant()
+                    cancelTeleport()
                 }
             }
         }
@@ -251,51 +251,53 @@ struct TeleportSection: View {
         }
     }
 
-    // MARK: - Retire & Restore
+    // MARK: - Confirm & Cancel
 
-    private func retireOldAssistant() {
-        guard let original = originalAssistant else { return }
-        let oldId = original.assistantId
+    private func confirmAndSwitch() {
+        guard let target = targetAssistant else { return }
+        let original = originalAssistant
 
-        // Fire-and-forget retirement
-        Task {
-            if original.isManaged {
-                // Retire managed via API — temporarily swap connectedAssistantId
-                let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-                UserDefaults.standard.set(oldId, forKey: "connectedAssistantId")
-                do {
-                    let response = try await GatewayHTTPClient.delete(
-                        path: "assistants/{assistantId}/retire",
-                        timeout: 30
-                    )
-                    if response.isSuccess {
-                        log.info("[teleport] Retired managed assistant \(oldId, privacy: .public)")
-                    } else {
-                        log.error("[teleport] Failed to retire managed assistant \(oldId, privacy: .public): HTTP \(response.statusCode, privacy: .public)")
+        // Switch to the new assistant (this destroys the window)
+        AppDelegate.shared?.performSwitchAssistant(to: target)
+
+        // Fire-and-forget retirement of the old assistant
+        if let original {
+            let oldId = original.assistantId
+            Task {
+                if original.isManaged {
+                    let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                    UserDefaults.standard.set(oldId, forKey: "connectedAssistantId")
+                    defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
+                    do {
+                        let response = try await GatewayHTTPClient.delete(
+                            path: "assistants/{assistantId}/retire",
+                            timeout: 30
+                        )
+                        if response.isSuccess {
+                            log.info("[teleport] Retired managed assistant \(oldId, privacy: .public)")
+                        } else {
+                            log.error("[teleport] Failed to retire managed assistant \(oldId, privacy: .public): HTTP \(response.statusCode, privacy: .public)")
+                        }
+                    } catch {
+                        log.error("[teleport] Failed to retire managed assistant \(oldId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
-                } catch {
-                    log.error("[teleport] Failed to retire managed assistant \(oldId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
-                UserDefaults.standard.set(previousId, forKey: "connectedAssistantId")
-            } else {
-                // Retire local/docker via CLI
-                do {
-                    try await AppDelegate.shared?.vellumCli.retire(name: oldId)
-                    log.info("[teleport] Retired assistant \(oldId, privacy: .public)")
-                } catch {
-                    log.error("[teleport] Failed to retire assistant \(oldId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                } else {
+                    do {
+                        try await AppDelegate.shared?.vellumCli.retire(name: oldId)
+                        log.info("[teleport] Retired assistant \(oldId, privacy: .public)")
+                    } catch {
+                        log.error("[teleport] Failed to retire assistant \(oldId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             }
         }
 
-        phase = .completed(oldAssistantId: oldId)
         onClose()
     }
 
-    private func restorePreviousAssistant() {
-        guard let original = originalAssistant else { return }
-        AppDelegate.shared?.performSwitchAssistant(to: original)
+    private func cancelTeleport() {
         phase = .idle
+        targetAssistant = nil
     }
 
     // MARK: - Transfer Execution
@@ -349,15 +351,14 @@ struct TeleportSection: View {
         phase = .transferring(step: "Importing data to cloud...")
         try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
 
-        // Step 4 — Switch to managed assistant
-        phase = .transferring(step: "Switching to cloud assistant...")
+        // Step 4 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
             throw TeleportError.managedEntryNotFound
         }
-        AppDelegate.shared?.performSwitchAssistant(to: managedAssistant)
+        targetAssistant = managedAssistant
         transferTask = nil
 
-        // Step 5 — Verification phase (do NOT retire)
+        // Step 5 — Verification phase (do NOT retire or switch yet)
         phase = .verifying
     }
 
@@ -405,12 +406,12 @@ struct TeleportSection: View {
         phase = .transferring(step: "Importing data to Docker...")
         let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         UserDefaults.standard.set(resolvedDocker.assistantId, forKey: "connectedAssistantId")
+        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
         let importResponse = try await GatewayHTTPClient.post(
             path: "assistants/{assistantId}/migrations/import",
             body: bundleData,
             timeout: 120
         )
-        UserDefaults.standard.set(previousId, forKey: "connectedAssistantId")
         guard importResponse.isSuccess else {
             throw TeleportError.importFailed(message: "HTTP \(importResponse.statusCode)")
         }
@@ -420,12 +421,11 @@ struct TeleportSection: View {
             throw TeleportError.importFailed(message: errorMsg)
         }
 
-        // Step 6 — Switch to docker assistant
-        phase = .transferring(step: "Switching to Docker assistant...")
-        AppDelegate.shared?.performSwitchAssistant(to: resolvedDocker)
+        // Step 6 — Store target for user confirmation (do NOT switch yet)
+        targetAssistant = resolvedDocker
         transferTask = nil
 
-        // Step 7 — Verification phase (do NOT retire)
+        // Step 7 — Verification phase (do NOT retire or switch yet)
         phase = .verifying
     }
 
@@ -459,15 +459,14 @@ struct TeleportSection: View {
         phase = .transferring(step: "Importing data to cloud...")
         try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
 
-        // Step 4 — Switch to managed assistant
-        phase = .transferring(step: "Switching to cloud assistant...")
+        // Step 4 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
             throw TeleportError.managedEntryNotFound
         }
-        AppDelegate.shared?.performSwitchAssistant(to: managedAssistant)
+        targetAssistant = managedAssistant
         transferTask = nil
 
-        // Step 5 — Verification phase (do NOT retire)
+        // Step 5 — Verification phase (do NOT retire or switch yet)
         phase = .verifying
     }
 
