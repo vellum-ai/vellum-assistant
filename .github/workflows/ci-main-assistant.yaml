@@ -138,6 +138,24 @@ jobs:
           path: assistant/.test-durations
           key: test-durations-${{ github.run_id }}
 
+  feature-flag-sync-check:
+    name: Feature Flag Sync Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Check registry flags exist in LaunchDarkly
+        run: bun run meta/feature-flags/check-launchdarkly-sync.ts
+        env:
+          PLATFORM_API_URL: ${{ secrets.PLATFORM_API_URL }}
+
   openapi-check:
     name: OpenAPI Spec Check
     runs-on: ubuntu-latest
@@ -170,7 +188,7 @@ jobs:
 
   notify-assistant:
     name: Slack Notification (Assistant)
-    needs: [lint, typecheck, test]
+    needs: [lint, typecheck, test, feature-flag-sync-check]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -183,11 +201,11 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.typecheck.result }}" == "failure" || "${{ needs.test.result }}" == "failure" ]]; then
+          if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.typecheck.result }}" == "failure" || "${{ needs.test.result }}" == "failure" || "${{ needs.feature-flag-sync-check.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.lint.result }}" == "cancelled" || "${{ needs.typecheck.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.lint.result }}" == "cancelled" || "${{ needs.typecheck.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled" || "${{ needs.feature-flag-sync-check.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ "${{ needs.lint.result }}" == "skipped" || "${{ needs.typecheck.result }}" == "skipped" || "${{ needs.test.result }}" == "skipped" ]]; then
+          elif [[ "${{ needs.lint.result }}" == "skipped" || "${{ needs.typecheck.result }}" == "skipped" || "${{ needs.test.result }}" == "skipped" || "${{ needs.feature-flag-sync-check.result }}" == "skipped" ]]; then
             STATUS="skipped"
           else
             STATUS="success"
