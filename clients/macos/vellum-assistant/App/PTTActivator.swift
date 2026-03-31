@@ -83,18 +83,43 @@ struct PTTActivator: Codable, Equatable {
 
     /// In-memory cache populated asynchronously so that the first
     /// UserDefaults read does not block the main thread during app launch.
-    /// Access via `cached`; mutated only by `refreshCache()`.
+    /// Access via `cached`; mutated only by `refreshCache()` / `updateCache()`.
     @MainActor private static var _cached: PTTActivator?
 
+    /// In-flight cache load task. Stored so `ensureCacheReady()` can await
+    /// a previously-started `warmCache()` without launching a second read.
+    @MainActor private static var _cacheTask: Task<PTTActivator, Never>?
+
     /// Returns the cached activator, falling back to `defaultActivator`
-    /// until `refreshCache()` completes.
+    /// until the cache is populated.
     @MainActor static var cached: PTTActivator {
         _cached ?? .defaultActivator
     }
 
-    /// Reads the stored activator off the main thread and updates the cache.
-    /// Callers should `await` to ensure the cache is populated before reading it.
+    /// Kicks off an async UserDefaults read without blocking the caller.
+    /// Call this as early as possible (e.g. `applicationDidFinishLaunching`)
+    /// so the result is ready by the time `ensureCacheReady()` is awaited.
+    @MainActor static func warmCache() {
+        guard _cacheTask == nil else { return }
+        _cacheTask = Task.detached { Self.fromStored() }
+    }
+
+    /// Awaits the in-flight cache load (started by `warmCache()`) and
+    /// applies the result. If `warmCache()` was never called, reads
+    /// synchronously on a detached task.
+    @MainActor static func ensureCacheReady() async {
+        if let task = _cacheTask {
+            _cached = await task.value
+            _cacheTask = nil
+        } else {
+            _cached = await Task.detached { Self.fromStored() }.value
+        }
+    }
+
+    /// Re-reads UserDefaults off the main thread and updates the cache.
+    /// Used when the activation key is changed remotely.
     @MainActor static func refreshCache() async {
+        _cacheTask = nil
         let result = await Task.detached { Self.fromStored() }.value
         _cached = result
     }
@@ -102,6 +127,7 @@ struct PTTActivator: Codable, Equatable {
     /// Synchronously updates the cache after a local write (e.g. settings change).
     @MainActor static func updateCache(_ activator: PTTActivator) {
         _cached = activator
+        _cacheTask = nil
     }
 
     // MARK: - Persistence

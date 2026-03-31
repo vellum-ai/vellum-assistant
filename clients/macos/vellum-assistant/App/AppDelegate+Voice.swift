@@ -116,7 +116,14 @@ extension AppDelegate {
                 self?.updateMenuBarIcon()
             }
         }
-        voiceInput?.start()
+        // Await the PTT cache (warmed in applicationDidFinishLaunching) before
+        // starting monitors so they use the user's stored key, not the default.
+        // The background read was kicked off early in launch and is almost
+        // certainly complete, so the await typically returns immediately.
+        Task { @MainActor [weak self] in
+            await PTTActivator.ensureCacheReady()
+            self?.voiceInput?.start()
+        }
 
         // Restart key monitors when the activation key is changed remotely via HTTP
         NotificationCenter.default.addObserver(

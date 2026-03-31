@@ -339,6 +339,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Self.shared = self
 
+        // Kick off the PTT activator UserDefaults read on a background
+        // thread as early as possible so it completes before proceedToApp()
+        // sets up voice input monitors.
+        PTTActivator.warmCache()
+
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
         _ = ChatDiagnosticsStore.shared
@@ -562,10 +567,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         registerSidebarToggleMonitor()
         setupHotKey()
         setupEscapeMonitor()
-        Task {
-            await PTTActivator.refreshCache()
-            setupVoiceInput()
-        }
+        setupVoiceInput()
         setupAmbientAgent()
         setupSurfaceManager()
         setupToolConfirmationNotifications()
