@@ -674,6 +674,7 @@ struct MessageListView: View {
                         isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
                         hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
                         hasUserMessage: state.hasUserMessage,
+                        hasEverSentMessage: hasEverSentMessage,
                         activePendingRequestId: state.activePendingRequestId,
                         latestAssistantId: state.latestAssistantId,
                         anchoredThinkingIndex: state.anchoredThinkingIndex,
@@ -1213,6 +1214,7 @@ private struct MessageCellView: View, Equatable {
             && lhs.isConfirmationRenderedInline == rhs.isConfirmationRenderedInline
             && lhs.hasPrecedingAssistant == rhs.hasPrecedingAssistant
             && lhs.hasUserMessage == rhs.hasUserMessage
+            && lhs.hasEverSentMessage == rhs.hasEverSentMessage
             && lhs.activePendingRequestId == rhs.activePendingRequestId
             && lhs.latestAssistantId == rhs.latestAssistantId
             && lhs.anchoredThinkingIndex == rhs.anchoredThinkingIndex
@@ -1239,6 +1241,7 @@ private struct MessageCellView: View, Equatable {
     let isConfirmationRenderedInline: Bool
     let hasPrecedingAssistant: Bool
     let hasUserMessage: Bool
+    let hasEverSentMessage: Bool
     let activePendingRequestId: String?
     let latestAssistantId: UUID?
     let anchoredThinkingIndex: Int?
@@ -1285,8 +1288,6 @@ private struct MessageCellView: View, Equatable {
         }
         return hasher.finalize()
     }
-
-    @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private func modelListView(for msg: ChatMessage) -> some View {
         ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders, providerCatalog: providerCatalog)
