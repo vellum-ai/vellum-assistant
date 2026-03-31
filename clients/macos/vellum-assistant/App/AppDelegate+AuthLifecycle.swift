@@ -701,6 +701,9 @@ extension AppDelegate {
 
             do {
                 try await vellumCli.retire(name: assistantName)
+                // Explicitly stop the retired assistant's processes to ensure
+                // nothing lingers (the CLI retire may not kill all child processes).
+                await vellumCli.stop(name: assistantName)
             } catch {
                 log.error("CLI retire failed: \(error.localizedDescription)")
                 let alert = NSAlert()
@@ -721,10 +724,6 @@ extension AppDelegate {
                 await vellumCli.stop(name: assistantName)
                 self.removeLockfileEntry(assistantId: assistantName)
             }
-
-            // Explicitly stop the retired assistant's processes to ensure
-            // nothing lingers (the CLI retire may not kill all child processes).
-            await vellumCli.stop(name: assistantName)
 
             // Check if other assistants remain in the lockfile.
             // Prefer remote assistants (always reachable), then try waking local ones.
