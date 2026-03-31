@@ -85,9 +85,7 @@ struct SidebarConversationItem: View, Equatable {
                         onMoveToGroup(group.id)
                     }
                 }
-                if conversation.groupId != nil,
-                   let currentGroup = moveToCurrentGroup,
-                   !currentGroup.isSystemGroup {
+                if conversation.groupId != nil {
                     VMenuDivider()
                     VMenuItem(label: "Remove from group") {
                         onMoveToGroup(nil)

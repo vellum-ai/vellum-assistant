@@ -1294,6 +1294,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
         conversations[index].groupId = groupId
         conversations[index].displayOrder = nil
+        // When ungrouping, bump lastInteractedAt so the conversation appears
+        // at the top of the ungrouped list (which sorts by recency).
+        if groupId == nil {
+            conversations[index].lastInteractedAt = Date()
+        }
         sendReorderConversations()
     }
 
