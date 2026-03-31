@@ -252,6 +252,11 @@ struct ComposerView: View {
                 onPasteImage: onPaste
             )
             .fixedSize(horizontal: false, vertical: true)
+            // Prevent inherited .animation() modifiers from creating animation
+            // transactions that snapshot the NSView's CALayer. Without this,
+            // parent animations (e.g. .animation(value: isComposerFocused)) can
+            // freeze the text view's rendering, making typed text invisible.
+            .transaction { $0.animation = nil }
         }
         .padding(.vertical, VSpacing.xs)
         .fixedSize(horizontal: false, vertical: true)
