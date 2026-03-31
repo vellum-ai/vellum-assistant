@@ -36,7 +36,6 @@ private enum TeleportPhase {
     case idle
     case transferring(step: String)
     case verifying
-    case completed(oldAssistantId: String)
     case failed(error: String)
 }
 
