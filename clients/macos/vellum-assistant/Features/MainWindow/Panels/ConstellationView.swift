@@ -1274,15 +1274,6 @@ struct ConstellationView: View {
                 fitAll(viewSize: viewSize)
             }
         }
-        .padding(VSpacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBase.opacity(0.85))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
     }
 
     // MARK: - Center Avatar
