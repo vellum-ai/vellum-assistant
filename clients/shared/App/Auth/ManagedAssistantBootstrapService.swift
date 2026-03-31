@@ -195,6 +195,14 @@ public final class ManagedAssistantBootstrapService {
         }
     }
 
+    /// Fast, local-only check for an existing managed assistant in the current
+    /// platform environment. Inspects the lockfile without making any network
+    /// calls, so it can gate the more expensive hatch flow cheaply.
+    public func checkExistingManagedAssistant() -> LockfileAssistant? {
+        let all = LockfileAssistant.loadAll()
+        return all.first { $0.isManaged && $0.isCurrentEnvironment }
+    }
+
     private func mapPlatformError(_ error: PlatformAPIError) -> ManagedBootstrapError {
         switch error {
         case .authenticationRequired:
