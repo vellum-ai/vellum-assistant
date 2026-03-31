@@ -142,3 +142,60 @@ export interface OutlookMasterCategory {
 export interface OutlookMasterCategoryListResponse {
   value?: OutlookMasterCategory[];
 }
+
+/** Predicates for matching messages in a mail rule */
+export interface OutlookMessageRulePredicates {
+  senderContains?: string[];
+  subjectContains?: string[];
+  bodyContains?: string[];
+  fromAddresses?: OutlookRecipient[];
+  hasAttachments?: boolean;
+  importance?: "low" | "normal" | "high";
+}
+
+/** Actions to take when a mail rule matches */
+export interface OutlookMessageRuleActions {
+  moveToFolder?: string;
+  delete?: boolean;
+  stopProcessingRules?: boolean;
+  markAsRead?: boolean;
+  forwardTo?: OutlookRecipient[];
+  markImportance?: "low" | "normal" | "high";
+}
+
+/** A mail rule for inbox message processing */
+export interface OutlookMessageRule {
+  id?: string;
+  displayName: string;
+  sequence: number;
+  isEnabled: boolean;
+  conditions?: OutlookMessageRulePredicates;
+  actions?: OutlookMessageRuleActions;
+}
+
+/** Response from listing mail rules */
+export interface OutlookMessageRuleListResponse {
+  value?: OutlookMessageRule[];
+}
+
+/** Automatic reply (out-of-office) settings */
+export interface OutlookAutoReplySettings {
+  status: "disabled" | "alwaysEnabled" | "scheduled";
+  externalAudience: "none" | "contactsOnly" | "all";
+  internalReplyMessage?: string;
+  externalReplyMessage?: string;
+  scheduledStartDateTime?: { dateTime: string; timeZone: string };
+  scheduledEndDateTime?: { dateTime: string; timeZone: string };
+}
+
+/** Mailbox settings containing automatic replies configuration */
+export interface OutlookMailboxSettings {
+  automaticRepliesSetting?: OutlookAutoReplySettings;
+}
+
+/** Delta query response with pagination support */
+export interface OutlookDeltaResponse<T> {
+  value?: T[];
+  "@odata.deltaLink"?: string;
+  "@odata.nextLink"?: string;
+}
