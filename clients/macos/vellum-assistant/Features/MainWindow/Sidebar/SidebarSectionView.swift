@@ -299,11 +299,26 @@ struct SidebarSectionView: View {
         .pointerCursor()
 
         if isSubGroupExpanded {
-            ForEach(subGroup.conversations) { conversation in
-                makeRow(conversation)
-                    .equatable()
-                    .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
-                    .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+            VStack(spacing: 0) {
+                ForEach(subGroup.conversations) { conversation in
+                    makeRow(conversation)
+                        .equatable()
+                        .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
+                        .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                }
+            }
+            .padding(.vertical, VSpacing.xxs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.contentTertiary.opacity(0.03))
+            )
+            .overlay(alignment: .leading) {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: VRadius.md,
+                    bottomLeadingRadius: VRadius.md
+                )
+                .fill(VColor.contentTertiary.opacity(0.12))
+                .frame(width: 2)
             }
         }
     }
