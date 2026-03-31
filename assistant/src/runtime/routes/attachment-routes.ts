@@ -229,7 +229,9 @@ function handleGetAttachment(attachmentId: string): Response {
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
     kind: attachment.kind,
-    data: attachment.dataBase64,
+    // Return null for file-backed attachments so the gateway's hydration check
+    // (payload.data == null) triggers a fetch from the /content endpoint.
+    data: isFileBacked ? null : attachment.dataBase64,
     // Signal to clients that they should fetch content via the /content endpoint
     ...(isFileBacked ? { fileBacked: true } : {}),
   });
