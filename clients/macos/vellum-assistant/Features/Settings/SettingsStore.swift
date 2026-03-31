@@ -2560,11 +2560,14 @@ public final class SettingsStore: ObservableObject {
         }
 
         let taskAssistantId = connectedId
+        let taskOrgId = orgId
 
         recoveryModeRefreshing = true
         recoveryModeRefreshError = nil
         defer {
-            if UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId {
+            let stillSameAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId
+            let stillSameOrg = UserDefaults.standard.string(forKey: "connectedOrganizationId") == taskOrgId
+            if stillSameAssistant && stillSameOrg {
                 recoveryModeRefreshing = false
             }
         }
@@ -2589,6 +2592,14 @@ public final class SettingsStore: ObservableObject {
             managedAssistantRecoveryMode = updated.recovery_mode
             log.info("Refreshed recovery mode for assistant \(assistant.assistantId, privacy: .public): enabled=\(updated.recovery_mode?.enabled ?? false)")
         } catch {
+            // Only apply the error if the context hasn't changed mid-flight — a stale error
+            // from a previous assistant/org must not overwrite clean state for the new context.
+            let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+            guard currentConnectedId == connectedId && currentOrgId == orgId else {
+                log.info("Discarding stale refresh error for assistant \(assistant.assistantId, privacy: .public): context changed while request was in flight")
+                return
+            }
             recoveryModeRefreshError = error.localizedDescription
             log.error("Failed to refresh recovery mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
         }
@@ -2615,11 +2626,14 @@ public final class SettingsStore: ObservableObject {
             }
 
             let taskAssistantId = connectedId
+            let taskOrgId = orgId
 
             recoveryModeEntering = true
             recoveryModeEnterError = nil
             defer {
-                if UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId {
+                let stillSameAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId
+                let stillSameOrg = UserDefaults.standard.string(forKey: "connectedOrganizationId") == taskOrgId
+                if stillSameAssistant && stillSameOrg {
                     recoveryModeEntering = false
                 }
             }
@@ -2645,6 +2659,13 @@ public final class SettingsStore: ObservableObject {
                 managedAssistantRecoveryMode = updated.recovery_mode
                 log.info("Entered recovery mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
+                // Only apply the error if the context hasn't changed mid-flight.
+                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                guard currentConnectedId == connectedId && currentOrgId == orgId else {
+                    log.info("Discarding stale enter error for assistant \(assistant.assistantId, privacy: .public): context changed while request was in flight")
+                    return
+                }
                 recoveryModeEnterError = error.localizedDescription
                 log.error("Failed to enter recovery mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
             }
@@ -2672,11 +2693,14 @@ public final class SettingsStore: ObservableObject {
             }
 
             let taskAssistantId = connectedId
+            let taskOrgId = orgId
 
             recoveryModeExiting = true
             recoveryModeExitError = nil
             defer {
-                if UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId {
+                let stillSameAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId
+                let stillSameOrg = UserDefaults.standard.string(forKey: "connectedOrganizationId") == taskOrgId
+                if stillSameAssistant && stillSameOrg {
                     recoveryModeExiting = false
                 }
             }
@@ -2702,6 +2726,13 @@ public final class SettingsStore: ObservableObject {
                 managedAssistantRecoveryMode = updated.recovery_mode
                 log.info("Exited recovery mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
+                // Only apply the error if the context hasn't changed mid-flight.
+                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                guard currentConnectedId == connectedId && currentOrgId == orgId else {
+                    log.info("Discarding stale exit error for assistant \(assistant.assistantId, privacy: .public): context changed while request was in flight")
+                    return
+                }
                 recoveryModeExitError = error.localizedDescription
                 log.error("Failed to exit recovery mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
             }
