@@ -1,1 +1,112 @@
-[]
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "outlook_trash",
+      "description": "Move an Outlook message to Deleted Items. Include a confidence score (0-1).",
+      "category": "outlook",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "description": "Outlook message ID to move to Deleted Items"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Outlook accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["message_id", "confidence"]
+      },
+      "executor": "tools/outlook-trash.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "outlook_categories",
+      "description": "Add, remove, or list available categories on Outlook messages. Include a confidence score (0-1) for add/remove actions.",
+      "category": "outlook",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["add", "remove", "list_available"],
+            "description": "Category action"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "Outlook message ID (required for add/remove)"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Category names to add or remove"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Outlook accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["action", "confidence"]
+      },
+      "executor": "tools/outlook-categories.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "outlook_follow_up",
+      "description": "Track, list, untrack, or complete follow-up flags on Outlook messages using the native flag system. Include a confidence score (0-1) for track/complete/untrack actions.",
+      "category": "outlook",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["track", "list", "untrack", "complete"],
+            "description": "Follow-up action"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "Outlook message ID (required for track/complete/untrack)"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Outlook accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["action", "confidence"]
+      },
+      "executor": "tools/outlook-follow-up.ts",
+      "execution_target": "host"
+    }
+  ]
+}

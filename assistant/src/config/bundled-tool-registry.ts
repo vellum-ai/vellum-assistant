@@ -107,6 +107,10 @@ import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.
 import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
 // ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
+// ── outlook ───────────────────────────────────────────────────────────────────
+import * as outlookCategories from "./bundled-skills/outlook/tools/outlook-categories.js";
+import * as outlookFollowUp from "./bundled-skills/outlook/tools/outlook-follow-up.js";
+import * as outlookTrash from "./bundled-skills/outlook/tools/outlook-trash.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -250,6 +254,11 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["gmail:tools/gmail-vacation.ts", gmailVacation],
   ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
   ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
+
+  // outlook
+  ["outlook:tools/outlook-trash.ts", outlookTrash],
+  ["outlook:tools/outlook-categories.ts", outlookCategories],
+  ["outlook:tools/outlook-follow-up.ts", outlookFollowUp],
 
   // google-calendar
   ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],
