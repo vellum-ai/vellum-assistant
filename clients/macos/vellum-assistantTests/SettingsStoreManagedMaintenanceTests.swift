@@ -690,4 +690,212 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
             "managedAssistantMaintenanceMode must not be updated with a stale enter response when connectedAssistantId changed mid-flight")
         XCTAssertFalse(store.maintenanceModeEntering)
     }
+
+    /// Verifies that `enterManagedAssistantMaintenanceMode` does not overwrite
+    /// `managedAssistantMaintenanceMode` when `connectedOrganizationId` changes mid-flight.
+    func testEnterDiscardsStaleResponseWhenOrgIdChangesMidFlight() async {
+        defer { cleanupStandard() }
+
+        let url = URL(string: "https://example.com")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        BlockingMaintenanceURLProtocol.stagedResponse = (
+            response,
+            assistantPayload(id: testAssistantId, maintenanceEnabled: true, debugPodName: "enter-stale-pod-org")
+        )
+        BlockingMaintenanceURLProtocol.pendingInstance = nil
+
+        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        defer {
+            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
+            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
+            BlockingMaintenanceURLProtocol.stagedResponse = nil
+        }
+
+        let store = makeStore()
+
+        // Kick off enter — it fires a Task internally and returns immediately.
+        store.enterManagedAssistantMaintenanceMode()
+
+        // Wait for the stub to receive the in-flight request.
+        let requestReceived = expectation(description: "enter org: blocking stub received request")
+        let waitTask = Task {
+            var ticks = 0
+            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                ticks += 1
+            }
+            requestReceived.fulfill()
+        }
+        await fulfillment(of: [requestReceived], timeout: 5)
+        waitTask.cancel()
+
+        // Simulate organization switch mid-flight.
+        UserDefaults.standard.set("different-org-id-enter", forKey: "connectedOrganizationId")
+
+        // Unblock the response.
+        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+
+        // Wait for the enter task to finish.
+        let done = expectation(description: "enter org finishes")
+        let pollTask = Task {
+            var ticks = 0
+            while store.maintenanceModeEntering && ticks < 200 {
+                await Task.yield()
+                ticks += 1
+            }
+            done.fulfill()
+        }
+        await fulfillment(of: [done], timeout: 5)
+        pollTask.cancel()
+
+        // The staleness guard should discard the stale response.
+        XCTAssertNil(store.managedAssistantMaintenanceMode,
+            "managedAssistantMaintenanceMode must not be updated with a stale enter response when connectedOrganizationId changed mid-flight")
+        XCTAssertFalse(store.maintenanceModeEntering)
+    }
+
+    /// Verifies that `exitManagedAssistantMaintenanceMode` does not overwrite
+    /// `managedAssistantMaintenanceMode` when `connectedAssistantId` changes mid-flight.
+    func testExitDiscardsStaleResponseWhenAssistantIdChangesMidFlight() async {
+        defer { cleanupStandard() }
+
+        let url = URL(string: "https://example.com")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        BlockingMaintenanceURLProtocol.stagedResponse = (
+            response,
+            assistantPayload(id: testAssistantId, maintenanceEnabled: false)
+        )
+        BlockingMaintenanceURLProtocol.pendingInstance = nil
+
+        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        defer {
+            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
+            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
+            BlockingMaintenanceURLProtocol.stagedResponse = nil
+        }
+
+        let store = makeStore()
+        // Seed an active maintenance state so exit has something to clear.
+        store.managedAssistantMaintenanceMode = PlatformAssistantMaintenanceMode(
+            enabled: true,
+            entered_at: "2026-03-30T10:00:00Z",
+            debug_pod_name: "exit-stale-pod"
+        )
+
+        // Kick off exit — it fires a Task internally and returns immediately.
+        store.exitManagedAssistantMaintenanceMode()
+
+        // Wait for the stub to receive the in-flight request.
+        let requestReceived = expectation(description: "exit: blocking stub received request")
+        let waitTask = Task {
+            var ticks = 0
+            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                ticks += 1
+            }
+            requestReceived.fulfill()
+        }
+        await fulfillment(of: [requestReceived], timeout: 5)
+        waitTask.cancel()
+
+        // Simulate assistant switch mid-flight.
+        UserDefaults.standard.set("different-assistant-id-exit", forKey: "connectedAssistantId")
+
+        // Unblock the response.
+        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+
+        // Wait for the exit task to finish.
+        let done = expectation(description: "exit finishes")
+        let pollTask = Task {
+            var ticks = 0
+            while store.maintenanceModeExiting && ticks < 200 {
+                await Task.yield()
+                ticks += 1
+            }
+            done.fulfill()
+        }
+        await fulfillment(of: [done], timeout: 5)
+        pollTask.cancel()
+
+        // The staleness guard should discard the stale response — seeded state must be preserved.
+        let mode = try! XCTUnwrap(store.managedAssistantMaintenanceMode,
+            "managedAssistantMaintenanceMode must not be cleared by a stale exit response when connectedAssistantId changed mid-flight")
+        XCTAssertTrue(mode.enabled,
+            "The seeded enabled=true state should be preserved, not overwritten by the stale response")
+        XCTAssertFalse(store.maintenanceModeExiting)
+    }
+
+    /// Verifies that `exitManagedAssistantMaintenanceMode` does not overwrite
+    /// `managedAssistantMaintenanceMode` when `connectedOrganizationId` changes mid-flight.
+    func testExitDiscardsStaleResponseWhenOrgIdChangesMidFlight() async {
+        defer { cleanupStandard() }
+
+        let url = URL(string: "https://example.com")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        BlockingMaintenanceURLProtocol.stagedResponse = (
+            response,
+            assistantPayload(id: testAssistantId, maintenanceEnabled: false)
+        )
+        BlockingMaintenanceURLProtocol.pendingInstance = nil
+
+        URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
+        URLProtocol.registerClass(BlockingMaintenanceURLProtocol.self)
+        defer {
+            URLProtocol.unregisterClass(BlockingMaintenanceURLProtocol.self)
+            URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
+            BlockingMaintenanceURLProtocol.stagedResponse = nil
+        }
+
+        let store = makeStore()
+        // Seed an active maintenance state so exit has something to clear.
+        store.managedAssistantMaintenanceMode = PlatformAssistantMaintenanceMode(
+            enabled: true,
+            entered_at: "2026-03-30T10:00:00Z",
+            debug_pod_name: "exit-stale-pod-org"
+        )
+
+        // Kick off exit — it fires a Task internally and returns immediately.
+        store.exitManagedAssistantMaintenanceMode()
+
+        // Wait for the stub to receive the in-flight request.
+        let requestReceived = expectation(description: "exit org: blocking stub received request")
+        let waitTask = Task {
+            var ticks = 0
+            while BlockingMaintenanceURLProtocol.pendingInstance == nil && ticks < 500 {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                ticks += 1
+            }
+            requestReceived.fulfill()
+        }
+        await fulfillment(of: [requestReceived], timeout: 5)
+        waitTask.cancel()
+
+        // Simulate organization switch mid-flight.
+        UserDefaults.standard.set("different-org-id-exit", forKey: "connectedOrganizationId")
+
+        // Unblock the response.
+        BlockingMaintenanceURLProtocol.pendingInstance?.resume()
+
+        // Wait for the exit task to finish.
+        let done = expectation(description: "exit org finishes")
+        let pollTask = Task {
+            var ticks = 0
+            while store.maintenanceModeExiting && ticks < 200 {
+                await Task.yield()
+                ticks += 1
+            }
+            done.fulfill()
+        }
+        await fulfillment(of: [done], timeout: 5)
+        pollTask.cancel()
+
+        // The staleness guard should discard the stale response — seeded state must be preserved.
+        let mode = try! XCTUnwrap(store.managedAssistantMaintenanceMode,
+            "managedAssistantMaintenanceMode must not be cleared by a stale exit response when connectedOrganizationId changed mid-flight")
+        XCTAssertTrue(mode.enabled,
+            "The seeded enabled=true state should be preserved, not overwritten by the stale response")
+        XCTAssertFalse(store.maintenanceModeExiting)
+    }
 }
