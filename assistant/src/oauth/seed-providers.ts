@@ -642,7 +642,6 @@ const PROVIDER_SEED_DATA: Record<
     appType: "App registration",
     identityUrl: "https://graph.microsoft.com/v1.0/me",
     identityResponsePaths: ["mail", "userPrincipalName"],
-    featureFlag: "outlook-oauth-integration",
   },
 
   // Manual-token providers: these don't use OAuth2 flows but need provider
