@@ -1,11 +1,9 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   setPlatformAssistantId,
   setPlatformBaseUrl,
   setPlatformOrganizationId,
   setPlatformUserId,
 } from "../config/env.js";
-import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { setSentryOrganizationId, setSentryUserId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
@@ -139,12 +137,8 @@ export function registerWatcherProviders(): void {
   registerWatcherProvider(googleCalendarProvider);
   registerWatcherProvider(githubProvider);
   registerWatcherProvider(linearProvider);
-
-  const config = getConfig();
-  if (isAssistantFeatureFlagEnabled("outlook-oauth-integration", config)) {
-    registerWatcherProvider(outlookProvider);
-    registerWatcherProvider(outlookCalendarProvider);
-  }
+  registerWatcherProvider(outlookProvider);
+  registerWatcherProvider(outlookCalendarProvider);
 
   initWatcherEngine();
 }
