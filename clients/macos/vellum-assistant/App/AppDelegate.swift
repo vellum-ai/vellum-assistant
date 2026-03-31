@@ -80,6 +80,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
     let appsClient: any AppsClientProtocol = AppsClient()
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
+    /// Shared feature flag store — caches resolved flags in memory so that
+    /// hot paths (e.g. `SoundManager.play()`) avoid synchronous file I/O on
+    /// the main thread.
+    let featureFlagStore = AssistantFeatureFlagStore()
+
     lazy var recordingManager: RecordingManager = RecordingManager(connectionManager: connectionManager)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?
@@ -94,7 +99,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var bundleConfirmationWindow: BundleConfirmationWindow?
 
     var pairingApprovalWindow: PairingApprovalWindow?
-    var acpPermissionWindow: AcpPermissionWindow?
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
     /// Background task that retries actor-token bootstrap until success.
@@ -334,6 +338,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Self.shared = self
 
+        // Kick off the PTT activator UserDefaults read on a background
+        // thread as early as possible so it completes before proceedToApp()
+        // sets up voice input monitors.
+        PTTActivator.warmCache()
+
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
         _ = ChatDiagnosticsStore.shared
@@ -469,9 +478,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         installFileMenuDelegate()
         setupHotKey()
 
-        // Install CLI symlinks early so they are available before the daemon
-        // starts, regardless of auth or onboarding state.
-        installCLISymlinkIfNeeded()
+        // Install CLI symlinks in the background. installSymlink() spawns
+        // /usr/bin/which via Process.waitUntilExit() which internally blocks
+        // on a DispatchSemaphore — running it on the main thread causes a
+        // ~2s app hang (LUM-630). The symlinks are best-effort and don't
+        // need to complete before the daemon starts.
+        let isDevMode = DevModeManager.shared.isDevMode
+        Task.detached(priority: .utility) {
+            Self.installCLISymlinkIfNeeded(isDevMode: isDevMode)
+        }
 
         let hasAssistants = lockfileHasAssistants()
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
@@ -566,7 +581,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
 
-        SoundManager.shared.start()
+        SoundManager.shared.start(featureFlagStore: featureFlagStore)
         RandomSoundTimer.shared.start()
         if !hasPlayedAppOpenSound {
             hasPlayedAppOpenSound = true
@@ -720,7 +735,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()
-        vellumCli.stop()
+        // Blocking is intentional here — the process exits immediately after
+        // this callback returns, so we must wait synchronously for the CLI to
+        // finish stopping the daemon/gateway.  stop() is nonisolated so
+        // Task.detached avoids a deadlock with the main-thread semaphore.
+        let cli = vellumCli
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            await cli.stop()
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 16)
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)

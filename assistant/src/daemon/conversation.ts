@@ -23,7 +23,11 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import { ContextWindowManager } from "../context/window-manager.js";
+import type { Speed } from "../config/schemas/inference.js";
+import {
+  ContextWindowManager,
+  type ContextWindowResult,
+} from "../context/window-manager.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
@@ -39,6 +43,7 @@ import {
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import { updateConversationContextWindow } from "../memory/conversation-crud.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import { patternMatchesCandidate } from "../permissions/trust-store.js";
@@ -264,6 +269,7 @@ export class Conversation {
     broadcastToAllClients?: (msg: ServerMessage) => void,
     memoryPolicy?: ConversationMemoryPolicy,
     sharedCesClient?: CesClient,
+    speedOverride?: Speed,
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
@@ -385,6 +391,7 @@ export class Conversation {
     };
 
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
+    const resolvedSpeed = speedOverride ?? config.speed;
 
     this.agentLoop = new AgentLoop(
       provider,
@@ -394,8 +401,8 @@ export class Conversation {
         maxInputTokens: config.contextWindow.maxInputTokens,
         thinking: config.thinking,
         effort: config.effort,
-        ...(fastModeEnabled && config.speed === "fast"
-          ? { speed: config.speed }
+        ...(fastModeEnabled && resolvedSpeed === "fast"
+          ? { speed: resolvedSpeed }
           : {}),
       },
       toolDefs.length > 0 ? toolDefs : undefined,
@@ -877,6 +884,25 @@ export class Conversation {
       ...(statusText ? { statusText } : {}),
     } as ServerMessage;
     this.sendToClient(msg);
+  }
+
+  async forceCompact(): Promise<ContextWindowResult> {
+    const result = await this.contextWindowManager.maybeCompact(
+      this.messages,
+      this.abortController?.signal ?? undefined,
+      { force: true, lastCompactedAt: this.contextCompactedAt ?? undefined },
+    );
+    if (result.compacted) {
+      this.messages = result.messages;
+      this.contextCompactedMessageCount += result.compactedPersistedMessages;
+      this.contextCompactedAt = Date.now();
+      updateConversationContextWindow(
+        this.conversationId,
+        result.summaryText,
+        this.contextCompactedMessageCount,
+      );
+    }
+    return result;
   }
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {

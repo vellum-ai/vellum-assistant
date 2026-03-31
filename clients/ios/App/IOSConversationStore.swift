@@ -25,6 +25,8 @@ struct IOSConversation: Identifiable {
     var scheduleJobId: String?
     /// The parent conversation/message this conversation forked from, if any.
     var forkParent: ConversationForkParent?
+    /// The conversation group this conversation belongs to, if any.
+    var groupId: String?
     var hasUnseenLatestAssistantMessage: Bool
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
@@ -36,7 +38,7 @@ struct IOSConversation: Identifiable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, groupId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -48,6 +50,7 @@ struct IOSConversation: Identifiable {
         self.isPrivate = isPrivate
         self.scheduleJobId = scheduleJobId
         self.forkParent = forkParent
+        self.groupId = groupId
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
         self.latestAssistantMessageAt = latestAssistantMessageAt
         self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
@@ -233,6 +236,7 @@ class IOSConversationStore: ObservableObject {
     ) {
         conversation.isPinned = item.isPinned ?? false
         conversation.displayOrder = item.displayOrder.map { Int($0) }
+        conversation.groupId = item.groupId
         conversation.hasUnseenLatestAssistantMessage =
             item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
         conversation.latestAssistantMessageAt = assistantTimestamp(

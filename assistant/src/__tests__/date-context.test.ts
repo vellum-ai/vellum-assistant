@@ -24,9 +24,9 @@ describe("buildTemporalContext", () => {
     expect(result).toEndWith("</temporal_context>");
   });
 
-  test("includes today date and weekday", () => {
+  test("includes today date, weekday, time and offset on one line", () => {
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: "UTC" });
-    expect(result).toContain("Today: 2026-02-18 (Wednesday)");
+    expect(result).toContain("Today: 2026-02-18 (Wed) 12:00 +00:00");
   });
 
   test("includes timezone", () => {
@@ -34,22 +34,16 @@ describe("buildTemporalContext", () => {
       nowMs: WED_FEB_18,
       timeZone: "America/New_York",
     });
-    expect(result).toContain("Timezone: America/New_York");
+    expect(result).toContain("TZ: America/New_York");
   });
 
-  test("includes current local time as ISO 8601 with offset", () => {
+  test("does not include UTC time, timezone source, or seconds", () => {
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: "UTC" });
-    expect(result).toContain("Current local time: 2026-02-18T12:00:00+00:00");
-  });
-
-  test("includes current UTC time from assistant host clock", () => {
-    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: "UTC" });
-    expect(result).toContain("Current UTC time: 2026-02-18T12:00:00.000Z");
-  });
-
-  test("includes timezone source", () => {
-    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: "UTC" });
-    expect(result).toContain("Timezone source:");
+    expect(result).not.toContain("Current UTC time");
+    expect(result).not.toContain("Current local time");
+    expect(result).not.toContain("Timezone source:");
+    // No seconds in the time
+    expect(result).not.toContain("12:00:00");
   });
 
   test("does not include week definitions, next weekend, next work week, or horizon dates", () => {
@@ -60,25 +54,25 @@ describe("buildTemporalContext", () => {
     expect(result).not.toContain("Upcoming dates");
   });
 
-  test("uses user timezone when provided and records source metadata", () => {
+  test("uses user timezone when provided", () => {
     const result = buildTemporalContext({
       nowMs: WED_FEB_18,
       hostTimeZone: "UTC",
       userTimeZone: "America/New_York",
     });
-    expect(result).toContain("Timezone: America/New_York");
-    expect(result).toContain("Current local time: 2026-02-18T07:00:00-05:00");
-    expect(result).toContain("Timezone source: user_profile_memory");
+    expect(result).toContain("TZ: America/New_York");
+    expect(result).toContain("Today: 2026-02-18 (Wed) 07:00 -05:00");
+    expect(result).not.toContain("(host fallback)");
   });
 
-  test("shows user timezone only when different from primary timezone", () => {
+  test("shows user TZ only when different from primary timezone", () => {
     // When user timezone equals the primary timezone, omit it
     const sameResult = buildTemporalContext({
       nowMs: WED_FEB_18,
       hostTimeZone: "UTC",
       configuredUserTimeZone: "UTC",
     });
-    expect(sameResult).not.toContain("User timezone:");
+    expect(sameResult).not.toContain("User TZ:");
 
     // When user timezone differs from host, it becomes the primary timezone
     // and the host timezone is shown as a secondary annotation
@@ -87,19 +81,19 @@ describe("buildTemporalContext", () => {
       hostTimeZone: "UTC",
       userTimeZone: "America/New_York",
     });
-    expect(diffResult).toContain("Timezone: America/New_York");
-    expect(diffResult).toContain("Assistant host timezone: UTC");
-    expect(diffResult).not.toContain("User timezone:");
+    expect(diffResult).toContain("TZ: America/New_York");
+    expect(diffResult).toContain("Host TZ: UTC");
+    expect(diffResult).not.toContain("User TZ:");
   });
 
-  test("shows assistant host timezone only when different from primary timezone", () => {
+  test("shows host TZ only when different from primary timezone", () => {
     // When host timezone equals the primary timezone, omit it
     const sameResult = buildTemporalContext({
       nowMs: WED_FEB_18,
       hostTimeZone: "UTC",
       timeZone: "UTC",
     });
-    expect(sameResult).not.toContain("Assistant host timezone:");
+    expect(sameResult).not.toContain("Host TZ:");
 
     // When different, include it
     const diffResult = buildTemporalContext({
@@ -107,7 +101,7 @@ describe("buildTemporalContext", () => {
       hostTimeZone: "UTC",
       userTimeZone: "America/New_York",
     });
-    expect(diffResult).toContain("Assistant host timezone: UTC");
+    expect(diffResult).toContain("Host TZ: UTC");
   });
 
   test("uses configured user timezone when profile timezone is unavailable", () => {
@@ -117,9 +111,9 @@ describe("buildTemporalContext", () => {
       configuredUserTimeZone: "America/Chicago",
       userTimeZone: null,
     });
-    expect(result).toContain("Timezone: America/Chicago");
-    expect(result).toContain("Current local time: 2026-02-18T06:00:00-06:00");
-    expect(result).toContain("Timezone source: user_settings");
+    expect(result).toContain("TZ: America/Chicago");
+    expect(result).toContain("Today: 2026-02-18 (Wed) 06:00 -06:00");
+    expect(result).not.toContain("(host fallback)");
   });
 
   test("configured user timezone takes precedence over profile timezone", () => {
@@ -129,19 +123,17 @@ describe("buildTemporalContext", () => {
       configuredUserTimeZone: "America/Los_Angeles",
       userTimeZone: "America/New_York",
     });
-    expect(result).toContain("Timezone: America/Los_Angeles");
-    expect(result).toContain("Current local time: 2026-02-18T04:00:00-08:00");
-    expect(result).toContain("Timezone source: user_settings");
+    expect(result).toContain("TZ: America/Los_Angeles");
+    expect(result).toContain("Today: 2026-02-18 (Wed) 04:00 -08:00");
   });
 
-  test("falls back to host timezone when user timezone is unavailable", () => {
+  test("falls back to host timezone with (host fallback) suffix", () => {
     const result = buildTemporalContext({
       nowMs: WED_FEB_18,
       hostTimeZone: "UTC",
       userTimeZone: null,
     });
-    expect(result).toContain("Timezone: UTC");
-    expect(result).toContain("Timezone source: assistant_host_fallback");
+    expect(result).toContain("TZ: UTC (host fallback)");
   });
 
   test("accepts UTC/GMT offset-style user timezone values", () => {
@@ -150,9 +142,9 @@ describe("buildTemporalContext", () => {
       hostTimeZone: "UTC",
       userTimeZone: "UTC+2",
     });
-    expect(result).toContain("Timezone: Etc/GMT-2");
-    expect(result).toContain("Current local time: 2026-02-18T14:00:00+02:00");
-    expect(result).toContain("Timezone source: user_profile_memory");
+    expect(result).toContain("TZ: Etc/GMT-2");
+    expect(result).toContain("Today: 2026-02-18 (Wed) 14:00 +02:00");
+    expect(result).not.toContain("(host fallback)");
   });
 
   test("accepts fractional UTC/GMT offset-style user timezone values", () => {
@@ -161,30 +153,30 @@ describe("buildTemporalContext", () => {
       hostTimeZone: "UTC",
       userTimeZone: "UTC+5:30",
     });
-    expect(result).toContain("Timezone: +05:30");
-    expect(result).toContain("Current local time: 2026-02-18T17:30:00+05:30");
-    expect(result).toContain("Timezone source: user_profile_memory");
+    expect(result).toContain("TZ: +05:30");
+    expect(result).toContain("Today: 2026-02-18 (Wed) 17:30 +05:30");
+    expect(result).not.toContain("(host fallback)");
   });
 
-  test("formats midnight hours as 00 (never 24) in local ISO output", () => {
+  test("formats midnight hours as 00 (never 24)", () => {
     const justAfterMidnight = Date.UTC(2026, 1, 19, 0, 5, 0);
     const result = buildTemporalContext({
       nowMs: justAfterMidnight,
       timeZone: "UTC",
     });
-    expect(result).toContain("Current local time: 2026-02-19T00:05:00+00:00");
-    expect(result).not.toContain("T24:05:00");
+    expect(result).toContain("00:05 +00:00");
+    expect(result).not.toContain("24:05");
   });
 
   test("Today line includes full YYYY-MM-DD format with year", () => {
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: "UTC" });
-    expect(result).toMatch(/Today: \d{4}-\d{2}-\d{2} \(\w+\)/);
+    expect(result).toMatch(/Today: \d{4}-\d{2}-\d{2} \(\w{3}\) \d{2}:\d{2}/);
     expect(result).toContain("2026-02-18");
   });
 
   test("handles year boundary correctly", () => {
     const result = buildTemporalContext({ nowMs: TUE_DEC_29, timeZone: "UTC" });
-    expect(result).toContain("Today: 2026-12-29 (Tuesday)");
+    expect(result).toContain("Today: 2026-12-29 (Tue)");
   });
 });
 
@@ -198,8 +190,7 @@ describe("DST-safe timezone behavior", () => {
       nowMs: WED_FEB_18,
       timeZone: "America/New_York",
     });
-    expect(result).toContain("Today: 2026-02-18 (Wednesday)");
-    expect(result).toContain("Current local time: 2026-02-18T07:00:00-05:00");
+    expect(result).toContain("Today: 2026-02-18 (Wed) 07:00 -05:00");
   });
 
   test("date labels are correct in timezone ahead of UTC", () => {
@@ -209,7 +200,7 @@ describe("DST-safe timezone behavior", () => {
       nowMs: nearMidnight,
       timeZone: "Asia/Tokyo",
     });
-    expect(result).toContain("Today: 2026-02-19 (Thursday)");
+    expect(result).toContain("Today: 2026-02-19 (Thu) 08:00 +09:00");
   });
 
   test("local offset tracks daylight saving changes", () => {
@@ -219,7 +210,7 @@ describe("DST-safe timezone behavior", () => {
       nowMs: summer,
       timeZone: "America/New_York",
     });
-    expect(result).toContain("Current local time: 2026-07-01T08:00:00-04:00");
+    expect(result).toContain("Today: 2026-07-01 (Wed) 08:00 -04:00");
   });
 });
 

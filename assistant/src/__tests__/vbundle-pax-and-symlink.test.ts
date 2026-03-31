@@ -6,33 +6,11 @@
  * - Builder emits PAX headers for paths >100 bytes; validator parses them
  * - buildExportVBundle follows symlinks when checking skillsDir
  */
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "vbundle-pax-symlink-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -69,14 +47,6 @@ import {
   buildVBundle,
 } from "../runtime/migrations/vbundle-builder.js";
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // PAX header round-trip

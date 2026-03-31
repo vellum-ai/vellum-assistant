@@ -3126,6 +3126,11 @@ export function buildSchema(): Record<string, unknown> {
               type: "array",
               items: { type: "string" },
             },
+            callback_transport: {
+              type: "string",
+              enum: ["loopback", "gateway"],
+              description: "OAuth callback transport. Defaults to loopback.",
+            },
           },
         },
         OAuthConnectDeferredResponse: {

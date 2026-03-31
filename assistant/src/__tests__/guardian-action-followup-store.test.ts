@@ -1,20 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "guardian-action-followup-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -27,7 +11,7 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   createGuardianActionRequest,
   expireGuardianActionRequest,
@@ -89,15 +73,6 @@ function createTestRequest(convId: string) {
 describe("guardian-action-followup-store", () => {
   beforeEach(() => {
     resetTables();
-  });
-
-  afterAll(() => {
-    resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   // ── markTimedOutWithReason ──────────────────────────────────────────

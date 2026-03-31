@@ -175,18 +175,13 @@ describe("generateTwiML with voice quality profile", () => {
 
     expect(twimlMedium).toContain('interruptSensitivity="medium"');
 
-    const twimlHigh = generateTwiML(
-      callSessionId,
-      relayUrl,
-      welcomeGreeting,
-      {
-        language: "en-US",
-        transcriptionProvider: "Deepgram",
-        ttsProvider: "Google",
-        voice: "Google.en-US-Journey-O",
-        interruptSensitivity: "high",
-      },
-    );
+    const twimlHigh = generateTwiML(callSessionId, relayUrl, welcomeGreeting, {
+      language: "en-US",
+      transcriptionProvider: "Deepgram",
+      ttsProvider: "Google",
+      voice: "Google.en-US-Journey-O",
+      interruptSensitivity: "high",
+    });
 
     expect(twimlHigh).toContain('interruptSensitivity="high"');
   });

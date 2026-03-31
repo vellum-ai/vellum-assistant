@@ -11,6 +11,7 @@ struct ImageLightboxOverlay: View {
     @ObservedObject var windowState: MainWindowState
     @State private var showControls = true
     @State private var controlsHideTask: Task<Void, Never>?
+    @State private var escapeMonitor: Any?
 
     private var lightbox: ImageLightboxState? { windowState.imageLightbox }
 
@@ -50,7 +51,8 @@ struct ImageLightboxOverlay: View {
                 }
                 .padding(.bottom, VSpacing.xl)
             }
-            .onExitCommand { dismiss() }
+            .onAppear { installEscapeMonitor() }
+            .onDisappear { removeEscapeMonitor() }
             .transition(.opacity.animation(VAnimation.standard))
         }
     }
@@ -151,6 +153,23 @@ struct ImageLightboxOverlay: View {
     private func dismiss() {
         withAnimation(VAnimation.standard) {
             windowState.dismissImageLightbox()
+        }
+    }
+
+    // MARK: - Escape Key Monitor
+
+    private func installEscapeMonitor() {
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53 else { return event } // 53 = Escape
+            dismiss()
+            return nil
+        }
+    }
+
+    private func removeEscapeMonitor() {
+        if let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
         }
     }
 }

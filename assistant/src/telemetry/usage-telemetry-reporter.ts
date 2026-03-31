@@ -97,13 +97,15 @@ export class UsageTelemetryReporter {
       // skip the flush and advance watermarks so events recorded during the
       // opt-out window are never sent retroactively.
       if (!getConfig().collectUsageData) {
+        // Advance only the timestamp watermarks. Leave the ID watermarks
+        // untouched so the compound-cursor branch stays active — setting them
+        // to "" would make the truthy check fail, falling back to a
+        // timestamp-only `gt(createdAt, watermark)` query that silently drops
+        // events created in the same millisecond as the opt-out watermark.
         const now = String(Date.now());
         setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK_ID, "");
         setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK_ID, "");
         setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID, "");
         return;
       }
 

@@ -130,7 +130,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
     // MARK: - Pin state
 
     func testPinnedConversationShowsPinnedState() {
-        let conversation = ConversationModel(title: "Pinned", conversationId: "s", isPinned: true)
+        let conversation = ConversationModel(title: "Pinned", conversationId: "s", groupId: ConversationGroup.pinned.id)
         let p = ConversationHeaderPresentation(
             activeConversation: conversation,
             activeViewModel: nil,

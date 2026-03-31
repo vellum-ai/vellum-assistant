@@ -44,28 +44,6 @@ public struct InteractionClient: InteractionClientProtocol {
     }
 
     @discardableResult
-    public func sendAcpPermissionResponse(
-        requestId: String,
-        optionId: String
-    ) async -> Bool {
-        do {
-            let body: [String: Any] = [
-                "requestId": requestId,
-                "optionId": optionId,
-            ]
-            let response = try await GatewayHTTPClient.post(path: "acp/permission", json: body, timeout: 10)
-            if !response.isSuccess {
-                log.error("sendAcpPermissionResponse failed (HTTP \(response.statusCode))")
-                return false
-            }
-            return true
-        } catch {
-            log.error("sendAcpPermissionResponse error: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    @discardableResult
     public func sendSecretResponse(
         requestId: String,
         value: String? = nil,

@@ -1,8 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let TEST_DIR = "";
 
@@ -38,22 +36,6 @@ const mockConfig = {
   },
 };
 
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getDataDir: () => TEST_DIR,
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -81,7 +63,6 @@ mock.module("../tools/terminal/sandbox.js", () => ({
 }));
 
 import { loadSkillCatalog } from "../config/skills.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
 import { SkillLoadTool } from "../tools/skills/load.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
@@ -96,12 +77,8 @@ function makeContext(): ToolContext {
 }
 
 beforeEach(() => {
-  TEST_DIR = mkdtempSync(join(tmpdir(), "lifecycle-test-"));
+  TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-});
-
-afterEach(() => {
-  rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
 describe("managed skill lifecycle: scaffold → catalog → prompt → delete", () => {
@@ -137,14 +114,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(found!.name).toBe("Lifecycle Test");
     expect(found!.description).toBe("Integration test skill.");
 
-    // Step 4: Verify skill appears in system prompt (markdown bullet: **id**: description)
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("**lifecycle-test**");
-    expect(prompt).toContain("Integration test skill");
-    // Dynamic Skill Authoring section moved to tool descriptions; prompt should not contain it
-    expect(prompt).not.toContain("## Dynamic Skill Authoring Workflow");
-
-    // Step 5: Delete the skill
+    // Step 4: Delete the skill
     const deleteResult = await executeDeleteManagedSkill(
       {
         skill_id: "lifecycle-test",
@@ -156,14 +126,14 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     const deleteData = JSON.parse(deleteResult.content as string);
     expect(deleteData.deleted).toBe(true);
 
-    // Step 6: Verify skill is gone from filesystem
+    // Step 5: Verify skill is gone from filesystem
     expect(existsSync(skillMdPath)).toBe(false);
 
-    // Step 7: Verify skill no longer in catalog
+    // Step 6: Verify skill no longer in catalog
     const catalogAfter = loadSkillCatalog();
     expect(catalogAfter.find((s) => s.id === "lifecycle-test")).toBeUndefined();
 
-    // Step 8: Verify SKILLS.md index no longer has the entry
+    // Step 7: Verify SKILLS.md index no longer has the entry
     const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
     if (existsSync(indexPath)) {
       const indexContent = readFileSync(indexPath, "utf-8");

@@ -1,28 +1,57 @@
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { resolveSkillStates } from "../config/skill-state.js";
+import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { getDb } from "../memory/db.js";
 import { computeMemoryFingerprint } from "../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { memoryItems } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
-import { type CatalogSkill, resolveCatalog } from "./catalog-install.js";
 
 const log = getLogger("skill-memory");
 
 /**
- * Build a semantically rich capability statement from a catalog skill entry.
+ * Generic input for building capability statements.
+ * Decoupled from CatalogSkill so other skill sources (e.g. bundled skills) can
+ * produce capability memories without being shoehorned into the catalog type.
+ */
+export interface SkillCapabilityInput {
+  id: string;
+  displayName: string;
+  description: string;
+  activationHints?: string[];
+  avoidWhen?: string[];
+}
+
+/**
+ * Convert a SkillSummary to a SkillCapabilityInput.
+ * SkillSummary already has flat properties, so this is a straightforward mapping.
+ */
+export function fromSkillSummary(entry: SkillSummary): SkillCapabilityInput {
+  return {
+    id: entry.id,
+    displayName: entry.displayName,
+    description: entry.description,
+    activationHints: entry.activationHints,
+    avoidWhen: entry.avoidWhen,
+  };
+}
+
+/**
+ * Build a semantically rich capability statement from a skill capability input.
  * Truncated to 500 chars max (matching the limit used by memory item extraction).
  */
-export function buildCapabilityStatement(entry: CatalogSkill): string {
-  const displayName = entry.metadata?.vellum?.["display-name"] ?? entry.name;
-  const activationHints = entry.metadata?.vellum?.["activation-hints"];
+export function buildCapabilityStatement(input: SkillCapabilityInput): string {
+  const { displayName, activationHints, avoidWhen } = input;
 
-  let statement = `The "${displayName}" skill (${entry.id}) is available. ${entry.description}.`;
+  let statement = `The "${displayName}" skill (${input.id}) is available. ${input.description}.`;
   if (activationHints && activationHints.length > 0) {
     statement += ` Use when: ${activationHints.join("; ")}.`;
+  }
+  if (avoidWhen && avoidWhen.length > 0) {
+    statement += ` Avoid when: ${avoidWhen.join("; ")}.`;
   }
 
   // Truncate to 500 chars max
@@ -34,17 +63,17 @@ export function buildCapabilityStatement(entry: CatalogSkill): string {
 }
 
 /**
- * Upsert a capability memory item for a catalog skill.
+ * Upsert a capability memory item for a skill.
  * Best-effort: errors are logged but never thrown.
  */
 export function upsertSkillCapabilityMemory(
   skillId: string,
-  entry: CatalogSkill,
+  input: SkillCapabilityInput,
 ): void {
   try {
     const db = getDb();
     const subject = `skill:${skillId}`;
-    const statement = buildCapabilityStatement(entry);
+    const statement = buildCapabilityStatement(input);
     const kind = "capability";
     const scopeId = "default";
     const confidence = 1.0;
@@ -169,30 +198,39 @@ export function deleteSkillCapabilityMemory(skillId: string): void {
 }
 
 /**
- * Seed capability memory items for all catalog skills.
- * Prunes stale entries whose skills are no longer in the catalog.
+ * Seed capability memory items for all enabled skills (bundled, managed, workspace, extra).
+ * Prunes stale entries whose skills are no longer in the enabled set.
  * Best-effort: errors are logged but never thrown.
  */
-export async function seedCatalogSkillMemories(): Promise<void> {
+export function seedCatalogSkillMemories(): void {
   try {
-    const catalog = await resolveCatalog();
+    const catalog = loadSkillCatalog();
     const config = getConfig();
-    const catalogIds = new Set<string>();
+    const resolved = resolveSkillStates(catalog, config);
+    const enabled = resolved.filter((r) => r.state === "enabled");
 
-    for (const entry of catalog) {
-      // Skip skills whose feature flag is disabled
-      const flagId = entry.metadata?.vellum?.["feature-flag"];
-      if (flagId) {
-        if (!isAssistantFeatureFlagEnabled(flagId, config)) {
-          continue;
+    const catalogIds = new Set<string>();
+    for (const { summary } of enabled) {
+      catalogIds.add(summary.id);
+      const input = fromSkillSummary(summary);
+
+      // Enrich mcp-setup description with configured server names
+      if (summary.id === "mcp-setup") {
+        const servers = config.mcp?.servers;
+        if (servers) {
+          const names = Object.keys(servers).filter(
+            (name) => servers[name]?.enabled !== false,
+          );
+          if (names.length > 0) {
+            input.description += ` Configured: ${names.join(", ")}`;
+          }
         }
       }
 
-      catalogIds.add(entry.id);
-      upsertSkillCapabilityMemory(entry.id, entry);
+      upsertSkillCapabilityMemory(summary.id, input);
     }
 
-    // Prune stale capability memories for skills no longer in catalog
+    // Prune stale capability memories for skills no longer in the enabled set
     const db = getDb();
     const allCapabilities = db
       .select()
@@ -208,6 +246,7 @@ export async function seedCatalogSkillMemories(): Promise<void> {
 
     const now = Date.now();
     for (const item of allCapabilities) {
+      if (!item.subject.startsWith("skill:")) continue;
       const itemSkillId = item.subject.replace("skill:", "");
       if (!catalogIds.has(itemSkillId)) {
         db.update(memoryItems)

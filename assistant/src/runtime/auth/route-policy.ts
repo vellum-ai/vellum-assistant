@@ -349,10 +349,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "config/embeddings:GET", scopes: ["settings.read"] },
   { endpoint: "config/embeddings:PUT", scopes: ["settings.write"] },
 
-  // Permissions config
-  { endpoint: "config/permissions/skip:GET", scopes: ["settings.read"] },
-  { endpoint: "config/permissions/skip:PUT", scopes: ["settings.write"] },
-
   // Generic config read/patch
   { endpoint: "config:GET", scopes: ["settings.read"] },
   { endpoint: "config:PATCH", scopes: ["settings.write"] },
@@ -361,6 +357,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
   { endpoint: "conversations/wipe", scopes: ["chat.write"] },
   { endpoint: "conversations/reorder", scopes: ["chat.write"] },
+
+  // Conversation groups
+  { endpoint: "groups:GET", scopes: ["chat.read"] },
+  { endpoint: "groups:POST", scopes: ["chat.write"] },
+  { endpoint: "groups:PATCH", scopes: ["chat.write"] },
+  { endpoint: "groups:DELETE", scopes: ["chat.write"] },
+  { endpoint: "groups/reorder", scopes: ["chat.write"] },
 
   // Conversation search
   { endpoint: "conversations/search", scopes: ["chat.read"] },

@@ -8,30 +8,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — must come before any imports that depend on them
 // ---------------------------------------------------------------------------
 
-const testDir = mkdtempSync(join(tmpdir(), "conv-disk-view-test-"));
-const workspaceDir = join(testDir, "workspace");
+const workspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => join(workspaceDir, "data"),
-  getWorkspaceDir: () => workspaceDir,
-  getConversationsDir: () => conversationsDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  getProtectedDir: () => join(testDir, "protected"),
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -76,18 +61,9 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, rawRun, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, rawRun } from "../memory/db.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 function resetTables() {
   const db = getDb();

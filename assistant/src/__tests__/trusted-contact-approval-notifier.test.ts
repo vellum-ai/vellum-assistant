@@ -9,30 +9,9 @@
  * 5. Delivery failures allow retry on next poll
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "tc-approval-notifier-test-"));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Platform mock ──
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  normalizeAssistantId: (id: string) =>
-    id === "self" || id === "" ? "self" : id,
-}));
-
 // ── Logger mock ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realLogger = require("../util/logger.js");
@@ -253,14 +232,6 @@ describe("trusted-contact pending-approval notifier", () => {
     deliverShouldFail = false;
     mockPendingApprovals = [];
     mockGuardianContact = null;
-  });
-
-  afterAll(() => {
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("sends waiting message to trusted contact when pending approval exists", async () => {

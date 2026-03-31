@@ -11,8 +11,6 @@ import {
   captureImageRefs,
   GATEWAY_INTERNAL_PORT,
   dockerResourceNames,
-  migrateCesSecurityFiles,
-  migrateGatewaySecurityFiles,
   startContainers,
   stopContainers,
 } from "../lib/docker";
@@ -354,6 +352,11 @@ export async function rollback(): Promise<void> {
       `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
     );
 
+    // Capture GUARDIAN_BOOTSTRAP_SECRET from the gateway container (it is only
+    // set on gateway, not assistant) so it persists across container restarts.
+    const gatewayEnv = await captureContainerEnv(res.gatewayContainer);
+    const bootstrapSecret = gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"];
+
     // Extract CES_SERVICE_TOKEN from captured env, or generate fresh one
     const cesServiceToken =
       capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
@@ -428,17 +431,11 @@ export async function rollback(): Promise<void> {
     await stopContainers(res);
     console.log("✅ Containers stopped\n");
 
-    // Run security file migrations and signing key cleanup
-    console.log("🔄 Migrating security files to gateway volume...");
-    await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
-
-    console.log("🔄 Migrating credential files to CES security volume...");
-    await migrateCesSecurityFiles(res, (msg) => console.log(msg));
-
     console.log("🚀 Starting containers with previous version...");
     await startContainers(
       {
         signingKey,
+        bootstrapSecret,
         cesServiceToken,
         extraAssistantEnv,
         gatewayPort,

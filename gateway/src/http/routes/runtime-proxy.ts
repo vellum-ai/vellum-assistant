@@ -87,8 +87,12 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     // Inject the real client IP so the runtime can rate-limit per-user,
     // overwriting any client-supplied value to prevent spoofing.
+    // When clientIp is undefined (loopback peer), strip any client-supplied
+    // header to prevent forged forwarded-for values from reaching the runtime.
     if (clientIp) {
       reqHeaders.set("x-forwarded-for", clientIp);
+    } else {
+      reqHeaders.delete("x-forwarded-for");
     }
 
     // Replace with the exchange token for the runtime (proves gateway origin)

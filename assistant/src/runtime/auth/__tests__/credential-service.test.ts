@@ -3,27 +3,7 @@
  * replay detection, and device binding enforcement.
  */
 import { createHash } from "node:crypto";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "credential-service-test-")),
-);
-
-mock.module("../../../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  getDbPath: () => join(testDir, "test.db"),
-  normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -58,12 +38,6 @@ beforeEach(() => {
   const db = getSqlite();
   db.run("DELETE FROM actor_token_records");
   db.run("DELETE FROM actor_refresh_token_records");
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {}
 });
 
 // ---------------------------------------------------------------------------

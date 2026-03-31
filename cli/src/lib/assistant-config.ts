@@ -43,6 +43,9 @@ export interface LocalInstanceResources {
   cesPort: number;
   /** Absolute path to the daemon PID file */
   pidFile: string;
+  /** Persisted HMAC signing key (hex). Survives daemon/gateway restarts so
+   *  client actor tokens remain valid across `wake` cycles. */
+  signingKey?: string;
   [key: string]: unknown;
 }
 
@@ -77,8 +80,6 @@ export interface AssistantEntry {
   sshUser?: string;
   zone?: string;
   hatchedAt?: string;
-  /** Name of the shared volume backing BASE_DATA_DIR for containerised instances. */
-  volume?: string;
   /** Per-instance resource config. Present for local entries in multi-instance setups. */
   resources?: LocalInstanceResources;
   /** PID of the file watcher process for docker instances hatched with --watch. */

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-// Stub the root dir before importing trust-store so it uses our temp directory
+// Set up a temp directory before importing trust-store
 const TEST_ROOT = join(
   import.meta.dirname ?? __dirname,
   "..",
@@ -11,23 +11,17 @@ const TEST_ROOT = join(
 );
 const TRUST_PATH = join(TEST_ROOT, "protected", "trust.json");
 
-// We need to mock getRootDir before importing trust-store
 import { mock } from "bun:test";
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(TEST_ROOT, "protected");
-
-// Mock the platform module to use our test root
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_ROOT, "protected"),
-}));
 
 // Mock the skills config module used by defaults.ts
 mock.module("../config/skills.js", () => ({
   getBundledSkillsDir: () => join(TEST_ROOT, "bundled-skills"),
 }));
 
-// Now import trust-store (which uses the mocked platform)
+// Now import trust-store (which uses GATEWAY_SECURITY_DIR)
 import {
   acceptStarterBundle,
   clearCache,

@@ -153,7 +153,7 @@ export function buildAccessRequestBlocks(
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `Reply *\`${code} approve\`* to grant access or *\`${code} reject\`* to deny.`,
+        text: `Reply *${code} approve* to grant access or *${code} reject* to deny.`,
       },
     });
   }

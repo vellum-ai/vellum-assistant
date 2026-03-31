@@ -10,6 +10,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Conve
 @MainActor
 protocol ConversationRestorerDelegate: AnyObject {
     var conversations: [ConversationModel] { get set }
+    var groups: [ConversationGroup] { get set }
+    var daemonSupportsGroups: Bool { get set }
     var restoreRecentConversations: Bool { get }
     var isLoadingMoreConversations: Bool { get set }
     var hasMoreConversations: Bool { get set }
@@ -201,10 +203,27 @@ final class ConversationRestorer {
             return
         }
 
+        // Seed groups from the response if available, otherwise fall back to system defaults.
+        // This must run before the restoreRecentConversations guard so that users who
+        // disable restore still get groups initialized for the session.
+        let daemonSupportsGroups: Bool
+        if let responseGroups = response.groups, !responseGroups.isEmpty {
+            delegate.groups = responseGroups.map { ConversationGroup(from: $0) }
+            delegate.daemonSupportsGroups = true
+            daemonSupportsGroups = true
+        } else {
+            if delegate.groups.isEmpty {
+                delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+            }
+            delegate.daemonSupportsGroups = false
+            daemonSupportsGroups = false
+        }
+
         guard delegate.restoreRecentConversations else {
             delegate.restoreLastActiveConversation()
             return
         }
+
         guard !response.conversations.isEmpty else {
             delegate.restoreLastActiveConversation()
             return
@@ -220,25 +239,25 @@ final class ConversationRestorer {
             && delegate.chatViewModel(for: delegate.conversations[0].id)?.conversationId == nil
 
         var restoredConversations: [ConversationModel] = []
-        // Seed the fallback counter past the highest persisted pinned order
-        // so legacy conversations (nil displayOrder) don't collide with explicit ones.
-        let maxPersistedPinnedOrder = recentConversations
-            .filter { $0.isPinned ?? false }
-            .compactMap { $0.displayOrder.map { Int($0) } }
-            .max() ?? -1
-        var pinnedCount = maxPersistedPinnedOrder + 1
         for session in recentConversations {
+            let isPinned = session.isPinned ?? false
+            let groupId: String? = daemonSupportsGroups
+                ? (session.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil))
+                : ConversationModel.deriveGroupId(
+                    serverGroupId: session.groupId,
+                    isPinned: isPinned,
+                    source: session.source,
+                    title: session.title
+                )
+
             // If a local conversation already exists (e.g. created by
             // createNotificationConversation before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.
             if let existingIdx = delegate.conversations.firstIndex(where: { $0.conversationId == session.id }) {
-                let isPinned = session.isPinned ?? false
-                delegate.conversations[existingIdx].isPinned = isPinned
-                delegate.conversations[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil
+                delegate.conversations[existingIdx].groupId = groupId
                 delegate.conversations[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
                 delegate.conversations[existingIdx].forkParent = session.forkParent
                 delegate.mergeAssistantAttention(from: session, intoConversationAt: existingIdx)
-                if isPinned && session.displayOrder == nil { pinnedCount += 1 }
                 continue
             }
 
@@ -252,15 +271,13 @@ final class ConversationRestorer {
                 .title
             let title = existingTitle ?? session.title
 
-            let isPinned = session.isPinned ?? false
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let conversation = ConversationModel(
                 title: title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 conversationId: session.id,
                 isArchived: delegate.isConversationArchived(session.id),
-                isPinned: isPinned,
-                pinnedOrder: isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil,
+                groupId: groupId,
                 displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: kind,
@@ -276,7 +293,6 @@ final class ConversationRestorer {
                 forkParent: session.forkParent,
                 originChannel: session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
             )
-            if isPinned && session.displayOrder == nil { pinnedCount += 1 }
             // VM creation is lazy — only the active conversation will get a VM via
             // getOrCreateViewModel() when it's first accessed.
             restoredConversations.append(conversation)
@@ -302,7 +318,8 @@ final class ConversationRestorer {
         if let hasMore = response.hasMore {
             delegate.hasMoreConversations = hasMore
         }
-        delegate.serverOffset = response.conversations.count
+        // serverOffset is set by fetchConversationList before merging foreground +
+        // background, so it reflects foreground-only count for correct pagination.
         log.info("Restored \(restoredConversations.count) conversations from daemon (hasMore: \(response.hasMore ?? false))")
         delegate.restoreLastActiveConversation()
     }
@@ -366,10 +383,15 @@ final class ConversationRestorer {
                     let uniqueBackground = (background?.conversations ?? []).filter {
                         seenIds.insert($0.id).inserted
                     }
+                    // Set serverOffset from foreground count BEFORE merging.
+                    // loadMoreConversations pages the foreground endpoint only,
+                    // so the offset must not include merged background rows.
+                    self.delegate?.serverOffset = foreground.conversations.count
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,
-                        hasMore: foreground.hasMore
+                        hasMore: foreground.hasMore,
+                        groups: foreground.groups
                     )
                     self.handleConversationListResponse(merged)
                     return

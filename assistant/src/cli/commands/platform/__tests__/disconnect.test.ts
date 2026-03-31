@@ -1,9 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "platform-disconnect-test-"));
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // ---------------------------------------------------------------------------
 // Mock state
@@ -82,53 +81,6 @@ mock.module("../../../../util/logger.js", () => ({
   truncateForLog: (value: string, maxLen = 500) =>
     value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
   pruneOldLogFiles: () => 0,
-}));
-
-mock.module("../../../../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceSkillsDir: () => join(testDir, "skills"),
-  getWorkspaceDir: () => join(testDir, "workspace"),
-  getWorkspaceHooksDir: () => join(testDir, "workspace", "hooks"),
-  getWorkspaceConfigPath: () => join(testDir, "workspace", "config.json"),
-  getHooksDir: () => join(testDir, "hooks"),
-  getProtectedDir: () => join(testDir, "protected"),
-  getDeprecatedDir: () => join(testDir, "workspace", "deprecated"),
-  getSignalsDir: () => join(testDir, "signals"),
-  getDaemonStderrLogPath: () => join(testDir, "daemon-stderr.log"),
-  getDaemonStartupLockPath: () => join(testDir, "daemon-startup.lock"),
-  getFeatureFlagTokenPath: () => join(testDir, "ff-token"),
-  getExternalDir: () => join(testDir, "external"),
-  getBinDir: () => join(testDir, "bin"),
-  getDotEnvPath: () => join(testDir, ".env"),
-  getEmbedWorkerPidPath: () => join(testDir, "embed-worker.pid"),
-  getLegacyRootDir: () => join(testDir, "legacy"),
-  getConversationsDir: () => join(testDir, "conversations"),
-  getEmbeddingModelsDir: () => join(testDir, "models"),
-  getSandboxRootDir: () => join(testDir, "sandbox"),
-  getSandboxWorkingDir: () => join(testDir, "sandbox", "work"),
-  getInterfacesDir: () => join(testDir, "interfaces"),
-  getSoundsDir: () => join(testDir, "sounds"),
-  getHistoryPath: () => join(testDir, "history"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => "linux",
-  getClipboardCommand: () => null,
-  resolveInstanceDataDir: () => undefined,
-  normalizeAssistantId: (id: string) => id,
-  getTCPPort: () => 0,
-  isTCPEnabled: () => false,
-  getTCPHost: () => "127.0.0.1",
-  isIOSPairingEnabled: () => false,
-  getPlatformTokenPath: () => join(testDir, "token"),
-  readPlatformToken: () => null,
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  getWorkspaceDirDisplay: () => testDir,
-  getWorkspacePromptPath: (file: string) => join(testDir, file),
-  ensureDataDir: () => {},
 }));
 
 mock.module("../../../../config/loader.js", () => ({

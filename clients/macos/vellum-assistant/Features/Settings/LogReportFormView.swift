@@ -235,7 +235,6 @@ struct LogReportFormView: View {
                         placeholder: "",
                         selection: $logTimeRange,
                         options: LogTimeRange.allCases.map { (label: $0.displayName, value: $0) },
-                        size: .small,
                         maxWidth: 140
                     )
                 }

@@ -15,19 +15,15 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
-  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -45,26 +41,10 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "migration-import-commit-http-test-")),
-);
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceDir: () => testDir,
-  getWorkspaceConfigPath: () => testConfigPath,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => testDbPath,
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -117,14 +97,6 @@ beforeAll(() => {
   mkdirSync(testDbDir, { recursive: true });
   writeFileSync(testDbPath, EXISTING_DB_DATA);
   writeFileSync(testConfigPath, JSON.stringify(EXISTING_CONFIG, null, 2));
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // Restore test files before each test so mutations from previous tests

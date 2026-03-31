@@ -17,28 +17,13 @@
  *   f. Timeout/stale flow: guardian decision after prompt timeout produces deterministic outcome
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "tc-inline-approval-integration-"));
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set before any production imports
 // ---------------------------------------------------------------------------
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  getProtectedDir: () => join(testDir, "protected"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -205,11 +190,6 @@ function resetTables(): void {
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------

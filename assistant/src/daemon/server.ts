@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -48,6 +48,7 @@ import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
 import { appendEventToStream } from "../signals/event-stream.js";
@@ -67,6 +68,7 @@ import {
   DEFAULT_MEMORY_POLICY,
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
+import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import { undoLastMessage } from "./handlers/conversations.js";
@@ -79,7 +81,10 @@ import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
-import type { ServerMessage } from "./message-protocol.js";
+import type {
+  ServerMessage,
+  UserMessageAttachment,
+} from "./message-protocol.js";
 
 const log = getLogger("server");
 
@@ -196,9 +201,13 @@ function makePendingInteractionRegistrar(
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           commandPreview:
-            summarizeToolInput(msg.toolName, inputRecord) || undefined,
+            redactSecrets(
+              summarizeToolInput(msg.toolName, inputRecord),
+            ) || undefined,
           riskLevel: msg.riskLevel,
-          activityText: activityRaw,
+          activityText: activityRaw
+            ? redactSecrets(activityRaw)
+            : undefined,
           executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
@@ -559,14 +568,75 @@ export class DaemonServer {
         params.conversationKey,
       );
       const conversation = await this.getOrCreateConversation(conversationId);
+
+      // Register file-backed attachments so they flow through the send
+      // pipeline as images the LLM can see directly.
+      const attachmentIds: string[] = [];
+      const resolvedAttachments: UserMessageAttachment[] = [];
+      if (params.attachments && params.attachments.length > 0) {
+        for (const a of params.attachments) {
+          try {
+            const validation = attachmentsStore.validateAttachmentUpload(
+              a.filename,
+              a.mimeType,
+            );
+            if (!validation.ok) {
+              log.warn(
+                { error: validation.error, path: a.path },
+                "Signal attachment rejected by validation",
+              );
+              continue;
+            }
+            const size = statSync(a.path).size;
+            const stored = attachmentsStore.uploadFileBackedAttachment(
+              a.filename,
+              a.mimeType,
+              a.path,
+              size,
+            );
+            attachmentIds.push(stored.id);
+            resolvedAttachments.push({
+              id: stored.id,
+              filename: a.filename,
+              mimeType: a.mimeType,
+              data: "",
+              filePath: a.path,
+            });
+          } catch (err) {
+            log.warn(
+              { err, path: a.path },
+              "Failed to register signal attachment",
+            );
+          }
+        }
+      }
+
+      // Build a hub-publishing sender so events reach SSE clients.
+      const hubSender = (msg: ServerMessage) => {
+        const msgConversationId =
+          "conversationId" in msg &&
+          typeof (msg as { conversationId?: unknown }).conversationId ===
+            "string"
+            ? (msg as { conversationId: string }).conversationId
+            : undefined;
+        this.publishAssistantEvent(msg, msgConversationId ?? conversationId);
+      };
+
       if (conversation.isProcessing()) {
+        // Hydrate file data now — the queue path won't re-read from
+        // the attachment store, so base64 content must be inline.
+        for (const att of resolvedAttachments) {
+          if (att.filePath && !att.data) {
+            att.data = readFileSync(att.filePath).toString("base64");
+          }
+        }
         const requestId = crypto.randomUUID();
         const resolvedChannel = resolveTurnChannel(params.sourceChannel);
         const resolvedInterface = resolveTurnInterface(params.sourceInterface);
         const result = conversation.enqueueMessage(
           params.content,
-          [],
-          () => {},
+          resolvedAttachments,
+          hubSender,
           requestId,
           undefined,
           undefined,
@@ -582,8 +652,8 @@ export class DaemonServer {
       await this.persistAndProcessMessage(
         conversationId,
         params.content,
-        undefined,
-        undefined,
+        attachmentIds.length > 0 ? attachmentIds : undefined,
+        { onEvent: hubSender },
         params.sourceChannel,
         params.sourceInterface,
       );
@@ -787,6 +857,7 @@ export class DaemonServer {
           (msg) => this.broadcast(msg),
           memoryPolicy,
           sharedCesClient,
+          storedOptions?.speed,
         );
         newConversation.updateClient(sendToClient, true);
         await newConversation.loadFromDb();
@@ -899,9 +970,26 @@ export class DaemonServer {
     conversation.setAssistantId(
       options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     );
-    conversation.setTrustContext(options?.trustContext ?? null);
-    conversation.setAuthContext(options?.authContext ?? null);
+    // Only overwrite trust/auth context when explicitly provided. Callers that
+    // don't supply a trust context (e.g. signal-injected messages) should
+    // inherit whatever the conversation already has from a prior session.
+    if (options?.trustContext !== undefined) {
+      conversation.setTrustContext(options.trustContext);
+    }
+    if (options?.authContext !== undefined) {
+      conversation.setAuthContext(options.authContext);
+    }
     await conversation.ensureActorScopedHistory();
+
+    // Persist the conversation's current trust/auth context so it survives
+    // eviction and recreation. The restore path in getOrCreateConversation
+    // reads from storedOptions.trustContext / storedOptions.authContext.
+    // Always write — including null — so explicit clearing isn't lost.
+    this.conversationOptions.set(conversationId, {
+      ...this.conversationOptions.get(conversationId),
+      trustContext: conversation.trustContext,
+      authContext: conversation.authContext,
+    });
     conversation.setChannelCapabilities(
       resolveChannelCapabilities(
         sourceChannel,
@@ -1164,6 +1252,54 @@ export class DaemonServer {
         "assistant",
         JSON.stringify(assistantMsg.content),
         serverChannelMeta,
+      );
+      conversation.getMessages().push(assistantMsg);
+      return { messageId: persisted.id };
+    }
+
+    if (slashResult.kind === "compact") {
+      const serverTurnCtx = conversation.getTurnChannelContext();
+      const serverProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
+      const compactChannelMeta = {
+        ...serverProvenance,
+        ...(serverTurnCtx
+          ? {
+              userMessageChannel: serverTurnCtx.userMessageChannel,
+              assistantMessageChannel: serverTurnCtx.assistantMessageChannel,
+            }
+          : {}),
+        ...(serverInterfaceCtx
+          ? {
+              userMessageInterface: serverInterfaceCtx.userMessageInterface,
+              assistantMessageInterface:
+                serverInterfaceCtx.assistantMessageInterface,
+            }
+          : {}),
+      };
+      const cleanMsg = createUserMessage(content, attachments);
+      const persisted = await addMessage(
+        conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
+        compactChannelMeta,
+      );
+      conversation.getMessages().push(cleanMsg);
+
+      conversation.emitActivityState(
+        "thinking",
+        "context_compacting",
+        "assistant_turn",
+      );
+      const result = await conversation.forceCompact();
+      const responseText = formatCompactResult(result);
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        compactChannelMeta,
       );
       conversation.getMessages().push(assistantMsg);
       return { messageId: persisted.id };

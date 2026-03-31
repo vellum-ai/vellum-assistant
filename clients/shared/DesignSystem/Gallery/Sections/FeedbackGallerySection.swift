@@ -466,6 +466,43 @@ struct FeedbackGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vContextWindowIndicator" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VContextWindowIndicator
+                GallerySectionHeader(
+                    title: "VContextWindowIndicator",
+                    description: "Circular ring showing context window fill level with hover popover."
+                )
+
+                VCard {
+                    HStack(spacing: VSpacing.xxl) {
+                        VStack(spacing: VSpacing.md) {
+                            Text("nil (hidden)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VContextWindowIndicator(fillRatio: nil)
+                                .frame(width: 16, height: 16)
+                        }
+                        VStack(spacing: VSpacing.md) {
+                            Text("0%").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VContextWindowIndicator(fillRatio: 0)
+                        }
+                        VStack(spacing: VSpacing.md) {
+                            Text("30%").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VContextWindowIndicator(fillRatio: 0.3)
+                        }
+                        VStack(spacing: VSpacing.md) {
+                            Text("65%").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VContextWindowIndicator(fillRatio: 0.65)
+                        }
+                        VStack(spacing: VSpacing.md) {
+                            Text("90%").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VContextWindowIndicator(fillRatio: 0.9)
+                        }
+                    }
+                }
+            }
+
             if filter == nil || filter == "vInfoTooltip" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -507,6 +544,7 @@ extension FeedbackGallerySection {
         case "vSkeletonBone": FeedbackGallerySection(filter: "vSkeletonBone")
         case "vSkillTypePill": FeedbackGallerySection(filter: "vSkillTypePill")
         case "vInfoTooltip": FeedbackGallerySection(filter: "vInfoTooltip")
+        case "vContextWindowIndicator": FeedbackGallerySection(filter: "vContextWindowIndicator")
         default: EmptyView()
         }
     }

@@ -1,60 +1,111 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
-/// A generic dropdown that looks pixel-identical to VTextField with a trailing chevron.
+/// Option type for VDropdown.
+public struct VDropdownOption<T: Hashable>: Identifiable {
+    public let label: String
+    public let value: T
+    public let icon: VIcon?
+
+    public var id: T { value }
+
+    public init(label: String, value: T, icon: VIcon? = nil) {
+        self.label = label
+        self.value = value
+        self.icon = icon
+    }
+}
+
+/// A generic dropdown that shows a VMenu via VMenuPanel on macOS,
+/// or a native Menu/Picker on iOS.
 ///
-/// Uses a `Menu` containing an inline `Picker` for proper selection semantics
-/// (automatic checkmarks, accessibility). The visual label is fully custom.
-/// Defaults to filling available width; callers can pass a custom `maxWidth` to constrain.
+/// Usage:
+/// ```swift
+/// // With VDropdownOption array:
+/// VDropdown(
+///     options: [
+///         VDropdownOption(label: "All", value: .all, icon: .circle),
+///         VDropdownOption(label: "Installed", value: .installed, icon: .circleCheck),
+///     ],
+///     selection: $filter
+/// )
+///
+/// // With tuple convenience:
+/// VDropdown(
+///     placeholder: "Select a model",
+///     selection: $model,
+///     options: models.map { ($0.name, $0.id) }
+/// )
+/// ```
 public struct VDropdown<T: Hashable>: View {
+    public let label: String?
     public let placeholder: String
+    public let optionList: [VDropdownOption<T>]
     @Binding public var selection: T
-    public let options: [(label: String, value: T)]
-    /// Optional label displayed above the dropdown.
-    public var label: String? = nil
-    /// When selection equals emptyValue, placeholder text is shown instead.
-    public var emptyValue: T? = nil
-    /// Size variant controlling height, font, padding, and corner radius.
-    public var size: VInputSize = .regular
-    /// The maximum width of the dropdown. Defaults to .infinity (fills available width).
+    public var emptyValue: T?
     public var maxWidth: CGFloat = .infinity
-    /// Optional leading icon displayed before the label text.
-    public var icon: VIcon? = nil
-    /// Optional closure that returns an icon for each option value, shown in the menu.
-    public var optionIcon: ((T) -> VIcon?)? = nil
-    /// Optional error message displayed below the dropdown.
-    public var errorMessage: String? = nil
+    public var menuWidth: CGFloat = 180
+    public var icon: VIcon?
+    public var optionIcon: ((T) -> VIcon?)?
+    public var onChange: ((T) -> Void)?
 
     @Environment(\.isEnabled) private var isEnabled
 
+    /// Init with VDropdownOption array (preferred).
+    public init(
+        _ label: String? = nil,
+        placeholder: String = "",
+        options: [VDropdownOption<T>],
+        selection: Binding<T>,
+        emptyValue: T? = nil,
+        maxWidth: CGFloat = .infinity,
+        menuWidth: CGFloat = 180,
+        icon: VIcon? = nil,
+        optionIcon: ((T) -> VIcon?)? = nil,
+        onChange: ((T) -> Void)? = nil
+    ) {
+        self.label = label
+        self.placeholder = placeholder
+        self.optionList = options
+        self._selection = selection
+        self.emptyValue = emptyValue
+        self.maxWidth = maxWidth
+        self.menuWidth = menuWidth
+        self.icon = icon
+        self.optionIcon = optionIcon
+        self.onChange = onChange
+    }
+
+    /// Convenience init with tuple array (matches old VDropdown API for easy migration).
     public init(
         _ label: String? = nil,
         placeholder: String,
         selection: Binding<T>,
         options: [(label: String, value: T)],
         emptyValue: T? = nil,
-        size: VInputSize = .regular,
         maxWidth: CGFloat = .infinity,
+        menuWidth: CGFloat = 180,
         icon: VIcon? = nil,
         optionIcon: ((T) -> VIcon?)? = nil,
-        errorMessage: String? = nil
+        onChange: ((T) -> Void)? = nil
     ) {
         self.label = label
         self.placeholder = placeholder
+        self.optionList = options.map { VDropdownOption(label: $0.label, value: $0.value) }
         self._selection = selection
-        self.options = options
         self.emptyValue = emptyValue
-        self.size = size
         self.maxWidth = maxWidth
+        self.menuWidth = menuWidth
         self.icon = icon
         self.optionIcon = optionIcon
-        self.errorMessage = errorMessage
+        self.onChange = onChange
     }
 
     private var selectedLabel: String? {
-        if let emptyValue = emptyValue, selection == emptyValue {
-            return nil
-        }
-        return options.first(where: { $0.value == selection })?.label
+        if let emptyValue, selection == emptyValue { return nil }
+        return optionList.first { $0.value == selection }?.label
     }
 
     public var body: some View {
@@ -66,68 +117,157 @@ public struct VDropdown<T: Hashable>: View {
                     .accessibilityHidden(true)
             }
 
-            Menu {
-                Picker("", selection: $selection) {
-                    ForEach(options, id: \.value) { option in
-                        if let optionIcon, let icon = optionIcon(option.value) {
-                            Label {
-                                Text(option.label)
-                            } icon: {
-                                icon.image(size: 14)
-                            }
-                            .tag(option.value)
-                        } else {
-                            Text(option.label).tag(option.value)
-                        }
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                HStack(spacing: size.horizontalPadding) {
-                    HStack(spacing: size == .small ? VSpacing.xs : VSpacing.sm) {
-                        if let resolvedIcon = icon ?? optionIcon?(selection) {
-                            VIconView(resolvedIcon, size: size.iconSize)
-                                .foregroundStyle(VColor.contentTertiary)
-                        }
-
-                        Group {
-                            if let selectedLabel {
-                                Text(selectedLabel)
-                                    .foregroundStyle(VColor.contentDefault)
-                            } else {
-                                Text(placeholder)
-                                    .foregroundStyle(VColor.contentTertiary)
-                            }
-                        }
-                        .font(size.font)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VIconView(.chevronDown, size: size.iconSize)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .accessibilityHidden(true)
-                }
-                .padding(.horizontal, size.horizontalPadding)
-                .padding(.vertical, size.verticalPadding)
-                .frame(maxWidth: .infinity)
-                .frame(height: size.height)
-                .vInputChrome(isError: errorMessage != nil, isDisabled: !isEnabled, cornerRadius: size.cornerRadius)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .accessibilityLabel(label ?? placeholder)
-            .accessibilityValue(selectedLabel ?? "")
-            .accessibilityHint(errorMessage ?? "")
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.systemNegativeStrong)
-                    .accessibilityHidden(true)
-            }
+            #if os(macOS)
+            macOSTrigger
+            #else
+            iOSMenu
+            #endif
         }
         .frame(maxWidth: maxWidth)
+    }
+
+    // MARK: - iOS Fallback (native Menu/Picker)
+
+    #if os(iOS)
+    private var iOSMenu: some View {
+        Menu {
+            Picker("", selection: $selection) {
+                ForEach(optionList) { option in
+                    Text(option.label).tag(option.value)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            triggerLabel
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+    }
+    #endif
+
+    // MARK: - macOS (VMenuPanel)
+
+    #if os(macOS)
+    @State private var isOpen = false
+    @State private var activePanel: VMenuPanel?
+    @State private var triggerFrame: CGRect = .zero
+
+    private var macOSTrigger: some View {
+        Button {
+            if isOpen {
+                activePanel?.close()
+                activePanel = nil
+                isOpen = false
+            } else {
+                showMenu()
+            }
+        } label: {
+            triggerLabel
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .accessibilityLabel(label ?? placeholder)
+        .accessibilityValue(selectedLabel ?? "")
+        .overlay {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { triggerFrame = geo.frame(in: .global) }
+                    .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                        triggerFrame = newFrame
+                    }
+            }
+        }
+    }
+
+    private func showMenu() {
+        guard !isOpen else { return }
+        isOpen = true
+
+        NSApp.keyWindow?.makeFirstResponder(nil)
+
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else {
+            isOpen = false
+            return
+        }
+
+        let triggerInWindow = CGPoint(x: triggerFrame.minX, y: triggerFrame.maxY)
+        let screenPoint = window.convertPoint(toScreen: NSPoint(
+            x: triggerInWindow.x,
+            y: window.frame.height - triggerInWindow.y
+        ))
+
+        // Compute trigger rect in screen coordinates so VMenuPanel's click-outside
+        // handler can ignore clicks on the trigger (letting the button toggle close).
+        let triggerScreenOrigin = window.convertPoint(toScreen: NSPoint(
+            x: triggerFrame.minX,
+            y: window.frame.height - triggerFrame.maxY
+        ))
+        let triggerScreenRect = CGRect(
+            origin: triggerScreenOrigin,
+            size: CGSize(width: triggerFrame.width, height: triggerFrame.height)
+        )
+
+        let appearance = window.effectiveAppearance
+        activePanel = VMenuPanel.show(at: screenPoint, sourceAppearance: appearance, excludeRect: triggerScreenRect) {
+            VMenu(width: menuWidth) {
+                ForEach(optionList) { option in
+                    VMenuItem(
+                        icon: option.icon?.rawValue ?? optionIcon?(option.value)?.rawValue,
+                        label: option.label,
+                        isActive: selection == option.value,
+                        size: .regular
+                    ) {
+                        withAnimation(VAnimation.fast) { selection = option.value }
+                        onChange?(option.value)
+                    } trailing: {
+                        if selection == option.value {
+                            VIconView(.check, size: 12)
+                                .foregroundStyle(VColor.primaryBase)
+                        }
+                    }
+                }
+            }
+        } onDismiss: {
+            isOpen = false
+            activePanel = nil
+        }
+    }
+    #endif
+
+    // MARK: - Shared Trigger Label
+
+    private var triggerLabel: some View {
+        HStack(spacing: VSpacing.sm) {
+            if let resolvedIcon = icon ?? optionIcon?(selection) {
+                VIconView(resolvedIcon, size: 14)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+
+            Group {
+                if let selectedLabel {
+                    Text(selectedLabel)
+                        .foregroundStyle(isEnabled ? VColor.contentDefault : VColor.contentDisabled)
+                } else {
+                    Text(placeholder)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+            .font(VFont.bodyMediumLighter)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VIconView(.chevronDown, size: 13)
+                .foregroundStyle(VColor.contentTertiary)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .frame(height: 32)
+        .frame(maxWidth: .infinity)
+        #if os(macOS)
+        .vInputChrome(isFocused: isOpen, isDisabled: !isEnabled)
+        #else
+        .vInputChrome(isDisabled: !isEnabled)
+        #endif
     }
 }

@@ -245,11 +245,6 @@ export function getDaemonStartupLockPath(): string {
   return join(getWorkspaceDir(), "daemon-startup.lock");
 }
 
-/** Returns the path to the feature-flag client token file (~/.vellum/workspace/feature-flag-token). */
-export function getFeatureFlagTokenPath(): string {
-  return join(getWorkspaceDir(), "feature-flag-token");
-}
-
 /** Returns the directory for externally-installed packages (~/.vellum/workspace/external). */
 export function getExternalDir(): string {
   return join(getWorkspaceDir(), "external");
@@ -269,25 +264,6 @@ export function getDotEnvPath(): string {
 export function getEmbedWorkerPidPath(): string {
   return join(getWorkspaceDir(), "embed-worker.pid");
 }
-
-/**
- * Returns the root dir path for use in backward-compatible env vars
- * (e.g. VELLUM_ROOT_DIR passed to hook scripts).
- *
- * Unlike `dirname(getWorkspaceDir())`, this always returns the true root
- * (~/.vellum) even when VELLUM_WORKSPACE_DIR is overridden to a custom
- * path (Docker / containerized mode).
- *
- * @deprecated Callers should migrate to workspace-based paths. This helper
- * exists only for backward compatibility with user-authored hook scripts.
- */
-export function getLegacyRootDir(): string {
-  return vellumRoot();
-}
-
-// --- Workspace path primitives ---
-// These will become the canonical paths after workspace migration.
-// Currently not used by call-sites; wired in later PRs.
 
 /**
  * Returns the workspace root for user-facing state.

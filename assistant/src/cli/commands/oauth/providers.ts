@@ -1,7 +1,6 @@
 import { type Command } from "commander";
 
 import { loadConfig } from "../../../config/loader.js";
-import { getOAuthCallbackUrl } from "../../../inbound/public-ingress-urls.js";
 import {
   deleteApp,
   deleteConnection,
@@ -15,6 +14,7 @@ import {
   updateProvider,
 } from "../../../oauth/oauth-store.js";
 import { serializeProvider } from "../../../oauth/provider-serializer.js";
+import { isProviderVisible } from "../../../oauth/provider-visibility.js";
 import { SEEDED_PROVIDER_KEYS } from "../../../oauth/seed-providers.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -23,40 +23,28 @@ const log = getCliLogger("cli");
 
 const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
 
-/** Resolve the redirect URI for a provider based on its callback transport. */
-function resolveRedirectUri(
-  callbackTransport: string | null,
-  loopbackPort: number | null,
-): string | null {
-  const transport = callbackTransport ?? "loopback";
-  if (transport === "loopback") {
-    if (!loopbackPort) {
-      // No fixed port — loopback still works at runtime with an OS-assigned
-      // port, but we can't predict the redirect URI ahead of time.  Return
-      // a sentinel so callers know the transport is loopback-dynamic rather
-      // than unsupported.
-      return "http://localhost:<dynamic>/oauth/callback";
-    }
-    return `http://localhost:${loopbackPort}${LOOPBACK_CALLBACK_PATH}`;
+/**
+ * Resolve the redirect URI for a provider based on its loopback port.
+ *
+ * Resolves the loopback redirect URI for display purposes. Gateway
+ * redirect URIs are resolved dynamically at connect time.
+ */
+function resolveRedirectUri(loopbackPort: number | null): string | null {
+  if (!loopbackPort) {
+    // No fixed port — loopback still works at runtime with an OS-assigned
+    // port, but we can't predict the redirect URI ahead of time.  Return
+    // a sentinel so callers know the transport is loopback-dynamic rather
+    // than unsupported.
+    return "http://localhost:<dynamic>/oauth/callback";
   }
-  // Gateway transport — resolve from public ingress config.
-  // Try the explicit publicBaseUrl first, then fall back to platform
-  // callback registration (containerised/managed deployments).
-  try {
-    return getOAuthCallbackUrl(loadConfig());
-  } catch {
-    // publicBaseUrl not configured — not necessarily an error for
-    // platform-managed deployments where the callback URL is resolved
-    // dynamically at connection time via platform route registration.
-    return null;
-  }
+  return `http://localhost:${loopbackPort}${LOOPBACK_CALLBACK_PATH}`;
 }
 
 /** Serialize a provider row with the CLI-resolved redirect URI. */
 function parseProviderRow(row: ReturnType<typeof getProvider>) {
   if (!row) return row;
   return serializeProvider(row, {
-    redirectUri: resolveRedirectUri(row.callbackTransport, row.loopbackPort),
+    redirectUri: resolveRedirectUri(row.loopbackPort),
   });
 }
 
@@ -123,7 +111,12 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          let rows = listProviders().map(parseProviderRow);
+          const config = loadConfig();
+          let allProviders = listProviders();
+          allProviders = allProviders.filter((r) =>
+            isProviderVisible(r, config),
+          );
+          let rows = allProviders.map(parseProviderRow);
 
           if (opts.providerKey) {
             const needles = opts.providerKey
@@ -191,6 +184,15 @@ Examples:
           return;
         }
 
+        if (!isProviderVisible(row, loadConfig())) {
+          writeOutput(cmd, {
+            ok: false,
+            error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
+          });
+          process.exitCode = 1;
+          return;
+        }
+
         writeOutput(cmd, parseProviderRow(row));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -227,10 +229,6 @@ Examples:
     .option(
       "--token-auth-method <method>",
       'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
-    )
-    .option(
-      "--callback-transport <transport>",
-      'OAuth callback transport: "loopback" (local HTTP server, default) or "gateway" (public ingress)',
     )
     .option(
       "--ping-url <url>",
@@ -361,7 +359,6 @@ Examples:
           userinfoUrl?: string;
           scopes?: string;
           tokenAuthMethod?: string;
-          callbackTransport?: string;
           pingUrl?: string;
           pingMethod?: string;
           pingHeaders?: string;
@@ -395,7 +392,6 @@ Examples:
             defaultScopes: opts.scopes ? opts.scopes.split(",") : [],
             scopePolicy: {},
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
-            callbackTransport: opts.callbackTransport,
             pingUrl: opts.pingUrl,
             pingMethod: opts.pingMethod,
             pingHeaders: opts.pingHeaders
@@ -468,10 +464,6 @@ Examples:
     .option(
       "--token-auth-method <method>",
       'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
-    )
-    .option(
-      "--callback-transport <transport>",
-      'OAuth callback transport: "loopback" (local HTTP server, default) or "gateway" (public ingress)',
     )
     .option(
       "--ping-url <url>",
@@ -586,7 +578,6 @@ Examples:
           userinfoUrl?: string;
           scopes?: string;
           tokenAuthMethod?: string;
-          callbackTransport?: string;
           pingUrl?: string;
           pingMethod?: string;
           pingHeaders?: string;
@@ -622,6 +613,15 @@ Examples:
             return;
           }
 
+          if (!isProviderVisible(existing, loadConfig())) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Provider "${providerKey}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
           // Block updates to built-in providers
           if (SEEDED_PROVIDER_KEYS.has(providerKey)) {
             writeOutput(cmd, {
@@ -644,8 +644,6 @@ Examples:
             params.defaultScopes = opts.scopes.split(",");
           if (opts.tokenAuthMethod !== undefined)
             params.tokenEndpointAuthMethod = opts.tokenAuthMethod;
-          if (opts.callbackTransport !== undefined)
-            params.callbackTransport = opts.callbackTransport;
           if (opts.pingUrl !== undefined) params.pingUrl = opts.pingUrl;
           if (opts.pingMethod !== undefined)
             params.pingMethod = opts.pingMethod;
@@ -753,6 +751,15 @@ Examples:
         try {
           const provider = getProvider(providerKey);
           if (!provider) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          if (!isProviderVisible(provider, loadConfig())) {
             writeOutput(cmd, {
               ok: false,
               error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,

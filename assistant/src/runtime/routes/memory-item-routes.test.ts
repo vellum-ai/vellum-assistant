@@ -4,9 +4,6 @@
  * Covers: list with filters, get by ID, create + duplicate rejection,
  * update + fingerprint collision, delete + 404.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -16,19 +13,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-item-routes-test-"));
-
-mock.module("../../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -206,7 +190,6 @@ describe("Memory Item Routes", () => {
 
   afterAll(() => {
     resetDb();
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   // =========================================================================

@@ -12,9 +12,6 @@
  * - Voice webhook TwiML relay URL generation
  * - Handler-level idempotency concurrency (concurrent duplicates, failure-retry)
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeEach,
@@ -82,22 +79,6 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: (value: string | undefined) => {
     mockIngressPublicBaseUrl = value ?? "";
   },
-}));
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "twilio-routes-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -442,11 +423,6 @@ describe("twilio webhook routes", () => {
   afterAll(() => {
     globalThis.fetch = originalFetch;
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   // ── Callback idempotency / replay tests ───────────────────────────

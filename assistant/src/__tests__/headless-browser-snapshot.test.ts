@@ -9,10 +9,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp/headless-browser-snapshot-test",
-}));
-
 let mockPage: {
   evaluate: ReturnType<typeof mock>;
   title: ReturnType<typeof mock>;

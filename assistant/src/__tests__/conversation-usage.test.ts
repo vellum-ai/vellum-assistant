@@ -1,9 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "session-usage-test-"));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const updateConversationUsageCalls: Array<{
   conversationId: string;
@@ -11,17 +6,6 @@ const updateConversationUsageCalls: Array<{
   outputTokens: number;
   estimatedCost: number;
 }> = [];
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -53,27 +37,74 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 import { recordUsage } from "../daemon/conversation-usage.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { listUsageEvents } from "../memory/llm-usage-store.js";
 import type { PricingUsage } from "../usage/types.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
 
 initializeDb();
 
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
-
 describe("recordUsage", () => {
   beforeEach(() => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
     updateConversationUsageCalls.length = 0;
+  });
+
+  test("applies fast mode pricing when any response has speed: fast", () => {
+    const usageStats = {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+    };
+
+    // First response is standard, second is fast — should detect fast
+    const rawResponses = [
+      { usage: { speed: "standard" } },
+      { usage: { speed: "fast" } },
+    ];
+
+    recordUsage(
+      {
+        conversationId: "conv-speed-1",
+        providerName: "anthropic",
+        usageStats,
+      },
+      1_000_000,
+      1_000_000,
+      "claude-opus-4-6",
+      () => {},
+      "main_agent",
+      "req-speed-1",
+      0,
+      0,
+      rawResponses,
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+
+    // With fast mode, pricing should use the 6x multiplier
+    const fastUsage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      anthropicCacheCreation: null,
+      speed: "fast",
+    };
+    const expectedPricing = resolvePricingForUsageWithOverrides(
+      "anthropic",
+      "claude-opus-4-6",
+      fastUsage,
+      [],
+    );
+
+    expect(events[0].estimatedCostUsd).toBe(
+      expectedPricing.estimatedCostUsd ?? null,
+    );
+    // Sanity: fast should be 6x standard ($30 * 6 = $180)
+    expect(expectedPricing.estimatedCostUsd).toBe(180);
   });
 
   test("stores direct input separately from Anthropic cache usage while keeping live totals combined", () => {
@@ -167,6 +198,7 @@ describe("recordUsage", () => {
     expect(onEventMessages).toEqual([
       {
         type: "usage_update",
+        conversationId: "conv-usage-1",
         inputTokens: 3_420_218,
         outputTokens: 11_768,
         totalInputTokens: 3_420_218,

@@ -1,27 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "turn-boundary-resolution-test-")),
-);
-const workspaceDir = join(testDir, ".vellum", "workspace");
-const conversationsDir = join(workspaceDir, "conversations");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(join(testDir, ".vellum"), "protected"),
-  getDataDir: () => join(workspaceDir, "data"),
-  getWorkspaceDir: () => workspaceDir,
-  getConversationsDir: () => conversationsDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -74,11 +51,6 @@ function toolResultContent(toolUseIds: string[]): string {
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 describe("getAssistantMessageIdsInTurn", () => {

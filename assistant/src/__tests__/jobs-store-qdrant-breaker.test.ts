@@ -1,28 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "jobs-store-qdrant-breaker-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -37,7 +13,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   claimMemoryJobs,
   enqueueMemoryJob,
@@ -57,11 +33,6 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
     const db = getDb();
     db.run("DELETE FROM memory_jobs");
     _resetQdrantBreaker();
-  });
-
-  afterAll(() => {
-    resetDb();
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   test("claims embed jobs when circuit breaker is closed (healthy)", () => {

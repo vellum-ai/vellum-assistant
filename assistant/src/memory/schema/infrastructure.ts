@@ -169,6 +169,7 @@ export const llmUsageEvents = sqliteTable(
     cacheReadInputTokens: integer("cache_read_input_tokens"),
     estimatedCostUsd: real("estimated_cost_usd"),
     pricingStatus: text("pricing_status").notNull(),
+    llmCallCount: integer("llm_call_count"),
     metadataJson: text("metadata_json"),
   },
   (table) => [

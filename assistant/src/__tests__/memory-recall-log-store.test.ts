@@ -1,26 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "memory-recall-log-store-test-")),
-);
-const workspaceDir = join(testDir, ".vellum", "workspace");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(join(testDir, ".vellum"), "protected"),
-  getDataDir: () => join(workspaceDir, "data"),
-  getWorkspaceDir: () => workspaceDir,
-  getConversationsDir: () => join(workspaceDir, "conversations"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -40,7 +18,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   backfillMemoryRecallLogMessageId,
   getMemoryRecallLogByMessageIds,
@@ -54,15 +32,6 @@ function resetTables(): void {
   const db = getDb();
   db.delete(memoryRecallLogs).run();
 }
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 describe("memory-recall-log-store", () => {
   beforeEach(() => {

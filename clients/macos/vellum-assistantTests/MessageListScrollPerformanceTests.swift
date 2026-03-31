@@ -135,10 +135,10 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 3: pinToBottom Hot Path
+    // MARK: - Test 3: requestPinToBottom Hot Path
 
-    /// Measures the synchronous hot path of pinToBottom on the scroll
-    /// state: request a pin, reset follow state — repeated 100 times.
+    /// Measures the synchronous hot path of requestPinToBottom on the scroll
+    /// state: request a pin, transition back to followingBottom — repeated 100 times.
     @MainActor
     func testPinToBottomPerformance() {
         measure(metrics: [XCTClockMetric()]) {
@@ -149,10 +149,13 @@ final class MessageListScrollPerformanceTests: XCTestCase {
                 scrollCallCount += 1
             }
 
+            // Ensure we start in followingBottom mode.
+            scrollState.transition(to: .followingBottom)
+
             // Run 100 pin request cycles to get a stable measurement.
             for _ in 0..<100 {
-                scrollState.pinToBottom()
-                scrollState.isFollowingBottom = true
+                scrollState.requestPinToBottom()
+                scrollState.transition(to: .followingBottom)
             }
 
             XCTAssertGreaterThan(scrollCallCount, 0)

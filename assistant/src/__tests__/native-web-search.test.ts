@@ -44,26 +44,29 @@ mock.module("@anthropic-ai/sdk", () => ({
   default: class MockAnthropic {
     static APIError = FakeAPIError;
     constructor(_args: Record<string, unknown>) {}
-    messages = {
-      stream: (
-        params: Record<string, unknown>,
-        _options?: Record<string, unknown>,
-      ) => {
-        lastStreamParams = JSON.parse(JSON.stringify(params));
-        const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
-        return {
-          on(event: string, cb: (...args: unknown[]) => void) {
-            (handlers[event] ??= []).push(cb);
-            return this;
-          },
-          async finalMessage() {
-            // Fire any pending stream events
-            for (const ev of pendingStreamEvents) {
-              for (const cb of handlers["streamEvent"] ?? []) cb(ev);
-            }
-            return { ...fakeResponse, content: fakeResponseContent };
-          },
-        };
+    beta = {
+      messages: {
+        stream: (
+          params: Record<string, unknown>,
+          _options?: Record<string, unknown>,
+        ) => {
+          lastStreamParams = JSON.parse(JSON.stringify(params));
+          const handlers: Record<string, ((...args: unknown[]) => void)[]> =
+            {};
+          return {
+            on(event: string, cb: (...args: unknown[]) => void) {
+              (handlers[event] ??= []).push(cb);
+              return this;
+            },
+            async finalMessage() {
+              // Fire any pending stream events
+              for (const ev of pendingStreamEvents) {
+                for (const cb of handlers["streamEvent"] ?? []) cb(ev);
+              }
+              return { ...fakeResponse, content: fakeResponseContent };
+            },
+          };
+        },
       },
     };
   },
@@ -371,13 +374,13 @@ describe("Native Web Search — Tool Filtering", () => {
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
 
     // file_read is the last custom tool (only custom tool in this case)
     // and it should get cache_control since it's the last in the mappedOther list
     expect(tools[0].name).toBe("file_read");
-    expect(tools[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(tools[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     // Native web search tool should NOT have cache_control set by the mapping logic
     // (it's appended after the mapped custom tools)

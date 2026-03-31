@@ -1,3 +1,6 @@
+#if os(macOS)
+import AppKit
+#endif
 import SwiftUI
 import VellumAssistantShared
 
@@ -18,13 +21,28 @@ struct ThinkingBlockView: View {
                 Divider()
                     .padding(.horizontal, VSpacing.sm)
 
+                #if os(macOS)
+                VSelectableTextView(
+                    attributedString: NSAttributedString(
+                        string: content,
+                        attributes: [
+                            .font: VFont.nsBodyMediumDefault,
+                            .foregroundColor: NSColor(VColor.contentSecondary),
+                        ]
+                    ),
+                    lineSpacing: 0
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.sm)
+                .transition(.opacity)
+                #else
                 Text(content)
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
-                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(VSpacing.sm)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
+                #endif
             }
         }
         .background(VColor.surfaceOverlay)
@@ -52,10 +70,12 @@ struct ThinkingBlockView: View {
                 VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
                     .foregroundStyle(VColor.contentTertiary)
             }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .environment(\.isEnabled, true)
+        .pointerCursor()
     }
 }

@@ -123,9 +123,9 @@ Examples:
           userId: userId || null,
         };
 
-        writeOutput(cmd, result);
-
-        if (!shouldOutputJson(cmd)) {
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, result);
+        } else {
           log.info(`Containerized: ${result.containerized}`);
           log.info(`Base URL: ${result.baseUrl || "(not set)"}`);
           log.info(`Assistant ID: ${result.assistantId || "(not set)"}`);

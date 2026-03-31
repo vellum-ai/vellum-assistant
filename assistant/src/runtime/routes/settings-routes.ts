@@ -223,6 +223,7 @@ async function handleOAuthConnectStart(body: {
       requestedScopes: body.requestedScopes,
       clientId,
       clientSecret,
+      callbackTransport: "loopback",
       isInteractive: true,
       openUrl: (url: string) => {
         authUrl = url;

@@ -85,10 +85,6 @@ mock.module("../tools/terminal/sandbox.js", () => ({
   },
 }));
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp/test-data",
-}));
-
 // --- Proxy session mocks ---
 let mockActiveSession: { id: string; conversationId: string } | undefined;
 let getOrStartSessionCalls: {

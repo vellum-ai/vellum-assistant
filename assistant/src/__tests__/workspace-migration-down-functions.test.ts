@@ -34,12 +34,6 @@ mock.module("../security/credential-key.js", () => ({
 
 // Mock getRootDir for 016-extract-feature-flags-to-protected
 let mockRootDir: string = "/tmp/mock-root";
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(mockRootDir, "protected"),
-  getDataDir: () => join(mockRootDir, "workspace", "data"),
-  getWorkspaceDir: () => join(mockRootDir, "workspace"),
-}));
-
 // ---------------------------------------------------------------------------
 // Imports — after mocking
 // ---------------------------------------------------------------------------

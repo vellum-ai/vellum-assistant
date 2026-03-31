@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.5.13
+  version: 0.5.15
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1855,47 +1855,6 @@ paths:
               required:
                 - provider
               additionalProperties: false
-  /v1/config/permissions/skip:
-    get:
-      operationId: config_permissions_skip_get
-      summary: Get permission-skip flag
-      description: Return whether dangerouslySkipPermissions is enabled.
-      tags:
-        - config
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  enabled:
-                    type: boolean
-                required:
-                  - enabled
-                additionalProperties: false
-    put:
-      operationId: config_permissions_skip_put
-      summary: Set permission-skip flag
-      description: Enable or disable dangerouslySkipPermissions.
-      tags:
-        - config
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                enabled:
-                  type: boolean
-              required:
-                - enabled
-              additionalProperties: false
   /v1/config/platform:
     get:
       operationId: config_platform_get
@@ -3144,7 +3103,7 @@ paths:
     post:
       operationId: export_post
       summary: Export logs and audit data
-      description: Export audit records, daemon logs, workspace contents, and config as a tar.gz archive.
+      description: Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
       tags:
         - export
       responses:
@@ -3158,24 +3117,128 @@ paths:
               type: object
               properties:
                 auditLimit:
+                  description: Max audit records (default 1000)
                   type: integer
                   minimum: -9007199254740991
                   maximum: 9007199254740991
-                  description: Max audit records (default 1000)
                 conversationId:
-                  type: string
                   description: Scope to a single conversation
+                  type: string
                 startTime:
-                  type: number
                   description: Lower bound epoch ms
-                endTime:
                   type: number
+                endTime:
                   description: Upper bound epoch ms
+                  type: number
+              additionalProperties: false
+  /v1/groups:
+    get:
+      operationId: groups_get
+      summary: List groups
+      description: Return all conversation groups.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: groups_post
+      summary: Create group
+      description: Create a new custom conversation group. Server assigns sort_position.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Group name
               required:
-                - auditLimit
-                - conversationId
-                - startTime
-                - endTime
+                - name
+              additionalProperties: false
+  /v1/groups/{groupId}:
+    delete:
+      operationId: groups_by_groupId_delete
+      summary: Delete group
+      description: Delete a custom conversation group.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: groups_by_groupId_patch
+      summary: Update group
+      description: Update a conversation group's name or sort position.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                sortPosition:
+                  type: number
+              additionalProperties: false
+  /v1/groups/reorder:
+    post:
+      operationId: groups_reorder_post
+      summary: Reorder groups
+      description: Batch-update sort positions for conversation groups.
+      tags:
+        - groups
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                updates:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      groupId:
+                        type: string
+                      sortPosition:
+                        type: number
+                    required:
+                      - groupId
+                      - sortPosition
+                    additionalProperties: false
+                  description: Array of { groupId, sortPosition } objects
+              required:
+                - updates
               additionalProperties: false
   /v1/guardian-actions/decision:
     post:
@@ -4014,6 +4077,38 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/logs/export:
+    post:
+      operationId: logs_export_post
+      summary: Export logs and audit data (alias)
+      description: Alias for /v1/export. Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
+      tags:
+        - export
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                auditLimit:
+                  description: Max audit records (default 1000)
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+                conversationId:
+                  description: Scope to a single conversation
+                  type: string
+                startTime:
+                  description: Lower bound epoch ms
+                  type: number
+                endTime:
+                  description: Upper bound epoch ms
+                  type: number
+              additionalProperties: false
   /v1/memory-items:
     get:
       operationId: memoryitems_get
@@ -6349,17 +6444,27 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    description: Event ID
-                  event_name:
-                    type: string
-                required:
-                  - id
-                  - event_name
-                additionalProperties: false
+                anyOf:
+                  - type: object
+                    properties:
+                      id:
+                        type: string
+                        description: Event ID
+                      event_name:
+                        type: string
+                    required:
+                      - id
+                      - event_name
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      skipped:
+                        type: boolean
+                        const: true
+                        description: Event skipped due to usage data collection being disabled
+                    required:
+                      - skipped
+                    additionalProperties: false
       requestBody:
         required: true
         content:
@@ -6722,7 +6827,7 @@ paths:
                   buckets:
                     type: array
                     items: {}
-                    description: Daily usage bucket objects
+                    description: Usage bucket objects
                 required:
                   - buckets
                 additionalProperties: false
@@ -6739,6 +6844,15 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+        - name: granularity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - daily
+              - hourly
+          description: 'Bucket granularity: "daily" (default) or "hourly"'
   /v1/usage/totals:
     get:
       operationId: usage_totals_get

@@ -1,8 +1,7 @@
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import {
   existsSync,
   readFileSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -258,30 +257,42 @@ export class WorkspaceGitService {
     );
   }
 
-  /** Age threshold (ms) beyond which an index.lock is considered stale. */
-  private static readonly LOCK_STALE_THRESHOLD_MS = 30_000;
-
   /**
-   * Remove `.git/index.lock` only if it is stale — older than
-   * {@link LOCK_STALE_THRESHOLD_MS}. A recently-created lock may belong to a
-   * concurrent git process outside our mutex (e.g. a user-initiated CLI
-   * command), so we leave it alone.
+   * Remove `.git/index.lock` if it exists and no external process holds it.
+   *
+   * This method is always called inside the mutex, so no git operation from
+   * our code can be concurrently holding the lock. However, an external git
+   * process (user running `git add`, IDE tooling, etc.) could legitimately
+   * hold the lock. We use `lsof` to check — if any process has the file
+   * open, we leave it alone. If no process holds it, it's stale (crashed
+   * process) and safe to remove.
    */
   private cleanStaleLockFile(): void {
     const lockPath = join(this.workspaceDir, ".git", "index.lock");
+    if (!existsSync(lockPath)) {
+      return;
+    }
+
     try {
-      const stat = statSync(lockPath);
-      const ageMs = Date.now() - stat.mtimeMs;
-      if (ageMs < WorkspaceGitService.LOCK_STALE_THRESHOLD_MS) {
-        log.debug(
-          `index.lock exists but is only ${Math.round(ageMs / 1000)}s old — leaving it`,
-        );
+      const result = spawnSync("lsof", ["-t", lockPath], {
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      if (result.status === 0 && result.stdout?.length > 0) {
+        log.debug("index.lock held by an active process, skipping removal");
         return;
       }
-      unlinkSync(lockPath);
-      log.debug(`Removed stale index.lock (${Math.round(ageMs / 1000)}s old)`);
     } catch {
-      // File doesn't exist or can't be stat'd/removed — move on.
+      // lsof unavailable or errored — fall through to remove.
+      // On platforms without lsof this degrades to unconditional removal,
+      // which is the same as the previous behavior.
+    }
+
+    try {
+      unlinkSync(lockPath);
+      log.debug("Removed stale index.lock");
+    } catch {
+      // File was removed between check and unlink, or can't be removed — move on.
     }
   }
 

@@ -4,33 +4,9 @@
  * Covers happy path (multi-source results), empty results, degraded mode
  * (embeddings/Qdrant unavailable), scope filtering, and error handling.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-recall-handler-"));
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must precede production imports) ───────────────────
-
-mock.module("../../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -257,10 +233,6 @@ describe("handleMemoryRecall", () => {
   beforeEach(() => {
     clearTables();
     clearEmbeddingBackendCache();
-  });
-
-  afterAll(() => {
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   // ── Input validation ──────────────────────────────────────────────

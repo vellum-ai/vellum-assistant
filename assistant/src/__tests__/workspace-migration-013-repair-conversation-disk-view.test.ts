@@ -1,13 +1,11 @@
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -15,24 +13,10 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must come before any imports that depend on them
 // ---------------------------------------------------------------------------
 
-const testDir = mkdtempSync(join(tmpdir(), "workspace-migration-013-test-"));
-const workspaceDir = join(testDir, "workspace");
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
+const workspaceDir = testDir;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => join(workspaceDir, "data"),
-  getWorkspaceDir: () => workspaceDir,
-  getConversationsDir: () => conversationsDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  getProtectedDir: () => join(testDir, "protected"),
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -69,11 +53,6 @@ initializeDb();
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function resetTables() {

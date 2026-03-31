@@ -16,11 +16,11 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
-import { stripCommentLines } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -507,10 +507,7 @@ export function injectNowScratchpad(
   let insertIdx = 0;
   for (let i = 0; i < message.content.length; i++) {
     const block = message.content[i];
-    if (
-      block.type === "text" &&
-      block.text.startsWith("<memory_context")
-    ) {
+    if (block.type === "text" && block.text.startsWith("<memory_context")) {
       insertIdx = i + 1;
     } else {
       break;
@@ -530,7 +527,7 @@ export function injectNowScratchpad(
 /** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, [
-    "<NOW.md",
+    "<NOW.md Always keep this up to date>",
     "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   ]);
 }
@@ -1058,7 +1055,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
-  "<NOW.md",
+  "<NOW.md Always keep this up to date>",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   "<transport_hints>",
 ];

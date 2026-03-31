@@ -589,7 +589,7 @@ describe("injectTemporalContext", () => {
   };
 
   const sampleContext =
-    "<temporal_context>\nToday: 2026-02-18 (Wednesday)\nTimezone: UTC\n</temporal_context>";
+    "<temporal_context>\nToday: 2026-02-18 (Wed) 12:00 +00:00\nTZ: UTC\n</temporal_context>";
 
   test("prepends temporal context block to user message", () => {
     const result = injectTemporalContext(baseUserMessage, sampleContext);
@@ -729,7 +729,7 @@ describe("applyRuntimeInjections with temporalContext", () => {
   ];
 
   const sampleContext =
-    "<temporal_context>\nToday: 2026-02-18 (Wednesday)\n</temporal_context>";
+    "<temporal_context>\nToday: 2026-02-18 (Wed) 12:00 +00:00\nTZ: UTC\n</temporal_context>";
 
   test("injects temporal context when provided", () => {
     const result = applyRuntimeInjections(baseMessages, {
@@ -1293,7 +1293,7 @@ describe("applyRuntimeInjections — injection mode", () => {
     workspaceTopLevelContext:
       "<workspace_top_level>\nRoot: /sandbox\n</workspace_top_level>",
     temporalContext:
-      "<temporal_context>\nToday: 2026-03-04 (Tuesday)\n</temporal_context>",
+      "<temporal_context>\nToday: 2026-03-04 (Tue) 12:00 +00:00\nTZ: UTC\n</temporal_context>",
     channelCommandContext: { type: "start" } as const,
     activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
     channelCapabilities: {
@@ -1458,7 +1458,10 @@ describe("injectNowScratchpad", () => {
     const messageWithMemory: Message = {
       role: "user",
       content: [
-        { type: "text", text: "<memory_context __injected>\nrecalled notes\n</memory_context>" },
+        {
+          type: "text",
+          text: "<memory_context __injected>\nrecalled notes\n</memory_context>",
+        },
         { type: "text", text: "What should I work on?" },
       ],
     };
@@ -1635,9 +1638,9 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
       (result[0].content[0] as { type: "text"; text: string }).text,
     ).toContain("<NOW.md");
     // Original text is last
-    expect(
-      (result[0].content[1] as { type: "text"; text: string }).text,
-    ).toBe("What should I do?");
+    expect((result[0].content[1] as { type: "text"; text: string }).text).toBe(
+      "What should I do?",
+    );
   });
 
   test("does not inject when nowScratchpad is null", () => {

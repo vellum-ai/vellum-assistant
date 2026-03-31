@@ -1,11 +1,11 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import { getMemoryCheckpoint } from "../memory/checkpoints.js";
 import {
-  getMemoryCheckpoint,
-  setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
+  enqueueMemoryJob,
+  hasActiveCarryForwardJob,
+} from "../memory/jobs-store.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
@@ -25,35 +25,6 @@ export function formatJournalAbsoluteTime(mtime: number): string {
 }
 
 /**
- * Return a human-readable relative timestamp from a Unix-epoch millisecond
- * value to "now".
- */
-export function formatJournalRelativeTime(mtime: number): string {
-  const diffMs = Date.now() - mtime;
-  const diffSec = Math.floor(diffMs / 1000);
-
-  if (diffSec < 60) return "just now";
-
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) {
-    return diffMin === 1 ? "1 minute ago" : `${diffMin} minutes ago`;
-  }
-
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) {
-    return diffHours === 1 ? "1 hour ago" : `${diffHours} hours ago`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) {
-    return diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
-  }
-
-  const diffWeeks = Math.floor(diffDays / 7);
-  return diffWeeks === 1 ? "1 week ago" : `${diffWeeks} weeks ago`;
-}
-
-/**
  * Build a journal context section for inclusion in the system prompt.
  *
  * Reads `{workspaceDir}/journal/*.md` files, sorts by creation time
@@ -67,14 +38,13 @@ export function buildJournalContext(
   if (maxEntries <= 0) return null;
 
   // When no user is identified, skip journal entirely
-  let journalDir: string;
-  if (userSlug != null) {
-    // Sanitize slug to prevent path traversal
-    const safeSlug = basename(userSlug);
-    journalDir = join(getWorkspaceDir(), "journal", safeSlug);
-  } else {
-    return null;
-  }
+  if (userSlug == null) return null;
+
+  // Sanitize slug once and reuse everywhere — prevents path traversal and
+  // normalizes empty strings to "unknown" so directory reads and carry-forward
+  // dedup keys always agree.
+  const safeSlug = basename(userSlug) || "unknown";
+  const journalDir = join(getWorkspaceDir(), "journal", safeSlug);
 
   let files: string[];
   try {
@@ -113,12 +83,12 @@ export function buildJournalContext(
 
   // Enqueue carry-forward jobs for entries rotating out of the context window.
   // Wrapped in try-catch so DB errors never break journal context rendering.
-  if (rotatingOut.length > 0 && userSlug != null) {
+  if (rotatingOut.length > 0) {
     try {
-      const safeSlug = basename(userSlug);
       for (const entry of rotatingOut) {
-        const checkpointKey = `journal_carry_forward:${entry.filename}`;
+        const checkpointKey = `journal_carry_forward:${safeSlug}:${entry.filename}`;
         if (getMemoryCheckpoint(checkpointKey) != null) continue;
+        if (hasActiveCarryForwardJob(entry.filename, safeSlug)) continue;
 
         let content: string;
         try {
@@ -133,7 +103,6 @@ export function buildJournalContext(
           filename: entry.filename,
           scopeId: "default",
         });
-        setMemoryCheckpoint(checkpointKey, String(Date.now()));
         log.info(
           { filename: entry.filename, userSlug: safeSlug },
           "Enqueued journal carry-forward job for rotating-out entry",
@@ -150,7 +119,7 @@ export function buildJournalContext(
   if (entries.length === 0) return null;
 
   const sections: string[] = [
-    `# Journal\n\nYour journal entries, most recent first. These are YOUR words from past conversations.\n**Write new entries to:** \`journal/${basename(userSlug!)}/\``,
+    `# Journal\n\nYour journal entries, most recent first. These are YOUR words from past conversations.\n**Write new entries to:** \`journal/${safeSlug}/\``,
   ];
 
   for (let i = 0; i < entries.length; i++) {
@@ -161,9 +130,7 @@ export function buildJournalContext(
     } catch {
       continue;
     }
-    const relativeTime = formatJournalRelativeTime(entry.birthtimeMs);
-    const absoluteTime = formatJournalAbsoluteTime(entry.birthtimeMs);
-    const timestamp = `${absoluteTime}, ${relativeTime}`;
+    const timestamp = formatJournalAbsoluteTime(entry.birthtimeMs);
 
     let header: string;
     if (i === 0) {

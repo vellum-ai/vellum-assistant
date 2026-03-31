@@ -1,71 +1,11 @@
-import {
-  existsSync,
-  mkdirSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-skill-load-tool-test-${crypto.randomUUID()}`,
-);
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Build a mock that covers every export from platform.ts — any function not
 // explicitly mapped returns a no-op stub so that transitive imports don't fail.
-const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
-  getRootDir: () => TEST_DIR,
-  getDataDir: () => TEST_DIR,
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getWorkspaceDir: () => join(TEST_DIR, "workspace"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getWorkspaceConfigPath: () => join(TEST_DIR, "workspace", "config.json"),
-  getWorkspaceHooksDir: () => join(TEST_DIR, "workspace", "hooks"),
-  getWorkspacePromptPath: (f: unknown) =>
-    join(TEST_DIR, "workspace", String(f)),
-  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
-  getHooksDir: () => join(TEST_DIR, "hooks"),
-
-  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
-  getSandboxWorkingDir: () => join(TEST_DIR, "sandbox", "work"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  getSessionTokenPath: () => join(TEST_DIR, "session-token"),
-  readSessionToken: () => null,
-  getClipboardCommand: () => null,
-  normalizeAssistantId: (id: unknown) => String(id),
-  getEmbeddingModelsDir: () => join(TEST_DIR, "embedding-models"),
-  getTCPPort: () => 8765,
-  isTCPEnabled: () => false,
-  getTCPHost: () => "127.0.0.1",
-  isIOSPairingEnabled: () => false,
-  getPlatformTokenPath: () => join(TEST_DIR, "platform-token"),
-  readPlatformToken: () => null,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getWorkspaceDirDisplay: () => "~/.vellum/workspace",
-  getConversationsDir: () => join(TEST_DIR, "conversations"),
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getSignalsDir: () => join(TEST_DIR, "workspace", "signals"),
-  getDaemonStderrLogPath: () => join(TEST_DIR, "logs", "daemon-stderr.log"),
-  getDaemonStartupLockPath: () => join(TEST_DIR, "daemon-startup.lock"),
-  getFeatureFlagTokenPath: () => join(TEST_DIR, "feature-flag-token"),
-  getExternalDir: () => join(TEST_DIR, "external"),
-  getBinDir: () => join(TEST_DIR, "bin"),
-  getDotEnvPath: () => join(TEST_DIR, ".env"),
-  getEmbedWorkerPidPath: () => join(TEST_DIR, "embed-worker.pid"),
-  getLegacyRootDir: () => TEST_DIR,
-  getSoundsDir: () => join(TEST_DIR, "sounds"),
-};
-mock.module("../util/platform.js", () => platformOverrides);
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -166,12 +106,6 @@ describe("skill_load tool", () => {
     mockAutoInstall.mockImplementation((_skillId: string) =>
       Promise.resolve(false),
     );
-  });
-
-  afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   test("loads a skill by exact id", async () => {

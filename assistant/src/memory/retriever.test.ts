@@ -5,9 +5,6 @@
  * empty results → no injection, superseded items filtered out,
  * staleness demotion, budget allocation, and degradation scenarios.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -17,19 +14,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-retriever-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -312,7 +296,6 @@ describe("Memory Retriever Pipeline", () => {
 
   afterAll(() => {
     resetDb();
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   // -----------------------------------------------------------------------
@@ -1486,7 +1469,14 @@ describe("Memory Retriever Pipeline", () => {
       // doesn't remove them (serendipity is cross-conversation recall).
       const otherConvId = "conv-serendipity-other";
       insertConversation(db, otherConvId, now - 120_000);
-      insertMessage(db, "msg-s-other", otherConvId, "user", "other", now - 110_000);
+      insertMessage(
+        db,
+        "msg-s-other",
+        otherConvId,
+        "user",
+        "other",
+        now - 110_000,
+      );
 
       // Insert several active items that are NOT returned by Qdrant
       for (let i = 1; i <= 5; i++) {
@@ -1498,7 +1488,12 @@ describe("Memory Retriever Pipeline", () => {
           importance: i * 0.15, // 0.15..0.75
           firstSeenAt: now - i * 10_000,
         });
-        insertItemSource(db, `serendipity-item-${i}`, "msg-s-other", now - i * 10_000);
+        insertItemSource(
+          db,
+          `serendipity-item-${i}`,
+          "msg-s-other",
+          now - i * 10_000,
+        );
       }
 
       // Qdrant returns nothing — no recalled candidates
@@ -1531,7 +1526,14 @@ describe("Memory Retriever Pipeline", () => {
       const convId = "conv-serendipity-excl";
 
       insertConversation(db, convId, now - 60_000);
-      insertMessage(db, "msg-se-1", convId, "user", "query about X", now - 50_000);
+      insertMessage(
+        db,
+        "msg-se-1",
+        convId,
+        "user",
+        "query about X",
+        now - 50_000,
+      );
 
       // This item will be returned by Qdrant as a recalled candidate
       insertItem(db, {

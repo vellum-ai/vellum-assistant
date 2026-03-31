@@ -44,11 +44,11 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
+ * tokenEndpointAuthMethod, userinfoUrl, extraParams,
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
- * identityResponsePaths, identityFormat, identityOkField)
+ * identityResponsePaths, identityFormat, identityOkField, featureFlag)
  * and display metadata (displayName, description, dashboardUrl,
  * clientIdPlaceholder, requiresClientSecret) propagate to existing
  * installations on every startup, while user-customizable fields
@@ -72,7 +72,6 @@ export function seedProviders(
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
     extraParams?: Record<string, string>;
-    callbackTransport?: string;
     managedServiceConfigKey?: string;
     displayName?: string;
     description?: string;
@@ -95,6 +94,7 @@ export function seedProviders(
     identityResponsePaths?: string[];
     identityFormat?: string;
     identityOkField?: string;
+    featureFlag?: string;
   }>,
 ): void {
   const db = getDb();
@@ -113,7 +113,6 @@ export function seedProviders(
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
     const extraParams = p.extraParams ? JSON.stringify(p.extraParams) : null;
-    const callbackTransport = p.callbackTransport ?? null;
     const managedServiceConfigKey = p.managedServiceConfigKey ?? null;
     const displayName = p.displayName ?? null;
     const description = p.description ?? null;
@@ -138,6 +137,7 @@ export function seedProviders(
       : null;
     const identityFormat = p.identityFormat ?? null;
     const identityOkField = p.identityOkField ?? null;
+    const featureFlag = p.featureFlag ?? null;
 
     db.insert(oauthProviders)
       .values({
@@ -150,7 +150,6 @@ export function seedProviders(
         defaultScopes,
         scopePolicy,
         extraParams,
-        callbackTransport,
         pingUrl,
         pingMethod,
         pingHeaders,
@@ -172,6 +171,7 @@ export function seedProviders(
         identityResponsePaths,
         identityFormat,
         identityOkField,
+        featureFlag,
         createdAt: now,
         updatedAt: now,
       })
@@ -184,7 +184,6 @@ export function seedProviders(
           userinfoUrl,
           baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
           extraParams,
-          callbackTransport,
           pingUrl,
           pingMethod,
           pingHeaders,
@@ -206,6 +205,7 @@ export function seedProviders(
           identityResponsePaths,
           identityFormat,
           identityOkField,
+          featureFlag,
           updatedAt: now,
         },
       })
@@ -247,7 +247,6 @@ export function registerProvider(params: {
   defaultScopes: string[];
   scopePolicy: Record<string, unknown>;
   extraParams?: Record<string, string>;
-  callbackTransport?: string;
   managedServiceConfigKey?: string;
   displayName?: string;
   description?: string;
@@ -270,6 +269,7 @@ export function registerProvider(params: {
   identityResponsePaths?: string[];
   identityFormat?: string;
   identityOkField?: string;
+  featureFlag?: string;
 }): OAuthProviderRow {
   const db = getDb();
   const now = Date.now();
@@ -289,7 +289,6 @@ export function registerProvider(params: {
     defaultScopes: JSON.stringify(params.defaultScopes),
     scopePolicy: JSON.stringify(params.scopePolicy),
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
-    callbackTransport: params.callbackTransport ?? null,
     pingUrl: params.pingUrl ?? null,
     pingMethod: params.pingMethod ?? null,
     pingHeaders: params.pingHeaders ? JSON.stringify(params.pingHeaders) : null,
@@ -321,6 +320,7 @@ export function registerProvider(params: {
       : null,
     identityFormat: params.identityFormat ?? null,
     identityOkField: params.identityOkField ?? null,
+    featureFlag: params.featureFlag ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -354,7 +354,6 @@ export function updateProvider(
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
     extraParams: Record<string, string>;
-    callbackTransport: string;
     displayName: string;
     description: string;
     dashboardUrl: string;
@@ -376,6 +375,7 @@ export function updateProvider(
     identityResponsePaths: string[];
     identityFormat: string;
     identityOkField: string;
+    featureFlag: string;
   }>,
 ): OAuthProviderRow | undefined {
   const existing = getProvider(providerKey);
@@ -402,8 +402,6 @@ export function updateProvider(
     set.scopePolicy = JSON.stringify(params.scopePolicy);
   if (params.extraParams !== undefined)
     set.extraParams = JSON.stringify(params.extraParams);
-  if (params.callbackTransport !== undefined)
-    set.callbackTransport = params.callbackTransport;
   if (params.displayName !== undefined) set.displayName = params.displayName;
   if (params.description !== undefined) set.description = params.description;
   if (params.dashboardUrl !== undefined) set.dashboardUrl = params.dashboardUrl;
@@ -430,6 +428,7 @@ export function updateProvider(
     set.identityFormat = params.identityFormat;
   if (params.identityOkField !== undefined)
     set.identityOkField = params.identityOkField;
+  if (params.featureFlag !== undefined) set.featureFlag = params.featureFlag;
 
   db.update(oauthProviders)
     .set(set)

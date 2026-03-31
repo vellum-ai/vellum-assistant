@@ -20,7 +20,7 @@ struct VoiceSettingsView: View {
         // without this, SwiftUI doesn't know the body depends on this
         // @AppStorage value and skips re-rendering when it changes.
         _ = activationKey
-        return PTTActivator.fromStored()
+        return PTTActivator.cached
     }
 
     private var pttEnabled: Bool {
@@ -164,6 +164,7 @@ struct VoiceSettingsView: View {
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "fn"
             activationKey = json
         }
+        PTTActivator.updateCache(newActivator)
         NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
     }
 

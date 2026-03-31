@@ -22,6 +22,7 @@ import {
   addMessage,
   provenanceFromTrustContext,
 } from "../memory/conversation-crud.js";
+import { setMessageIdOnLogs } from "../memory/llm-request-log-store.js";
 import type { Message } from "../providers/types.js";
 import type { WatchSession } from "../tools/watch/watch-state.js";
 import {
@@ -69,37 +70,73 @@ export function registerConversationNotifiers(
     });
   });
 
-  registerWatchCommentaryNotifier(conversationId, (_session: WatchSession) => {
-    const commentary = lastCommentaryByConversation.get(conversationId);
-    if (commentary) {
-      lastCommentaryByConversation.delete(conversationId);
-      ctx.sendToClient({
-        type: "assistant_text_delta",
-        text: commentary,
-        conversationId: conversationId,
-      });
-      ctx.sendToClient({
-        type: "message_complete",
-        conversationId: conversationId,
-      });
-    }
-  });
+  registerWatchCommentaryNotifier(
+    conversationId,
+    async (_session: WatchSession) => {
+      const result = lastCommentaryByConversation.get(conversationId);
+      if (result) {
+        lastCommentaryByConversation.delete(conversationId);
 
-  registerWatchCompletionNotifier(conversationId, (_session: WatchSession) => {
-    const summary = lastSummaryByConversation.get(conversationId);
-    if (summary) {
-      lastSummaryByConversation.delete(conversationId);
-      ctx.sendToClient({
-        type: "assistant_text_delta",
-        text: summary,
-        conversationId: conversationId,
-      });
-      ctx.sendToClient({
-        type: "message_complete",
-        conversationId: conversationId,
-      });
-    }
-  });
+        const msg = await addMessage(
+          conversationId,
+          "assistant",
+          JSON.stringify([{ type: "text", text: result.text }]),
+          provenanceFromTrustContext(ctx.trustContext),
+        );
+        ctx.messages.push(createAssistantMessage(result.text));
+
+        try {
+          setMessageIdOnLogs(result.logIds, msg.id);
+        } catch {
+          // non-fatal — message is persisted even if log linkage fails
+        }
+
+        ctx.sendToClient({
+          type: "assistant_text_delta",
+          text: result.text,
+          conversationId: conversationId,
+        });
+        ctx.sendToClient({
+          type: "message_complete",
+          conversationId: conversationId,
+        });
+      }
+    },
+  );
+
+  registerWatchCompletionNotifier(
+    conversationId,
+    async (_session: WatchSession) => {
+      const result = lastSummaryByConversation.get(conversationId);
+      if (result) {
+        lastSummaryByConversation.delete(conversationId);
+
+        const msg = await addMessage(
+          conversationId,
+          "assistant",
+          JSON.stringify([{ type: "text", text: result.text }]),
+          provenanceFromTrustContext(ctx.trustContext),
+        );
+        ctx.messages.push(createAssistantMessage(result.text));
+
+        try {
+          setMessageIdOnLogs(result.logIds, msg.id);
+        } catch {
+          // non-fatal — message is persisted even if log linkage fails
+        }
+
+        ctx.sendToClient({
+          type: "assistant_text_delta",
+          text: result.text,
+          conversationId: conversationId,
+        });
+        ctx.sendToClient({
+          type: "message_complete",
+          conversationId: conversationId,
+        });
+      }
+    },
+  );
 
   registerCallQuestionNotifier(
     conversationId,

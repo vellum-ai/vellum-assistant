@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -11,21 +8,8 @@ import {
   test,
 } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "contacts-tools-test-"));
-
 // Track the gateway URL; updated once the test server starts.
 let testGatewayUrl = "http://127.0.0.1:0";
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -102,11 +86,6 @@ beforeAll(() => {
 afterAll(() => {
   testServer?.stop(true);
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function getRawDb(): Database {
@@ -156,6 +135,37 @@ describe("contact_upsert tool", () => {
     expect(result.content).toContain("Notes: Colleague at Acme Corp");
     expect(result.content).toContain("email: bob@example.com");
     expect(result.content).toContain("slack: @bob");
+  });
+
+  test("ignores external identity bindings supplied through tool input", async () => {
+    const result = await executeContactUpsert(
+      {
+        display_name: "Eve",
+        channels: [
+          {
+            type: "slack",
+            address: "@eve",
+            external_user_id: "UATTACKER",
+            external_chat_id: "DATTACKER",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+
+    const row = getRawDb()
+      .query(
+        "SELECT external_user_id, external_chat_id FROM contact_channels WHERE type = 'slack' AND address = '@eve'",
+      )
+      .get() as {
+      external_user_id: string | null;
+      external_chat_id: string | null;
+    };
+
+    expect(row.external_user_id).toBeNull();
+    expect(row.external_chat_id).toBeNull();
   });
 
   test("updates an existing contact by ID", async () => {

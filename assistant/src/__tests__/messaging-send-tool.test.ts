@@ -64,16 +64,16 @@ const getConversationMock = mock(
 );
 
 const syncMessageToDiskMock = mock(
-  (
-    _conversationId: string,
-    _messageId: string,
-    _createdAtMs: number,
-  ) => {},
+  (_conversationId: string, _messageId: string, _createdAtMs: number) => {},
 );
 
 const getBindingByChannelChatMock = mock(
   (_sourceChannel: string, _externalChatId: string) =>
-    null as { conversationId: string; sourceChannel: string; externalChatId: string } | null,
+    null as {
+      conversationId: string;
+      sourceChannel: string;
+      externalChatId: string;
+    } | null,
 );
 
 mock.module("../memory/conversation-crud.js", () => ({
@@ -195,7 +195,7 @@ describe("messaging-send tool", () => {
     expect(addMessageMock).toHaveBeenCalledWith(
       "bound-conv-99",
       "assistant",
-      "hello from A",
+      JSON.stringify([{ type: "text", text: "hello from A" }]),
       { automated: true, crossPostedFrom: "conv-A" },
       { skipIndexing: true },
     );

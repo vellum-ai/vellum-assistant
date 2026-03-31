@@ -26,6 +26,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "local-docker-enabled",
+      "scope": "macos",
+      "key": "local-docker-enabled",
+      "label": "Local Docker Mode",
+      "description": "When enabled, the Local hosting option uses Docker under the hood for sandboxed execution, hiding the separate Docker card",
+      "defaultEnabled": false
+    },
+    {
       "id": "contacts",
       "scope": "assistant",
       "key": "contacts",
@@ -359,6 +367,14 @@
       "key": "fast-mode",
       "label": "Fast Mode",
       "description": "Enable Anthropic fast mode for Opus 4.6, delivering up to 2.5x higher output tokens per second at premium pricing",
+      "defaultEnabled": false
+    },
+    {
+      "id": "conversation-groups-ui",
+      "scope": "assistant",
+      "key": "conversation-groups-ui",
+      "label": "Conversation Groups",
+      "description": "Enable custom conversation group creation, move-to-group, and group management in the sidebar",
       "defaultEnabled": false
     }
   ]

@@ -5,6 +5,7 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
+import { seedCliCommandMemories } from "../cli/cli-memory.js";
 import {
   getPlatformAssistantId,
   getQdrantHttpPortEnv,
@@ -641,11 +642,19 @@ export async function runDaemon(): Promise<void> {
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
 
-      // Seed capability memories for first-party catalog skills so the memory
+      // Seed capability memories for all enabled skills so the memory
       // pipeline can surface relevant skills via semantic search.
-      void seedCatalogSkillMemories().catch((err) =>
-        log.warn({ err }, "Catalog skill memory seeding failed — continuing"),
-      );
+      try {
+        seedCatalogSkillMemories();
+      } catch (err) {
+        log.warn({ err }, "Catalog skill memory seeding failed — continuing");
+      }
+
+      try {
+        seedCliCommandMemories();
+      } catch (err) {
+        log.warn({ err }, "CLI command memory seeding failed — continuing");
+      }
     }
 
     // Fire-and-forget: Qdrant init runs concurrently with the rest of startup
@@ -1152,12 +1161,13 @@ export async function runDaemon(): Promise<void> {
 
     const heartbeatConfig = config.heartbeat;
     const heartbeat = new HeartbeatService({
-      processMessage: (conversationId, content) =>
+      processMessage: (conversationId, content, options) =>
         server.processMessage(conversationId, content, undefined, {
           trustContext: {
             sourceChannel: "vellum",
             trustClass: "guardian",
           },
+          ...options,
         }),
       alerter: (alert) => server.broadcast(alert),
       onConversationCreated: (info) =>

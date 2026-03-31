@@ -1,20 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "invite-redemption-service-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -29,7 +13,7 @@ import {
   upsertContact,
 } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
 import {
   createInvite,
   revokeInvite as revokeStoreFn,
@@ -42,15 +26,6 @@ import {
 import { hashVoiceCode } from "../util/voice-code.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");

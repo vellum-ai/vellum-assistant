@@ -791,15 +791,28 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Strip thinking/redacted_thinking blocks from all historical assistant
+      // Strip thinking/redacted_thinking blocks from historical assistant
       // messages. These blocks carry cryptographic signatures tied to their
       // original API response. Consolidated messages (from multi-step tool use)
       // combine thinking blocks from different responses, making signature
       // validation fail with "thinking blocks cannot be modified". Stripping is
       // safe: the API allows it for all historical messages, and new responses
       // generate fresh thinking blocks.
-      for (const msg of formatted) {
+      //
+      // The latest assistant turn is preserved: the API requires the most recent
+      // assistant message's thinking blocks to be passed back unmodified when
+      // sending tool results during in-progress tool-use loops.
+      let lastAssistantIdx = -1;
+      for (let i = formatted.length - 1; i >= 0; i--) {
+        if (formatted[i].role === "assistant") {
+          lastAssistantIdx = i;
+          break;
+        }
+      }
+      for (let i = 0; i < formatted.length; i++) {
+        const msg = formatted[i];
         if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+        if (i === lastAssistantIdx) continue;
         const stripped = msg.content.filter(
           (b) =>
             (b as { type: string }).type !== "thinking" &&
@@ -862,6 +875,9 @@ export class AnthropicProvider implements Provider {
           // turns) and dynamic workspace content (changes when files are
           // edited).  The static prefix stays cached even when workspace
           // files change, saving ~8-10K tokens of cache creation per turn.
+          // Both blocks use 1-hour cache TTL to avoid repeated cache misses
+          // for conversations with turn gaps exceeding the default 5-minute
+          // window.
           const staticBlock = systemPrompt.slice(0, boundaryIdx);
           const dynamicBlock = systemPrompt.slice(
             boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length,
@@ -870,12 +886,12 @@ export class AnthropicProvider implements Provider {
             {
               type: "text" as const,
               text: staticBlock,
-              cache_control: { type: "ephemeral" as const },
+              cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
             },
             {
               type: "text" as const,
               text: dynamicBlock,
-              cache_control: { type: "ephemeral" as const },
+              cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
             },
           ];
         } else {
@@ -883,7 +899,7 @@ export class AnthropicProvider implements Provider {
             {
               type: "text" as const,
               text: systemPrompt,
-              cache_control: { type: "ephemeral" as const },
+              cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
             },
           ];
         }
@@ -900,7 +916,7 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === otherTools.length - 1
-              ? { cache_control: { type: "ephemeral" as const } }
+              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
               : {}),
           }));
           const webSearchTool: Anthropic.WebSearchTool20250305 = {
@@ -915,7 +931,7 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === tools.length - 1
-              ? { cache_control: { type: "ephemeral" as const } }
+              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
               : {}),
           }));
         }
@@ -944,9 +960,9 @@ export class AnthropicProvider implements Provider {
         if (Array.isArray(content) && content.length > 0) {
           (
             content[content.length - 1] as unknown as {
-              cache_control?: { type: string };
+              cache_control?: { type: string; ttl?: string };
             }
-          ).cache_control = { type: "ephemeral" };
+          ).cache_control = { type: "ephemeral", ttl: "1h" };
         }
       }
 
@@ -969,6 +985,16 @@ export class AnthropicProvider implements Provider {
       const useFastMode =
         speed === "fast" && effectiveModel.includes("opus");
 
+      // Collect required betas: extended cache TTL for 1h system prompt caching,
+      // 1M context window, and fast-mode when applicable.
+      const betas: string[] = [
+        "extended-cache-ttl-2025-04-11",
+        "context-1m-2025-08-07",
+      ];
+      if (useFastMode) {
+        betas.push("fast-mode-2026-02-01");
+      }
+
       let response: Anthropic.Message;
       try {
         const stream: UnifiedStream = useFastMode
@@ -976,14 +1002,19 @@ export class AnthropicProvider implements Provider {
               {
                 ...(params as Record<string, unknown>),
                 speed: "fast" as const,
-                betas: ["fast-mode-2026-02-01" as const],
+                betas,
               } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
                 Anthropic.Beta.Messages.MessageCreateParamsStreaming,
               { signal: timeoutSignal },
             ) as unknown as UnifiedStream)
-          : (this.client.messages.stream(params, {
-              signal: timeoutSignal,
-            }) as unknown as UnifiedStream);
+          : (this.client.beta.messages.stream(
+              {
+                ...(params as Record<string, unknown>),
+                betas,
+              } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
+                Anthropic.Beta.Messages.MessageCreateParamsStreaming,
+              { signal: timeoutSignal },
+            ) as unknown as UnifiedStream);
 
         stream.on("text", (text) => {
           onEvent?.({ type: "text_delta", text });

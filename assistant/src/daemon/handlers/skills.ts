@@ -42,7 +42,10 @@ import {
   removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
-import { deleteSkillCapabilityMemory } from "../../skills/skill-memory.js";
+import {
+  deleteSkillCapabilityMemory,
+  seedCatalogSkillMemories,
+} from "../../skills/skill-memory.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
@@ -478,6 +481,7 @@ export function enableSkill(
       name: skillId,
       state: "enabled",
     });
+    seedCatalogSkillMemories();
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -572,6 +576,7 @@ export async function installSkill(
           "Failed to auto-enable bundled skill",
         );
       }
+      seedCatalogSkillMemories();
       return { success: true };
     }
 
@@ -602,6 +607,7 @@ export async function installSkill(
           );
         }
 
+        seedCatalogSkillMemories();
         return { success: true };
       }
     } catch (err) {
@@ -637,6 +643,7 @@ export async function installSkill(
       log.warn({ err, skillId }, "Failed to auto-enable installed skill");
     }
 
+    seedCatalogSkillMemories();
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1035,6 +1042,7 @@ export async function createSkill(
       );
     }
 
+    seedCatalogSkillMemories();
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -17,10 +17,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp",
-}));
-
 mock.module("../memory/guardian-action-store.js", () => ({
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},

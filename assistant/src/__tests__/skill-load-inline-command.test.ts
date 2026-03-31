@@ -10,75 +10,17 @@
  * - Render failures produce stable inline stubs rather than raw stderr.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
 // ── Test directory ────────────────────────────────────────────────────────────
 
-const TEST_DIR = mkdtempSync(
-  join(tmpdir(), "vellum-skill-load-inline-cmd-test-"),
-);
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 // ── Mocks (must be declared before any imports from the project) ─────────────
-
-const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
-  getRootDir: () => TEST_DIR,
-  getDataDir: () => join(TEST_DIR, "data"),
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getWorkspaceDir: () => join(TEST_DIR, "workspace"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getWorkspaceConfigPath: () => join(TEST_DIR, "workspace", "config.json"),
-  getWorkspaceHooksDir: () => join(TEST_DIR, "workspace", "hooks"),
-  getWorkspacePromptPath: (f: unknown) =>
-    join(TEST_DIR, "workspace", String(f)),
-  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
-  getHooksDir: () => join(TEST_DIR, "hooks"),
-  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
-  getSandboxWorkingDir: () => join(TEST_DIR, "sandbox", "work"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  getSessionTokenPath: () => join(TEST_DIR, "session-token"),
-  readSessionToken: () => null,
-  getClipboardCommand: () => null,
-  normalizeAssistantId: (id: unknown) => String(id),
-  getEmbeddingModelsDir: () => join(TEST_DIR, "embedding-models"),
-  getTCPPort: () => 8765,
-  isTCPEnabled: () => false,
-  getTCPHost: () => "127.0.0.1",
-  isIOSPairingEnabled: () => false,
-  getPlatformTokenPath: () => join(TEST_DIR, "platform-token"),
-  readPlatformToken: () => null,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getWorkspaceDirDisplay: () => "~/.vellum/workspace",
-  getConversationsDir: () => join(TEST_DIR, "conversations"),
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getSignalsDir: () => join(TEST_DIR, "workspace", "signals"),
-  getDaemonStderrLogPath: () => join(TEST_DIR, "logs", "daemon-stderr.log"),
-  getDaemonStartupLockPath: () => join(TEST_DIR, "daemon-startup.lock"),
-  getFeatureFlagTokenPath: () => join(TEST_DIR, "feature-flag-token"),
-  getExternalDir: () => join(TEST_DIR, "external"),
-  getBinDir: () => join(TEST_DIR, "bin"),
-  getDotEnvPath: () => join(TEST_DIR, ".env"),
-  getEmbedWorkerPidPath: () => join(TEST_DIR, "embed-worker.pid"),
-  getLegacyRootDir: () => TEST_DIR,
-  getSoundsDir: () => join(TEST_DIR, "sounds"),
-};
-mock.module("../util/platform.js", () => platformOverrides);
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -226,12 +168,6 @@ describe("skill_load inline command expansion", () => {
       "inline-skill-commands": true,
     });
     testConfig.skills = { load: { extraDirs: [] } };
-  });
-
-  afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   // ── Basic expansion ──────────────────────────────────────────────────

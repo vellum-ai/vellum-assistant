@@ -1,6 +1,3 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ShellOutputResult } from "../tools/shared/shell-output.js";
@@ -16,20 +13,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-const testTmpDir = mkdtempSync(join(tmpdir(), "terminal-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testTmpDir, "protected"),
-  getDataDir: () => join(testTmpDir, "data"),
-  getSandboxWorkingDir: () => join(testTmpDir, "sandbox"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testTmpDir, "test.pid"),
-  getDbPath: () => join(testTmpDir, "test.db"),
-  getLogPath: () => join(testTmpDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+const testTmpDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({

@@ -326,6 +326,32 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result!.threadTs).toBe("1700000000.000100");
   });
 
+  test("DM edit without thread_ts omits threadTs", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({ channel_type: "im" });
+    const result = normalizeSlackMessageEdit(event, "evt-dm-edit-1", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBeUndefined();
+  });
+
+  test("DM edit with thread_ts preserves threadTs", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      channel_type: "im",
+      message: {
+        user: "U_USER123",
+        text: "edited hello world",
+        ts: "1700000000.000100",
+        thread_ts: "1700000000.000050",
+      },
+    });
+    const result = normalizeSlackMessageEdit(event, "evt-dm-edit-2", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000050");
+  });
+
   test("DM edits use default assistant when channel is not in routing table", () => {
     const config = makeConfig({
       unmappedPolicy: "reject",

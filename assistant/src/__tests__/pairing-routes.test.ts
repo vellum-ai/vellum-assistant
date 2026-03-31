@@ -6,20 +6,7 @@
  * device to call the endpoint idempotently.
  */
 
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "pairing-routes-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getWorkspaceDir: () => join(testDir, "workspace"),
-  getDataDir: () => testDir,
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -42,7 +29,6 @@ function makeContext(store: PairingStore): PairingHandlerContext {
   return {
     pairingStore: store,
     bearerToken: "test-bearer-token",
-    featureFlagToken: undefined,
     pairingBroadcast: mock(() => {}),
   };
 }
@@ -61,14 +47,6 @@ function makePairingRequest(overrides: Record<string, unknown> = {}): Request {
     body: JSON.stringify(body),
   });
 }
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ── Tests ────────────────────────────────────────────────────────────────
 

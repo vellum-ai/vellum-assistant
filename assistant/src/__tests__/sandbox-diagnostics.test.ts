@@ -1,6 +1,5 @@
 import * as realChildProcess from "node:child_process";
-import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const execSyncMock = mock(
   (_command: string, _opts?: unknown): unknown => undefined,
@@ -9,25 +8,6 @@ const execSyncMock = mock(
 mock.module("node:child_process", () => ({
   ...realChildProcess,
   execSync: execSyncMock,
-}));
-
-// Mock platform detection — default to macOS
-let mockIsMacOS = true;
-let mockIsLinux = false;
-
-mock.module("../util/platform.js", () => ({
-  isMacOS: () => mockIsMacOS,
-  isLinux: () => mockIsLinux,
-  getProtectedDir: () => join("/tmp/vellum-test", "protected"),
-  getDataDir: () => "/tmp/vellum-test/data",
-  getDbPath: () => "/tmp/vellum-test/data/db/assistant.db",
-  getLogPath: () => "/tmp/vellum-test/data/logs/daemon.log",
-  getSandboxRootDir: () => "/tmp/vellum-test/sandbox",
-  getSandboxWorkingDir: () => "/tmp/vellum-test/workspace",
-  ensureDataDir: () => {},
-  getHistoryPath: () => "/tmp/vellum-test/data/history",
-  getHooksDir: () => "/tmp/vellum-test/hooks",
-  getPidPath: () => "/tmp/vellum-test/data/daemon.pid",
 }));
 
 // Mock config loader — return a config with sandbox settings
@@ -58,15 +38,27 @@ mock.module("../util/logger.js", () => ({
 const { runSandboxDiagnostics } =
   await import("../tools/terminal/sandbox-diagnostics.js");
 
+// ---------------------------------------------------------------------------
+// Helper: temporarily override process.platform for a test
+// ---------------------------------------------------------------------------
+const originalPlatform = process.platform;
+
+function setPlatform(platform: string): void {
+  Object.defineProperty(process, "platform", { value: platform });
+}
+
 beforeEach(() => {
   execSyncMock.mockReset();
-  mockIsMacOS = true;
-  mockIsLinux = false;
   mockSandboxConfig = {
     enabled: true,
   };
   // Default: all commands succeed.
   execSyncMock.mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  // Restore the real platform after every test
+  setPlatform(originalPlatform);
 });
 
 describe("runSandboxDiagnostics — config reporting", () => {
@@ -97,6 +89,7 @@ describe("runSandboxDiagnostics — active backend reason", () => {
 
 describe("runSandboxDiagnostics — native backend check (macOS)", () => {
   test("passes when sandbox-exec works on macOS", () => {
+    setPlatform("darwin");
     const result = runSandboxDiagnostics();
     const nativeCheck = result.checks.find((c) =>
       c.label.includes("Native sandbox"),
@@ -107,6 +100,7 @@ describe("runSandboxDiagnostics — native backend check (macOS)", () => {
   });
 
   test("fails when sandbox-exec does not work on macOS", () => {
+    setPlatform("darwin");
     execSyncMock.mockImplementation((cmd: string) => {
       if (typeof cmd === "string" && cmd.includes("sandbox-exec")) {
         throw new Error("not available");
@@ -124,8 +118,7 @@ describe("runSandboxDiagnostics — native backend check (macOS)", () => {
 
 describe("runSandboxDiagnostics — native backend check (Linux)", () => {
   test("passes when bwrap works on Linux", () => {
-    mockIsMacOS = false;
-    mockIsLinux = true;
+    setPlatform("linux");
     const result = runSandboxDiagnostics();
     const nativeCheck = result.checks.find((c) =>
       c.label.includes("Native sandbox"),
@@ -136,8 +129,7 @@ describe("runSandboxDiagnostics — native backend check (Linux)", () => {
   });
 
   test("fails when bwrap is not available on Linux", () => {
-    mockIsMacOS = false;
-    mockIsLinux = true;
+    setPlatform("linux");
     execSyncMock.mockImplementation((cmd: string) => {
       if (typeof cmd === "string" && cmd.includes("bwrap")) {
         throw new Error("not found");
@@ -156,8 +148,7 @@ describe("runSandboxDiagnostics — native backend check (Linux)", () => {
 
 describe("runSandboxDiagnostics — native backend check (unsupported OS)", () => {
   test("reports unsupported when neither macOS nor Linux", () => {
-    mockIsMacOS = false;
-    mockIsLinux = false;
+    setPlatform("win32");
     const result = runSandboxDiagnostics();
     const nativeCheck = result.checks.find((c) =>
       c.label.includes("Native sandbox"),

@@ -41,15 +41,13 @@ struct AttachmentThumbnailView: View {
         .task(id: url) {
             guard isImage else { return }
             let fileURL = url
+            let maxPixels = Int(Self.thumbnailSize) * 2 // 2x for Retina
             // Load image data off the main thread using thread-safe CGImageSource APIs.
             // NSImage is NOT thread-safe and must not be used off the main thread.
             let cgImage = await Task.detached {
                 guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else {
                     return nil as CGImage?
                 }
-                // Decode at thumbnail size instead of full resolution to avoid
-                // large pixel buffer allocations for high-res screenshots/GIFs.
-                let maxPixels = Int(AttachmentThumbnailView.thumbnailSize) * 2 // 2x for Retina
                 let options: [CFString: Any] = [
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceThumbnailMaxPixelSize: maxPixels,

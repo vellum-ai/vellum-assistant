@@ -121,7 +121,7 @@ export function buildMemoryInjection(params: {
     if (remainingTokens <= 0) break;
     const line = renderCandidate(c);
     const tokens = estimateTextTokens(line);
-    if (tokens > remainingTokens) break;
+    if (tokens > remainingTokens) continue;
     lines.push(line);
     remainingTokens -= tokens;
   }
@@ -146,7 +146,7 @@ export function buildMemoryInjection(params: {
       if (echoesBudget <= 0) break;
       const line = renderCandidate(c);
       const tokens = estimateTextTokens(line);
-      if (tokens > echoesBudget) break;
+      if (tokens > echoesBudget) continue;
       echoLines.push(line);
       echoesBudget -= tokens;
       remainingTokens -= tokens;

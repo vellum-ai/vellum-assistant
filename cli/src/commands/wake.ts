@@ -1,10 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-import { resolveTargetAssistant } from "../lib/assistant-config.js";
+import {
+  resolveTargetAssistant,
+  saveAssistantEntry,
+} from "../lib/assistant-config.js";
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
+  generateLocalSigningKey,
   isAssistantWatchModeAvailable,
   isGatewayWatchModeAvailable,
   startLocalDaemon,
@@ -106,8 +110,42 @@ export async function wake(): Promise<void> {
     }
   }
 
+  // Resolve the signing key. The gateway persists its own copy to disk at
+  // <instanceDir>/.vellum/protected/actor-token-signing-key. That on-disk key
+  // is the source of truth because it is what the gateway actually used to sign
+  // existing actor tokens. Prefer it over the lockfile value so that tokens
+  // survive upgrades and any scenario where the two diverge.
+  //
+  // NOTE: Removal of this legacy key path read is blocked on removing all use
+  // of the signing key from the assistant daemon. Until then, the on-disk key
+  // must remain the authoritative source.
+  const legacyKeyPath = join(
+    resources.instanceDir,
+    ".vellum",
+    "protected",
+    "actor-token-signing-key",
+  );
+  let signingKey: string | undefined;
+  if (existsSync(legacyKeyPath)) {
+    try {
+      const raw = readFileSync(legacyKeyPath);
+      if (raw.length === 32) {
+        signingKey = raw.toString("hex");
+      }
+    } catch {
+      // Ignore — fall through to lockfile or generate.
+    }
+  }
+  if (!signingKey) {
+    signingKey = resources.signingKey ?? generateLocalSigningKey();
+  }
+  if (signingKey !== resources.signingKey) {
+    entry.resources = { ...resources, signingKey };
+    saveAssistantEntry(entry);
+  }
+
   if (!daemonRunning) {
-    await startLocalDaemon(watch, resources, { foreground });
+    await startLocalDaemon(watch, resources, { foreground, signingKey });
   }
 
   // Start gateway
@@ -127,13 +165,13 @@ export async function wake(): Promise<void> {
             `Gateway running (pid ${pid}) — restarting in watch mode...`,
           );
           await stopProcessByPidFile(gatewayPidFile, "gateway");
-          await startGateway(watch, resources);
+          await startGateway(watch, resources, { signingKey });
         }
       } else {
         console.log(`Gateway already running (pid ${pid}).`);
       }
     } else {
-      await startGateway(watch, resources);
+      await startGateway(watch, resources, { signingKey });
     }
   }
 

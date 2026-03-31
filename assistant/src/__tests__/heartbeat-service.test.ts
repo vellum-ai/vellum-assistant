@@ -1,20 +1,15 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Mock platform to use a temp workspace dir
-let testWorkspaceDir: string;
-
-mock.module("../util/platform.js", () => ({
-  getWorkspacePromptPath: (file: string) => join(testWorkspaceDir, file),
-}));
+const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Mock config loader
 let mockConfig = {
   heartbeat: {
     enabled: true,
     intervalMs: 60_000,
+    speed: "standard" as "standard" | "fast",
     activeHoursStart: undefined as number | undefined,
     activeHoursEnd: undefined as number | undefined,
   },
@@ -80,16 +75,19 @@ mock.module("../memory/conversation-title-service.js", () => ({
 const { HeartbeatService } = await import("../heartbeat/heartbeat-service.js");
 
 describe("HeartbeatService", () => {
-  let processMessageCalls: Array<{ conversationId: string; content: string }>;
+  let processMessageCalls: Array<{
+    conversationId: string;
+    content: string;
+    options?: { speed?: string };
+  }>;
   let alerterCalls: Array<{ type: string; title: string; body: string }>;
 
-  beforeEach(() => {
-    testWorkspaceDir = join(
-      tmpdir(),
-      `vellum-hb-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    mkdirSync(testWorkspaceDir, { recursive: true });
+  afterEach(() => {
+    // Clean up HEARTBEAT.md between tests so file-existence tests don't leak
+    rmSync(join(testWorkspaceDir, "HEARTBEAT.md"), { force: true });
+  });
 
+  beforeEach(() => {
     processMessageCalls = [];
     alerterCalls = [];
     createdConversations.length = 0;
@@ -99,6 +97,7 @@ describe("HeartbeatService", () => {
       heartbeat: {
         enabled: true,
         intervalMs: 60_000,
+        speed: "standard",
         activeHoursStart: undefined,
         activeHoursEnd: undefined,
       },
@@ -109,14 +108,19 @@ describe("HeartbeatService", () => {
     processMessage?: (
       id: string,
       content: string,
+      options?: { speed?: string },
     ) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
   }) {
     return new HeartbeatService({
       processMessage:
         overrides?.processMessage ??
-        (async (conversationId: string, content: string) => {
-          processMessageCalls.push({ conversationId, content });
+        (async (
+          conversationId: string,
+          content: string,
+          options?: { speed?: string },
+        ) => {
+          processMessageCalls.push({ conversationId, content, options });
           return { messageId: "msg-1" };
         }),
       alerter: (alert: { type: string; title: string; body: string }) => {
@@ -150,14 +154,59 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls[0].content).toContain("Water the plants");
   });
 
+  test("comment lines in HEARTBEAT.md are stripped from prompt", async () => {
+    const checklist = [
+      "_ This is a comment that should be stripped",
+      "_ Another comment line",
+      "- Do the real task",
+      "- Check on something important",
+    ].join("\n");
+    writeFileSync(join(testWorkspaceDir, "HEARTBEAT.md"), checklist);
+
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].content).toContain("Do the real task");
+    expect(processMessageCalls[0].content).toContain(
+      "Check on something important",
+    );
+    expect(processMessageCalls[0].content).not.toContain(
+      "This is a comment that should be stripped",
+    );
+    expect(processMessageCalls[0].content).not.toContain(
+      "Another comment line",
+    );
+  });
+
+  test("comment lines inside fenced code blocks are preserved", async () => {
+    const checklist = [
+      "_ This comment should be stripped",
+      "- Check the Python snippet below still works:",
+      "```python",
+      "_instance = None",
+      "_private_var = 42",
+      "```",
+    ].join("\n");
+    writeFileSync(join(testWorkspaceDir, "HEARTBEAT.md"), checklist);
+
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].content).toContain("_instance = None");
+    expect(processMessageCalls[0].content).toContain("_private_var = 42");
+    expect(processMessageCalls[0].content).not.toContain(
+      "This comment should be stripped",
+    );
+  });
+
   test("default checklist used when no HEARTBEAT.md", async () => {
     const service = createService();
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].content).toContain(
-      "Check the current weather",
-    );
+    expect(processMessageCalls[0].content).toContain("Check in with yourself");
   });
 
   test("creates background conversation with generating title placeholder", async () => {
@@ -343,7 +392,9 @@ describe("HeartbeatService", () => {
 
     expect(afterReset).not.toBeNull();
     // The new nextRunAt should be >= the interval from now
-    expect(afterReset!).toBeGreaterThanOrEqual(before + mockConfig.heartbeat.intervalMs);
+    expect(afterReset!).toBeGreaterThanOrEqual(
+      before + mockConfig.heartbeat.intervalMs,
+    );
     service.stop();
   });
 
@@ -364,11 +415,31 @@ describe("HeartbeatService", () => {
     expect(service.nextRunAt).toBeNull();
   });
 
-  test("cleanup", () => {
-    try {
-      rmSync(testWorkspaceDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
+  test("passes heartbeat config speed to processMessage", async () => {
+    mockConfig.heartbeat.speed = "standard";
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toEqual({ speed: "standard" });
+  });
+
+  test("heartbeat uses its own speed even when global config differs", async () => {
+    // Simulate: global config has fast, but heartbeat config has standard
+    mockConfig.heartbeat.speed = "standard";
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options?.speed).toBe("standard");
+  });
+
+  test("heartbeat passes fast speed when explicitly configured", async () => {
+    mockConfig.heartbeat.speed = "fast";
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options?.speed).toBe("fast");
   });
 });

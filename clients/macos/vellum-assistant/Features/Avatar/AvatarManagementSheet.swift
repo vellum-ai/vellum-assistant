@@ -47,14 +47,12 @@ struct AvatarManagementSheet: View {
             VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.xl)
 
-            Divider().background(VColor.borderBase)
-                .padding(.horizontal, -VSpacing.xl)
-
-            VStack(spacing: 0) {
-                actionRow(
-                    icon: "paintbrush",
+            VStack(spacing: VSpacing.sm) {
+                VNavItem(
+                    icon: VIcon.wrench.rawValue,
                     label: "Build a Character",
-                    subtitle: "Build your own character"
+                    subtitle: "Build your own character",
+                    trailingIcon: VIcon.chevronRight.rawValue
                 ) {
                     withAnimation(VAnimation.fast) {
                         if let body = appearance.characterBodyShape,
@@ -76,31 +74,27 @@ struct AvatarManagementSheet: View {
                     }
                 }
 
-                Divider().background(VColor.borderBase)
-
-                actionRow(
-                    icon: "photo",
+                VNavItem(
+                    icon: VIcon.image.rawValue,
                     label: "Upload Image",
-                    subtitle: "Choose an image from your Mac"
+                    subtitle: "Choose an image from your Mac",
+                    trailingIcon: VIcon.chevronRight.rawValue
                 ) {
                     pickImage()
                 }
 
                 if appearance.customAvatarImage != nil {
-                    Divider().background(VColor.borderBase)
-
-                    actionRow(
+                    VNavItem(
                         icon: VIcon.trash.rawValue,
                         label: "Delete Avatar",
-                        subtitle: "Revert to the default avatar",
-                        destructive: true
+                        subtitle: "Revert to the default avatar"
                     ) {
                         appearance.clearCustomAvatar()
                         onClose()
                     }
                 }
             }
-            .padding(.vertical, VSpacing.sm)
+            .padding(.bottom, VSpacing.lg)
         }
     }
 
@@ -128,7 +122,8 @@ struct AvatarManagementSheet: View {
                 .padding(.bottom, VSpacing.lg)
 
             HStack(spacing: VSpacing.md) {
-                VButton(label: "Discard", style: .dangerOutline, isDisabled: !isDirty) {
+                Spacer()
+                VButton(label: "Discard", style: .outlined, isDisabled: !isDirty) {
                     onClose()
                 }
                 VButton(label: "Confirm", style: .primary, isDisabled: draftImage == nil) {
@@ -269,11 +264,7 @@ struct AvatarManagementSheet: View {
         .frame(height: 52)
         .background(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .fill(VColor.surfaceBase)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .stroke(VColor.borderBase, lineWidth: 1)
+                .fill(VColor.surfaceOverlay)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)

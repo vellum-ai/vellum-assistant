@@ -2,26 +2,7 @@
  * Regression test: guardian verification calls must create a voice channel
  * binding so the conversation never appears as an unbound desktop conversation.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "guardian-verify-binding-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -109,19 +90,10 @@ mock.module("../memory/conversation-title-service.js", () => ({
 
 import { startVerificationCall } from "../calls/call-domain.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb, resetDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 describe("startVerificationCall — voice binding", () => {
   beforeEach(() => {

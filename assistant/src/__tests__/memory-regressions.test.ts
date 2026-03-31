@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   afterAll,
@@ -11,22 +10,7 @@ import {
   test,
 } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "memory-regressions-"));
-
-const testWorkspaceDir = join(testDir, ".vellum", "workspace");
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  getWorkspaceDir: () => testWorkspaceDir,
-  getWorkspacePromptPath: (file: string) => join(testWorkspaceDir, file),
-}));
+const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -169,11 +153,6 @@ describe("Memory regressions", () => {
 
   afterAll(() => {
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
   });
 
   function semanticRecallConfig() {

@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
@@ -18,6 +18,7 @@ import {
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
 import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
+import { expandQueryWithHyDE } from "./query-expansion.js";
 import {
   conversations,
   memoryItems,
@@ -25,6 +26,7 @@ import {
   messages,
 } from "./schema.js";
 import { buildMemoryInjection } from "./search/formatting.js";
+import { applyMMR } from "./search/mmr.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
 import { computeStaleness } from "./search/staleness.js";
 import {
@@ -60,6 +62,10 @@ const log = getLogger("memory-retriever");
 
 const EMBED_MAX_RETRIES = 3;
 const EMBED_BASE_DELAY_MS = 500;
+
+/** MMR diversity penalty applied to near-duplicate items after score filtering.
+ *  0 = no penalty, 1 = maximum penalty. */
+const MMR_PENALTY = 0.6;
 
 /**
  * Wrap embedWithBackend with retry + exponential backoff for transient failures
@@ -231,6 +237,136 @@ async function generateQueryEmbedding(
   return { queryVector, provider, model, degraded, degradation, reason };
 }
 
+/** Result from HyDE-expanded search. */
+interface HyDESearchResult {
+  candidates: Candidate[];
+  hydeExpanded: boolean;
+  hydeDocCount: number;
+  /** Whether any HyDE doc produced a sparse vector with non-empty indices */
+  hydeSparseUsed: boolean;
+}
+
+/**
+ * Run HyDE-expanded search: generate hypothetical documents, embed them
+ * alongside the raw query in parallel, run parallel semantic searches,
+ * and merge all candidate arrays.
+ *
+ * Falls back to raw-query-only search on any HyDE failure (expansion
+ * error, embedding error for hypothetical docs). The raw query search
+ * always runs regardless of HyDE success.
+ */
+async function runHyDESearch(
+  query: string,
+  rawQueryVector: number[],
+  config: AssistantConfig,
+  signal: AbortSignal | undefined,
+  provider: string,
+  model: string,
+  limit: number,
+  excludeMessageIds: string[],
+  scopeIds: string[] | undefined,
+  sparseVector: { indices: number[]; values: number[] } | undefined,
+): Promise<HyDESearchResult> {
+  // Always search with the raw query — this is our baseline
+  const rawSearchPromise = semanticSearch(
+    rawQueryVector,
+    provider,
+    model,
+    limit,
+    excludeMessageIds,
+    scopeIds,
+    sparseVector,
+  );
+  // Suppress unhandled rejection if Qdrant rejects before we await
+  rawSearchPromise.catch(() => {});
+
+  // Attempt HyDE expansion — returns [] on any failure
+  let hypotheticalDocs: string[];
+  try {
+    hypotheticalDocs = await expandQueryWithHyDE(query, config, signal);
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    // expandQueryWithHyDE already catches internally, but be defensive
+    hypotheticalDocs = [];
+  }
+
+  if (hypotheticalDocs.length === 0) {
+    // No hypothetical docs — fall back to raw query only
+    const rawResults = await rawSearchPromise;
+    return {
+      candidates: rawResults,
+      hydeExpanded: false,
+      hydeDocCount: 0,
+      hydeSparseUsed: false,
+    };
+  }
+
+  log.debug(
+    { hydeDocCount: hypotheticalDocs.length },
+    "HyDE expansion produced hypothetical documents",
+  );
+
+  // Embed all hypothetical docs in parallel with the raw search
+  let hydeVectors: number[][] = [];
+  try {
+    const hydeEmbedResult = await embedWithRetry(config, hypotheticalDocs, {
+      signal,
+    });
+    hydeVectors = hydeEmbedResult.vectors;
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to embed HyDE hypothetical docs; falling back to raw query",
+    );
+    const rawResults = await rawSearchPromise;
+    return {
+      candidates: rawResults,
+      hydeExpanded: false,
+      hydeDocCount: 0,
+      hydeSparseUsed: false,
+    };
+  }
+
+  // Run parallel semantic searches for each hypothetical doc embedding,
+  // generating per-doc sparse embeddings so sparse and dense components match.
+  let hydeSparseUsed = false;
+  const hydeSearchPromises = hydeVectors.map((vector, i) => {
+    const docSparseVector = generateSparseEmbedding(hypotheticalDocs[i]!);
+    if (docSparseVector.indices.length > 0) hydeSparseUsed = true;
+    return semanticSearch(
+      vector,
+      provider,
+      model,
+      limit,
+      excludeMessageIds,
+      scopeIds,
+      docSparseVector,
+    ).catch((err) => {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "HyDE hypothetical doc search failed; skipping",
+      );
+      return [] as Candidate[];
+    });
+  });
+
+  // Await all searches in parallel (raw + hypothetical)
+  const [rawResults, ...hydeResults] = await Promise.all([
+    rawSearchPromise,
+    ...hydeSearchPromises,
+  ]);
+
+  // Merge all candidate arrays into a single flat array
+  const allCandidates = [rawResults, ...hydeResults].flat();
+
+  return {
+    candidates: allCandidates,
+    hydeExpanded: true,
+    hydeDocCount: hypotheticalDocs.length,
+    hydeSparseUsed,
+  };
+}
+
 /**
  * Memory recall pipeline: hybrid search → score filtering →
  * staleness annotation → unified XML injection.
@@ -301,21 +437,44 @@ export async function buildMemoryRecall(
   let hybridCandidates: Candidate[] = [];
   let semanticSearchFailed = false;
   let sparseVectorUsed = false;
+  let hydeExpanded = false;
+  let hydeDocCount = 0;
   const hybridSearchStart = Date.now();
 
   const qdrantBreakerOpen = isQdrantBreakerOpen();
   if (queryVector && !qdrantBreakerOpen) {
     try {
-      hybridCandidates = await semanticSearch(
-        queryVector,
-        provider ?? "unknown",
-        model ?? "unknown",
-        HYBRID_LIMIT,
-        excludeMessageIds,
-        scopeIds,
-        sparseVectorAvailable ? sparseVector : undefined,
-      );
-      sparseVectorUsed = sparseVectorAvailable;
+      if (options?.hydeEnabled) {
+        // ── HyDE path: expand query into hypothetical docs and search in parallel ──
+        const hydeCandidates = await runHyDESearch(
+          query,
+          queryVector,
+          config,
+          signal,
+          provider ?? "unknown",
+          model ?? "unknown",
+          HYBRID_LIMIT,
+          excludeMessageIds,
+          scopeIds,
+          sparseVectorAvailable ? sparseVector : undefined,
+        );
+        hybridCandidates = hydeCandidates.candidates;
+        hydeExpanded = hydeCandidates.hydeExpanded;
+        hydeDocCount = hydeCandidates.hydeDocCount;
+        sparseVectorUsed = sparseVectorAvailable || hydeCandidates.hydeSparseUsed;
+      } else {
+        // ── Standard path: single raw query search ──
+        hybridCandidates = await semanticSearch(
+          queryVector,
+          provider ?? "unknown",
+          model ?? "unknown",
+          HYBRID_LIMIT,
+          excludeMessageIds,
+          scopeIds,
+          sparseVectorAvailable ? sparseVector : undefined,
+        );
+        sparseVectorUsed = sparseVectorAvailable;
+      }
     } catch (err) {
       semanticSearchFailed = true;
       if (isQdrantConnectionError(err)) {
@@ -444,13 +603,20 @@ export async function buildMemoryRecall(
   // ── Step 5: Filter by minimum score threshold ───────────────────
   const filtered = filterByMinScore(allCandidates);
 
-  // ── Step 5b: Enrich candidates with source labels ──────────────
-  enrichSourceLabels(filtered);
+  // ── Step 5b: MMR diversity ranking ─────────────────────────────
+  const mmrRanked = applyMMR(filtered, MMR_PENALTY);
+
+  // MMR rewrites finalScore, so re-enforce the min-score threshold to
+  // drop candidates whose adjusted score fell below the cutoff.
+  const diversified = filterByMinScore(mmrRanked);
+
+  // ── Step 5c: Enrich candidates with source labels ──────────────
+  enrichSourceLabels(diversified);
 
   // ── Serendipity: sample random memories for unexpected connections ──
   const SERENDIPITY_COUNT = 3;
   const serendipityCandidates = sampleSerendipityItems(
-    filtered,
+    diversified,
     SERENDIPITY_COUNT,
     scopeIds,
   );
@@ -464,11 +630,13 @@ export async function buildMemoryRecall(
   enrichSourceLabels(serendipityCandidates);
 
   // ── Step 6: Enrich with item metadata for staleness ─────────────
-  const itemIds = filtered.filter((c) => c.type === "item").map((c) => c.id);
+  const itemIds = diversified.filter((c) => c.type === "item").map((c) => c.id);
   const itemMetadataMap = enrichItemMetadata(itemIds);
 
   // ── Step 6b: Enrich item candidates with supersedes data ────────
-  const itemCandidatesForSupersedes = filtered.filter((c) => c.type === "item");
+  const itemCandidatesForSupersedes = diversified.filter(
+    (c) => c.type === "item",
+  );
   if (itemCandidatesForSupersedes.length > 0) {
     try {
       const db = getDb();
@@ -496,7 +664,7 @@ export async function buildMemoryRecall(
 
   // ── Step 7: Compute staleness per item (for debugging/logging) ─
   const now = Date.now();
-  for (const c of filtered) {
+  for (const c of diversified) {
     if (c.type !== "item") continue;
     const meta = itemMetadataMap.get(c.id);
     if (!meta) continue;
@@ -521,22 +689,23 @@ export async function buildMemoryRecall(
   );
 
   const injectedText = buildMemoryInjection({
-    candidates: filtered,
+    candidates: diversified,
     serendipityItems: serendipityCandidates,
     totalBudgetTokens: maxInjectTokens,
   });
 
   // ── Assemble result ─────────────────────────────────────────────
-  const selectedCount = filtered.length + serendipityCandidates.length;
+  const selectedCount = diversified.length + serendipityCandidates.length;
 
   const stalenessStats = {
-    fresh: filtered.filter((c) => c.staleness === "fresh").length,
-    aging: filtered.filter((c) => c.staleness === "aging").length,
-    stale: filtered.filter((c) => c.staleness === "stale").length,
-    very_stale: filtered.filter((c) => c.staleness === "very_stale").length,
+    fresh: diversified.filter((c) => c.staleness === "fresh").length,
+    aging: diversified.filter((c) => c.staleness === "aging").length,
+    stale: diversified.filter((c) => c.staleness === "stale").length,
+    very_stale: diversified.filter((c) => c.staleness === "very_stale").length,
   };
 
-  const topCandidates: MemoryRecallCandiateDebug[] = filtered
+  const topCandidates: MemoryRecallCandiateDebug[] = [...diversified]
+    .sort((a, b) => b.finalScore - a.finalScore)
     .slice(0, 10)
     .map((c) => ({
       key: c.key,
@@ -574,6 +743,7 @@ export async function buildMemoryRecall(
       maxInjectTokens,
       injectedTokens: estimateTextTokens(injectedText),
       latencyMs,
+      ...(hydeExpanded ? { hydeExpanded, hydeDocCount } : {}),
     },
     "Memory recall completed",
   );
@@ -596,6 +766,9 @@ export async function buildMemoryRecall(
     tier2Count: 0,
     hybridSearchMs,
     sparseVectorUsed,
+    hydeExpanded,
+    hydeDocCount,
+    mmrApplied: true,
   };
 
   return result;
@@ -791,10 +964,21 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
         .all();
 
       // Group by item ID and pick the most recently updated conversation
-      const bestConvMap = new Map<string, { title: string | null; conversationId: string; createdAt: number; updatedAt: number }>();
+      const bestConvMap = new Map<
+        string,
+        {
+          title: string | null;
+          conversationId: string;
+          createdAt: number;
+          updatedAt: number;
+        }
+      >();
       for (const row of rows) {
         const existing = bestConvMap.get(row.memoryItemId);
-        if (existing === undefined || row.conversationUpdatedAt > existing.updatedAt) {
+        if (
+          existing === undefined ||
+          row.conversationUpdatedAt > existing.updatedAt
+        ) {
           bestConvMap.set(row.memoryItemId, {
             title: row.title,
             conversationId: row.conversationId,
@@ -808,7 +992,10 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
         const conv = bestConvMap.get(c.id);
         if (conv) {
           if (conv.title) c.sourceLabel = conv.title;
-          const dirName = getConversationDirName(conv.conversationId, conv.createdAt);
+          const dirName = getConversationDirName(
+            conv.conversationId,
+            conv.createdAt,
+          );
           c.sourcePath = `conversations/${dirName}/messages.jsonl`;
         }
       }
@@ -820,7 +1007,9 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
     );
 
     if (segmentCandidates.length > 0) {
-      const convIds = [...new Set(segmentCandidates.map((c) => c.conversationId!))];
+      const convIds = [
+        ...new Set(segmentCandidates.map((c) => c.conversationId!)),
+      ];
       const convRows = db
         .select({
           id: conversations.id,
@@ -902,9 +1091,10 @@ function filterInContextItems(
  * then selects up to `count` items with probability proportional to their
  * importance value (importance-weighted sampling).
  *
- * Only items with importance >= MIN_SERENDIPITY_IMPORTANCE are eligible,
- * so only genuinely significant memories (decisions, personal moments,
- * turning points) surface as echoes.
+ * Items with importance >= MIN_SERENDIPITY_IMPORTANCE are eligible, as are
+ * legacy items with NULL importance (not yet backfilled). This ensures
+ * genuinely significant memories and pre-importance-era items can both
+ * surface as echoes.
  */
 const MIN_SERENDIPITY_IMPORTANCE = 0.7;
 
@@ -923,7 +1113,6 @@ function sampleSerendipityItems(
       .filter((c) => c.type === "item")
       .map((c) => c.id);
 
-    // Query random active items not already in the candidate pool
     const RANDOM_POOL_SIZE = 10;
 
     // Build scope condition: match allowed scopes, or default to 'default'
@@ -932,55 +1121,77 @@ function sampleSerendipityItems(
       ? inArray(memoryItems.scopeId, scopeIds)
       : eq(memoryItems.scopeId, "default");
 
-    let rows;
-    const importanceFloor = gte(
-      memoryItems.importance,
-      MIN_SERENDIPITY_IMPORTANCE,
-    );
+    const importanceFloor = sql`(${memoryItems.importance} >= ${MIN_SERENDIPITY_IMPORTANCE} OR ${memoryItems.importance} IS NULL)`;
 
-    if (existingItemIds.length > 0) {
-      rows = db
-        .select({
-          id: memoryItems.id,
-          kind: memoryItems.kind,
-          subject: memoryItems.subject,
-          statement: memoryItems.statement,
-          importance: memoryItems.importance,
-          firstSeenAt: memoryItems.firstSeenAt,
-        })
-        .from(memoryItems)
-        .where(
-          and(
+    const baseConditions =
+      existingItemIds.length > 0
+        ? and(
             eq(memoryItems.status, "active"),
             scopeCondition,
             importanceFloor,
             notInArray(memoryItems.id, existingItemIds),
-          ),
-        )
-        .orderBy(sql`RANDOM()`)
-        .limit(RANDOM_POOL_SIZE)
-        .all();
-    } else {
-      rows = db
-        .select({
-          id: memoryItems.id,
-          kind: memoryItems.kind,
-          subject: memoryItems.subject,
-          statement: memoryItems.statement,
-          importance: memoryItems.importance,
-          firstSeenAt: memoryItems.firstSeenAt,
-        })
-        .from(memoryItems)
-        .where(
-          and(
+          )
+        : and(
             eq(memoryItems.status, "active"),
             scopeCondition,
             importanceFloor,
-          ),
-        )
-        .orderBy(sql`RANDOM()`)
-        .limit(RANDOM_POOL_SIZE)
+          );
+
+    // Use rowid-probe sampling instead of ORDER BY RANDOM() to avoid a
+    // full-table sort whose cost grows linearly with memory_items size.
+    // Strategy: get the rowid range, generate random rowids, and probe for
+    // the nearest eligible row with `rowid >= ?`. Each probe is O(log n)
+    // via B-tree lookup, so total cost is O(k·log n) instead of O(n·log n).
+    const range = db
+      .select({
+        minRowid: sql<number>`MIN(rowid)`,
+        maxRowid: sql<number>`MAX(rowid)`,
+        total: sql<number>`COUNT(*)`,
+      })
+      .from(memoryItems)
+      .where(baseConditions)
+      .get();
+
+    if (!range || range.total === 0) return [];
+
+    const columns = {
+      id: memoryItems.id,
+      kind: memoryItems.kind,
+      subject: memoryItems.subject,
+      statement: memoryItems.statement,
+      importance: memoryItems.importance,
+      firstSeenAt: memoryItems.firstSeenAt,
+    };
+
+    let rows;
+    if (range.total <= RANDOM_POOL_SIZE) {
+      // Few enough eligible rows — fetch all, no randomness needed at DB level
+      rows = db
+        .select(columns)
+        .from(memoryItems)
+        .where(baseConditions)
         .all();
+    } else {
+      // Probe random rowids in the eligible range
+      const seen = new Set<string>();
+      rows = [];
+      const rowidSpan = range.maxRowid - range.minRowid + 1;
+      const maxAttempts = RANDOM_POOL_SIZE * 5;
+      for (let i = 0; i < maxAttempts && rows.length < RANDOM_POOL_SIZE; i++) {
+        const randomRowid =
+          range.minRowid + Math.floor(Math.random() * rowidSpan);
+        const row = db
+          .select(columns)
+          .from(memoryItems)
+          .where(and(baseConditions, sql`rowid >= ${randomRowid}`))
+          .orderBy(sql`rowid`)
+          .limit(1)
+          .get();
+        if (row && !seen.has(row.id)) {
+          seen.add(row.id);
+          rows.push(row);
+        }
+      }
     }
 
     if (rows.length === 0) return [];

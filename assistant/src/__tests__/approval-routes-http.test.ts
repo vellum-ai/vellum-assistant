@@ -4,29 +4,10 @@
  * Tests POST /v1/confirm, POST /v1/secret, and POST /v1/trust-rules
  * through RuntimeHttpServer with pending-interactions tracking.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "approval-routes-http-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -86,7 +67,7 @@ mock.module("../permissions/trust-store.js", () => ({
   getRules: () => [],
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -246,15 +227,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
     db.run("DELETE FROM conversation_keys");
     pendingInteractions.clear();
     eventHub = new AssistantEventHub();
-  });
-
-  afterAll(() => {
-    resetDb();
-    try {
-      rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   async function startServer(

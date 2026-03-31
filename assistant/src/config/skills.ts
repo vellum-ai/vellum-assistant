@@ -18,7 +18,6 @@ import {
 
 import { z } from "zod";
 
-import { stripCommentLines } from "../prompts/system-prompt.js";
 import {
   extractAllText,
   getConfiguredProvider,
@@ -34,6 +33,7 @@ import {
   getWorkspaceDirDisplay,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
 

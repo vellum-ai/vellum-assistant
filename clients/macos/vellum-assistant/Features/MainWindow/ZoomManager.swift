@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor
 @Observable
 final class ZoomManager {
-    static let zoomSteps: [CGFloat] = [0.75, 0.80, 0.90, 1.00, 1.10, 1.25, 1.50, 1.75, 2.00]
+    static let zoomSteps: [CGFloat] = [0.50, 0.60, 0.70, 0.75, 0.80, 0.90, 1.00, 1.10, 1.25, 1.50, 1.75, 2.00]
 
     var zoomLevel: CGFloat {
         didSet { UserDefaults.standard.set(zoomLevel, forKey: "windowZoomLevel") }

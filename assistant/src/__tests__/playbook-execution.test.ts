@@ -1,20 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "playbook-exec-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -42,7 +26,7 @@ import { executePlaybookCreate } from "../config/bundled-skills/playbooks/tools/
 import { executePlaybookDelete } from "../config/bundled-skills/playbooks/tools/playbook-delete.js";
 import { executePlaybookList } from "../config/bundled-skills/playbooks/tools/playbook-list.js";
 import { executePlaybookUpdate } from "../config/bundled-skills/playbooks/tools/playbook-update.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { computeMemoryFingerprint } from "../memory/fingerprint.js";
 import { memoryItems } from "../memory/schema.js";
 import { compilePlaybooks } from "../playbooks/playbook-compiler.js";
@@ -50,15 +34,6 @@ import { parsePlaybookStatement } from "../playbooks/types.js";
 import type { ToolContext } from "../tools/types.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

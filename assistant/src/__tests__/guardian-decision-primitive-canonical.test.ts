@@ -1,20 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "canonical-decision-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -26,6 +10,8 @@ mock.module("../util/logger.js", () => ({
 
 import {
   applyCanonicalGuardianDecision,
+  GRANT_TTL_10M_MS,
+  GRANT_TTL_MS,
   mintCanonicalRequestGrant,
 } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
@@ -37,7 +23,7 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 
 initializeDb();
@@ -48,15 +34,6 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
 }
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    // best-effort cleanup
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -412,7 +389,8 @@ describe("applyCanonicalGuardianDecision", () => {
     expect(result.resolverFailed).toBe(true);
   });
 
-  test("preserves approve_10m (not downgraded) and mints grant", async () => {
+  test("preserves approve_10m (not downgraded) and mints grant with 10m TTL", async () => {
+    const before = Date.now();
     const req = createCanonicalGuardianRequest({
       kind: "unknown_kind",
       sourceType: "voice",
@@ -447,9 +425,14 @@ describe("applyCanonicalGuardianDecision", () => {
     expect(grants.length).toBe(1);
     expect(grants[0].toolName).toBe("host_bash");
     expect(grants[0].conversationId).toBe("conv-10m-1");
+
+    // Grant TTL should be ~10 minutes, not the default 5 minutes
+    const grantExpiresAt = grants[0].expiresAt;
+    expect(grantExpiresAt).toBeGreaterThanOrEqual(before + GRANT_TTL_10M_MS);
+    expect(grantExpiresAt).toBeLessThanOrEqual(Date.now() + GRANT_TTL_10M_MS);
   });
 
-  test("preserves approve_conversation (not downgraded) and mints grant", async () => {
+  test("preserves approve_conversation (not downgraded) and mints grant with no wall-clock expiry", async () => {
     const req = createCanonicalGuardianRequest({
       kind: "unknown_kind",
       sourceType: "voice",
@@ -484,6 +467,9 @@ describe("applyCanonicalGuardianDecision", () => {
     expect(grants.length).toBe(1);
     expect(grants[0].toolName).toBe("file_write");
     expect(grants[0].conversationId).toBe("conv-session-1");
+
+    // Conversation-scoped grants have no wall-clock expiry (far-future sentinel)
+    expect(grants[0].expiresAt).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   // ── Expired request ────────────────────────────────────────────────
@@ -654,6 +640,7 @@ describe("mintCanonicalRequestGrant", () => {
       request: req,
       actorChannel: "telegram",
       guardianExternalUserId: "guardian-1",
+      effectiveAction: "approve_once",
     });
 
     expect(result.minted).toBe(true);
@@ -673,6 +660,7 @@ describe("mintCanonicalRequestGrant", () => {
     const result = mintCanonicalRequestGrant({
       request: req,
       actorChannel: "vellum",
+      effectiveAction: "approve_once",
     });
 
     expect(result.minted).toBe(true);
@@ -695,6 +683,7 @@ describe("mintCanonicalRequestGrant", () => {
       request: req,
       actorChannel: "telegram",
       guardianExternalUserId: "guardian-1",
+      effectiveAction: "approve_once",
     });
 
     expect(result.minted).toBe(false);
@@ -713,8 +702,95 @@ describe("mintCanonicalRequestGrant", () => {
       request: req,
       actorChannel: "telegram",
       guardianExternalUserId: "guardian-1",
+      effectiveAction: "approve_once",
     });
 
     expect(result.minted).toBe(false);
+  });
+
+  test("mints grant with 10m TTL for approve_10m action", () => {
+    const before = Date.now();
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-ttl-10m",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "shell",
+      inputDigest: "sha256:ttl-10m",
+    });
+
+    const result = mintCanonicalRequestGrant({
+      request: req,
+      actorChannel: "telegram",
+      guardianExternalUserId: "guardian-1",
+      effectiveAction: "approve_10m",
+    });
+
+    expect(result.minted).toBe(true);
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].expiresAt).toBeGreaterThanOrEqual(
+      before + GRANT_TTL_10M_MS,
+    );
+    expect(grants[0].expiresAt).toBeLessThanOrEqual(
+      Date.now() + GRANT_TTL_10M_MS,
+    );
+  });
+
+  test("mints grant with no wall-clock expiry for approve_conversation", () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-ttl-conv",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "shell",
+      inputDigest: "sha256:ttl-conv",
+    });
+
+    const result = mintCanonicalRequestGrant({
+      request: req,
+      actorChannel: "telegram",
+      guardianExternalUserId: "guardian-1",
+      effectiveAction: "approve_conversation",
+    });
+
+    expect(result.minted).toBe(true);
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].expiresAt).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  test("mints grant with default 5m TTL for approve_once", () => {
+    const before = Date.now();
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-ttl-once",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "shell",
+      inputDigest: "sha256:ttl-once",
+    });
+
+    const result = mintCanonicalRequestGrant({
+      request: req,
+      actorChannel: "telegram",
+      guardianExternalUserId: "guardian-1",
+      effectiveAction: "approve_once",
+    });
+
+    expect(result.minted).toBe(true);
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].expiresAt).toBeGreaterThanOrEqual(before + GRANT_TTL_MS);
+    expect(grants[0].expiresAt).toBeLessThanOrEqual(Date.now() + GRANT_TTL_MS);
   });
 });

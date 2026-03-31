@@ -15,27 +15,10 @@
  */
 
 import { readFileSync } from "node:fs";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
-
-const testDir = mkdtempSync(
-  join(tmpdir(), "guardian-routing-invariants-test-"),
-);
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -55,7 +38,7 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   type GuardianReplyContext,
   routeGuardianReply,
@@ -71,15 +54,6 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_requests");
   pendingInteractions.clear();
 }
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    // best-effort cleanup
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -634,6 +608,127 @@ describe("routing invariant: code-only messages return clarification", () => {
 
     const resolved = getCanonicalGuardianRequest(req.id);
     expect(resolved!.status).toBe("denied");
+  });
+});
+
+// ===========================================================================
+// SECTION 4b: Channel formatting delimiters stripped from code parser
+// ===========================================================================
+
+describe("routing invariant: channel formatting delimiters stripped from code parser", () => {
+  beforeEach(() => resetTables());
+
+  test("backtick-wrapped code + approve is parsed correctly", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "A1B2C3",
+      toolName: "shell",
+      inputDigest: "sha256:abc",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "`A1B2C3 approve`",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("approved");
+  });
+
+  test("bold+backtick code + reject is parsed correctly", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "D4E5F6",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "*`D4E5F6 reject`*",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("denied");
+  });
+
+  test("backtick-wrapped code only returns clarification", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "A1B2C3",
+      toolName: "shell",
+      questionText: "Run shell command: ls -la",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "`A1B2C3`",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("code_only_clarification");
+    expect(result.decisionApplied).toBe(false);
+
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe("pending");
+  });
+
+  test("asterisk-wrapped code + approve is parsed correctly", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "A1B2C3",
+      toolName: "shell",
+      inputDigest: "sha256:abc",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "*A1B2C3 approve*",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("approved");
   });
 });
 
@@ -1480,6 +1575,36 @@ describe("routing invariant: expired requests are excluded from pending discover
     // Expired request untouched
     const resolvedExpired = getCanonicalGuardianRequest(expired.id);
     expect(resolvedExpired!.status).toBe("pending");
+  });
+
+  test("backtick-wrapped plain-text approve is normalized and applied", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "FMT001",
+      toolName: "shell",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "`approve`",
+        conversationId: "conv-guardian-conversation",
+        pendingRequestIds: [req.id],
+        approvalConversationGenerator: undefined,
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("approved");
   });
 
   test("all expired hinted requests means no pending found — not consumed", async () => {

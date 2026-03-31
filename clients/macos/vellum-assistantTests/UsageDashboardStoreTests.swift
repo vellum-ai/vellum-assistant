@@ -24,7 +24,7 @@ private final class MockUsageClient: UsageClientProtocol {
         return stubbedTotals
     }
 
-    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
+    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse? {
         lastDailyFrom = from
         lastDailyTo = to
         return stubbedDaily
@@ -362,7 +362,7 @@ private final class DelayedMockUsageClient: UsageClientProtocol {
         }
     }
 
-    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
+    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse? {
         await withCheckedContinuation { continuation in
             dailyContinuations.append(continuation)
         }

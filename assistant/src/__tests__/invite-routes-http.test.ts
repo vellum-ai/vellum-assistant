@@ -1,20 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "invite-routes-http-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -55,7 +39,7 @@ mock.module("../calls/call-domain.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
 import {
   handleCreateInvite,
   handleListInvites,
@@ -70,15 +54,6 @@ initializeDb();
 function createTargetContact(displayName = "Test Contact"): string {
   return upsertContact({ displayName, role: "contact" }).id;
 }
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");

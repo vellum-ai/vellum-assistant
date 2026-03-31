@@ -13,8 +13,7 @@
  * 5. Continue matching the existing skill_load:* flow for non-dynamic skills.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -22,23 +21,10 @@ import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
 // ── Mock setup (must be before any imports from the project) ──────────────
 
-const testDir = mkdtempSync(join(tmpdir(), "inline-skill-perm-test-"));
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceSkillsDir: () => join(testDir, "skills"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>

@@ -42,6 +42,8 @@ The `id` and `key` fields in `feature-flag-registry.json` **must match** and bot
    bun run meta/feature-flags/sync-bundled-copies.ts
    ```
 
+3. **Create the flag via Terraform in `vellum-assistant-platform`**. The CI feature-flag sync check will fail if a flag exists in the registry but not on the platform.
+
 ## Creating a Feature Gate
 
 Define a constant using the flag's `id` directly and a predicate function that delegates to the resolver:

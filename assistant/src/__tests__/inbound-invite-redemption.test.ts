@@ -5,28 +5,11 @@
  * granted access without guardian approval, and that invalid/expired/revoked
  * tokens produce the correct deterministic refusal messages.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "inbound-invite-redemption-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -86,20 +69,11 @@ import {
   upsertContact,
 } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

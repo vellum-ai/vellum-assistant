@@ -126,6 +126,8 @@ public final class ChatMessageManager {
     public var assistantActivityReason: String?
     public var assistantStatusText: String?
     public var isCompacting: Bool = false
+    public var contextWindowTokens: Int? = nil
+    public var contextWindowMaxTokens: Int? = nil
     public var pendingQueuedCount: Int = 0
     public var suggestion: String?
     public var isRecording: Bool = false

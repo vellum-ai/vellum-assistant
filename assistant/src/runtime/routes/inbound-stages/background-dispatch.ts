@@ -15,6 +15,7 @@ import * as deliveryCrud from "../../../memory/delivery-crud.js";
 import * as deliveryStatus from "../../../memory/delivery-status.js";
 import {
   extractChannelFromCallbackUrl,
+  extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
   setThreadTs,
 } from "../../../memory/slack-thread-store.js";
@@ -328,9 +329,49 @@ export function setSlackThinkingStatus(
   // the correct thread for the Assistants API status.
   const threadTs = extractThreadTsFromCallbackUrl(callbackUrl);
 
-  // If there's no thread context, we can't set a thread status — bail.
+  // For non-threaded DMs, fall back to emoji reaction on the original message.
   if (!threadTs) {
-    return () => {};
+    const messageTs = extractMessageTsFromCallbackUrl(callbackUrl);
+    if (!messageTs) return () => {};
+
+    const addPromise = deliverChannelReply(
+      callbackUrl,
+      {
+        chatId,
+        assistantId,
+        reaction: { action: "add", name: "eyes", messageTs },
+      },
+      mintBearerToken(),
+    ).catch((err) => {
+      log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
+    });
+
+    const clearReaction = () => {
+      if (cleared) return;
+      cleared = true;
+      clearTimeout(safetyTimer);
+      void addPromise.then(() =>
+        deliverChannelReply(
+          callbackUrl,
+          {
+            chatId,
+            assistantId,
+            reaction: { action: "remove", name: "eyes", messageTs },
+          },
+          mintBearerToken(),
+        ).catch((err) => {
+          log.debug(
+            { err, chatId, messageTs },
+            "Failed to remove Slack eyes reaction",
+          );
+        }),
+      );
+    };
+
+    const safetyTimer = setTimeout(clearReaction, SLACK_THINKING_MAX_DURATION_MS);
+    (safetyTimer as { unref?: () => void }).unref?.();
+
+    return clearReaction;
   }
 
   // Track the set promise so clear waits for it to settle first,

@@ -1,35 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  afterAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  spyOn,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
-
-// ---------------------------------------------------------------------------
-// Test isolation: in-memory SQLite via temp directory
-// ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "channel-approvals-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -53,14 +24,6 @@ import {
   handleChannelDecision,
 } from "../runtime/channel-approvals.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

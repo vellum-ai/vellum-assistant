@@ -183,8 +183,16 @@ extension AppDelegate {
         actorTokenBootstrapTask = Task { [weak self] in
             guard let self else { return }
 
-            // If we have no actor token at all, we need initial bootstrap
-            if !ActorTokenManager.hasToken {
+            // Bootstrap if we have no actor token, or if the refresh token
+            // is expired (meaning the existing token can never be refreshed).
+            // Without this check, a stale-but-present token causes the app to
+            // skip bootstrap and enter the proactive refresh loop, which fails
+            // terminally — leaving the user stuck with no way to re-authenticate.
+            if !ActorTokenManager.hasToken || ActorTokenManager.isRefreshTokenExpired {
+                if ActorTokenManager.isRefreshTokenExpired {
+                    log.info("Refresh token expired — clearing stale credentials for re-bootstrap")
+                    ActorTokenManager.deleteAllCredentials()
+                }
                 await self.performInitialBootstrap()
             }
 
@@ -196,7 +204,7 @@ extension AppDelegate {
                 if ActorTokenManager.needsProactiveRefresh {
                     guard self.connectionManager.isConnected else { continue }
 
-                    let result = await ActorCredentialRefresher.refresh(
+                    let result = await TokenRefreshCoordinator.shared.refreshIfNeeded(
                         platform: "macos",
                         deviceId: PairingQRCodeSheet.computeHostId()
                     )

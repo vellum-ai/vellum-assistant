@@ -131,6 +131,21 @@ struct IdentityInfo {
         load(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
     }
 
+    private static let ioQueue = DispatchQueue(label: "com.vellum.identity-io", qos: .userInitiated)
+
+    /// Async variant that performs file I/O off the main thread.
+    /// Respects structured cancellation from SwiftUI `.task` modifiers.
+    static func loadAsync() async -> IdentityInfo? {
+        await loadAsync(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
+    }
+
+    /// Async variant that performs file I/O off the main thread.
+    static func loadAsync(from path: String) async -> IdentityInfo? {
+        await withCheckedContinuation { continuation in
+            ioQueue.async { continuation.resume(returning: load(from: path)) }
+        }
+    }
+
     /// Load identity from a specific IDENTITY.md path.
     static func load(from path: String) -> IdentityInfo? {
         guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
@@ -161,6 +176,13 @@ struct IdentityInfo {
         return IdentityInfo(name: name, role: role, personality: personality, emoji: emoji, home: home)
     }
 
+    /// Async variant that performs file I/O off the main thread.
+    static func loadIdentityIntroAsync() async -> String? {
+        await withCheckedContinuation { continuation in
+            ioQueue.async { continuation.resume(returning: loadIdentityIntro()) }
+        }
+    }
+
     /// Parses an optional `## Identity Intro` section from SOUL.md.
     /// Returns a single short tagline or nil.
     static func loadIdentityIntro() -> String? {
@@ -183,6 +205,13 @@ struct IdentityInfo {
             }
         }
         return nil
+    }
+
+    /// Async variant that performs file I/O off the main thread.
+    static func loadGreetingsAsync() async -> [String] {
+        await withCheckedContinuation { continuation in
+            ioQueue.async { continuation.resume(returning: loadGreetings()) }
+        }
     }
 
     /// Parses an optional `## Greetings` section from SOUL.md.

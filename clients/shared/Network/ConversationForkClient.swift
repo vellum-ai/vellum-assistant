@@ -38,7 +38,10 @@ public struct ConversationForkClient: ConversationForkClientProtocol {
     }
 
     private func conversationSummary(from conversation: ConversationsListResponse.Conversation) -> ConversationListResponseItem {
-        ConversationListResponseItem(
+        // Old-daemon fallback: derive groupId from isPinned when the server doesn't send groupId.
+        // Uses the literal "system:pinned" to avoid a cross-module dependency on ConversationGroup.
+        let groupId = conversation.groupId ?? (conversation.isPinned == true ? "system:pinned" : nil)
+        return ConversationListResponseItem(
             id: conversation.id,
             title: conversation.title,
             createdAt: conversation.createdAt,
@@ -52,6 +55,7 @@ public struct ConversationForkClient: ConversationForkClientProtocol {
             assistantAttention: conversation.assistantAttention,
             displayOrder: conversation.displayOrder,
             isPinned: conversation.isPinned,
+            groupId: groupId,
             forkParent: conversation.forkParent
         )
     }

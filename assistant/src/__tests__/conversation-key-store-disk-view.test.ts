@@ -1,38 +1,18 @@
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "conversation-key-store-disk-view-")),
-);
-const workspaceDir = join(testDir, "workspace");
-const conversationsDir = join(workspaceDir, "conversations");
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
+const conversationsDir = join(testDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceDir: () => workspaceDir,
-  getConversationsDir: () => conversationsDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -67,7 +47,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversationKeys, conversations } from "../memory/schema.js";
 
 initializeDb();
@@ -79,15 +59,6 @@ beforeEach(() => {
 
   rmSync(conversationsDir, { recursive: true, force: true });
   mkdirSync(conversationsDir, { recursive: true });
-});
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 describe("conversation-key-store disk view", () => {

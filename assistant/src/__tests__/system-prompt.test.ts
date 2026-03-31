@@ -5,44 +5,13 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Mock platform to use a temp directory
-const TEST_DIR = join(tmpdir(), `vellum-sysprompt-test-${crypto.randomUUID()}`);
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 import { mock } from "bun:test";
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getDataDir: () => TEST_DIR,
-  getWorkspaceDir: () => TEST_DIR,
-  getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
-  getConversationsDir: () => join(TEST_DIR, "conversations"),
-  getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  getHooksDir: () => join(TEST_DIR, "hooks"),
-
-  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
-  getSandboxWorkingDir: () => TEST_DIR,
-  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-  readSessionToken: () => null,
-}));
 
 const noopLogger: Record<string, unknown> = new Proxy(
   {} as Record<string, unknown>,
@@ -123,7 +92,6 @@ function basePrompt(result: string): string {
   for (const heading of [
     "## Configuration",
     "## Skills Catalog",
-    "## Available Skills",
     "## External Communications Identity",
     "## Connected Services",
     "## Dynamic Skill Authoring Workflow",
@@ -144,8 +112,16 @@ describe("buildSystemPrompt", () => {
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
+    for (const name of [
+      "IDENTITY.md",
+      "SOUL.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+      "UPDATES.md",
+      "skills",
+    ]) {
+      const p = join(TEST_DIR, name);
+      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
     }
   });
 
@@ -196,7 +172,7 @@ describe("buildSystemPrompt", () => {
     expect(basePrompt(result)).toBe("Be kind");
   });
 
-  test("appends skills catalog when skills are configured", () => {
+  test("does not include skills catalog in system prompt", () => {
     const skillsDir = join(TEST_DIR, "skills");
     mkdirSync(join(skillsDir, "release-checklist"), { recursive: true });
     writeFileSync(
@@ -208,11 +184,11 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Custom identity");
     const result = buildSystemPrompt();
     expect(result).toContain("Custom identity");
-    expect(result).toContain("## Available Skills");
-    expect(result).toContain("**release-checklist**: Deployment checks");
+    expect(result).not.toContain("## Available Skills");
+    expect(result).not.toContain("**release-checklist**");
   });
 
-  test("keeps SOUL.md and IDENTITY.md additive with skills", () => {
+  test("keeps SOUL.md and IDENTITY.md additive without skills catalog", () => {
     const skillsDir = join(TEST_DIR, "skills");
     mkdirSync(join(skillsDir, "incident-response"), { recursive: true });
     writeFileSync(
@@ -225,10 +201,7 @@ describe("buildSystemPrompt", () => {
 
     const result = buildSystemPrompt();
     expect(result).toContain("Identity content\n\nSoul content");
-    expect(result).toContain("## Available Skills");
-    expect(result.indexOf("Soul content")).toBeLessThan(
-      result.indexOf("## Available Skills"),
-    );
+    expect(result).not.toContain("## Available Skills");
   });
 
   test("includes external service access section", () => {
@@ -492,8 +465,15 @@ describe("ensurePromptFiles", () => {
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
+    for (const name of [
+      "IDENTITY.md",
+      "SOUL.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+      "conversations",
+    ]) {
+      const p = join(TEST_DIR, name);
+      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
     }
   });
 

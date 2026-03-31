@@ -139,6 +139,9 @@ export { migrateStripIntegrationPrefixFromProviderKeys } from "./196-strip-integ
 export { migrateOAuthProvidersBehaviorColumns } from "./197-oauth-providers-behavior-columns.js";
 export { migrateDropSetupSkillIdColumn } from "./198-drop-setup-skill-id-column.js";
 export { migrateGuardianRequestEnrichmentColumns } from "./199-guardian-request-enrichment-columns.js";
+export { migrateUsageLlmCallCount } from "./200-usage-llm-call-count.js";
+export { migrateOAuthProvidersFeatureFlag } from "./201-oauth-providers-feature-flag.js";
+export { migrateDropCallbackTransportColumn } from "./202-drop-callback-transport-column.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

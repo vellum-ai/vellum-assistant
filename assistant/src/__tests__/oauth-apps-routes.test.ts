@@ -55,7 +55,6 @@ mock.module("../oauth/oauth-store.js", () => ({
           defaultScopes: "[]",
           scopePolicy: "[]",
           extraParams: null,
-          callbackTransport: null,
           pingUrl: null,
           pingMethod: null,
           pingHeaders: null,
@@ -70,6 +69,7 @@ mock.module("../oauth/oauth-store.js", () => ({
           identityBody: null,
           identityFormat: null,
           identityOkField: null,
+          featureFlag: null,
           createdAt: 1735689500000,
           updatedAt: 1735689550000,
         }
@@ -88,16 +88,18 @@ mock.module("../oauth/oauth-store.js", () => ({
   ),
 }));
 
+const mockOrchestrateOAuthConnect = mock(() =>
+  Promise.resolve({
+    success: true,
+    deferred: false,
+    grantedScopes: [],
+    accountInfo: null,
+    refreshTokenPresent: false,
+  }),
+);
+
 mock.module("../oauth/connect-orchestrator.js", () => ({
-  orchestrateOAuthConnect: mock(() =>
-    Promise.resolve({
-      success: true,
-      deferred: false,
-      grantedScopes: [],
-      accountInfo: null,
-      refreshTokenPresent: false,
-    }),
-  ),
+  orchestrateOAuthConnect: mockOrchestrateOAuthConnect,
 }));
 
 import { oauthAppsRouteDefinitions } from "../runtime/routes/oauth-apps.js";
@@ -200,5 +202,113 @@ describe("GET /v1/oauth/apps", () => {
     };
 
     expect(body.provider).toBeNull();
+  });
+});
+
+describe("POST /v1/oauth/apps/:appId/connect — callback_transport", () => {
+  function connectRequest(body?: unknown) {
+    return new Request("http://localhost/v1/oauth/apps/app-1/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  test('callback_transport: "gateway" is accepted and passed through', async () => {
+    mockOrchestrateOAuthConnect.mockClear();
+    const req = connectRequest({ callback_transport: "gateway" });
+    const url = new URL(req.url);
+    const res = await getRoute("POST", "oauth/apps/:appId/connect").handler({
+      req,
+      url,
+      server: null as never,
+      authContext: null as never,
+      params: { appId: "app-1" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockOrchestrateOAuthConnect).toHaveBeenCalledTimes(1);
+    const callArgs = (
+      mockOrchestrateOAuthConnect.mock.calls as unknown as Array<
+        [{ callbackTransport: string }]
+      >
+    )[0]![0];
+    expect(callArgs.callbackTransport).toBe("gateway");
+  });
+
+  test('callback_transport: "loopback" is accepted and passed through', async () => {
+    mockOrchestrateOAuthConnect.mockClear();
+    const req = connectRequest({ callback_transport: "loopback" });
+    const url = new URL(req.url);
+    const res = await getRoute("POST", "oauth/apps/:appId/connect").handler({
+      req,
+      url,
+      server: null as never,
+      authContext: null as never,
+      params: { appId: "app-1" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockOrchestrateOAuthConnect).toHaveBeenCalledTimes(1);
+    const callArgs = (
+      mockOrchestrateOAuthConnect.mock.calls as unknown as Array<
+        [{ callbackTransport: string }]
+      >
+    )[0]![0];
+    expect(callArgs.callbackTransport).toBe("loopback");
+  });
+
+  test('omitting callback_transport defaults to "loopback"', async () => {
+    mockOrchestrateOAuthConnect.mockClear();
+    const req = connectRequest({ scopes: ["email"] });
+    const url = new URL(req.url);
+    const res = await getRoute("POST", "oauth/apps/:appId/connect").handler({
+      req,
+      url,
+      server: null as never,
+      authContext: null as never,
+      params: { appId: "app-1" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockOrchestrateOAuthConnect).toHaveBeenCalledTimes(1);
+    const callArgs = (
+      mockOrchestrateOAuthConnect.mock.calls as unknown as Array<
+        [{ callbackTransport: string }]
+      >
+    )[0]![0];
+    expect(callArgs.callbackTransport).toBe("loopback");
+  });
+
+  test('invalid callback_transport "websocket" returns 400', async () => {
+    mockOrchestrateOAuthConnect.mockClear();
+    const req = connectRequest({ callback_transport: "websocket" });
+    const url = new URL(req.url);
+    const res = await getRoute("POST", "oauth/apps/:appId/connect").handler({
+      req,
+      url,
+      server: null as never,
+      authContext: null as never,
+      params: { appId: "app-1" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockOrchestrateOAuthConnect).not.toHaveBeenCalled();
+  });
+
+  test("invalid callback_transport (number) returns 400", async () => {
+    mockOrchestrateOAuthConnect.mockClear();
+    const req = connectRequest({ callback_transport: 123 });
+    const url = new URL(req.url);
+    const res = await getRoute("POST", "oauth/apps/:appId/connect").handler({
+      req,
+      url,
+      server: null as never,
+      authContext: null as never,
+      params: { appId: "app-1" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockOrchestrateOAuthConnect).not.toHaveBeenCalled();
   });
 });

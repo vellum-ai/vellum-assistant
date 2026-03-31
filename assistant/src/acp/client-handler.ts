@@ -403,8 +403,7 @@ function mapDecisionToOptionId(
     decision === "allow_conversation" ||
     decision === "always_allow" ||
     decision === "always_allow_high_risk" ||
-    decision === "temporary_override" ||
-    decision === "dangerously_skip_permissions";
+    decision === "temporary_override";
 
   if (isAllow) {
     // Prefer allow_always for persistent decisions, fallback to allow_once

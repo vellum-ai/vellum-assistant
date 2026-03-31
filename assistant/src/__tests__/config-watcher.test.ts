@@ -1,8 +1,5 @@
-import { mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import {
-  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -16,37 +13,11 @@ import {
 // Temp directory scaffold
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(tmpdir(), `config-watcher-test-${crypto.randomUUID()}`);
-const WORKSPACE_DIR = join(TEST_DIR, "workspace");
-const SKILLS_DIR = join(WORKSPACE_DIR, "skills");
+const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 // ---------------------------------------------------------------------------
 // Mock platform paths
 // ---------------------------------------------------------------------------
-
-mock.module("../util/platform.js", () => ({
-  getWorkspaceDir: () => WORKSPACE_DIR,
-  getWorkspaceSkillsDir: () => SKILLS_DIR,
-  getWorkspaceConfigPath: () => join(WORKSPACE_DIR, "config.json"),
-  getWorkspacePromptPath: (file: string) => join(WORKSPACE_DIR, file),
-  ensureDataDir: () => {},
-  getDataDir: () => join(WORKSPACE_DIR, "data"),
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(WORKSPACE_DIR, "data", "assistant.db"),
-  getLogPath: () => join(WORKSPACE_DIR, "data", "logs", "vellum.log"),
-  getHistoryPath: () => join(WORKSPACE_DIR, "data", "history"),
-  getHooksDir: () => join(WORKSPACE_DIR, "hooks"),
-  getSignalsDir: () => join(TEST_DIR, "signals"),
-
-  getSandboxRootDir: () => join(WORKSPACE_DIR, "data", "sandbox"),
-  getSandboxWorkingDir: () => WORKSPACE_DIR,
-  getInterfacesDir: () => join(WORKSPACE_DIR, "data", "interfaces"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -149,10 +120,6 @@ function simulateFileChange(dir: string, filename: string): void {
 
 beforeAll(() => {
   mkdirSync(WORKSPACE_DIR, { recursive: true });
-});
-
-afterAll(() => {
-  rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
 let watcher: InstanceType<typeof ConfigWatcher>;

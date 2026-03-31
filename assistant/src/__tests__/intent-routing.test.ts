@@ -1,39 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ── Mock platform to isolate tests from the real workspace ────────────
-const TEST_DIR = join(tmpdir(), `vellum-routing-test-${crypto.randomUUID()}`);
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getDataDir: () => TEST_DIR,
-  getWorkspaceDir: () => TEST_DIR,
-  getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
-  getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  getHooksDir: () => join(TEST_DIR, "hooks"),
-
-  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
-  getSandboxWorkingDir: () => TEST_DIR,
-  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-  readSessionToken: () => null,
-}));
+import { describe, expect, mock, test } from "bun:test";
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
   get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
@@ -120,16 +87,6 @@ const sendNotificationDef = notifToolsJson.tools.find(
 // =====================================================================
 
 describe("Task/Schedule routing NOT in system prompt (moved to tool descriptions)", () => {
-  beforeEach(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
-  });
-
-  afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
-  });
-
   test("system prompt does not contain the old routing section", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).not.toContain(
@@ -226,39 +183,17 @@ describe("cross-tool routing consistency", () => {
 // 4. Activation hints in skills catalog (replaces domain routing sections)
 // =====================================================================
 
-describe("Activation hints in skills catalog", () => {
-  beforeEach(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
-  });
-
-  afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
-  });
-
-  test("phone-calls skill includes hints and avoid-when in catalog line", () => {
-    const prompt = buildSystemPrompt();
-    const line = prompt.split("\n").find((l) => l.includes("**phone-calls**"));
-    expect(line).toBeDefined();
-    // Activation hints and avoid-when are folded into the description
-    expect(line).toContain("Twilio");
-    expect(line).toContain("Avoid: ");
-    expect(line).toContain("voice-setup");
-  });
-
-  test("browser skill includes hints in catalog line", () => {
-    const prompt = buildSystemPrompt();
-    const line = prompt.split("\n").find((l) => l.includes("**browser**"));
-    expect(line).toBeDefined();
-    expect(line).toContain("browser_*");
-  });
-
+describe("Skills catalog and routing sections removed from system prompt", () => {
   test("domain routing sections are no longer in system prompt", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).not.toContain("## Routing: Guardian Verification");
     expect(prompt).not.toContain("## Routing: Phone Calls");
     expect(prompt).not.toContain("## Routing: Voice Setup");
     expect(prompt).not.toContain("## Routing: Starter Tasks");
+  });
+
+  test("skills catalog is no longer in system prompt", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).not.toContain("## Available Skills");
   });
 });

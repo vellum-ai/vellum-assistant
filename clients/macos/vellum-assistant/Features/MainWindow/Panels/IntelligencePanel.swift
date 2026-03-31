@@ -16,7 +16,7 @@ struct IntelligencePanel: View {
     @Binding var pendingMemoryId: String?
 
     @State private var selectedTab: IntelligenceTab
-    @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
+    @State private var cachedAssistantName: String = "Your Assistant"
     @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
     @Binding var pendingSkillId: String?
@@ -50,16 +50,7 @@ struct IntelligencePanel: View {
     private let maxContentWidth: CGFloat = 1100
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack(alignment: .center) {
-                Text("About \(cachedAssistantName)")
-                    .font(VFont.titleLarge)
-                    .foregroundStyle(VColor.contentEmphasized)
-                Spacer()
-            }
-            .padding(.bottom, VSpacing.lg)
-
+        VPageContainer(title: "About \(cachedAssistantName)") {
             // Tab bar
             VTabs(
                 items: visibleTabs.map { (label: $0.rawValue, tag: $0) },
@@ -70,13 +61,14 @@ struct IntelligencePanel: View {
             // Tab content
             tabContent
         }
-        .padding(VSpacing.xl)
         .onChange(of: pendingMemoryId) {
             if pendingMemoryId != nil {
                 withAnimation(VAnimation.fast) { selectedTab = .memories }
             }
         }
         .task {
+            let info = await IdentityInfo.loadAsync()
+            cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
             await loadContactsFeatureFlag()
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
