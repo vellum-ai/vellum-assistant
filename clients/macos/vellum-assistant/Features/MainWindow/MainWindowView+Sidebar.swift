@@ -631,15 +631,15 @@ extension MainWindowView {
                                     .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                             }
 
-                            if group.conversations.count > 3 {
+                            if group.conversations.count > 3, !hasHiddenUnread {
                                 HStack {
                                     VButton(
-                                        label: showAll ? "Show less" : "Show more",
+                                        label: explicitShowAll ? "Show less" : "Show more",
                                         style: .ghost,
                                         size: .compact
                                     ) {
                                         withAnimation(VAnimation.fast) {
-                                            sidebar.showAllChannelConversations[group.channel] = !showAll
+                                            sidebar.showAllChannelConversations[group.channel] = !explicitShowAll
                                         }
                                     }
                                     Spacer()
