@@ -15,7 +15,6 @@ struct AgentPanelContent: View {
     @State private var skillsManager: SkillsManager
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
-    @State private var showSkillFilterPopover = false
     @AppStorage("skillsBannerDismissed") private var bannerDismissed = false
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, focusedSkillId: Binding<String?> = .constant(nil)) {
@@ -127,76 +126,12 @@ struct AgentPanelContent: View {
     private var filterBar: some View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Skills", text: $skillsManager.searchQuery)
-            skillFilterDropdown
-                .frame(width: 150)
+            VDropdown(
+                options: SkillFilter.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
+                selection: $skillsManager.skillFilter,
+                maxWidth: 130
+            )
         }
-    }
-
-    private var skillFilterDropdown: some View {
-        Button {
-            showSkillFilterPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                Text(skillsManager.skillFilter.rawValue)
-                    .foregroundStyle(VColor.contentDefault)
-                    .font(VFont.bodyMediumLighter)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Skill filter: \(skillsManager.skillFilter.rawValue)")
-        .popover(isPresented: $showSkillFilterPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                // Status filters
-                ForEach(SkillFilter.statusFilters, id: \.self) { filter in
-                    filterRow(filter)
-                }
-                Divider()
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.xs)
-                // Source filters
-                ForEach(SkillFilter.sourceFilters, id: \.self) { filter in
-                    filterRow(filter)
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 180)
-        }
-    }
-
-    private func filterRow(_ filter: SkillFilter) -> some View {
-        Button {
-            withAnimation(VAnimation.fast) { skillsManager.skillFilter = filter }
-            showSkillFilterPopover = false
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(filter.icon, size: 14)
-                    .foregroundStyle(VColor.contentDefault)
-                    .frame(width: 20)
-                Text(filter.rawValue)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                Spacer()
-                if skillsManager.skillFilter == filter {
-                    VIconView(.check, size: 12)
-                        .foregroundStyle(VColor.primaryBase)
-                }
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(filter.rawValue) skills")
-        .accessibilityAddTraits(skillsManager.skillFilter == filter ? .isSelected : [])
     }
 
     // MARK: - Category Sidebar
