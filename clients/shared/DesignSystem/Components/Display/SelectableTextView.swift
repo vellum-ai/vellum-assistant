@@ -57,7 +57,7 @@ public struct VSelectableTextView: NSViewRepresentable {
     }()
 
     @MainActor private static let measurementTextContainer: NSTextContainer = {
-        let tc = NSTextContainer(size: NSSize(width: 0, height: .greatestFiniteMagnitude))
+        let tc = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         tc.lineFragmentPadding = 0
         measurementLayoutManager.addTextContainer(tc)
         return tc
@@ -87,7 +87,7 @@ public struct VSelectableTextView: NSViewRepresentable {
         measurementTextStorage.setAttributedString(mutable)
         measurementTextContainer.containerSize = NSSize(
             width: maxWidth,
-            height: .greatestFiniteMagnitude
+            height: CGFloat.greatestFiniteMagnitude
         )
         measurementLayoutManager.ensureLayout(for: measurementTextContainer)
         let usedRect = measurementLayoutManager.usedRect(for: measurementTextContainer)
@@ -160,7 +160,7 @@ public struct VSelectableTextView: NSViewRepresentable {
         guard let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return nil }
 
-        textContainer.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
         return CGSize(width: ceil(min(usedRect.width, width)), height: ceil(usedRect.height))
