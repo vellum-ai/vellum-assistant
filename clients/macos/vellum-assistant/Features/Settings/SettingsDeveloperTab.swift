@@ -140,9 +140,9 @@ struct SettingsDeveloperTab: View {
                 refreshDisplayNames()
                 resolvePlatformUuid()
                 await refreshAwakeStates()
+                await fetchHealthz()
             }
             Task { identity = await IdentityInfo.loadAsync() }
-            Task { await fetchHealthz() }
 
             // Advanced dev setup
             macOSFlagStates = MacOSClientFeatureFlagManager.shared.allFlagStates()

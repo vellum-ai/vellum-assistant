@@ -100,8 +100,8 @@ struct SettingsGeneralTab: View {
                 // Data(contentsOf:) file I/O can block the main thread.
                 let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
                 lockfileAssistants = assistants
+                await fetchHealthz()
             }
-            Task { await fetchHealthz() }
         }
         .onReceive(updateInProgressPublisher) { inProgress in
             isServiceGroupUpdateInProgress = inProgress

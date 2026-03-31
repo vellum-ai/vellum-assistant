@@ -121,8 +121,8 @@ struct AboutVellumView: View {
             Task {
                 let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
                 lockfileAssistants = assistants
+                await fetchHealthz()
             }
-            Task { await fetchHealthz() }
         }
     }
 
