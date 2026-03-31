@@ -457,10 +457,9 @@ struct FeedbackGallerySection: View {
 
                 VCard {
                     HStack(spacing: VSpacing.lg) {
-                        VSkillTypePill(type: .core)
-                        VSkillTypePill(type: .installed)
-                        VSkillTypePill(type: .created)
-                        VSkillTypePill(type: .extra)
+                        VSkillTypePill(type: .vellum)
+                        VSkillTypePill(type: .community)
+                        VSkillTypePill(type: .custom)
                         VSkillTypePill(type: .available)
                     }
                 }

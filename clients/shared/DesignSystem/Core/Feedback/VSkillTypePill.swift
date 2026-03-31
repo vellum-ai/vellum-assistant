@@ -1,56 +1,51 @@
 import SwiftUI
 
-/// A pill badge indicating the type/source of a skill (Core, Installed, Created).
+/// A pill badge indicating the source/provenance of a skill.
 public struct VSkillTypePill: View {
     public enum SkillType {
-        case core
-        case installed
-        case created
-        case extra
+        case vellum
+        case community
+        case custom
         case available
-        case custom(label: String, icon: String, foreground: Color, background: Color)
+        case other(label: String, icon: String, foreground: Color, background: Color)
 
         var label: String {
             switch self {
-            case .core: return "Core"
-            case .installed: return "Installed"
-            case .created: return "Created"
-            case .extra: return "Extra"
+            case .vellum: return "Vellum"
+            case .community: return "Community"
+            case .custom: return "Custom"
             case .available: return "Available"
-            case .custom(let label, _, _, _): return label
+            case .other(let label, _, _, _): return label
             }
         }
 
         var vIcon: VIcon {
             switch self {
-            case .core: return .package
-            case .installed: return .circleCheck
-            case .created: return .sparkles
-            case .extra: return .puzzle
+            case .vellum: return .package
+            case .community: return .globe
+            case .custom: return .user
             case .available: return .arrowDownToLine
-            case .custom(_, let icon, _, _): return .resolve(icon)
+            case .other(_, let icon, _, _): return .resolve(icon)
             }
         }
 
         var foregroundColor: Color {
             switch self {
-            case .core: return VColor.contentDefault
-            case .installed: return VColor.systemPositiveStrong
-            case .created: return VColor.contentSecondary
-            case .extra: return VColor.contentTertiary
+            case .vellum: return VColor.primaryBase
+            case .community: return VColor.funTeal
+            case .custom: return VColor.funPurple
             case .available: return VColor.funTeal
-            case .custom(_, _, let fg, _): return fg
+            case .other(_, _, let fg, _): return fg
             }
         }
 
         var backgroundColor: Color {
             switch self {
-            case .core: return VColor.surfaceBase
-            case .installed: return VColor.systemPositiveWeak
-            case .created: return VColor.surfaceBase
-            case .extra: return VColor.surfaceOverlay
+            case .vellum: return VColor.primaryBase.opacity(0.12)
+            case .community: return VColor.funTeal.opacity(0.12)
+            case .custom: return VColor.funPurple.opacity(0.12)
             case .available: return VColor.funTeal.opacity(0.12)
-            case .custom(_, _, _, let bg): return bg
+            case .other(_, _, _, let bg): return bg
             }
         }
     }
@@ -61,21 +56,31 @@ public struct VSkillTypePill: View {
         self.type = type
     }
 
-    /// Convenience initializer from a skill source string.
-    public init(source: String) {
+    /// Convenience initializer from a skill source string and optional provenance kind.
+    /// - Parameters:
+    ///   - source: The skill source (e.g. "bundled", "managed", "clawhub", "workspace", "extra", "catalog")
+    ///   - provenanceKind: Optional provenance kind (e.g. "first-party", "third-party", "local")
+    public init(source: String, provenanceKind: String? = nil) {
         switch source {
         case "bundled":
-            self.type = .core
-        case "managed", "clawhub":
-            self.type = .installed
-        case "workspace":
-            self.type = .created
-        case "extra":
-            self.type = .extra
+            self.type = .vellum
+        case "clawhub":
+            self.type = .community
+        case "managed":
+            switch provenanceKind {
+            case "first-party":
+                self.type = .vellum
+            case "third-party":
+                self.type = .community
+            default:
+                self.type = .custom
+            }
+        case "workspace", "extra":
+            self.type = .custom
         case "catalog":
             self.type = .available
         default:
-            self.type = .custom(
+            self.type = .other(
                 label: source.replacingOccurrences(of: "-", with: " ").capitalized,
                 icon: VIcon.puzzle.rawValue,
                 foreground: VColor.contentTertiary,

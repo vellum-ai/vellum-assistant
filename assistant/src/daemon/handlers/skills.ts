@@ -89,9 +89,32 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
     return { kind: "first-party", provider: "Vellum" };
   }
 
-  // Managed skills are third-party (installed from clawhub). The homepage field
-  // confirms provenance.
+  // Managed skills — check .origin.json first, then fall back to homepage heuristic
   if (summary.source === "managed") {
+    // Check .origin.json written during install
+    try {
+      const originPath = join(summary.directoryPath, ".origin.json");
+      if (existsSync(originPath)) {
+        const origin = JSON.parse(readFileSync(originPath, "utf-8"));
+        if (origin.source === "vellum-catalog") {
+          return { kind: "first-party", provider: "Vellum" };
+        }
+        if (origin.source === "clawhub") {
+          return {
+            kind: "third-party",
+            provider: "skills.sh",
+            originId: summary.id,
+            sourceUrl:
+              summary.homepage ??
+              `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
+          };
+        }
+      }
+    } catch {
+      // Fall through to heuristics
+    }
+
+    // Legacy heuristic: check homepage for clawhub URLs
     if (
       summary.homepage?.includes("skills.sh") ||
       summary.homepage?.includes("clawhub")
@@ -105,8 +128,7 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
           `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
       };
     }
-    // No positive evidence of clawhub origin -- likely user-authored.
-    // Default to "local" to avoid mislabeling.
+    // No positive evidence of origin -- likely user-authored.
     return { kind: "local" };
   }
 

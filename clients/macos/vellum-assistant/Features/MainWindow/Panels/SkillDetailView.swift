@@ -149,10 +149,11 @@ struct SkillDetailTitleRow: View {
                         .lineLimit(1)
                 }
 
-                VSkillTypePill(source: skill.source)
             }
 
             Spacer()
+
+            VSkillTypePill(source: skill.source, provenanceKind: skill.provenance?.kind)
 
             if skill.source == "managed" || skill.source == "clawhub" {
                 VButton(label: "Remove", style: .dangerOutline) {
