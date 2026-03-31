@@ -401,7 +401,7 @@ struct MarkdownSegmentView: View, Equatable {
 
 /// Renders a fenced code block with an optional language label and a
 /// hover-revealed copy-to-clipboard button.
-private struct CodeBlockView: View {
+private struct CodeBlockView: View, Equatable {
     let language: String?
     let code: String
     let scaledCodeLabelSize: CGFloat
@@ -411,6 +411,16 @@ private struct CodeBlockView: View {
     let maxContentWidth: CGFloat?
 
     @State private var isHovered = false
+
+    static func == (lhs: CodeBlockView, rhs: CodeBlockView) -> Bool {
+        lhs.language == rhs.language
+            && lhs.code == rhs.code
+            && lhs.scaledCodeLabelSize == rhs.scaledCodeLabelSize
+            && lhs.textColor == rhs.textColor
+            && lhs.mutedTextColor == rhs.mutedTextColor
+            && lhs.codeBackgroundColor == rhs.codeBackgroundColor
+            && lhs.maxContentWidth == rhs.maxContentWidth
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
