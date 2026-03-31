@@ -23,6 +23,7 @@ extension ChatBubble {
         case texts([Int])
         case toolCalls([Int])
         case surface(Int)
+        case thinking([Int])
 
         /// Stable identity based on the first index in the group.
         /// Using \.self as ForEach identity causes SwiftUI to destroy and recreate
@@ -33,6 +34,7 @@ extension ChatBubble {
             case .texts(let indices): return "t\(indices.first ?? 0)"
             case .toolCalls(let indices): return "tc\(indices.first ?? 0)"
             case .surface(let i): return "s\(i)"
+            case .thinking(let indices): return "th\(indices.first ?? 0)"
             }
         }
     }
@@ -154,7 +156,7 @@ extension ChatBubble {
         for ref in contentOrder {
             switch ref {
             case .text: hasTextBlock = true
-            case .toolCall, .surface: hasNonText = true
+            case .toolCall, .surface, .thinking: hasNonText = true
             }
             if hasTextBlock && hasNonText { return true }
         }
@@ -184,6 +186,12 @@ extension ChatBubble {
                 }
             case .surface(let i):
                 groups.append(.surface(i))
+            case .thinking(let i):
+                if case .thinking(let indices) = groups.last {
+                    groups[groups.count - 1] = .thinking(indices + [i])
+                } else {
+                    groups.append(.thinking([i]))
+                }
             }
         }
 
@@ -220,8 +228,8 @@ extension ChatBubble {
                 } else {
                     coalesced.append(group)
                 }
-            case .surface:
-                // A surface breaks the text run — flush pending state.
+            case .surface, .thinking:
+                // A surface or thinking block breaks the text run — flush pending state.
                 if let texts = pendingTexts {
                     coalesced.append(.texts(texts))
                     coalesced.append(contentsOf: pendingToolCalls)
@@ -427,6 +435,20 @@ extension ChatBubble {
                 if i < message.inlineSurfaces.count,
                    message.inlineSurfaces[i].id != activeSurfaceId {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
+                }
+            case .thinking(let indices):
+                if MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
+                    let joined = indices
+                        .compactMap { i in
+                            i < message.thinkingSegments.count
+                                ? message.thinkingSegments[i]
+                                : nil
+                        }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n")
+                    if !joined.isEmpty {
+                        ThinkingBlockView(content: joined, isStreaming: message.isStreaming)
+                    }
                 }
             }
         }

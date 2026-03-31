@@ -12,10 +12,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { uninstallSkillLocally } from "../skills/catalog-install.js";
 
 let tempDir: string;
-let originalBaseDataDir: string | undefined;
+let originalWorkspaceDir: string | undefined;
 
 function getSkillsDir(): string {
-  return join(tempDir, ".vellum", "workspace", "skills");
+  return join(tempDir, "skills");
 }
 
 function getSkillsIndexPath(): string {
@@ -38,15 +38,17 @@ beforeEach(() => {
     tmpdir(),
     `skills-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
-  mkdirSync(join(tempDir, ".vellum", "workspace", "skills"), {
-    recursive: true,
-  });
-  originalBaseDataDir = process.env.BASE_DATA_DIR;
-  process.env.BASE_DATA_DIR = tempDir;
+  mkdirSync(join(tempDir, "skills"), { recursive: true });
+  originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+  process.env.VELLUM_WORKSPACE_DIR = tempDir;
 });
 
 afterEach(() => {
-  process.env.BASE_DATA_DIR = originalBaseDataDir;
+  if (originalWorkspaceDir === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+  }
   rmSync(tempDir, { recursive: true, force: true });
 });
 

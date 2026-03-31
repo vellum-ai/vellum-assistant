@@ -1,27 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "llm-request-log-turn-query-test-")),
-);
-const workspaceDir = join(testDir, ".vellum", "workspace");
-const conversationsDir = join(workspaceDir, "conversations");
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => join(testDir, ".vellum"),
-  getDataDir: () => join(workspaceDir, "data"),
-  getWorkspaceDir: () => workspaceDir,
-  getConversationsDir: () => conversationsDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -53,6 +30,7 @@ import {
   backfillMessageIdOnLogs,
   getRequestLogsByMessageId,
   recordRequestLog,
+  relinkLlmRequestLogs,
 } from "../memory/llm-request-log-store.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
 
@@ -81,11 +59,6 @@ function toolResultContent(toolUseIds: string[]): string {
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 describe("getRequestLogsByMessageId — turn-aware query", () => {
@@ -330,5 +303,50 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     expect(logs[0]?.id).toBe("log-orphan-1");
     expect(logs[1]?.id).toBe("log-orphan-2");
     expect(logs[2]?.id).toBe("log-surviving");
+  });
+
+  test("relinkLlmRequestLogs moves logs from deleted messages to consolidated message", async () => {
+    const conv = createConversation("relink-test");
+
+    // Simulate multi-step turn: user → A1 (+ log1) → tool_result → A2 (+ log2)
+    await addMessage(conv.id, "user", "Do the task", undefined, {
+      skipIndexing: true,
+    });
+
+    // First LLM call → A1 (tool_use response)
+    recordRequestLog(conv.id, '{"step":1}', '{"tool_use":"bash"}');
+    const a1 = await addMessage(
+      conv.id,
+      "assistant",
+      "Using tool...",
+      undefined,
+      { skipIndexing: true },
+    );
+    backfillMessageIdOnLogs(conv.id, a1.id);
+
+    // tool_result user message
+    await addMessage(
+      conv.id,
+      "user",
+      toolResultContent(["tool-1"]),
+      undefined,
+      { skipIndexing: true },
+    );
+
+    // Second LLM call → A2 (text response)
+    recordRequestLog(conv.id, '{"step":2}', '{"result":"done"}');
+    const a2 = await addMessage(conv.id, "assistant", "All done!", undefined, {
+      skipIndexing: true,
+    });
+    backfillMessageIdOnLogs(conv.id, a2.id);
+
+    // Simulate consolidation: re-link logs from A2 to A1, then delete A2
+    relinkLlmRequestLogs([a2.id], a1.id);
+
+    // Both logs should now be findable via A1
+    const logs = getRequestLogsByMessageId(a1.id);
+    expect(logs).toHaveLength(2);
+    expect(logs[0]?.messageId).toBe(a1.id);
+    expect(logs[1]?.messageId).toBe(a1.id);
   });
 });

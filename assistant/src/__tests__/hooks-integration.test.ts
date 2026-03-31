@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-// Set BASE_DATA_DIR before importing modules that use getRootDir()
+// Set VELLUM_WORKSPACE_DIR before importing modules that use getWorkspaceDir()
 const testDir = join(tmpdir(), `hooks-integration-test-${Date.now()}`);
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 import { saveHooksConfig } from "../hooks/config.js";
 import { HookManager, resetHookManager } from "../hooks/manager.js";
@@ -43,7 +43,7 @@ describe("Hooks Integration", () => {
   let hooksDir: string;
 
   beforeEach(() => {
-    hooksDir = join(testDir, ".vellum", "hooks");
+    hooksDir = join(testDir, "hooks");
     mkdirSync(hooksDir, { recursive: true });
     resetHookManager();
   });
@@ -89,7 +89,7 @@ describe("Hooks Integration", () => {
       hooksDir,
       "env-capture",
       ["daemon-start"],
-      `#!/bin/bash\necho "$VELLUM_HOOK_EVENT|$VELLUM_HOOK_NAME|$VELLUM_ROOT_DIR" > "${outputFile}"`,
+      `#!/bin/bash\necho "$VELLUM_HOOK_EVENT|$VELLUM_HOOK_NAME|$VELLUM_WORKSPACE_DIR" > "${outputFile}"`,
     );
     saveHooksConfig({
       version: 1,
@@ -106,7 +106,7 @@ describe("Hooks Integration", () => {
     const parts = output.split("|");
     expect(parts[0]).toBe("daemon-start");
     expect(parts[1]).toBe("env-capture");
-    expect(parts[2]).toContain(".vellum");
+    expect(parts[2]).toBe(testDir);
   });
 
   test("multiple hooks for same event run in order", async () => {

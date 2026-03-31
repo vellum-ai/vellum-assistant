@@ -28,6 +28,7 @@ public class VMenuPanel: NSPanel {
     public static func show<Content: View>(
         at screenPoint: CGPoint,
         sourceAppearance: NSAppearance? = nil,
+        excludeRect: CGRect? = nil,
         @ViewBuilder content: () -> Content,
         onDismiss: @escaping () -> Void
     ) -> VMenuPanel {
@@ -91,6 +92,11 @@ public class VMenuPanel: NSPanel {
                 let locationInPanel = panel.convertPoint(fromScreen: NSEvent.mouseLocation)
                 let panelBounds = panel.contentView?.bounds ?? .zero
                 if panelBounds.contains(locationInPanel) {
+                    return event
+                }
+                // Skip dismiss if click is in the trigger's excluded rect — let the
+                // trigger button handle closing so it doesn't immediately reopen.
+                if let excludeRect, excludeRect.contains(NSEvent.mouseLocation) {
                     return event
                 }
                 panel.close()

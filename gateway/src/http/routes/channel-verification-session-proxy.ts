@@ -61,8 +61,12 @@ export function createChannelVerificationSessionProxyHandler(
 
     // Inject the real client IP so the runtime can enforce loopback-only
     // checks, overwriting any client-supplied value to prevent spoofing.
+    // When clientIp is undefined (loopback peer), strip any client-supplied
+    // header to prevent forged forwarded-for values from reaching the runtime.
     if (clientIp) {
       reqHeaders.set("x-forwarded-for", clientIp);
+    } else {
+      reqHeaders.delete("x-forwarded-for");
     }
 
     // Mint a short-lived service token for gateway->runtime auth.

@@ -306,8 +306,6 @@ export function dockerResourceNames(instanceName: string) {
     assistantContainer: `${instanceName}-assistant`,
     cesContainer: `${instanceName}-credential-executor`,
     cesSecurityVolume: `${instanceName}-ces-sec`,
-    /** @deprecated Legacy — no longer created for new instances. Retained for migration of existing instances. */
-    dataVolume: `${instanceName}-data`,
     gatewayContainer: `${instanceName}-gateway`,
     gatewaySecurityVolume: `${instanceName}-gateway-sec`,
     network: `${instanceName}-net`,
@@ -363,7 +361,6 @@ export async function retireDocker(name: string): Promise<void> {
     // network may not exist
   }
   for (const vol of [
-    res.dataVolume,
     res.socketVolume,
     res.workspaceVolume,
     res.cesSecurityVolume,
@@ -519,6 +516,8 @@ export function serviceDockerRunArgs(opts: {
         "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,
         "-e",
+        "IS_CONTAINERIZED=false",
+        "-e",
         `VELLUM_ASSISTANT_NAME=${instanceName}`,
         "-e",
         "VELLUM_CLOUD=docker",
@@ -627,148 +626,6 @@ export function serviceDockerRunArgs(opts: {
       imageTags["credential-executor"],
     ],
   };
-}
-
-/**
- * Check whether a Docker volume exists.
- * Returns true if the volume exists, false otherwise.
- */
-async function dockerVolumeExists(volumeName: string): Promise<boolean> {
-  try {
-    await execOutput("docker", ["volume", "inspect", volumeName]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Migrate trust.json and actor-token-signing-key from the data volume
- * (old location: /data/.vellum/protected/) to the gateway security volume
- * (new location: /gateway-security/).
- *
- * Uses a temporary busybox container that mounts both volumes. The migration
- * is idempotent: it only copies a file when the source exists on the data
- * volume and the destination does not yet exist on the gateway security volume.
- *
- * Skips migration entirely if the data volume does not exist (new instances
- * no longer create one).
- */
-export async function migrateGatewaySecurityFiles(
-  res: ReturnType<typeof dockerResourceNames>,
-  log: (msg: string) => void,
-): Promise<void> {
-  // New instances don't have a data volume — nothing to migrate.
-  if (!(await dockerVolumeExists(res.dataVolume))) {
-    log("   No data volume found — skipping gateway security migration.");
-    return;
-  }
-
-  const migrationContainer = `${res.gatewayContainer}-migration`;
-  const filesToMigrate = ["trust.json", "actor-token-signing-key"];
-
-  // Remove any leftover migration container from a previous interrupted run.
-  try {
-    await exec("docker", ["rm", "-f", migrationContainer]);
-  } catch {
-    // container may not exist
-  }
-
-  for (const fileName of filesToMigrate) {
-    const src = `/data/.vellum/protected/${fileName}`;
-    const dst = `/gateway-security/${fileName}`;
-
-    try {
-      // Run a busybox container that checks source exists and destination
-      // does not, then copies. The shell exits 0 whether or not a copy
-      // happens, so the migration is always safe to re-run.
-      await exec("docker", [
-        "run",
-        "--rm",
-        "--name",
-        migrationContainer,
-        "-v",
-        `${res.dataVolume}:/data:ro`,
-        "-v",
-        `${res.gatewaySecurityVolume}:/gateway-security`,
-        "busybox",
-        "sh",
-        "-c",
-        `if [ -f "${src}" ] && [ ! -f "${dst}" ]; then cp "${src}" "${dst}" && echo "migrated"; else echo "skipped"; fi`,
-      ]);
-      log(`   ${fileName}: checked`);
-    } catch (err) {
-      // Non-fatal — log and continue. The gateway will create fresh files
-      // if they don't exist.
-      const message = err instanceof Error ? err.message : String(err);
-      log(`   ${fileName}: migration failed (${message}), continuing...`);
-    }
-  }
-}
-
-/**
- * Migrate keys.enc and store.key from the data volume
- * (old location: /data/.vellum/protected/) to the CES security volume
- * (new location: /ces-security/).
- *
- * Uses a temporary busybox container that mounts both volumes. The migration
- * is idempotent: it only copies a file when the source exists on the data
- * volume and the destination does not yet exist on the CES security volume.
- * Migrated files are chowned to 1001:1001 (the CES service user).
- *
- * Skips migration entirely if the data volume does not exist (new instances
- * no longer create one).
- */
-export async function migrateCesSecurityFiles(
-  res: ReturnType<typeof dockerResourceNames>,
-  log: (msg: string) => void,
-): Promise<void> {
-  // New instances don't have a data volume — nothing to migrate.
-  if (!(await dockerVolumeExists(res.dataVolume))) {
-    log("   No data volume found — skipping CES security migration.");
-    return;
-  }
-
-  const migrationContainer = `${res.cesContainer}-migration`;
-  const filesToMigrate = ["keys.enc", "store.key"];
-
-  // Remove any leftover migration container from a previous interrupted run.
-  try {
-    await exec("docker", ["rm", "-f", migrationContainer]);
-  } catch {
-    // container may not exist
-  }
-
-  for (const fileName of filesToMigrate) {
-    const src = `/data/.vellum/protected/${fileName}`;
-    const dst = `/ces-security/${fileName}`;
-
-    try {
-      // Run a busybox container that checks source exists and destination
-      // does not, then copies and sets ownership. The shell exits 0 whether
-      // or not a copy happens, so the migration is always safe to re-run.
-      await exec("docker", [
-        "run",
-        "--rm",
-        "--name",
-        migrationContainer,
-        "-v",
-        `${res.dataVolume}:/data:ro`,
-        "-v",
-        `${res.cesSecurityVolume}:/ces-security`,
-        "busybox",
-        "sh",
-        "-c",
-        `if [ -f "${src}" ] && [ ! -f "${dst}" ]; then cp "${src}" "${dst}" && chown 1001:1001 "${dst}" && echo "migrated"; else echo "skipped"; fi`,
-      ]);
-      log(`   ${fileName}: checked`);
-    } catch (err) {
-      // Non-fatal — log and continue. The CES will start without
-      // credentials if they don't exist.
-      const message = err instanceof Error ? err.message : String(err);
-      log(`   ${fileName}: migration failed (${message}), continuing...`);
-    }
-  }
 }
 
 /** The order in which services must be started. */
@@ -1202,7 +1059,6 @@ export async function hatchDocker(
       cloud: "docker",
       species,
       hatchedAt: new Date().toISOString(),
-      volume: res.dataVolume,
       serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
       containerInfo: {
         assistantImage: imageTags.assistant,

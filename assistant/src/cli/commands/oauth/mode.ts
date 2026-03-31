@@ -17,6 +17,7 @@ import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
   fetchActiveConnections,
   getManagedServiceConfigKey,
+  requirePlatformConnection,
 } from "./shared.js";
 
 /**
@@ -178,6 +179,12 @@ Examples:
           });
           process.exitCode = 1;
           return;
+        }
+
+        // Require platform connection when switching to managed mode
+        if (newMode === "managed") {
+          const connected = await requirePlatformConnection(cmd);
+          if (!connected) return;
         }
 
         // Read current mode

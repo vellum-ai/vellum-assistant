@@ -8,7 +8,6 @@ final class AuthServiceBaseURLTests: XCTestCase {
             defaults.set("https://defaults.example.com/", forKey: "authServiceBaseURL")
 
             let resolved = AuthService.resolveBaseURL(
-                configuredBaseURL: "https://configured.example.com/",
                 environment: ["VELLUM_PLATFORM_URL": "https://env.example.com/"],
                 userDefaults: defaults
             )
@@ -17,15 +16,18 @@ final class AuthServiceBaseURLTests: XCTestCase {
         }
     }
 
-    func testResolveBaseURLFallsBackToConfiguredValue() {
+    func testResolveBaseURLFallsBackToDefault() {
         withUserDefaultsSuite { defaults in
             let resolved = AuthService.resolveBaseURL(
-                configuredBaseURL: "https://configured.example.com/",
                 environment: [:],
                 userDefaults: defaults
             )
 
-            XCTAssertEqual(resolved, "https://configured.example.com")
+            #if DEBUG
+            XCTAssertEqual(resolved, "http://localhost:8000")
+            #else
+            XCTAssertEqual(resolved, "https://platform.vellum.ai")
+            #endif
         }
     }
 

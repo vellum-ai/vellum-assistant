@@ -60,6 +60,8 @@ export interface EventHandlerState {
   exchangeCacheCreationInputTokens: number;
   exchangeCacheReadInputTokens: number;
   exchangeOutputTokens: number;
+  /** Number of actual LLM API calls within this exchange. */
+  exchangeLlmCallCount: number;
   readonly exchangeRawResponses: unknown[];
   model: string;
   orderingErrorDetected: boolean;
@@ -100,6 +102,8 @@ export interface EventHandlerState {
   >;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
+  /** Wall-clock time (ms since epoch) when the agent loop turn started, used as the display timestamp for assistant messages. */
+  turnStartedAt: number;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -127,6 +131,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeCacheCreationInputTokens: 0,
     exchangeCacheReadInputTokens: 0,
     exchangeOutputTokens: 0,
+    exchangeLlmCallCount: 0,
     exchangeRawResponses: [],
     model: "",
     orderingErrorDetected: false,
@@ -151,6 +156,7 @@ export function createEventHandlerState(): EventHandlerState {
     requestIdToToolUseId: new Map(),
     toolConfirmationOutcomes: new Map(),
     currentTurnToolUseIds: [],
+    turnStartedAt: Date.now(),
   };
 }
 
@@ -267,7 +273,7 @@ export function handleThinkingDelta(
   }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
-  deps.onEvent({ type: "assistant_thinking_delta", thinking: event.thinking });
+  deps.onEvent({ type: "assistant_thinking_delta", thinking: event.thinking, conversationId: deps.ctx.conversationId });
 }
 
 export function handleToolUse(
@@ -719,6 +725,7 @@ export async function handleMessageComplete(
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
     assistantMessageInterface:
       deps.turnInterfaceContext.assistantMessageInterface,
+    sentAt: state.turnStartedAt,
   };
   const assistantMsg = await addMessage(
     deps.ctx.conversationId,
@@ -778,6 +785,7 @@ export function handleUsage(
 ): void {
   const providerName = event.actualProvider ?? deps.ctx.provider.name;
   state.exchangeProviderName = providerName;
+  state.exchangeLlmCallCount += 1;
   state.exchangeInputTokens += event.inputTokens;
   state.exchangeCacheCreationInputTokens += event.cacheCreationInputTokens ?? 0;
   state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;

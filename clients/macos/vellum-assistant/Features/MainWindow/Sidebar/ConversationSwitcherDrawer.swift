@@ -31,7 +31,7 @@ struct ConversationSwitcherDrawer: View {
                         conversation: conversation,
                         isSelected: isConversationSelected(conversation),
                         interactionState: conversationManager.interactionState(for: conversation.id),
-                        isHovered: sidebar.isHoveredConversation == conversation.id,
+                        sidebarInteraction: sidebar,
                         selectConversation: { selectConversation(conversation) },
                         onSelect: onDismiss,
                         onTogglePin: {

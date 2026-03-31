@@ -64,7 +64,11 @@ mock.module("pino", () => ({ default: mockPinoLogger }));
 mock.module("pino-pretty", () => ({ default: () => ({}) }));
 
 // Import after mocking
-import { buildSttHints, resolveCallHints, type SttHintsInput } from "../calls/stt-hints.js";
+import {
+  buildSttHints,
+  resolveCallHints,
+  type SttHintsInput,
+} from "../calls/stt-hints.js";
 
 function emptyInput(): SttHintsInput {
   return {
@@ -159,7 +163,8 @@ describe("buildSttHints", () => {
 
   test("proper nouns extracted across sentence boundaries", () => {
     const input = emptyInput();
-    input.taskDescription = "Meet with Alice. Then call Bob! Ask Charlie? Done.";
+    input.taskDescription =
+      "Meet with Alice. Then call Bob! Ask Charlie? Done.";
     const result = buildSttHints(input);
     expect(result).toContain("Alice");
     expect(result).toContain("Bob");

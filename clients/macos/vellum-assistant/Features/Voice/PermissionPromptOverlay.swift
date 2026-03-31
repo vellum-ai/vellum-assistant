@@ -124,10 +124,6 @@ private struct FirstUsePromptView: View {
     let onDismiss: () -> Void
     let onContinue: () -> Void
 
-    private var assistantName: String {
-        AssistantDisplayName.resolve(IdentityInfo.load()?.name)
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: VSpacing.sm) {

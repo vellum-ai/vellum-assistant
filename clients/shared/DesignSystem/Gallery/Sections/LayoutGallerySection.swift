@@ -122,6 +122,25 @@ struct LayoutGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vPageContainer" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VPageContainer
+                GallerySectionHeader(
+                    title: "VPageContainer",
+                    description: "Standard page container for full-width panel pages. Provides title, consistent spacing, surfaceOverlay background, and rounded corners.",
+                    useInsteadOf: "Manual VStack + title + padding + background"
+                )
+
+                VPageContainer(title: "Page Title") {
+                    Text("Page content goes here. Used by Intelligence, Library, and Usage panels.")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+                .frame(height: 150)
+            }
+
             if filter == nil || filter == "vSidePanel" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -298,6 +317,7 @@ extension LayoutGallerySection {
         switch id {
         case "vModal": LayoutGallerySection(filter: "vModal")
         case "vAdaptiveStack": LayoutGallerySection(filter: "vAdaptiveStack")
+        case "vPageContainer": LayoutGallerySection(filter: "vPageContainer")
         case "vSidePanel": LayoutGallerySection(filter: "vSidePanel")
         case "vSplitView": LayoutGallerySection(filter: "vSplitView")
         case "vAppWorkspaceDockLayout": LayoutGallerySection(filter: "vAppWorkspaceDockLayout")

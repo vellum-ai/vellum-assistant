@@ -120,7 +120,8 @@ enum HistoryReconstructionService {
                 }
             }
 
-            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
+            let hasThinking = item.thinkingSegments?.isEmpty == false
+            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty && !hasThinking { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
 
             var chatMsg: ChatMessage
@@ -138,6 +139,9 @@ enum HistoryReconstructionService {
             chatMsg.inlineSurfaces = inlineSurfaces
             if let segments = item.textSegments {
                 chatMsg.textSegments = segments
+            }
+            if let thinkingSegs = item.thinkingSegments {
+                chatMsg.thinkingSegments = thinkingSegs
             }
             if let orderStrings = item.contentOrder {
                 chatMsg.contentOrder = parseContentOrder(orderStrings)
@@ -185,6 +189,7 @@ enum HistoryReconstructionService {
             case "text": return .text(idx)
             case "tool": return .toolCall(idx)
             case "surface": return .surface(idx)
+            case "thinking": return .thinking(idx)
             default: return nil
             }
         }
@@ -268,7 +273,7 @@ enum HistoryReconstructionService {
             #endif
 
             if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
-                thumbnailData = generateThumbnail(from: rawData, maxDimension: 120)
+                thumbnailData = generateThumbnail(from: rawData, maxDimension: 800)
                 #if os(macOS)
                 thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
                 #elseif os(iOS)

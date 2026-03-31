@@ -595,7 +595,7 @@ struct ConversationRestorerTests {
     // MARK: - Channel Binding Filtering
 
     @Test @MainActor
-    func telegramBoundConversationIsExcludedFromRestore() {
+    func telegramBoundConversationIsIncludedInRestore() {
         let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
@@ -611,15 +611,15 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Telegram-bound conversation filtered out; empty default removed; new conversation created
+        // Telegram-bound conversation is included with originChannel populated
         #expect(delegate.conversations.count == 1)
-        #expect(delegate.conversations[0].kind == .standard)
-        #expect(delegate.conversations[0].conversationId == nil)
-        #expect(delegate.createConversationCallCount == 1)
+        #expect(delegate.conversations[0].conversationId == "s1")
+        #expect(delegate.conversations[0].originChannel == "telegram")
+        #expect(delegate.createConversationCallCount == 0)
     }
 
     @Test @MainActor
-    func voiceBoundConversationIsExcludedFromRestore() {
+    func voiceBoundConversationIsIncludedInRestore() {
         let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
@@ -635,15 +635,15 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Voice-bound conversation filtered out; empty default removed; new conversation created
+        // Voice-bound conversation is included with originChannel populated
         #expect(delegate.conversations.count == 1)
-        #expect(delegate.conversations[0].kind == .standard)
-        #expect(delegate.conversations[0].conversationId == nil)
-        #expect(delegate.createConversationCallCount == 1)
+        #expect(delegate.conversations[0].conversationId == "s1")
+        #expect(delegate.conversations[0].originChannel == "phone")
+        #expect(delegate.createConversationCallCount == 0)
     }
 
     @Test @MainActor
-    func mixedDesktopVoiceAndTelegramRestoresOnlyDesktop() {
+    func mixedDesktopVoiceAndTelegramRestoresAll() {
         let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
@@ -663,17 +663,17 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Only the two desktop conversations should be restored
-        #expect(delegate.conversations.count == 2)
-        #expect(delegate.conversations[0].conversationId == "s1")
-        #expect(delegate.conversations[0].title == "Desktop Chat")
-        #expect(delegate.conversations[1].conversationId == "s4")
-        #expect(delegate.conversations[1].title == "Another Desktop Chat")
+        // All four conversations should be restored with correct originChannel values
+        #expect(delegate.conversations.count == 4)
+        #expect(delegate.conversations[0].originChannel == nil)
+        #expect(delegate.conversations[1].originChannel == "telegram")
+        #expect(delegate.conversations[2].originChannel == "phone")
+        #expect(delegate.conversations[3].originChannel == nil)
         #expect(delegate.createConversationCallCount == 0)
     }
 
     @Test @MainActor
-    func mixedDesktopAndTelegramRestoresOnlyDesktop() {
+    func mixedDesktopAndTelegramRestoresAll() {
         let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
@@ -691,12 +691,9 @@ struct ConversationRestorerTests {
         ])
         restorer.handleConversationListResponse(response)
 
-        // Only the two desktop conversations should be restored
-        #expect(delegate.conversations.count == 2)
-        #expect(delegate.conversations[0].conversationId == "s1")
-        #expect(delegate.conversations[0].title == "Desktop Chat")
-        #expect(delegate.conversations[1].conversationId == "s3")
-        #expect(delegate.conversations[1].title == "Another Desktop Chat")
+        // All three conversations should be restored with correct originChannel values
+        #expect(delegate.conversations.count == 3)
+        #expect(delegate.conversations[1].originChannel == "telegram")
         #expect(delegate.createConversationCallCount == 0)
     }
 }

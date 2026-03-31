@@ -6,9 +6,6 @@
  * These tests fail if memory quality degrades — they act as guardrails
  * before any retrieval or ranking changes.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -18,19 +15,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-recall-quality-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -272,11 +256,6 @@ describe("Memory Recall Quality", () => {
 
   afterAll(() => {
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
   });
 
   // -------------------------------------------------------------------------

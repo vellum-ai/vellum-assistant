@@ -24,12 +24,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => "/tmp/vellum-test-secret-ingress-cli",
-  getWorkspaceDir: () => "/tmp/vellum-test-secret-ingress-cli/workspace",
-  getSignalsDir: () => "/tmp/vellum-test-secret-ingress-cli/signals",
-}));
-
 // ---------------------------------------------------------------------------
 // Test: CLI signal path uses registerUserMessageCallback which calls
 // checkIngressForSecrets before calling persistAndProcessMessage.

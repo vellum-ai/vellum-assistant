@@ -20,7 +20,6 @@ protocol MessageSendCoordinatorDelegate: AnyObject {
     var currentAssistantMessageId: UUID? { get set }
     var currentTurnUserText: String? { get set }
     var currentAssistantHasText: Bool { get set }
-    var lastContentWasToolCall: Bool { get set }
     var pendingMessageIds: [UUID] { get set }
     var requestIdToMessageId: [String: UUID] { get set }
     var activeRequestIdToMessageId: [String: UUID] { get set }
@@ -627,7 +626,6 @@ final class MessageSendCoordinator {
         delegate.currentAssistantMessageId = nil
         delegate.currentTurnUserText = nil
         delegate.currentAssistantHasText = false
-        delegate.lastContentWasToolCall = false
         delegate.discardStreamingBuffer()
         delegate.discardPartialOutputBuffer()
         messageManager.pendingQueuedCount = 0

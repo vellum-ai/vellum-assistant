@@ -2,6 +2,8 @@
 // Enables desktop clients to fetch pending guardian prompts and submit
 // button decisions deterministically (without text parsing).
 
+import type { GuardianDecisionPrompt } from "../../runtime/guardian-decision-types.js";
+
 // === Client -> Server ===
 
 export interface GuardianActionsPendingRequest {
@@ -21,23 +23,7 @@ export interface GuardianActionDecision {
 export interface GuardianActionsPendingResponse {
   type: "guardian_actions_pending_response";
   conversationId: string;
-  prompts: Array<{
-    requestId: string;
-    requestCode: string;
-    state: string;
-    questionText: string;
-    toolName: string | null;
-    actions: Array<{ action: string; label: string }>;
-    expiresAt: number;
-    conversationId: string;
-    callSessionId: string | null;
-    /**
-     * Canonical request kind (e.g. 'tool_approval', 'pending_question').
-     * Present when the prompt originates from the canonical guardian request
-     * store. Absent for legacy-only prompts.
-     */
-    kind?: string;
-  }>;
+  prompts: GuardianDecisionPrompt[];
 }
 
 export interface GuardianActionDecisionResponse {

@@ -3,7 +3,7 @@ import VellumAssistantShared
 import Foundation
 import UserNotifications
 import os
-import Combine
+@preconcurrency import Combine
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationManager")
 private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
@@ -50,6 +50,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let completedToolCallCount: Int
         let surfaceCount: Int
         let isStreaming: Bool
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.messageId == rhs.messageId
+                && lhs.toolCallCount == rhs.toolCallCount
+                && lhs.completedToolCallCount == rhs.completedToolCallCount
+                && lhs.surfaceCount == rhs.surfaceCount
+                && lhs.isStreaming == rhs.isStreaming
+        }
     }
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some conversations.
@@ -98,6 +106,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             }
             // Subscribe to the new active view model's changes
             subscribeToActiveViewModel()
+
+            // Manage periodic refresh polling for channel conversations.
+            if let activeConversationId {
+                startChannelRefreshIfNeeded(conversationId: activeConversationId)
+            } else {
+                stopChannelRefresh()
+            }
         }
     }
 
@@ -113,6 +128,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Conversation local IDs whose ViewModels are pinned by open pop-out windows.
     /// Pinned VMs are exempt from LRU eviction.
     private var pinnedViewModelIds: Set<UUID> = []
+    /// Background queue for Combine subscription teardown. AnyCancellable.cancel()
+    /// is thread-safe per Apple docs, but tearing down deep operator chains
+    /// (CombineLatest3/4, scan, removeDuplicates, etc.) synchronously on main
+    /// blocks the UI. Moving dealloc off-main eliminates the hang.
+    private static let cancellableTeardownQueue = DispatchQueue(
+        label: "com.vellum.assistant.cancellable-teardown",
+        qos: .utility
+    )
     private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let conversationClient: ConversationClientProtocol
@@ -168,6 +191,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// once the associated ChatViewModel finishes its current send/think cycle.
     /// Populated when a notification_intent arrives while the VM is busy.
     private var pendingNotificationCatchUpIds: Set<String> = []
+    /// Periodic task that refreshes the active channel conversation's history.
+    /// Cancelled when switching away from a channel conversation.
+    private var channelRefreshTask: Task<Void, Never>?
     /// Local seen/unread toggles should survive a stale daemon conversation-list
     /// replay until the daemon either acknowledges them or reports a newer reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
@@ -806,7 +832,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         serverOffset += response.conversations.count
 
         let recentConversations = response.conversations.filter {
-            $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
+            $0.conversationType != "private"
         }
 
         // Compute the next pinnedOrder based on existing pinned conversations AND
@@ -878,10 +904,25 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         touchVMAccessOrder(id)
+
+        // Channel conversations (Slack, etc.) receive new messages via webhooks
+        // that the client doesn't see in real time. Invalidate the history cache
+        // before activation so loadHistoryIfNeeded fetches fresh data.
+        if conversation.isChannelConversation, let vm = chatViewModels[id], vm.isHistoryLoaded {
+            vm.prepareForChannelRefresh()
+        }
+
         activeConversationId = id
-        // Switching conversations is a natural point to shed cached render
-        // artefacts from the previous conversation.
-        Self.clearRenderCaches()
+        // Render caches are keyed by content + appearance (text hash +
+        // color descriptions), not by conversation — entries from one
+        // conversation are valid for any conversation with the same text.
+        // Clearing them here caused every visible message to re-parse and
+        // re-build AttributedStrings synchronously, and the height
+        // mismatch between placeholder and proper renders triggered a
+        // LazyVStack re-estimation cascade that froze the app.
+        // NSCache handles memory pressure automatically; explicit clears
+        // are kept on close/archive/delete where freeing memory for
+        // discarded conversations is appropriate.
 
         // Emit explicit seen signal for user-initiated conversation selection.
         // Skip if this conversation was already active to avoid duplicate signals
@@ -982,8 +1023,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return true
         }
 
-        // Don't insert external-channel or private conversations into the main sidebar
-        if conversation.conversationType == "private" || conversation.channelBinding?.sourceChannel != nil {
+        // Don't insert private conversations into the main sidebar
+        if conversation.conversationType == "private" {
             return false
         }
 
@@ -1016,8 +1057,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     @discardableResult
     private func upsertConversation(from item: ConversationListResponseItem, isArchived: Bool) -> UUID? {
-        guard item.conversationType != "private",
-              item.channelBinding?.sourceChannel == nil else { return nil }
+        guard item.conversationType != "private" else { return nil }
 
         if !isArchived && isConversationArchived(item.id) {
             var archived = archivedConversationIds
@@ -1087,7 +1127,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             lastSeenAssistantMessageAt: item.assistantAttention?.lastSeenAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             },
-            forkParent: item.forkParent
+            forkParent: item.forkParent,
+            originChannel: item.channelBinding?.sourceChannel ?? item.conversationOriginChannel
         )
     }
 
@@ -1328,7 +1369,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// explicitly reordered (non-nil displayOrder), sends their displayOrder. For
     /// unpinned conversations without explicit ordering, sends nil so they sort by recency.
     private func sendReorderConversations() {
-        let visible = visibleConversations
+        let visible = visibleConversations.filter { !$0.isChannelConversation }
         var updates: [ReorderConversationsRequestUpdate] = []
         for conversation in visible {
             guard let conversationId = conversation.conversationId else { continue }
@@ -1513,6 +1554,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func activateConversation(_ id: UUID) {
         let previousActiveId = activeConversationId
         trimPreviousConversationIfNeeded(nextConversationId: id)
+
+        // Channel conversations: invalidate cache before activation so
+        // loadHistoryIfNeeded fetches fresh data from the daemon.
+        if let conversation = conversations.first(where: { $0.id == id }),
+           conversation.isChannelConversation,
+           let vm = chatViewModels[id], vm.isHistoryLoaded {
+            vm.prepareForChannelRefresh()
+        }
+
         activeConversationId = id
 
         // Emit explicit seen signal for user-initiated conversation activation.
@@ -1858,6 +1908,33 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         log.info("Removed abandoned empty conversation \(previousId)")
     }
 
+    /// Start a periodic refresh loop for the active conversation if it is a
+    /// channel conversation (Slack, etc.). Cancels any existing refresh task first.
+    private func startChannelRefreshIfNeeded(conversationId localId: UUID) {
+        stopChannelRefresh()
+        guard let conversation = conversations.first(where: { $0.id == localId }),
+              conversation.isChannelConversation,
+              let daemonConversationId = conversation.conversationId else { return }
+
+        channelRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s
+                guard !Task.isCancelled, let self else { return }
+                guard let vm = self.chatViewModels[localId],
+                      !vm.isAssistantBusy,
+                      !vm.isLoadingMoreMessages,
+                      !vm.isLoadingHistory else { continue }
+                vm.prepareForNotificationCatchUp()
+                self.conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
+            }
+        }
+    }
+
+    private func stopChannelRefresh() {
+        channelRefreshTask?.cancel()
+        channelRefreshTask = nil
+    }
+
     /// Trim the previously active conversation's view model to shed memory before
     /// switching to a different conversation. Skipped when the VM hasn't loaded
     /// history yet or when it has an active generation in progress.
@@ -2177,7 +2254,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Subscribe to busy-state publishers on a ChatViewModel so `busyConversationIds` stays current.
     func subscribeToBusyState(for conversationId: UUID, viewModel: ChatViewModel) {
         // Tear down any previous subscriptions for this conversation.
-        busyStateCancellables.removeValue(forKey: conversationId)
+        if let old = busyStateCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables(old)
+        }
         var subs = Set<AnyCancellable>()
 
         let mgr = viewModel.messageManager
@@ -2219,7 +2298,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Any change to the latest assistant message's rendered content marks
     /// inactive conversations unseen, including mid-stream continuation updates.
     private func subscribeToAssistantActivity(for conversationId: UUID, viewModel: ChatViewModel) {
-        assistantActivityCancellables[conversationId]?.cancel()
+        if let old = assistantActivityCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables([old])
+        }
         if let snapshot = latestAssistantActivitySnapshot(in: viewModel.messages) {
             latestAssistantActivitySnapshots[conversationId] = snapshot
         } else {
@@ -2257,6 +2338,24 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         )
     }
 
+    /// Cancel subscriptions synchronously on main, then move the expensive
+    /// dealloc (operator chain teardown) off the main thread.
+    ///
+    /// `cancel()` is a lightweight flag-set that stops value delivery immediately.
+    /// The costly work is the subsequent dealloc of the deep Combine operator tree
+    /// (CombineLatest3/4, scan, removeDuplicates, etc.), which we defer to a
+    /// background queue by preventing the `Set<AnyCancellable>` from deallocating
+    /// until the async closure runs.
+    private func tearDownCancellables(_ cancellables: Set<AnyCancellable>) {
+        guard !cancellables.isEmpty else { return }
+        for cancellable in cancellables {
+            cancellable.cancel()
+        }
+        Self.cancellableTeardownQueue.async {
+            withExtendedLifetime(cancellables) {}
+        }
+    }
+
     /// Remove busy-state and interaction-state subscriptions for a conversation.
     ///
     /// Does NOT clear `conversationInteractionStates` — the last known interaction
@@ -2264,12 +2363,17 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// showing the correct sidebar cue.  Callers that permanently remove a
     /// conversation (close / archive) should use `unsubscribeAllForConversation(id:)` instead.
     private func unsubscribeFromBusyState(for conversationId: UUID) {
-        busyStateCancellables.removeValue(forKey: conversationId)
-        assistantActivityCancellables[conversationId]?.cancel()
-        assistantActivityCancellables.removeValue(forKey: conversationId)
+        if let subs = busyStateCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables(subs)
+        }
+        if let sub = assistantActivityCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables([sub])
+        }
         latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
         busyConversationIds.remove(conversationId)
-        interactionStateCancellables.removeValue(forKey: conversationId)
+        if let subs = interactionStateCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables(subs)
+        }
         // Invalidate any in-flight withObservationTracking loop for error bridging.
         if let gen = errorObservationGenerations[conversationId] {
             errorObservationGenerations[conversationId] = gen + 1
@@ -2281,12 +2385,17 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// conversation-backfilled-then-discarded). Unlike `unsubscribeFromBusyState`,
     /// this also clears `conversationInteractionStates` so stale sidebar cues don't linger.
     private func unsubscribeAllForConversation(id: UUID) {
-        busyStateCancellables[id] = nil
-        assistantActivityCancellables[id]?.cancel()
-        assistantActivityCancellables[id] = nil
+        if let subs = busyStateCancellables.removeValue(forKey: id) {
+            tearDownCancellables(subs)
+        }
+        if let sub = assistantActivityCancellables.removeValue(forKey: id) {
+            tearDownCancellables([sub])
+        }
         latestAssistantActivitySnapshots.removeValue(forKey: id)
         busyConversationIds.remove(id)
-        interactionStateCancellables[id] = nil
+        if let subs = interactionStateCancellables.removeValue(forKey: id) {
+            tearDownCancellables(subs)
+        }
         conversationInteractionStates.removeValue(forKey: id)
         // Invalidate any in-flight withObservationTracking loop for error bridging.
         if let gen = errorObservationGenerations[id] {
@@ -2306,7 +2415,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ///
     /// Derives state with priority: error > waitingForInput > processing > idle.
     func subscribeToInteractionState(for conversationId: UUID, viewModel: ChatViewModel) {
-        interactionStateCancellables.removeValue(forKey: conversationId)
+        if let old = interactionStateCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables(old)
+        }
         var subs = Set<AnyCancellable>()
 
         let msgMgr = viewModel.messageManager
@@ -2450,7 +2561,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return
         }
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
-        updateLastInteracted(conversationId: conversationId)
+        // Don't bump background conversations to the top — they receive frequent
+        // automated messages (heartbeats) that would constantly re-sort them,
+        // especially when an LRU-evicted ViewModel is recreated on click.
+        if !conversations[index].isBackgroundConversation {
+            updateLastInteracted(conversationId: conversationId)
+        }
         let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
         // Keep the local attention timestamp current for live assistant replies
         // so unread eligibility survives until the next conversation-list refresh.

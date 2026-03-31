@@ -3,26 +3,7 @@
  * job also deletes the schedule, preventing orphaned scheduled automations.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(
-  join(tmpdir(), "conv-delete-schedule-cleanup-test-"),
-);
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -42,20 +23,11 @@ import {
   createConversation,
   getConversation,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
 import { createSchedule, getSchedule } from "../schedule/schedule-store.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

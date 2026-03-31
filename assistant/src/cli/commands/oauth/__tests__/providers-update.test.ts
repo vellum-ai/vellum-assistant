@@ -146,7 +146,6 @@ const sampleProviderRow = {
   defaultScopes: "[]",
   scopePolicy: "{}",
   extraParams: null,
-  callbackTransport: null,
   managedServiceConfigKey: null,
   pingUrl: null,
   pingMethod: null,
@@ -168,6 +167,7 @@ const sampleProviderRow = {
   identityResponsePaths: null,
   identityFormat: null,
   identityOkField: null,
+  featureFlag: null,
   createdAt: Date.now(),
   updatedAt: Date.now(),
 };

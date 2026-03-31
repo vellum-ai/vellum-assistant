@@ -15,19 +15,15 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
-  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -45,32 +41,22 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "migration-import-commit-http-test-")),
-);
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceDir: () => testDir,
-  getWorkspaceConfigPath: () => testConfigPath,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => testDbPath,
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+mock.module("../permissions/trust-store.js", () => ({
+  getAllRules: () => [],
+  isStarterBundleAccepted: () => false,
+  clearCache: () => {},
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -111,14 +97,6 @@ beforeAll(() => {
   mkdirSync(testDbDir, { recursive: true });
   writeFileSync(testDbPath, EXISTING_DB_DATA);
   writeFileSync(testConfigPath, JSON.stringify(EXISTING_CONFIG, null, 2));
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // Restore test files before each test so mutations from previous tests
@@ -639,7 +617,7 @@ describe("commitImport", () => {
       { path: "data/db/assistant.db", data: newDbData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -653,7 +631,7 @@ describe("commitImport", () => {
   });
 
   test("returns validation_failed for invalid bundles", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: new Uint8Array([0xba, 0xad]),
       pathResolver: resolver,
@@ -683,7 +661,7 @@ describe("commitImport", () => {
       { path: "data/db/assistant.db", data: dbData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, nonexistentWorkspace);
+    const resolver = new DefaultPathResolver(nonexistentWorkspace);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -707,7 +685,7 @@ describe("commitImport", () => {
       { path: "data/db/assistant.db", data: newDbData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -737,7 +715,7 @@ describe("commitImport", () => {
       { path: "config/settings.json", data: newConfigData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -785,7 +763,7 @@ describe("commitImport — workspace clearing", () => {
       { path: "workspace/skills/new-skill/SKILL.md", data: skillData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -814,7 +792,7 @@ describe("commitImport — workspace clearing", () => {
       { path: "skills/new-skill/SKILL.md", data: skillData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -841,11 +819,7 @@ describe("commitImport — workspace clearing", () => {
       { path: "hooks/new-hook/hook.sh", data: hookData },
     ]);
 
-    const resolver = new DefaultPathResolver(
-      undefined,
-      testDir,
-      externalHooksDir,
-    );
+    const resolver = new DefaultPathResolver(testDir, externalHooksDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -881,7 +855,7 @@ describe("commitImport — workspace clearing", () => {
       },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     // No workspaceDir — no clearing
     const result = commitImport({
       archiveData: vbundle,

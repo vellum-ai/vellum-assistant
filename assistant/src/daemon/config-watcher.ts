@@ -1,7 +1,7 @@
 /**
  * File watchers and config reload logic extracted from DaemonServer.
- * Watches workspace files (config, prompts), protected directory
- * (trust rules, secret allowlist), and skills directories for changes.
+ * Watches workspace files (config, prompts) and skills directories
+ * for changes.
  */
 import {
   existsSync,
@@ -10,6 +10,7 @@ import {
   readdirSync,
   watch,
 } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
@@ -17,23 +18,16 @@ import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
 import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
 import { initializeProviders } from "../providers/registry.js";
-import {
-  resetAllowlist,
-  validateAllowlistFile,
-} from "../security/secret-allowlist.js";
 import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
-import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { handleShotgunSignal } from "../signals/shotgun.js";
-import { handleTrustRuleSignal } from "../signals/trust-rule.js";
 import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
-  getRootDir,
   getSignalsDir,
   getWorkspaceDir,
   getWorkspaceSkillsDir,
@@ -118,7 +112,6 @@ export class ConfigWatcher {
    */
   start(onConversationEvict: () => void, onIdentityChanged?: () => void): void {
     const workspaceDir = getWorkspaceDir();
-    const protectedDir = join(getRootDir(), "protected");
 
     const workspaceHandlers: Record<string, () => void> = {
       "config.json": async () => {
@@ -151,36 +144,6 @@ export class ConfigWatcher {
       "UPDATES.md": () => onConversationEvict(),
     };
 
-    const protectedHandlers: Record<string, () => void> = {
-      "trust.json": () => {
-        clearTrustCache();
-      },
-      "feature-flags.json": () => {
-        clearFeatureFlagOverridesCache();
-        onConversationEvict();
-      },
-      "feature-flags-remote.json": () => {
-        clearFeatureFlagOverridesCache();
-        onConversationEvict();
-      },
-      "secret-allowlist.json": () => {
-        resetAllowlist();
-        try {
-          const errors = validateAllowlistFile();
-          if (errors && errors.length > 0) {
-            for (const e of errors) {
-              log.warn(
-                { index: e.index, pattern: e.pattern },
-                `Invalid regex in secret-allowlist.json: ${e.message}`,
-              );
-            }
-          }
-        } catch (err) {
-          log.warn({ err }, "Failed to validate secret-allowlist.json");
-        }
-      },
-    };
-
     const watchDir = (
       dir: string,
       handlers: Record<string, () => void>,
@@ -211,14 +174,8 @@ export class ConfigWatcher {
       workspaceHandlers,
       "workspace directory for config/prompt changes",
     );
-    if (existsSync(protectedDir)) {
-      watchDir(
-        protectedDir,
-        protectedHandlers,
-        "protected directory for trust/allowlist changes",
-      );
-    }
 
+    this.startFeatureFlagsWatcher();
     this.startSignalsWatcher();
     this.startSkillsWatchers(onConversationEvict);
   }
@@ -229,6 +186,54 @@ export class ConfigWatcher {
       watcher.close();
     }
     this.watchers = [];
+  }
+
+  private startFeatureFlagsWatcher(): void {
+    const protectedDir = process.env.GATEWAY_SECURITY_DIR
+      ? process.env.GATEWAY_SECURITY_DIR
+      : join(homedir(), ".vellum", "protected");
+
+    try {
+      if (!existsSync(protectedDir)) {
+        mkdirSync(protectedDir, { recursive: true });
+      }
+    } catch {
+      // If we can't create it, watching will also fail — handled below.
+    }
+
+    const FLAG_FILES = new Set([
+      "feature-flags.json",
+      "feature-flags-remote.json",
+    ]);
+
+    try {
+      const watcher = watch(protectedDir, (_eventType, filename) => {
+        if (!filename) return;
+        const file = String(filename);
+        if (!FLAG_FILES.has(file)) return;
+        this.debounceTimers.schedule(
+          "file:feature-flags",
+          () => {
+            log.info(
+              { file },
+              "Feature flags file changed, invalidating cache",
+            );
+            clearFeatureFlagOverridesCache();
+          },
+          500,
+        );
+      });
+      this.watchers.push(watcher);
+      log.info(
+        { dir: protectedDir },
+        "Watching protected directory for feature flag changes",
+      );
+    } catch (err) {
+      log.warn(
+        { err, dir: protectedDir },
+        "Failed to watch protected directory for feature flags. Flag changes will require a restart.",
+      );
+    }
   }
 
   private startSignalsWatcher(): void {
@@ -243,9 +248,7 @@ export class ConfigWatcher {
 
     const exactSignalHandlers: Record<string, () => void | Promise<void>> = {
       cancel: handleCancelSignal,
-      confirm: handleConfirmationSignal,
       "mcp-reload": handleMcpReloadSignal,
-      "trust-rule": handleTrustRuleSignal,
       "conversation-undo": handleConversationUndoSignal,
       "emit-event": handleEmitEventSignal,
     };

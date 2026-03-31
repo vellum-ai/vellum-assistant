@@ -4,13 +4,23 @@ import VellumAssistantShared
 /// A single conversation row in the sidebar, handling hover, pin, archive, rename,
 /// and drag interactions.
 ///
-/// This is a pure value view — all state is pre-resolved into value-type props
-/// and action closures, so SwiftUI can skip re-evaluation via `Equatable`.
+/// Value-type props and action closures are compared via `Equatable` so SwiftUI
+/// can skip re-evaluation when parent views re-render for unrelated reasons.
+///
+/// Hover state (`isHovered`) is observed directly from `SidebarInteractionState`
+/// inside this view's `body`, keeping the `@Observable` dependency scoped here
+/// rather than in the parent. This prevents sidebar hover from invalidating
+/// unrelated views (e.g. the chat panel) that share a common ancestor.
+///
+/// - SeeAlso: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
 struct SidebarConversationItem: View, Equatable {
     let conversation: ConversationModel
     let isSelected: Bool
     let interactionState: ConversationInteractionState
-    let isHovered: Bool
+    /// Provides hover state via `@Observable` property-level tracking.
+    /// The observation dependency is established in this view's `body`,
+    /// not in the parent, so hover changes only invalidate this row.
+    var sidebarInteraction: SidebarInteractionState
 
     // Action closures — not compared in Equatable
     var selectConversation: () -> Void
@@ -28,10 +38,11 @@ struct SidebarConversationItem: View, Equatable {
         lhs.conversation == rhs.conversation &&
         lhs.isSelected == rhs.isSelected &&
         lhs.interactionState == rhs.interactionState &&
-        lhs.isHovered == rhs.isHovered
+        lhs.sidebarInteraction === rhs.sidebarInteraction
     }
 
     @State private var isMenuOpen: Bool = false
+    private var isHovered: Bool { sidebarInteraction.isHoveredConversation == conversation.id }
     private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
@@ -44,16 +55,20 @@ struct SidebarConversationItem: View, Equatable {
         VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
             onTogglePin()
         }
+
         VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
             onStartRename()
         }
-        VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
-            onArchive()
+
+        if !conversation.isChannelConversation {
+            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
+                onArchive()
+            }
+            VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
+                onMarkUnread()
+            }
+            .disabled(!canMarkUnread)
         }
-        VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
-            onMarkUnread()
-        }
-        .disabled(!canMarkUnread)
 
         if let onOpenInNewWindow {
             VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
@@ -207,6 +222,9 @@ struct SidebarConversationItem: View, Equatable {
             onHoverChange(hovering)
         }
         .onDrag {
+            guard !conversation.isChannelConversation else {
+                return NSItemProvider()
+            }
             onDragStart()
             return NSItemProvider(object: conversation.id.uuidString as NSString)
         } preview: {

@@ -6,25 +6,7 @@
  * that middleware is replaced by the JWT auth middleware in
  * runtime/auth/middleware.ts (tested in auth/middleware.test.ts).
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "actor-token-test-")));
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  getDbPath: () => join(testDir, "test.db"),
-  normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -40,7 +22,6 @@ mock.module("../config/env.js", () => ({
   getRuntimeGatewayOriginSecret: () => undefined,
   isHttpAuthDisabledWithoutSafetyGate: () => false,
   checkUnrecognizedEnvVars: () => {},
-  getBaseDataDir: () => testDir,
 }));
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
@@ -108,12 +89,6 @@ beforeEach(() => {
   db.run("DELETE FROM actor_token_records");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {}
 });
 
 // ---------------------------------------------------------------------------
@@ -462,7 +437,6 @@ describe("pairing credential flow", () => {
     const ctx = {
       pairingStore: store,
       bearerToken,
-      featureFlagToken: undefined,
       pairingBroadcast: () => {},
     };
 
@@ -520,7 +494,6 @@ describe("pairing credential flow", () => {
     const ctx = {
       pairingStore: store,
       bearerToken,
-      featureFlagToken: undefined,
       pairingBroadcast: () => {},
     };
 
@@ -577,7 +550,6 @@ describe("pairing credential flow", () => {
     const ctx = {
       pairingStore: store,
       bearerToken,
-      featureFlagToken: undefined,
       pairingBroadcast: () => {},
     };
 
@@ -637,7 +609,6 @@ describe("pairing credential flow", () => {
     const ctx = {
       pairingStore: store,
       bearerToken,
-      featureFlagToken: undefined,
       pairingBroadcast: () => {},
     };
 
@@ -678,6 +649,25 @@ describe("pairing credential flow", () => {
 // ---------------------------------------------------------------------------
 
 describe("bootstrap private-network guard", () => {
+  test("rejects bootstrap request with private X-Forwarded-For", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
+
+    const req = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "192.168.1.10",
+      },
+      body: JSON.stringify({ platform: "macos", deviceId: "test-device" }),
+    });
+
+    const res = await handleGuardianBootstrap(req, loopbackServer);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("local-only");
+  });
+
   test("rejects bootstrap request with public X-Forwarded-For", async () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
@@ -727,4 +717,3 @@ describe("bootstrap private-network guard", () => {
     expect(res.status).toBe(200);
   });
 });
-

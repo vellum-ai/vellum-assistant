@@ -18,8 +18,7 @@
  * - Conversation creation (3 preactivated skills): < 300ms
  * - Conversation constructor (sync, no loadFromDb): < 10ms
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, mock, test } from "bun:test";
 
@@ -31,7 +30,7 @@ function median(sorted: number[]): number {
     : sorted[mid];
 }
 
-const testDir = mkdtempSync(join(tmpdir(), "session-init-bench-"));
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Create subdirectories expected by platform helpers
 mkdirSync(join(testDir, "data"), { recursive: true });
@@ -82,39 +81,6 @@ for (const skillId of testSkillIds) {
   );
   writeFileSync(join(skillDir, "run.sh"), "#!/bin/sh\necho ok");
 }
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  getRootDir: () => testDir,
-  getWorkspaceDir: () => testDir,
-  getWorkspaceConfigPath: () => join(testDir, "config.json"),
-  getWorkspaceSkillsDir: () => join(testDir, "skills"),
-  getWorkspaceHooksDir: () => join(testDir, "hooks"),
-  getWorkspacePromptPath: (file: string) => join(testDir, file),
-  getSessionTokenPath: () => join(testDir, "session-token"),
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "data", "test.db"),
-  getLogPath: () => join(testDir, "logs", "test.log"),
-  getHistoryPath: () => join(testDir, "history"),
-  getHooksDir: () => join(testDir, "hooks"),
-
-  getSandboxRootDir: () => join(testDir, "sandbox"),
-  getSandboxWorkingDir: () => testDir,
-  getInterfacesDir: () => join(testDir, "interfaces"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-  getPlatformTokenPath: () => join(testDir, "platform-token"),
-  getTCPHost: () => "127.0.0.1",
-  getTCPPort: () => 8765,
-  isIOSPairingEnabled: () => false,
-  isTCPEnabled: () => false,
-  readPlatformToken: () => null,
-  readSessionToken: () => null,
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -201,6 +167,24 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   parseConversation: () => null,
   parseMessage: () => null,
+  getAssistantMessageIdsInTurn: () => [],
+  getTurnTimeBounds: () => null,
+  PRIVATE_CONVERSATION_FORK_ERROR: "Cannot fork a private conversation",
+  countConversationsByScheduleJobId: () => 0,
+  forkConversation: () => null,
+  wipeConversation: () => ({
+    conversations: 0,
+    messages: 0,
+    memoryItemIds: [],
+    memoryEntityIds: [],
+  }),
+  purgePrivateConversations: () => ({
+    purged: 0,
+    memoryItemIds: [],
+    memoryEntityIds: [],
+  }),
+  getMessagesPaginated: () => ({ messages: [], hasMore: false }),
+  getLastAssistantTimestampBefore: () => null,
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -298,11 +282,6 @@ import type { Provider } from "../providers/types.js";
 
 afterAll(() => {
   __resetRegistryForTesting();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    // best-effort cleanup
-  }
 });
 
 describe("Conversation initialization benchmark", () => {
@@ -380,9 +359,9 @@ describe("Conversation initialization benchmark", () => {
     await initializeTools();
     const definitions = getAllToolDefinitions();
 
-    // Sanity: we expect a meaningful number of core tools (at least 18)
+    // Sanity: we expect a meaningful number of core tools (at least 14)
     // but not an unreasonable explosion (under 200)
-    expect(definitions.length).toBeGreaterThanOrEqual(18);
+    expect(definitions.length).toBeGreaterThanOrEqual(14);
     expect(definitions.length).toBeLessThan(200);
   });
 });

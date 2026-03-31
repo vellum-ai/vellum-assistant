@@ -1,25 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
-
-const testDir = mkdtempSync(join(tmpdir(), "conversation-fork-lineage-"));
-const dbPath = join(testDir, "test.db");
 const originalBunTest = process.env.BUN_TEST;
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => dbPath,
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -32,6 +16,7 @@ import { initializeDb, resetDb } from "../memory/db.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { migrateConversationForkLineage } from "../memory/migrations/183-add-conversation-fork-lineage.js";
 import * as schema from "../memory/schema.js";
+import { getDbPath } from "../util/platform.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -42,7 +27,9 @@ function createTestDb() {
 
 function getColumnNames(raw: Database): string[] {
   return (
-    raw.query(`PRAGMA table_info(conversations)`).all() as Array<{ name: string }>
+    raw.query(`PRAGMA table_info(conversations)`).all() as Array<{
+      name: string;
+    }>
   ).map((column) => column.name);
 }
 
@@ -79,6 +66,7 @@ function bootstrapPreLineageConversations(raw: Database): void {
 
 function removeTestDbFiles(): void {
   resetDb();
+  const dbPath = getDbPath();
   rmSync(dbPath, { force: true });
   rmSync(`${dbPath}-shm`, { force: true });
   rmSync(`${dbPath}-wal`, { force: true });
@@ -93,17 +81,12 @@ describe("conversation fork lineage migration", () => {
   afterAll(() => {
     process.env.BUN_TEST = originalBunTest;
     removeTestDbFiles();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("fresh DB initialization includes nullable lineage columns and parent lookup index", () => {
     initializeDb();
 
-    const raw = new Database(dbPath);
+    const raw = new Database(getDbPath());
     const columns = getColumnNames(raw);
 
     expect(columns).toContain("fork_parent_conversation_id");

@@ -1,29 +1,21 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
-import { _resetGitServiceRegistry } from "../workspace/git-service.js";
-
-// Mock getDataDir to use a temp directory
-let testDataDir: string;
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDataDir,
-  getProjectDir: () => testDataDir,
-}));
-
-// Re-import app-store after mocking so it uses our temp dir
-const {
+import {
   createApp,
-  updateApp,
   deleteApp,
-  writeAppFile,
   editAppFile,
   getAppsDir,
-} = await import("../memory/app-store.js");
+  updateApp,
+  writeAppFile,
+} from "../memory/app-store.js";
+import { _resetGitServiceRegistry } from "../workspace/git-service.js";
+
+let testDataDir: string;
 
 describe("App Git Service", () => {
   beforeEach(() => {
@@ -31,7 +23,7 @@ describe("App Git Service", () => {
       tmpdir(),
       `vellum-app-git-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
-    mkdirSync(join(testDataDir, "apps"), { recursive: true });
+    process.env.VELLUM_WORKSPACE_DIR = testDataDir;
     _resetGitServiceRegistry();
   });
 
@@ -100,7 +92,9 @@ describe("App Git Service", () => {
     expect(commits.length).toBeLessThanOrEqual(2);
     // The turn commit message should appear (or files are in the initial commit)
     expect(
-      commits.some((c) => c.includes("Turn 1") || c.includes("Initial commit")),
+      commits.some(
+        (c) => c.includes("update ") || c.includes("Initial commit"),
+      ),
     ).toBe(true);
   });
 
@@ -141,6 +135,6 @@ describe("App Git Service", () => {
 
     const appsDir = getAppsDir();
     const commits = getGitLog(appsDir);
-    expect(commits[0]).toContain("Turn 2: app changes");
+    expect(commits[0]).toContain("update ");
   });
 });

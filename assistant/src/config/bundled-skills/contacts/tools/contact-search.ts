@@ -11,6 +11,8 @@ interface ContactChannel {
   type: string;
   address: string;
   isPrimary: boolean;
+  externalUserId?: string | null;
+  externalChatId?: string | null;
 }
 
 interface ContactResponse {
@@ -28,7 +30,14 @@ function formatContactSummary(c: ContactResponse): string {
     parts.push(`  Interactions: ${c.interactionCount}`);
   if (c.channels.length > 0) {
     const channelList = c.channels
-      .map((ch) => `${ch.type}:${ch.address}${ch.isPrimary ? "*" : ""}`)
+      .map((ch) => {
+        let s = `${ch.type}:${ch.address}${ch.isPrimary ? "*" : ""}`;
+        const extras: string[] = [];
+        if (ch.externalUserId) extras.push(`userId: ${ch.externalUserId}`);
+        if (ch.externalChatId) extras.push(`chatId: ${ch.externalChatId}`);
+        if (extras.length > 0) s += ` (${extras.join(", ")})`;
+        return s;
+      })
       .join(", ");
     parts.push(`  Channels: ${channelList}`);
   }

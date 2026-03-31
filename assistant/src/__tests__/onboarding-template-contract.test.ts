@@ -27,9 +27,9 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("vibe");
     });
 
-    test("contains emoji auto-selection with change-later instruction", () => {
+    test("contains name selection with change-later instruction", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("emoji");
+      expect(lower).toContain("what do you want to call me");
       expect(lower).toContain("change it later");
     });
 

@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
+import type { Speed } from "../../config/schemas/inference.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
@@ -91,27 +92,8 @@ export interface RenderedHistoryContent {
   contentOrder: string[];
   /** UI surfaces (widgets) embedded in the message. */
   surfaces: HistorySurface[];
-}
-
-export interface SubagentNotificationData {
-  subagentId: string;
-  label: string;
-  status: "completed" | "failed" | "aborted";
-  error?: string;
-  conversationId?: string;
-}
-
-export interface ParsedHistoryMessage {
-  id?: string;
-  role: string;
-  text: string;
-  timestamp: number;
-  toolCalls: HistoryToolCall[];
-  toolCallsBeforeText: boolean;
-  textSegments: string[];
-  contentOrder: string[];
-  surfaces: HistorySurface[];
-  subagentNotification?: SubagentNotificationData;
+  /** Thinking segments extracted from thinking blocks. */
+  thinkingSegments: string[];
 }
 
 /**
@@ -120,6 +102,7 @@ export interface ParsedHistoryMessage {
 export interface ConversationCreateOptions {
   systemPromptOverride?: string;
   maxResponseTokens?: number;
+  speed?: Speed;
   transport?: ConversationTransportMetadata;
   assistantId?: string;
   trustContext?: TrustContext;
@@ -220,6 +203,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       textSegments: text ? [text] : [],
       contentOrder: text ? ["text:0"] : [],
       surfaces: [],
+      thinkingSegments: [],
     };
   }
 
@@ -227,6 +211,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   const attachmentParts: string[] = [];
   const toolCalls: HistoryToolCall[] = [];
   const surfaces: HistorySurface[] = [];
+  const thinkingSegments: string[] = [];
   const pendingToolUses = new Map<string, HistoryToolCall>();
   let seenText = false;
   let seenToolUse = false;
@@ -297,6 +282,13 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       };
       surfaces.push(surface);
       contentOrder.push(`surface:${surfaces.length - 1}`);
+      continue;
+    }
+
+    if (block.type === "thinking" && typeof block.thinking === "string") {
+      finalizeSegment();
+      thinkingSegments.push(block.thinking);
+      contentOrder.push(`thinking:${thinkingSegments.length - 1}`);
       continue;
     }
 
@@ -410,6 +402,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     textSegments,
     contentOrder,
     surfaces,
+    thinkingSegments,
   };
 }
 

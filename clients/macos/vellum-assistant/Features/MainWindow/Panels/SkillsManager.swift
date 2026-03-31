@@ -2,6 +2,30 @@ import SwiftUI
 import Combine
 import VellumAssistantShared
 
+/// Filter for showing skills by status or source.
+enum SkillFilter: String, CaseIterable {
+    case all = "All"
+    case installed = "Installed"
+    case available = "Available"
+    case vellum = "Vellum"
+    case openclaw = "OpenClaw"
+    case custom = "Custom"
+
+    var icon: VIcon {
+        switch self {
+        case .all: return .layoutGrid
+        case .installed: return .circleCheck
+        case .available: return .arrowDownToLine
+        case .vellum: return .package
+        case .openclaw: return .globe
+        case .custom: return .user
+        }
+    }
+
+    static var statusFilters: [SkillFilter] { [.all, .installed, .available] }
+    static var sourceFilters: [SkillFilter] { [.vellum, .openclaw, .custom] }
+}
+
 @MainActor
 @Observable
 final class SkillsManager {
@@ -10,6 +34,9 @@ final class SkillsManager {
     // Forward all published properties from SkillsStore so existing views
     // continue to work via observation on SkillsManager unchanged.
     var skills: [SkillInfo] = []
+    /// Cached skill-id -> category map, rebuilt whenever `skills` changes.
+    /// Use `category(for:)` for O(1) lookups instead of calling `inferCategory` in view bodies.
+    private(set) var categoryMap: [String: SkillCategory] = [:]
     var loadedBodies: [String: String] = [:]
     var isLoading = false
     var uninstallResult: SkillsStore.UninstallResult?
@@ -18,6 +45,34 @@ final class SkillsManager {
     var isLoadingSkillFiles = false
     var skillFilesError: String?
     var installingSkillId: String?
+
+    // MARK: - Filter Inputs
+
+    var searchQuery: String = "" {
+        didSet { recomputeFilteredData() }
+    }
+
+    var selectedCategory: SkillCategory? {
+        didSet { recomputeFilteredData() }
+    }
+
+    var skillFilter: SkillFilter = .all {
+        didSet { recomputeFilteredData() }
+    }
+
+    // MARK: - Cached Derived Data (O(1) reads from views)
+
+    /// Skills filtered by search + category + skill filter, sorted for display.
+    private(set) var filteredSkills: [SkillInfo] = []
+
+    /// Per-category counts based on the current search + skill filter (excludes category filter).
+    private(set) var categoryCounts: [SkillCategory: Int] = [:]
+
+    /// Total count of skills matching search + skill filter (the "All" count).
+    private(set) var searchFilteredCount: Int = 0
+
+    /// Whether the base skills (after skill filter, before search/category) are empty.
+    private(set) var baseSkillsEmpty: Bool = true
 
     @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
@@ -29,21 +84,140 @@ final class SkillsManager {
         bindStore()
     }
 
-    /// Wire up Combine subscriptions to forward SkillsStore state.
+    /// Wire up a single Combine subscription to forward SkillsStore state.
+    ///
+    /// Uses `objectWillChange` so that all `@Published` mutations within a
+    /// single run-loop tick are coalesced into one observation notification,
+    /// avoiding the cascading view updates caused by per-property sinks.
     private func bindStore() {
-        skillsStore.$skills.sink { [weak self] in self?.skills = $0 }.store(in: &cancellables)
-        skillsStore.$loadedBodies.sink { [weak self] in self?.loadedBodies = $0 }.store(in: &cancellables)
-        skillsStore.$isLoading.sink { [weak self] in self?.isLoading = $0 }.store(in: &cancellables)
-        skillsStore.$uninstallResult.sink { [weak self] in self?.uninstallResult = $0 }.store(in: &cancellables)
-        skillsStore.$isUninstalling.sink { [weak self] in self?.isUninstalling = $0 }.store(in: &cancellables)
-        skillsStore.$selectedSkillFiles.sink { [weak self] in self?.selectedSkillFiles = $0 }.store(in: &cancellables)
-        skillsStore.$isLoadingSkillFiles.sink { [weak self] in self?.isLoadingSkillFiles = $0 }.store(in: &cancellables)
-        skillsStore.$skillFilesError.sink { [weak self] in self?.skillFilesError = $0 }.store(in: &cancellables)
-        skillsStore.$installResult.sink { [weak self] result in
-            guard let self, let result else { return }
-            guard result.slug == self.installingSkillId else { return }
-            self.installingSkillId = nil
-        }.store(in: &cancellables)
+        skillsStore.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let skills = self.skillsStore.skills
+                self.skills = skills
+                self.rebuildCategoryMap(from: skills)
+                self.loadedBodies = self.skillsStore.loadedBodies
+                self.isLoading = self.skillsStore.isLoading
+                self.uninstallResult = self.skillsStore.uninstallResult
+                self.isUninstalling = self.skillsStore.isUninstalling
+                self.selectedSkillFiles = self.skillsStore.selectedSkillFiles
+                self.isLoadingSkillFiles = self.skillsStore.isLoadingSkillFiles
+                self.skillFilesError = self.skillsStore.skillFilesError
+                if let result = self.skillsStore.installResult,
+                   result.slug == self.installingSkillId {
+                    self.installingSkillId = nil
+                }
+                self.recomputeFilteredData()
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Category Lookup
+
+    /// O(1) category lookup for a skill. Falls back to `.knowledge` for unknown IDs.
+    func category(for skill: SkillInfo) -> SkillCategory {
+        categoryMap[skill.id] ?? .knowledge
+    }
+
+    private func rebuildCategoryMap(from skills: [SkillInfo]) {
+        var map: [String: SkillCategory] = [:]
+        map.reserveCapacity(skills.count)
+        for skill in skills {
+            map[skill.id] = inferCategory(skill)
+        }
+        categoryMap = map
+    }
+
+    // MARK: - Recomputation
+
+    /// Single-pass O(N) recomputation of all derived data.
+    /// Called whenever any filter input or the underlying skills list changes.
+    private func recomputeFilteredData() {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasSearch = !query.isEmpty
+
+        let baseSkills: [SkillInfo]
+        switch skillFilter {
+        case .all:
+            baseSkills = skills
+        case .installed:
+            baseSkills = skills.filter { $0.isInstalled }
+        case .available:
+            baseSkills = skills.filter { $0.isAvailable }
+        case .vellum:
+            baseSkills = skills.filter {
+                $0.source == "bundled" || ($0.source == "managed" && $0.provenance?.kind == "first-party")
+            }
+        case .openclaw:
+            baseSkills = skills.filter {
+                $0.source == "clawhub" || ($0.source == "managed" && $0.provenance?.kind == "third-party")
+            }
+        case .custom:
+            baseSkills = skills.filter {
+                $0.source == "workspace" || $0.source == "extra" || ($0.source == "managed" && $0.provenance?.kind == "local")
+            }
+        }
+
+        let searchFiltered: [SkillInfo]
+        if hasSearch {
+            searchFiltered = baseSkills.filter {
+                $0.name.lowercased().contains(query) ||
+                $0.description.lowercased().contains(query) ||
+                $0.id.lowercased().contains(query) ||
+                Self.sourceLabel($0.source, provenanceKind: $0.provenance?.kind).lowercased().contains(query)
+            }
+        } else {
+            searchFiltered = baseSkills
+        }
+
+        var counts: [SkillCategory: Int] = [:]
+        for skill in searchFiltered {
+            let cat = category(for: skill)
+            counts[cat, default: 0] += 1
+        }
+        categoryCounts = counts
+        searchFilteredCount = searchFiltered.count
+        baseSkillsEmpty = baseSkills.isEmpty
+
+        let categoryFiltered: [SkillInfo]
+        if let category = selectedCategory {
+            categoryFiltered = searchFiltered.filter { self.category(for: $0) == category }
+        } else {
+            categoryFiltered = searchFiltered
+        }
+
+        filteredSkills = categoryFiltered.sorted { a, b in
+            if a.isInstalled != b.isInstalled { return a.isInstalled }
+            let aManaged = (a.source == "managed" || a.source == "clawhub")
+            let bManaged = (b.source == "managed" || b.source == "clawhub")
+            if a.isInstalled && b.isInstalled && aManaged != bManaged { return aManaged }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// Human-readable label for a skill source.
+    static func sourceLabel(_ source: String, provenanceKind: String? = nil) -> String {
+        switch source {
+        case "bundled":
+            return "Vellum"
+        case "clawhub":
+            return "OpenClaw"
+        case "managed":
+            switch provenanceKind {
+            case "first-party": return "Vellum"
+            case "third-party": return "OpenClaw"
+            default: return "Custom"
+            }
+        case "workspace", "extra":
+            return "Custom"
+        case "catalog":
+            return "Available Vellum"
+        default:
+            return source.replacingOccurrences(of: "-", with: " ").capitalized
+        }
     }
 
     // MARK: - Delegated Operations

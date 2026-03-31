@@ -1,28 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "embed-media-test-"));
-
-mock.module("../../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -87,10 +67,6 @@ describe("embedMediaJob", () => {
     embedAndUpsertCalls.length = 0;
     resetDb();
     initializeDb();
-  });
-
-  afterAll(() => {
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   function makeJob(payload: Record<string, unknown>): MemoryJob {

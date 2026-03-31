@@ -27,6 +27,27 @@ import { getAppsDir, resolveAppDir } from "./app-store.js";
 const log = getLogger("app-git");
 
 // ---------------------------------------------------------------------------
+// Pending commit message — set by app tool executors, consumed at turn boundary
+// ---------------------------------------------------------------------------
+
+const pendingAppCommitMessages = new Map<string, string>();
+
+/** Set the commit message for the next app turn-boundary commit. */
+export function setAppCommitMessage(
+  conversationId: string,
+  message: string,
+): void {
+  pendingAppCommitMessages.set(conversationId, message);
+}
+
+/** Consume and clear the pending commit message for a conversation. */
+function consumeAppCommitMessage(conversationId: string): string | undefined {
+  const msg = pendingAppCommitMessages.get(conversationId);
+  pendingAppCommitMessages.delete(conversationId);
+  return msg;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -170,15 +191,51 @@ export async function commitAppTurnChanges(
   conversationId: string,
   turnNumber: number,
 ): Promise<void> {
+  // Consume before any work that could throw, so the message doesn't leak
+  const changeSummary = consumeAppCommitMessage(conversationId);
   try {
     const appsDir = getAppsDir();
     ensureAppGitignoreRules(appsDir);
 
     const gitService = getWorkspaceGitService(appsDir);
-    await gitService.commitIfDirty(() => ({
-      message: `Turn ${turnNumber}: app changes`,
-      metadata: { conversationId, turnNumber },
-    }));
+
+    await gitService.commitIfDirty((status) => {
+      if (changeSummary) {
+        return {
+          message: changeSummary,
+          metadata: { conversationId, turnNumber },
+        };
+      }
+
+      // Fallback: derive app names from changed file paths
+      const allFiles = [
+        ...new Set([...status.staged, ...status.modified, ...status.untracked]),
+      ];
+      const dirNames = [
+        ...new Set(allFiles.map((f) => f.split("/")[0].replace(/\.json$/, ""))),
+      ];
+      const appNames = dirNames.map((dirName) => {
+        try {
+          const jsonPath = join(appsDir, `${dirName}.json`);
+          const raw = readFileSync(jsonPath, "utf-8");
+          const app = JSON.parse(raw) as { name?: string };
+          return app.name || dirName;
+        } catch {
+          return dirName;
+        }
+      });
+      const subject =
+        appNames.length === 1
+          ? `update ${appNames[0]}`
+          : appNames.length <= 3
+            ? `update ${appNames.join(", ")}`
+            : `update ${appNames.length} apps`;
+
+      return {
+        message: subject,
+        metadata: { conversationId, turnNumber },
+      };
+    });
   } catch (err) {
     log.error(
       { err, conversationId, turnNumber },

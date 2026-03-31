@@ -251,7 +251,7 @@ public struct ToolConfirmationBubble: View {
                         }
                     }
                     .padding(.top, VSpacing.xs)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
                 }
             }
             .clipped()
@@ -382,7 +382,7 @@ public struct ToolConfirmationBubble: View {
                     }
                 }
                 .textSelection(.enabled)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
         }
     }

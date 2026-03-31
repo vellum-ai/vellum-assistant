@@ -81,6 +81,7 @@ mock.module("../daemon/handlers/shared.js", () => ({
         textSegments: [],
         contentOrder: [],
         surfaces: [],
+        thinkingSegments: [],
       };
     }
     return {
@@ -90,6 +91,7 @@ mock.module("../daemon/handlers/shared.js", () => ({
       textSegments: [],
       contentOrder: [],
       surfaces: [],
+      thinkingSegments: [],
     };
   },
 }));

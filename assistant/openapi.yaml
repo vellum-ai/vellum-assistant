@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.5.13
+  version: 0.5.15
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1855,47 +1855,6 @@ paths:
               required:
                 - provider
               additionalProperties: false
-  /v1/config/permissions/skip:
-    get:
-      operationId: config_permissions_skip_get
-      summary: Get permission-skip flag
-      description: Return whether dangerouslySkipPermissions is enabled.
-      tags:
-        - config
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  enabled:
-                    type: boolean
-                required:
-                  - enabled
-                additionalProperties: false
-    put:
-      operationId: config_permissions_skip_put
-      summary: Set permission-skip flag
-      description: Enable or disable dangerouslySkipPermissions.
-      tags:
-        - config
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                enabled:
-                  type: boolean
-              required:
-                - enabled
-              additionalProperties: false
   /v1/config/platform:
     get:
       operationId: config_platform_get
@@ -3144,7 +3103,7 @@ paths:
     post:
       operationId: export_post
       summary: Export logs and audit data
-      description: Export audit records, daemon logs, workspace contents, and config as a tar.gz archive.
+      description: Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
       tags:
         - export
       responses:
@@ -3158,24 +3117,19 @@ paths:
               type: object
               properties:
                 auditLimit:
+                  description: Max audit records (default 1000)
                   type: integer
                   minimum: -9007199254740991
                   maximum: 9007199254740991
-                  description: Max audit records (default 1000)
                 conversationId:
-                  type: string
                   description: Scope to a single conversation
+                  type: string
                 startTime:
-                  type: number
                   description: Lower bound epoch ms
-                endTime:
                   type: number
+                endTime:
                   description: Upper bound epoch ms
-              required:
-                - auditLimit
-                - conversationId
-                - startTime
-                - endTime
+                  type: number
               additionalProperties: false
   /v1/guardian-actions/decision:
     post:
@@ -3275,6 +3229,52 @@ paths:
       operationId: health_get
       summary: Detailed health check
       description: Returns runtime health including version, disk, memory, CPU, and migration status.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  timestamp:
+                    type: string
+                  version:
+                    type: string
+                  disk:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  memory:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  cpu:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  migrations:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - status
+                  - timestamp
+                  - version
+                  - disk
+                  - memory
+                  - cpu
+                  - migrations
+                additionalProperties: false
+  /v1/healthz:
+    get:
+      operationId: healthz_get
+      summary: Detailed health check (alias)
+      description: Alias for /v1/health. Returns runtime health including version, disk, memory, CPU, and migration status.
       tags:
         - system
       responses:
@@ -3968,6 +3968,38 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/logs/export:
+    post:
+      operationId: logs_export_post
+      summary: Export logs and audit data (alias)
+      description: Alias for /v1/export. Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
+      tags:
+        - export
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                auditLimit:
+                  description: Max audit records (default 1000)
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+                conversationId:
+                  description: Scope to a single conversation
+                  type: string
+                startTime:
+                  description: Lower bound epoch ms
+                  type: number
+                endTime:
+                  description: Upper bound epoch ms
+                  type: number
+              additionalProperties: false
   /v1/memory-items:
     get:
       operationId: memoryitems_get
@@ -6303,17 +6335,27 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    description: Event ID
-                  event_name:
-                    type: string
-                required:
-                  - id
-                  - event_name
-                additionalProperties: false
+                anyOf:
+                  - type: object
+                    properties:
+                      id:
+                        type: string
+                        description: Event ID
+                      event_name:
+                        type: string
+                    required:
+                      - id
+                      - event_name
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      skipped:
+                        type: boolean
+                        const: true
+                        description: Event skipped due to usage data collection being disabled
+                    required:
+                      - skipped
+                    additionalProperties: false
       requestBody:
         required: true
         content:
@@ -6676,7 +6718,7 @@ paths:
                   buckets:
                     type: array
                     items: {}
-                    description: Daily usage bucket objects
+                    description: Usage bucket objects
                 required:
                   - buckets
                 additionalProperties: false
@@ -6693,6 +6735,15 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+        - name: granularity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - daily
+              - hourly
+          description: 'Bucket granularity: "daily" (default) or "hourly"'
   /v1/usage/totals:
     get:
       operationId: usage_totals_get

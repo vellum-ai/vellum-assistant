@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
+  getUsageHourBuckets,
   getUsageTotals,
 } from "../../memory/llm-usage-store.js";
 import { httpError } from "../http-errors.js";
@@ -104,14 +105,30 @@ export function usageRouteDefinitions(): RouteDefinition[] {
           schema: { type: "integer" },
           description: "End epoch millis (required)",
         },
+        {
+          name: "granularity",
+          schema: { type: "string", enum: ["daily", "hourly"] },
+          description: 'Bucket granularity: "daily" (default) or "hourly"',
+        },
       ],
       responseBody: z.object({
-        buckets: z.array(z.unknown()).describe("Daily usage bucket objects"),
+        buckets: z.array(z.unknown()).describe("Usage bucket objects"),
       }),
       handler: ({ url }) => {
         const range = parseTimeRange(url);
         if (range instanceof Response) return range;
-        const buckets = getUsageDayBuckets(range);
+        const granularity = url.searchParams.get("granularity") ?? "daily";
+        if (granularity !== "daily" && granularity !== "hourly") {
+          return httpError(
+            "BAD_REQUEST",
+            `Invalid "granularity" value: "${granularity}". Must be one of: daily, hourly`,
+            400,
+          );
+        }
+        const buckets =
+          granularity === "hourly"
+            ? getUsageHourBuckets(range)
+            : getUsageDayBuckets(range);
         return Response.json({ buckets });
       },
     },

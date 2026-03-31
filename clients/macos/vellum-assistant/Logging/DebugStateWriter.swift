@@ -217,9 +217,9 @@ struct DebugSnapshot: Codable {
         let contentHeight: Double?
         let viewportHeight: Double?
         let isNearBottom: Bool?
-        let hasReceivedScrollEvent: Bool?
+        let hasBeenInteracted: Bool?
         let isPaginationInFlight: Bool?
-        let suppressionReason: String?
+        let scrollMode: String?
         let anchorMessageId: String?
         let highlightedMessageId: String?
         let anchorMinY: Double?
@@ -227,10 +227,9 @@ struct DebugSnapshot: Codable {
         let scrollViewportHeight: Double?
         let containerWidth: Double?
         let lastScrollToReason: String?
+        /// Legacy field, always `nil`. Retained for backward compatibility.
         let lastLoopWarningTimestamp: Date?
-        /// Rolling event counts from `ChatScrollLoopGuard` within the 2-second
-        /// detection window. Keys are event kind names; values are counts.
-        /// Non-zero counts only. Useful for identifying hot paths before a freeze.
+        /// Legacy field, always `nil`. Retained for backward compatibility.
         let scrollLoopGuardCounts: [String: Int]?
         /// Names of geometry fields whose original values were non-finite
         /// (nan, inf, -inf) and were replaced with `nil` during sanitization.
@@ -246,9 +245,9 @@ struct DebugSnapshot: Codable {
             self.contentHeight = snapshot.contentHeight
             self.viewportHeight = snapshot.viewportHeight
             self.isNearBottom = snapshot.isNearBottom
-            self.hasReceivedScrollEvent = snapshot.hasReceivedScrollEvent
+            self.hasBeenInteracted = snapshot.hasBeenInteracted
             self.isPaginationInFlight = snapshot.isPaginationInFlight
-            self.suppressionReason = snapshot.suppressionReason
+            self.scrollMode = snapshot.scrollMode
             self.anchorMessageId = snapshot.anchorMessageId
             self.highlightedMessageId = snapshot.highlightedMessageId
             self.anchorMinY = snapshot.anchorMinY
@@ -256,8 +255,8 @@ struct DebugSnapshot: Codable {
             self.scrollViewportHeight = snapshot.scrollViewportHeight
             self.containerWidth = snapshot.containerWidth
             self.lastScrollToReason = snapshot.lastScrollToReason
-            self.lastLoopWarningTimestamp = snapshot.lastLoopWarningTimestamp
-            self.scrollLoopGuardCounts = snapshot.scrollLoopGuardCounts
+            self.lastLoopWarningTimestamp = nil
+            self.scrollLoopGuardCounts = nil
             self.nonFiniteFields = snapshot.nonFiniteFields
         }
     }

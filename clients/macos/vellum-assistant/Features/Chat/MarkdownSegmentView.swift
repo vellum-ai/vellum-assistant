@@ -44,6 +44,27 @@ struct MarkdownSegmentView: View, Equatable {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
                 case .selectableRun(let runSegments):
+                    #if os(macOS)
+                    let attributed = buildCombinedAttributedString(from: runSegments)
+                    let nsAttributed = Self.convertToNSAttributedString(
+                        attributed,
+                        font: VFont.nsChat,
+                        textColor: NSColor(textColor)
+                    )
+                    let measuredSize = VSelectableTextView.measureSize(
+                        attributedString: nsAttributed,
+                        lineSpacing: 4,
+                        maxWidth: maxContentWidth ?? VSpacing.chatBubbleMaxWidth
+                    )
+                    VSelectableTextView(
+                        attributedString: nsAttributed,
+                        maxWidth: maxContentWidth,
+                        lineSpacing: 4,
+                        tintColor: NSColor(tintColor),
+                        useExternalSizing: true
+                    )
+                    .frame(width: measuredSize.width, height: measuredSize.height, alignment: .leading)
+                    #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
                         .font(chatFont)
@@ -51,13 +72,9 @@ struct MarkdownSegmentView: View, Equatable {
                         .foregroundStyle(textColor)
                         .tint(tintColor)
                         .optionalMaxWidth(maxContentWidth)
-                        // lineLimit(nil) wraps text in a single measurement pass, avoiding
-                        // the double-measurement that fixedSize causes (measure at ideal
-                        // size, then constrain to proposed width).
                         .lineLimit(nil)
-                        // Text streams at 50ms chunk intervals which is visually smooth;
-                        // the former StreamingFadeRenderer was a no-op that never used its
-                        // animatable data for per-glyph effects, so it was removed.
+                        .fixedSize(horizontal: false, vertical: true)
+                    #endif
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
@@ -70,8 +87,8 @@ struct MarkdownSegmentView: View, Equatable {
                         .font(headingFont)
                         .foregroundStyle(textColor)
                         .optionalMaxWidth(maxContentWidth)
-                        // lineLimit(nil) avoids the double-measurement from fixedSize.
                         .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, level == 1 ? 4 : 2)
 
                 case .codeBlock(let language, let code):
@@ -199,8 +216,8 @@ struct MarkdownSegmentView: View, Equatable {
     /// evaluation. NSCache handles eviction automatically under memory pressure.
     @MainActor private static var attributedStringCache: NSCache<NSNumber, AttributedStringCacheEntry> = {
         let cache = NSCache<NSNumber, AttributedStringCacheEntry>()
-        cache.countLimit = 500
-        cache.totalCostLimit = 5_000_000
+        cache.countLimit = 1_000
+        cache.totalCostLimit = 10_000_000
         return cache
     }()
 
@@ -357,6 +374,7 @@ struct MarkdownSegmentView: View, Equatable {
         // the italic trait from .emphasized inlinePresentationIntent. We detect
         // emphasized runs and apply a synthetic oblique via affine transform.
         var emphOnlyRanges: [Range<AttributedString.Index>] = []
+        var boldOnlyRanges: [Range<AttributedString.Index>] = []
         var boldEmphRanges: [Range<AttributedString.Index>] = []
         for run in result.runs {
             guard let intent = run.inlinePresentationIntent, !intent.contains(.code) else { continue }
@@ -366,18 +384,30 @@ struct MarkdownSegmentView: View, Equatable {
                 boldEmphRanges.append(run.range)
             } else if isEmph {
                 emphOnlyRanges.append(run.range)
+            } else if isBold {
+                boldOnlyRanges.append(run.range)
             }
         }
-        if !emphOnlyRanges.isEmpty || !boldEmphRanges.isEmpty {
+        if !emphOnlyRanges.isEmpty || !boldOnlyRanges.isEmpty || !boldEmphRanges.isEmpty {
             let sz: CGFloat = 16 // matches VFont.chat size
+            let wght = 0x77676874
             var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
             if !emphOnlyRanges.isEmpty {
                 let italicCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique)
                 let italicFont = Font(italicCT as NSFont)
                 for range in emphOnlyRanges { result[range].font = italicFont }
             }
+            if !boldOnlyRanges.isEmpty {
+                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
+                let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
+                let boldCT = CTFontCreateCopyWithAttributes(
+                    baseCT, sz, nil,
+                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+                )
+                let boldFont = Font(boldCT as NSFont)
+                for range in boldOnlyRanges { result[range].font = boldFont }
+            }
             if !boldEmphRanges.isEmpty {
-                let wght = 0x77676874
                 let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
                 let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
                 let boldItalicCT = CTFontCreateCopyWithAttributes(
@@ -396,13 +426,46 @@ struct MarkdownSegmentView: View, Equatable {
 
         return result
     }
+
+    // MARK: - NSAttributedString Conversion
+
+    #if os(macOS)
+    /// Converts a SwiftUI `AttributedString` to `NSAttributedString` with a
+    /// base font and text color applied as defaults. Runs that already carry
+    /// explicit font or color attributes (e.g. inline code, bold, italic)
+    /// keep their values; the defaults fill in where no attribute is set.
+    static func convertToNSAttributedString(
+        _ source: AttributedString,
+        font: NSFont,
+        textColor: NSColor
+    ) -> NSAttributedString {
+        let ns = NSMutableAttributedString(source)
+        let fullRange = NSRange(location: 0, length: ns.length)
+
+        // Apply base font where no explicit font attribute exists
+        ns.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
+            if value == nil {
+                ns.addAttribute(.font, value: font, range: range)
+            }
+        }
+
+        // Apply base text color where no explicit foreground color exists
+        ns.enumerateAttribute(.foregroundColor, in: fullRange, options: []) { value, range, _ in
+            if value == nil {
+                ns.addAttribute(.foregroundColor, value: textColor, range: range)
+            }
+        }
+
+        return ns
+    }
+    #endif
 }
 
 // MARK: - Code Block View
 
 /// Renders a fenced code block with an optional language label and a
 /// hover-revealed copy-to-clipboard button.
-private struct CodeBlockView: View {
+private struct CodeBlockView: View, Equatable {
     let language: String?
     let code: String
     let scaledCodeLabelSize: CGFloat
@@ -412,6 +475,16 @@ private struct CodeBlockView: View {
     let maxContentWidth: CGFloat?
 
     @State private var isHovered = false
+
+    static func == (lhs: CodeBlockView, rhs: CodeBlockView) -> Bool {
+        lhs.language == rhs.language
+            && lhs.code == rhs.code
+            && lhs.scaledCodeLabelSize == rhs.scaledCodeLabelSize
+            && lhs.textColor == rhs.textColor
+            && lhs.mutedTextColor == rhs.mutedTextColor
+            && lhs.codeBackgroundColor == rhs.codeBackgroundColor
+            && lhs.maxContentWidth == rhs.maxContentWidth
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

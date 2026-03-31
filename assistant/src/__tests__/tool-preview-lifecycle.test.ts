@@ -11,25 +11,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../util/platform.js", () => ({
-  getSessionTokenPath: () => "/tmp/test-token",
-  getRootDir: () => "/tmp/test",
-  getDataDir: () => "/tmp/test",
-  getWorkspaceDir: () => "/tmp/test/workspace",
-  getWorkspaceSkillsDir: () => "/tmp/test/skills",
-  getSandboxWorkingDir: () => "/tmp/test/sandbox",
-  getTCPPort: () => undefined,
-  getTCPHost: () => "127.0.0.1",
-  isTCPEnabled: () => false,
-  isMacOS: () => false,
-  isLinux: () => true,
-  isWindows: () => false,
-  getPidPath: () => "/tmp/test.pid",
-  getLogPath: () => "/tmp/test.log",
-  getDbPath: () => "/tmp/test.db",
-  ensureDataDir: () => {},
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {

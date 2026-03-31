@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-// Set BASE_DATA_DIR before importing modules that use getRootDir()
+// Set VELLUM_WORKSPACE_DIR before importing modules that use getWorkspaceDir()
 const testDir = join(tmpdir(), `hooks-config-test-${Date.now()}`);
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 import {
   ensureHookInConfig,
@@ -23,7 +23,7 @@ import {
 
 describe("Hooks Config", () => {
   beforeEach(() => {
-    const hooksDir = join(testDir, ".vellum", "hooks");
+    const hooksDir = join(testDir, "hooks");
     mkdirSync(hooksDir, { recursive: true });
   });
 
@@ -38,7 +38,7 @@ describe("Hooks Config", () => {
   });
 
   test("loadHooksConfig reads existing config", () => {
-    const configPath = join(testDir, ".vellum", "hooks", "config.json");
+    const configPath = join(testDir, "hooks", "config.json");
     writeFileSync(
       configPath,
       JSON.stringify({
@@ -52,7 +52,7 @@ describe("Hooks Config", () => {
   });
 
   test("loadHooksConfig returns defaults for invalid JSON", () => {
-    const configPath = join(testDir, ".vellum", "hooks", "config.json");
+    const configPath = join(testDir, "hooks", "config.json");
     writeFileSync(configPath, "NOT VALID JSON {{{");
 
     const config = loadHooksConfig();
@@ -61,7 +61,7 @@ describe("Hooks Config", () => {
   });
 
   test("loadHooksConfig returns defaults for invalid structure", () => {
-    const configPath = join(testDir, ".vellum", "hooks", "config.json");
+    const configPath = join(testDir, "hooks", "config.json");
     writeFileSync(configPath, JSON.stringify({ foo: "bar" }));
 
     const config = loadHooksConfig();
@@ -73,7 +73,7 @@ describe("Hooks Config", () => {
     const config = { version: 1, hooks: { "test-hook": { enabled: true } } };
     saveHooksConfig(config);
 
-    const configPath = join(testDir, ".vellum", "hooks", "config.json");
+    const configPath = join(testDir, "hooks", "config.json");
     expect(existsSync(configPath)).toBe(true);
     const read = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(read.hooks["test-hook"].enabled).toBe(true);

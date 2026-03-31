@@ -21,20 +21,15 @@ struct DebugPanel: View {
     }
 
     var body: some View {
-        VSidePanel(title: "Logs", onClose: onClose, pinnedContent: {
+        VPageContainer(title: "Logs") {
             if let conversationId = activeSessionId {
                 metricsStrip(conversationId: conversationId)
-                Divider().background(VColor.borderBase)
 
-                // Render timeline in pinned area so it owns its own ScrollView
-                // without nesting inside VSidePanel's scrollable content slot.
                 if hasEvents {
                     TraceTimelineView(traceStore: traceStore, conversationId: conversationId)
                 }
             }
 
-            // Empty states live in the pinned (non-scrollable) area so they
-            // stay centered and the panel doesn't scroll when there's nothing.
             if !hasEvents {
                 Spacer()
                 if activeSessionId != nil {
@@ -60,10 +55,6 @@ struct DebugPanel: View {
                 }
                 Spacer()
             }
-        }) {
-            // Content slot intentionally empty when no events — the empty
-            // state is rendered in pinnedContent above to avoid scrolling.
-            EmptyView()
         }
         .onAppear {
             traceStore.isObserved = true

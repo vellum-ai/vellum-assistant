@@ -36,8 +36,8 @@ export function registerPlatformConnectCommand(platform: Command): void {
     .addHelpText(
       "after",
       `
-Initiates a platform connection flow. Credentials are collected via a secure
-UI component rendered by the assistant client.
+Initiates a platform connection flow. Emits a signal for connected clients
+to show a platform login UI where the user can sign in and store credentials.
 
 Use 'assistant platform status' to check the current connection state and
 'assistant platform disconnect' to remove stored credentials.
@@ -87,21 +87,20 @@ Examples:
           return;
         }
 
-        // Write a signal file so the daemon's ConfigWatcher publishes the
-        // event to connected clients (e.g. macOS app), opening the General
-        // settings tab which contains the Vellum Platform login card.
+        // Emit a signal for the daemon to show the platform login UI
+        // on connected clients.
         const signalsDir = getSignalsDir();
         mkdirSync(signalsDir, { recursive: true });
         writeFileSync(
           join(signalsDir, "emit-event"),
-          JSON.stringify({ type: "navigate_settings", tab: "General" }),
+          JSON.stringify({ type: "show_platform_login" }),
         );
 
-        writeOutput(cmd, { ok: true, navigatedToSettings: true });
+        writeOutput(cmd, { ok: true, showPlatformLogin: true });
 
         if (!jsonMode) {
           log.info(
-            "Opening the platform login screen on connected clients. " +
+            "Showing the platform login screen on connected clients. " +
               "Please complete the sign-in flow in the app.",
           );
         }

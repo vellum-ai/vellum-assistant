@@ -223,6 +223,7 @@ async function handleOAuthConnectStart(body: {
       requestedScopes: body.requestedScopes,
       clientId,
       clientSecret,
+      callbackTransport: "loopback",
       isInteractive: true,
       openUrl: (url: string) => {
         authUrl = url;
@@ -564,7 +565,6 @@ const SAFE_ENV_VAR_EXACT_NAMES = new Set([
   "VISUAL",
   "TZ",
   "TMPDIR",
-  "BASE_DATA_DIR",
   "QDRANT_HTTP_PORT",
   "PORT",
   "DEBUG",

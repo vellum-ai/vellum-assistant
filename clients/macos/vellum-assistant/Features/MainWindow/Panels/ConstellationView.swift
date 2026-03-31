@@ -764,6 +764,8 @@ struct ConstellationView: View {
     let identity: IdentityInfo?
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
+    /// Pre-computed skill-id → category map for O(1) lookups during view body evaluation.
+    var categoryLookup: [String: SkillCategory] = [:]
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
     @Binding var isFullscreen: Bool
@@ -801,6 +803,7 @@ struct ConstellationView: View {
     /// Accumulated drag offset for the node currently being dragged.
     @State private var activeNodeDrag: (id: String, offset: CGSize)?
 
+
     private var existingFiles: [WorkspaceFileNode] {
         workspaceFiles.filter { $0.exists }
     }
@@ -815,9 +818,9 @@ struct ConstellationView: View {
             )
         }
 
-        var categoryMap: [SkillCategory: [OrbitItem]] = [.knowledge: fileItems]
+        var buckets: [SkillCategory: [OrbitItem]] = [.knowledge: fileItems]
         for skill in skills {
-            let cat = inferCategory(skill)
+            let cat = categoryLookup[skill.id] ?? .knowledge
             let item = OrbitItem(
                 id: skill.id,
                 label: skill.name,
@@ -828,12 +831,12 @@ struct ConstellationView: View {
                 description: skill.description,
                 category: cat
             )
-            categoryMap[cat, default: []].append(item)
+            buckets[cat, default: []].append(item)
         }
 
         var result: [CategoryGroup] = []
         for cat in SkillCategory.allCases {
-            if let items = categoryMap[cat], !items.isEmpty {
+            if let items = buckets[cat], !items.isEmpty {
                 result.append(CategoryGroup(category: cat, items: items))
             }
         }
@@ -1147,6 +1150,16 @@ struct ConstellationView: View {
                             zoomedNodeId = nil
                         }
                 )
+                .background {
+                    ScrollWheelZoomHelper { delta in
+                        let newScale = max(0.4, min(3.0, zoomScale * (1 + delta)))
+                        withAnimation(VAnimation.snappy) {
+                            zoomScale = newScale
+                            baseZoomScale = newScale
+                            zoomedNodeId = nil
+                        }
+                    }
+                }
                 .onAppear {
                     layoutAndAnimate(viewSize: proxy.size)
                 }
@@ -1261,15 +1274,6 @@ struct ConstellationView: View {
                 fitAll(viewSize: viewSize)
             }
         }
-        .padding(VSpacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBase.opacity(0.85))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
     }
 
     // MARK: - Center Avatar
@@ -1443,6 +1447,62 @@ private struct DottedGridBackground: View {
                     )
                 }
             }
+        }
+    }
+}
+
+// MARK: - Scroll Wheel Zoom Helper
+
+/// Transparent NSViewRepresentable that intercepts discrete mouse-wheel scroll
+/// events over this view's bounds and converts them into zoom deltas.
+/// Trackpad (precise) scrolling is left untouched for `MagnifyGesture`.
+private struct ScrollWheelZoomHelper: NSViewRepresentable {
+    var onZoomDelta: (CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onZoomDelta: onZoomDelta) }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.view = view
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak coordinator] event in
+            guard let coordinator,
+                  let v = coordinator.view,
+                  let window = v.window,
+                  event.window == window else { return event }
+            let location = v.convert(event.locationInWindow, from: nil)
+            guard v.bounds.width > 0, v.bounds.contains(location) else { return event }
+
+            // Only handle discrete mouse-wheel scrolling.
+            guard !event.hasPreciseScrollingDeltas else { return event }
+
+            let delta = event.scrollingDeltaY / 10
+            guard abs(delta) > 0.001 else { return event }
+
+            coordinator.onZoomDelta(delta)
+            return nil
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onZoomDelta = onZoomDelta
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor {
+            NSEvent.removeMonitor(monitor)
+            coordinator.monitor = nil
+        }
+    }
+
+    class Coordinator {
+        weak var view: NSView?
+        var monitor: Any?
+        var onZoomDelta: (CGFloat) -> Void
+
+        init(onZoomDelta: @escaping (CGFloat) -> Void) {
+            self.onZoomDelta = onZoomDelta
         }
     }
 }

@@ -240,6 +240,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.assistantActivityReason = nil
                     self.assistantStatusText = nil
                     self.isCompacting = false
+                    self.contextWindowTokens = nil
+                    self.contextWindowMaxTokens = nil
                     // Streaming message state
                     if let existingId = self.currentAssistantMessageId,
                        let index = self.messages.firstIndex(where: { $0.id == existingId }) {
@@ -254,7 +256,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.currentAssistantMessageId = nil
                     self.currentTurnUserText = nil
                     self.currentAssistantHasText = false
-                    self.lastContentWasToolCall = false
                     self.discardStreamingBuffer()
                     self.discardPartialOutputBuffer()
                     // Voice state
@@ -316,6 +317,20 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public var isCompacting: Bool {
         get { messageManager.isCompacting }
         set { messageManager.isCompacting = newValue }
+    }
+    public var contextWindowTokens: Int? {
+        get { messageManager.contextWindowTokens }
+        set { messageManager.contextWindowTokens = newValue }
+    }
+    public var contextWindowMaxTokens: Int? {
+        get { messageManager.contextWindowMaxTokens }
+        set { messageManager.contextWindowMaxTokens = newValue }
+    }
+    public var contextWindowFillRatio: Double? {
+        guard let tokens = contextWindowTokens,
+              let max = contextWindowMaxTokens,
+              max > 0 else { return nil }
+        return min(Double(tokens) / Double(max), 1.0)
     }
     public var activePendingRequestId: String? {
         messageManager.activePendingRequestId
@@ -602,9 +617,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Tracks whether the current assistant message has received any text content.
     /// Used to determine `arrivedBeforeText` for each tool call in the message.
     @ObservationIgnored var currentAssistantHasText: Bool = false
-    /// Tracks whether the last content block was a tool call, so the next text
-    /// delta starts a new segment instead of appending to the previous one.
-    @ObservationIgnored var lastContentWasToolCall: Bool = false
     /// When true, incoming deltas are suppressed until the daemon acknowledges
     /// the cancellation (via `generation_cancelled` or `message_complete`).
     // Public (rather than private) so tests can simulate the
@@ -634,6 +646,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     @ObservationIgnored var streamingDeltaBuffer: String = ""
     /// Scheduled flush work item; cancelled and re-created on each delta.
     @ObservationIgnored var streamingFlushTask: Task<Void, Never>?
+
+    /// Buffered thinking text that has not yet been flushed to `messages`.
+    @ObservationIgnored var thinkingDeltaBuffer: String = ""
+    /// Scheduled flush task for coalescing thinking delta writes.
+    @ObservationIgnored var thinkingFlushTask: Task<Void, Never>?
 
     // MARK: - Partial Output Coalescing
 
@@ -896,8 +913,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
         // Hard-delete the stripped messages so ChatMessage objects are freed entirely.
         messages.removeSubrange(0..<trimEnd)
-        // displayedMessages is updated automatically via the messageManager.messagesPublisher
-        // Combine bridge subscription set up in ChatPaginationState init.
         // After deleting the oldest messages, advance the history cursor to the oldest
         // retained message and mark that older pages are available from the daemon so
         // the user can paginate back to re-fetch the trimmed messages.
@@ -1110,7 +1125,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
                 }
                 self.hasMoreHistory = true
-                // displayedMessages is updated automatically via messagesPublisher.
                 self.displayedMessageCount = Self.messagePageSize
             }
         }
@@ -1131,6 +1145,15 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// `requestReconnectHistory()` call on the ConversationRestorer.
     public func prepareForNotificationCatchUp() {
         needsReconnectCatchUp = true
+    }
+
+    /// Prepare the view model for a channel conversation refresh.
+    /// Resets `isHistoryLoaded` so `loadHistoryIfNeeded` proceeds, and sets
+    /// `needsReconnectCatchUp` so `populateFromHistory` does an atomic
+    /// message replace instead of clearing the array first.
+    public func prepareForChannelRefresh() {
+        needsReconnectCatchUp = true
+        isHistoryLoaded = false
     }
 
     // MARK: - Deep Link
@@ -1957,7 +1980,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         surfaceRefetchCoordinator.cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
-        lastContentWasToolCall = false
 
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
@@ -1989,6 +2011,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 if !isDuplicate { localOnly.append(local) }
             }
             var mergedMessages = chatMessages + localOnly
+            mergedMessages.sort { $0.timestamp < $1.timestamp }
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
             self.messages = mergedMessages
             self.reconnectLatchTimeoutTask?.cancel()
@@ -2009,6 +2032,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 uniqueHistory = chatMessages
             }
             var mergedMessages = uniqueHistory + self.messages
+            mergedMessages.sort { $0.timestamp < $1.timestamp }
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
             self.messages = mergedMessages
             refreshModelMetadataIfNeeded(hasModelCommand)

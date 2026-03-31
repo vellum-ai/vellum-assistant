@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   afterAll,
@@ -11,22 +10,7 @@ import {
   test,
 } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "memory-regressions-"));
-
-const testWorkspaceDir = join(testDir, ".vellum", "workspace");
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  getWorkspaceDir: () => testWorkspaceDir,
-  getWorkspacePromptPath: (file: string) => join(testWorkspaceDir, file),
-}));
+const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -129,6 +113,7 @@ import {
   formatAbsoluteTime,
   formatRelativeTime,
   injectMemoryRecallAsUserBlock,
+  lookupSupersessionChain,
 } from "../memory/retriever.js";
 import {
   conversations,
@@ -140,6 +125,7 @@ import {
   memorySummaries,
   messages,
 } from "../memory/schema.js";
+import { buildMemoryInjection } from "../memory/search/formatting.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 
@@ -167,11 +153,6 @@ describe("Memory regressions", () => {
 
   afterAll(() => {
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
   });
 
   function semanticRecallConfig() {
@@ -216,7 +197,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-baseline-scope",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "The user likes dark mode." },
+          {
+            type: "text",
+            text: "The user strongly prefers dark mode for all editor themes and UIs.",
+          },
         ]),
         createdAt: now,
       })
@@ -229,7 +213,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-baseline-scope",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "The user likes dark mode." },
+          {
+            type: "text",
+            text: "The user strongly prefers dark mode for all editor themes and UIs.",
+          },
         ]),
         createdAt: now,
       },
@@ -1571,7 +1558,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-scope-test",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Remember my scope preference" },
+          {
+            type: "text",
+            text: "Remember my scope preference for organizing projects by team and priority level.",
+          },
         ]),
         createdAt: now,
       })
@@ -1583,7 +1573,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-scope-test",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Remember my scope preference" },
+          {
+            type: "text",
+            text: "Remember my scope preference for organizing projects by team and priority level.",
+          },
         ]),
         createdAt: now,
         scopeId: "project-xyz",
@@ -2278,11 +2271,13 @@ describe("Memory regressions", () => {
     }
   });
 
-  // PR-18: extract_items jobs carry scopeId through the async pipeline
-  test("extract_items job payload includes scopeId from private conversation", async () => {
+  // PR-18: batch_extract jobs carry scopeId through the async pipeline
+  test("batch_extract job payload includes scopeId from private conversation", async () => {
     // These tests verify job payload contents, so LLM extraction must be
-    // enabled — otherwise the indexer skips enqueuing extract_items entirely.
+    // enabled — otherwise the indexer skips enqueuing batch_extract entirely.
+    // Set batchSize=1 so a single message triggers immediate batch_extract.
     TEST_CONFIG.memory.extraction.useLLM = true;
+    TEST_CONFIG.memory.extraction.batchSize = 1;
     try {
       const conv = createConversation({
         title: "Private scope job test",
@@ -2300,8 +2295,13 @@ describe("Memory regressions", () => {
       const extractJobs = db
         .select()
         .from(memoryJobs)
-        .where(eq(memoryJobs.type, "extract_items"))
-        .all();
+        .where(eq(memoryJobs.type, "batch_extract"))
+        .all()
+        .filter(
+          (j) =>
+            JSON.parse(j.payload).conversationId === conv.id &&
+            JSON.parse(j.payload).scopeId != null,
+        );
 
       expect(extractJobs.length).toBeGreaterThan(0);
       const lastJob = extractJobs[extractJobs.length - 1];
@@ -2309,11 +2309,13 @@ describe("Memory regressions", () => {
       expect(payload.scopeId).toBe(conv.memoryScopeId);
     } finally {
       TEST_CONFIG.memory.extraction.useLLM = false;
+      TEST_CONFIG.memory.extraction.batchSize = 10;
     }
   });
 
-  test("extract_items job payload defaults scopeId to default for standard conversations", async () => {
+  test("batch_extract job payload defaults scopeId to default for standard conversations", async () => {
     TEST_CONFIG.memory.extraction.useLLM = true;
+    TEST_CONFIG.memory.extraction.batchSize = 1;
     try {
       const conv = createConversation({
         title: "Standard scope job test",
@@ -2331,8 +2333,13 @@ describe("Memory regressions", () => {
       const extractJobs = db
         .select()
         .from(memoryJobs)
-        .where(eq(memoryJobs.type, "extract_items"))
-        .all();
+        .where(eq(memoryJobs.type, "batch_extract"))
+        .all()
+        .filter(
+          (j) =>
+            JSON.parse(j.payload).conversationId === conv.id &&
+            JSON.parse(j.payload).scopeId != null,
+        );
 
       expect(extractJobs.length).toBeGreaterThan(0);
       const lastJob = extractJobs[extractJobs.length - 1];
@@ -2340,6 +2347,7 @@ describe("Memory regressions", () => {
       expect(payload.scopeId).toBe("default");
     } finally {
       TEST_CONFIG.memory.extraction.useLLM = false;
+      TEST_CONFIG.memory.extraction.batchSize = 10;
     }
   });
 
@@ -3209,7 +3217,7 @@ describe("Memory regressions", () => {
 
   // ── Trust-aware extraction gating tests (M3) ───────────────────────
 
-  test("untrusted actor messages do not enqueue extract_items", async () => {
+  test("untrusted actor messages do not enqueue batch_extract", async () => {
     const db = getDb();
     const now = Date.now();
     db.insert(conversations)
@@ -3232,7 +3240,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-untrusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Untrusted user preference for dark mode." },
+          {
+            type: "text",
+            text: "Untrusted user preference for dark mode across all editor themes and interfaces.",
+          },
         ]),
         createdAt: now,
       })
@@ -3244,7 +3255,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-untrusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Untrusted user preference for dark mode." },
+          {
+            type: "text",
+            text: "Untrusted user preference for dark mode across all editor themes and interfaces.",
+          },
         ]),
         createdAt: now,
         provenanceTrustClass: "trusted_contact",
@@ -3254,18 +3268,19 @@ describe("Memory regressions", () => {
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // No extract_items jobs should be enqueued
+    // No batch_extract jobs should be enqueued for untrusted actors
     const extractJobs = db
       .select()
       .from(memoryJobs)
-      .where(and(eq(memoryJobs.type, "extract_items")))
+      .where(eq(memoryJobs.type, "batch_extract"))
       .all()
-      .filter((j) => JSON.parse(j.payload).messageId === "msg-untrusted-gate");
+      .filter(
+        (j) => JSON.parse(j.payload).conversationId === "conv-untrusted-gate",
+      );
     expect(extractJobs.length).toBe(0);
 
-    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0)
-    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
-    expect(result.enqueuedJobs).toBe(expectedJobs);
+    // enqueuedJobs reflects embed jobs only (no extraction for untrusted)
+    expect(result.enqueuedJobs).toBe(result.indexedSegments);
   });
 
   test("trusted guardian messages still enqueue extraction", async () => {
@@ -3291,7 +3306,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-trusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Trusted guardian preference for light mode." },
+          {
+            type: "text",
+            text: "Trusted guardian preference for light mode with high contrast accessibility settings.",
+          },
         ]),
         createdAt: now,
       })
@@ -3303,7 +3321,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-trusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Trusted guardian preference for light mode." },
+          {
+            type: "text",
+            text: "Trusted guardian preference for light mode with high contrast accessibility settings.",
+          },
         ]),
         createdAt: now,
         provenanceTrustClass: "guardian",
@@ -3313,18 +3334,16 @@ describe("Memory regressions", () => {
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // extract_items job should be enqueued for trusted guardian
+    // batch_extract job should be enqueued (debounced) for trusted guardian
     const extractJobs = db
       .select()
       .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
+      .where(eq(memoryJobs.type, "batch_extract"))
       .all()
-      .filter((j) => JSON.parse(j.payload).messageId === "msg-trusted-gate");
+      .filter(
+        (j) => JSON.parse(j.payload).conversationId === "conv-trusted-gate",
+      );
     expect(extractJobs.length).toBe(1);
-
-    // enqueuedJobs: embed per segment + extract_items (counts as 2: extract + summary)
-    // For user role: shouldExtract=true
-    expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
   });
 
   test("legacy messages without provenance still enqueue extraction", async () => {
@@ -3350,7 +3369,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-legacy-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Legacy message with no provenance info." },
+          {
+            type: "text",
+            text: "Legacy message with no provenance info that still needs full extraction processing.",
+          },
         ]),
         createdAt: now,
       })
@@ -3362,7 +3384,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-legacy-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Legacy message with no provenance info." },
+          {
+            type: "text",
+            text: "Legacy message with no provenance info that still needs full extraction processing.",
+          },
         ]),
         createdAt: now,
         // provenanceTrustClass is intentionally omitted (undefined) to test default behavior
@@ -3372,20 +3397,19 @@ describe("Memory regressions", () => {
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // extract_items job should still be enqueued for messages without provenance
+    // batch_extract job should still be enqueued (debounced) for messages without provenance
     const extractJobs = db
       .select()
       .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
+      .where(eq(memoryJobs.type, "batch_extract"))
       .all()
-      .filter((j) => JSON.parse(j.payload).messageId === "msg-legacy-gate");
+      .filter(
+        (j) => JSON.parse(j.payload).conversationId === "conv-legacy-gate",
+      );
     expect(extractJobs.length).toBe(1);
-
-    // enqueuedJobs should include extraction jobs
-    expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
   });
 
-  test("unverified_channel messages do not enqueue extract_items", async () => {
+  test("unverified_channel messages do not enqueue batch_extract", async () => {
     const db = getDb();
     const now = Date.now();
     db.insert(conversations)
@@ -3410,7 +3434,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Unverified channel preference for compact layout.",
+            text: "Unverified channel preference for compact layout with sidebar navigation always visible.",
           },
         ]),
         createdAt: now,
@@ -3425,7 +3449,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Unverified channel preference for compact layout.",
+            text: "Unverified channel preference for compact layout with sidebar navigation always visible.",
           },
         ]),
         createdAt: now,
@@ -3436,18 +3460,19 @@ describe("Memory regressions", () => {
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // No extract_items jobs should be enqueued for unverified channel
+    // No batch_extract jobs should be enqueued for unverified channel
     const extractJobs = db
       .select()
       .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
+      .where(eq(memoryJobs.type, "batch_extract"))
       .all()
-      .filter((j) => JSON.parse(j.payload).messageId === "msg-unverified-gate");
+      .filter(
+        (j) => JSON.parse(j.payload).conversationId === "conv-unverified-gate",
+      );
     expect(extractJobs.length).toBe(0);
 
-    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0)
-    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
-    expect(result.enqueuedJobs).toBe(expectedJobs);
+    // enqueuedJobs reflects embed jobs only (no extraction for untrusted)
+    expect(result.enqueuedJobs).toBe(result.indexedSegments);
   });
 
   test("buildCoreIdentityContext includes identity files when they exist", () => {
@@ -3480,5 +3505,192 @@ describe("Memory regressions", () => {
 
     const context = buildCoreIdentityContext();
     expect(context).toBeNull();
+  });
+
+  // ── Inline supersession rendering tests ──────────────────────────
+
+  test("buildMemoryInjection renders inline supersedes tag for items with supersession chain", () => {
+    const db = getDb();
+    const now = Date.now();
+
+    // Create the superseded (predecessor) item in the DB
+    db.insert(memoryItems)
+      .values({
+        id: "item-predecessor-render",
+        kind: "preference",
+        subject: "color",
+        statement: "Favorite color is blue",
+        status: "active",
+        confidence: 0.9,
+        importance: 0.7,
+        fingerprint: "fp-pred-render",
+        firstSeenAt: now - 86_400_000,
+        lastSeenAt: now - 86_400_000,
+        accessCount: 1,
+        verificationState: "assistant_inferred",
+      })
+      .run();
+
+    const candidate = {
+      key: "item:item-superseding-render",
+      type: "item" as const,
+      id: "item-superseding-render",
+      source: "semantic" as const,
+      text: "Favorite color is green",
+      kind: "preference",
+      confidence: 0.9,
+      importance: 0.8,
+      createdAt: now,
+      semantic: 0.9,
+      recency: 0.8,
+      finalScore: 0.85,
+      supersedes: "item-predecessor-render",
+    };
+
+    const injection = buildMemoryInjection({
+      candidates: [candidate],
+      totalBudgetTokens: 5000,
+    });
+
+    expect(injection).toContain("<supersedes count=");
+    expect(injection).toContain('count="1"');
+    expect(injection).toContain("Favorite color is blue");
+    expect(injection).toContain("</supersedes>");
+    // The supersedes tag should be inside the item tag
+    expect(injection).toMatch(
+      /<item[^>]*>.*<supersedes.*<\/supersedes><\/item>/,
+    );
+
+    // Clean up
+    db.delete(memoryItems)
+      .where(eq(memoryItems.id, "item-predecessor-render"))
+      .run();
+  });
+
+  test("lookupSupersessionChain counts chain depth correctly", () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Create a chain of 3 items: grandparent → parent → child
+    db.insert(memoryItems)
+      .values({
+        id: "item-chain-grandparent",
+        kind: "fact",
+        subject: "address",
+        statement: "Lives at 123 Main St",
+        status: "active",
+        confidence: 0.8,
+        importance: 0.6,
+        fingerprint: "fp-chain-gp",
+        firstSeenAt: now - 3 * MS_PER_DAY,
+        lastSeenAt: now - 3 * MS_PER_DAY,
+        accessCount: 1,
+        verificationState: "assistant_inferred",
+      })
+      .run();
+
+    db.insert(memoryItems)
+      .values({
+        id: "item-chain-parent",
+        kind: "fact",
+        subject: "address",
+        statement: "Lives at 456 Oak Ave",
+        status: "active",
+        confidence: 0.8,
+        importance: 0.6,
+        fingerprint: "fp-chain-p",
+        supersedes: "item-chain-grandparent",
+        firstSeenAt: now - 2 * MS_PER_DAY,
+        lastSeenAt: now - 2 * MS_PER_DAY,
+        accessCount: 1,
+        verificationState: "assistant_inferred",
+      })
+      .run();
+
+    db.insert(memoryItems)
+      .values({
+        id: "item-chain-child",
+        kind: "fact",
+        subject: "address",
+        statement: "Lives at 789 Pine Blvd",
+        status: "active",
+        confidence: 0.9,
+        importance: 0.7,
+        fingerprint: "fp-chain-c",
+        supersedes: "item-chain-parent",
+        firstSeenAt: now - 1 * MS_PER_DAY,
+        lastSeenAt: now - 1 * MS_PER_DAY,
+        accessCount: 1,
+        verificationState: "assistant_inferred",
+      })
+      .run();
+
+    // Look up from the child's perspective (supersedes parent)
+    const result = lookupSupersessionChain("item-chain-parent");
+    expect(result).not.toBeNull();
+    expect(result!.previousStatement).toBe("Lives at 456 Oak Ave");
+    expect(result!.previousTimestamp).toBe(now - 2 * MS_PER_DAY);
+    // Chain: parent → grandparent = depth 2
+    expect(result!.chainDepth).toBe(2);
+
+    // Look up direct predecessor (grandparent has no supersedes)
+    const gpResult = lookupSupersessionChain("item-chain-grandparent");
+    expect(gpResult).not.toBeNull();
+    expect(gpResult!.previousStatement).toBe("Lives at 123 Main St");
+    expect(gpResult!.chainDepth).toBe(1);
+
+    // Non-existent ID returns null
+    const nullResult = lookupSupersessionChain("item-nonexistent");
+    expect(nullResult).toBeNull();
+
+    // Clean up
+    db.delete(memoryItems).where(eq(memoryItems.id, "item-chain-child")).run();
+    db.delete(memoryItems).where(eq(memoryItems.id, "item-chain-parent")).run();
+    db.delete(memoryItems)
+      .where(eq(memoryItems.id, "item-chain-grandparent"))
+      .run();
+  });
+
+  test("escapeXmlTags escapes memory_context, recalled, and item delimiter tags", () => {
+    // Verify new tag vocabulary is escaped by the existing generic escaper
+    expect(escapeXmlTags("</memory_context>")).toBe("\uFF1C/memory_context>");
+    expect(escapeXmlTags("</recalled>")).toBe("\uFF1C/recalled>");
+    expect(escapeXmlTags("</item>")).toBe("\uFF1C/item>");
+    expect(escapeXmlTags("</segment>")).toBe("\uFF1C/segment>");
+    expect(escapeXmlTags("</supersedes>")).toBe("\uFF1C/supersedes>");
+    expect(escapeXmlTags("</echoes>")).toBe("\uFF1C/echoes>");
+
+    // Opening tags too
+    expect(escapeXmlTags("<memory_context>")).toBe("\uFF1Cmemory_context>");
+    expect(escapeXmlTags("<recalled>")).toBe("\uFF1Crecalled>");
+    expect(escapeXmlTags("<item>")).toBe("\uFF1Citem>");
+  });
+
+  test("buildMemoryInjection renders items without supersedes normally", () => {
+    const now = Date.now();
+    const candidate = {
+      key: "item:item-no-supersedes",
+      type: "item" as const,
+      id: "item-no-supersedes",
+      source: "semantic" as const,
+      text: "User prefers dark mode",
+      kind: "preference",
+      confidence: 0.9,
+      importance: 0.8,
+      createdAt: now,
+      semantic: 0.9,
+      recency: 0.8,
+      finalScore: 0.85,
+    };
+
+    const injection = buildMemoryInjection({
+      candidates: [candidate],
+      totalBudgetTokens: 5000,
+    });
+
+    expect(injection).toContain("User prefers dark mode");
+    expect(injection).not.toContain("<supersedes");
+    expect(injection).not.toContain("</supersedes>");
   });
 });

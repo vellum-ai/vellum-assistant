@@ -1,5 +1,12 @@
+import { eq } from "drizzle-orm";
+
 import { estimateTextTokens } from "../../context/token-estimator.js";
-import type { TieredCandidate } from "./tier-classifier.js";
+import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db.js";
+import { memoryItems } from "../schema.js";
+import type { Candidate } from "./types.js";
+
+const log = getLogger("memory-formatting");
 
 /**
  * Escape XML-like tag sequences in recalled text to prevent delimiter injection.
@@ -68,215 +75,182 @@ export function formatRelativeTime(epochMs: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Two-layer injection format
+// Unified injection format
 // ---------------------------------------------------------------------------
 
-/** Kinds classified as identity for the <user_identity> section. */
-export const IDENTITY_KINDS = new Set(["identity"]);
-
-/** Kinds classified as preferences for the <applicable_preferences> section. */
-export const PREFERENCE_KINDS = new Set(["preference", "constraint"]);
-
-/** Kinds classified as capabilities for the <available_capabilities> section. */
-export const CAPABILITY_KINDS = new Set(["capability"]);
-
 /**
- * Build a two-layer XML injection block from tiered candidates.
+ * Build a unified `<memory_context>` XML injection block from scored candidates.
  *
- * Sections:
- * - `<user_identity>`: identity-kind items from tier 1 (plain statements)
- * - `<relevant_context>`: tier 1 non-identity, non-preference items (episode-wrapped)
- * - `<applicable_preferences>`: preference/constraint items from tier 1 (plain statements)
- * - `<possibly_relevant>`: tier 2 items (episode-wrapped with optional staleness)
+ * All candidates are rendered in a single `<recalled>` section sorted by
+ * `finalScore` descending, with each candidate tagged by type:
+ * - items: `<item id="item:ID" kind="KIND" importance="N.NN" timestamp="..." from="...">`
+ * - segments: `<segment id="seg:ID" timestamp="..." from="...">`
+ * - summaries: `<summary id="sum:ID" timestamp="..." from="...">`
  *
- * Empty sections are omitted. If all sections are empty, returns `""`.
+ * An optional `<echoes>` section renders serendipity items — random
+ * importance-weighted memories for unexpected connections.
+ *
+ * Respects token budget: iterates candidates in score order, accumulates
+ * token estimates, and stops when the budget is exhausted.
  */
-export function buildTwoLayerInjection(params: {
-  identityItems: TieredCandidate[];
-  tier1Candidates: TieredCandidate[];
-  tier2Candidates: TieredCandidate[];
-  preferences: TieredCandidate[];
-  capabilities: TieredCandidate[];
+export function buildMemoryInjection(params: {
+  candidates: Array<Candidate & { sourceLabel?: string; staleness?: string; supersedes?: string }>;
+  serendipityItems?: Array<Candidate & { sourceLabel?: string }>;
   totalBudgetTokens?: number;
 }): string {
-  const {
-    identityItems,
-    tier1Candidates,
-    tier2Candidates,
-    preferences,
-    capabilities,
-    totalBudgetTokens,
-  } = params;
+  const { candidates, serendipityItems, totalBudgetTokens } = params;
 
-  // If everything is empty, return empty string
-  if (
-    identityItems.length === 0 &&
-    tier1Candidates.length === 0 &&
-    tier2Candidates.length === 0 &&
-    preferences.length === 0 &&
-    capabilities.length === 0
-  ) {
+  if (candidates.length === 0 && (!serendipityItems || serendipityItems.length === 0)) {
     return "";
   }
 
-  // Budget tracking — tier 1 gets priority.
-  // Reserve tokens for XML wrapper overhead (<memory_context>, section tags,
-  // newlines between sections) so the final assembled text stays within budget.
+  // Sort by finalScore descending
+  const sorted = [...candidates].sort((a, b) => b.finalScore - a.finalScore);
+
+  // Reserve tokens for structural overhead
   const WRAPPER_OVERHEAD_TOKENS = estimateTextTokens(
-    "<memory_context __injected>\n\n\n\n</memory_context>",
+    "<memory_context __injected>\n<recalled>\n</recalled>\n</memory_context>",
   );
-  const SECTION_TAG_TOKENS = estimateTextTokens(
-    "<possibly_relevant>\n\n</possibly_relevant>",
-  );
-  const sectionCount = [
-    identityItems.length,
-    tier1Candidates.length,
-    tier2Candidates.length,
-    preferences.length,
-    capabilities.length,
-  ].filter((n) => n > 0).length;
-  const structuralOverhead =
-    WRAPPER_OVERHEAD_TOKENS + sectionCount * SECTION_TAG_TOKENS;
   let remainingTokens = totalBudgetTokens
-    ? Math.max(1, totalBudgetTokens - structuralOverhead)
+    ? Math.max(1, totalBudgetTokens - WRAPPER_OVERHEAD_TOKENS)
     : Infinity;
 
-  // Render tier 1 items first (identity, relevant context, preferences)
-  const identityLines = renderPlainStatements(identityItems, remainingTokens);
-  remainingTokens -= estimateTextTokens(identityLines.join("\n"));
+  // Render candidates within budget
+  const lines: string[] = [];
+  for (const c of sorted) {
+    if (remainingTokens <= 0) break;
+    const line = renderCandidate(c);
+    const tokens = estimateTextTokens(line);
+    if (tokens > remainingTokens) continue;
+    lines.push(line);
+    remainingTokens -= tokens;
+  }
 
-  const relevantEpisodes = renderEpisodes(tier1Candidates, remainingTokens);
-  remainingTokens -= estimateTextTokens(relevantEpisodes.join("\n"));
+  if (lines.length === 0 && (!serendipityItems || serendipityItems.length === 0)) {
+    return "";
+  }
 
-  const preferenceLines = renderPlainStatements(preferences, remainingTokens);
-  remainingTokens -= estimateTextTokens(preferenceLines.join("\n"));
-
-  const capabilityLines = renderPlainStatements(capabilities, remainingTokens);
-  remainingTokens -= estimateTextTokens(capabilityLines.join("\n"));
-
-  // Tier 2 uses remaining budget
-  const possiblyRelevantEpisodes = renderEpisodesWithStaleness(
-    tier2Candidates,
-    remainingTokens,
-  );
-
-  // Assemble sections — omit empty ones
   const sections: string[] = [];
 
-  if (identityLines.length > 0) {
-    sections.push(
-      `<user_identity>\n${identityLines.join("\n")}\n</user_identity>`,
-    );
+  if (lines.length > 0) {
+    sections.push(`<recalled>\n${lines.join("\n")}\n</recalled>`);
   }
 
-  if (relevantEpisodes.length > 0) {
-    sections.push(
-      `<relevant_context>\n${relevantEpisodes.join("\n")}\n</relevant_context>`,
-    );
-  }
-
-  if (preferenceLines.length > 0) {
-    sections.push(
-      `<applicable_preferences>\n${preferenceLines.join("\n")}\n</applicable_preferences>`,
-    );
-  }
-
-  if (capabilityLines.length > 0) {
-    sections.push(
-      `<available_capabilities>\n${capabilityLines.join("\n")}\n</available_capabilities>`,
-    );
-  }
-
-  if (possiblyRelevantEpisodes.length > 0) {
-    sections.push(
-      `<possibly_relevant>\n${possiblyRelevantEpisodes.join("\n")}\n</possibly_relevant>`,
-    );
+  // Echoes section for serendipity items — capped at ~400 tokens of
+  // the remaining budget after <recalled> items are rendered.
+  if (serendipityItems && serendipityItems.length > 0) {
+    const ECHOES_MAX_TOKENS = 400;
+    let echoesBudget = Math.min(remainingTokens, ECHOES_MAX_TOKENS);
+    const echoLines: string[] = [];
+    for (const c of serendipityItems) {
+      if (echoesBudget <= 0) break;
+      const line = renderCandidate(c);
+      const tokens = estimateTextTokens(line);
+      if (tokens > echoesBudget) continue;
+      echoLines.push(line);
+      echoesBudget -= tokens;
+      remainingTokens -= tokens;
+    }
+    if (echoLines.length > 0) {
+      sections.push(`<echoes>\n${echoLines.join("\n")}\n</echoes>`);
+    }
   }
 
   if (sections.length === 0) return "";
 
-  return `<memory_context __injected>\n\n${sections.join("\n\n")}\n\n</memory_context>`;
+  return `<memory_context __injected>\n${sections.join("\n")}\n</memory_context>`;
 }
 
 /**
- * Render candidates as plain statement lines (for identity / preference sections).
+ * Look up the supersession chain for a given superseded item ID.
+ *
+ * Returns the immediate predecessor's statement and timestamp, plus the
+ * total chain depth (how many items were superseded in sequence).
+ * Chain traversal is capped at 10 iterations to prevent infinite loops.
  */
-function renderPlainStatements(
-  items: TieredCandidate[],
-  remainingBudget: number,
-): string[] {
-  const lines: string[] = [];
-  let used = 0;
-  for (const item of items) {
-    if (used >= remainingBudget) break;
-    const text = escapeXmlTags(item.text);
-    const tokens = estimateTextTokens(text);
-    if (used + tokens > remainingBudget) break;
-    lines.push(text);
-    used += tokens;
+export function lookupSupersessionChain(supersededId: string): {
+  previousStatement: string;
+  previousTimestamp: number;
+  chainDepth: number;
+} | null {
+  try {
+    const db = getDb();
+
+    // Look up the immediate predecessor
+    const predecessor = db
+      .select({
+        statement: memoryItems.statement,
+        firstSeenAt: memoryItems.firstSeenAt,
+        supersedes: memoryItems.supersedes,
+      })
+      .from(memoryItems)
+      .where(eq(memoryItems.id, supersededId))
+      .get();
+
+    if (!predecessor) return null;
+
+    // Count chain depth by following supersedes links (cap at 10)
+    let chainDepth = 1;
+    let currentSupersedes = predecessor.supersedes;
+    const MAX_CHAIN_DEPTH = 10;
+
+    while (currentSupersedes && chainDepth < MAX_CHAIN_DEPTH) {
+      const ancestor = db
+        .select({ supersedes: memoryItems.supersedes })
+        .from(memoryItems)
+        .where(eq(memoryItems.id, currentSupersedes))
+        .get();
+
+      if (!ancestor) break;
+      chainDepth++;
+      currentSupersedes = ancestor.supersedes;
+    }
+
+    return {
+      previousStatement: predecessor.statement,
+      previousTimestamp: predecessor.firstSeenAt,
+      chainDepth,
+    };
+  } catch (err) {
+    log.warn({ err }, "Failed to look up supersession chain");
+    return null;
   }
-  return lines;
 }
 
 /**
- * Render candidates as `<episode>` elements with source attribution.
+ * Render a single candidate as an XML element based on its type.
  */
-function renderEpisodes(
-  items: TieredCandidate[],
-  remainingBudget: number,
-): string[] {
-  const lines: string[] = [];
-  let used = 0;
-  for (const item of items) {
-    if (used >= remainingBudget) break;
-    const text = escapeXmlTags(item.text);
-    const sourceAttr = buildSourceAttr(item);
-    const line = `<episode${sourceAttr}>\n${text}\n</episode>`;
-    const tokens = estimateTextTokens(line);
-    if (used + tokens > remainingBudget) break;
-    lines.push(line);
-    used += tokens;
-  }
-  return lines;
-}
+function renderCandidate(c: Candidate & { sourceLabel?: string; supersedes?: string }): string {
+  const text = escapeXmlTags(c.text);
+  const timestamp = formatAbsoluteTime(c.createdAt);
+  const fromAttr = c.sourceLabel
+    ? ` from="${escapeXmlAttr(c.sourceLabel)}"`
+    : "";
+  const pathAttr = c.sourcePath
+    ? ` path="${escapeXmlAttr(c.sourcePath)}"`
+    : "";
 
-/**
- * Render tier 2 candidates as `<episode>` elements with staleness annotation.
- */
-function renderEpisodesWithStaleness(
-  items: TieredCandidate[],
-  remainingBudget: number,
-): string[] {
-  const lines: string[] = [];
-  let used = 0;
-  for (const item of items) {
-    if (used >= remainingBudget) break;
-    const text = escapeXmlTags(item.text);
-    const sourceAttr = buildSourceAttr(item);
-    const stalenessAttr =
-      item.staleness && item.staleness !== "fresh"
-        ? ` staleness="${escapeXmlAttr(item.staleness)}"`
-        : "";
-    const line = `<episode${sourceAttr}${stalenessAttr}>\n${text}\n</episode>`;
-    const tokens = estimateTextTokens(line);
-    if (used + tokens > remainingBudget) break;
-    lines.push(line);
-    used += tokens;
+  // Build inline supersession suffix for items
+  let supersessionSuffix = "";
+  if (c.type === "item" && c.supersedes) {
+    const chain = lookupSupersessionChain(c.supersedes);
+    if (chain) {
+      const prevTimestamp = formatAbsoluteTime(chain.previousTimestamp);
+      supersessionSuffix = `<supersedes count="${chain.chainDepth}">${escapeXmlTags(chain.previousStatement)} (${prevTimestamp})</supersedes>`;
+    }
   }
-  return lines;
-}
 
-/**
- * Build the `source="..."` attribute for an episode tag.
- * Uses the candidate's sourceLabel (conversation title) if available,
- * combined with a short date from createdAt.
- */
-function buildSourceAttr(item: TieredCandidate): string {
-  const date = formatShortDate(item.createdAt);
-  if (item.sourceLabel) {
-    return ` source="${escapeXmlAttr(`${item.sourceLabel} (${date})`)}"`;
+  switch (c.type) {
+    case "item":
+      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}${supersessionSuffix}</item>`;
+    case "segment":
+      return `<segment id="seg:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}</segment>`;
+    case "summary":
+      return `<summary id="sum:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}</summary>`;
+    default:
+      // media or unknown types — render as item
+      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}${supersessionSuffix}</item>`;
   }
-  return ` source="${escapeXmlAttr(date)}"`;
 }
 
 function escapeXmlAttr(text: string): string {
@@ -285,33 +259,4 @@ function escapeXmlAttr(text: string): string {
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-/**
- * Format epoch-ms as a short human-readable date like "Mar 7" or "Mar 7 2024".
- * Omits the year when the date is in the current year.
- */
-function formatShortDate(epochMs: number): string {
-  const date = new Date(epochMs);
-  const now = new Date();
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const month = months[date.getMonth()];
-  const day = date.getDate();
-  if (date.getFullYear() === now.getFullYear()) {
-    return `${month} ${day}`;
-  }
-  return `${month} ${day} ${date.getFullYear()}`;
 }

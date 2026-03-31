@@ -377,7 +377,7 @@ extension AssistantBackupsSection {
                         if isDocker {
                             try? await AppDelegate.shared?.vellumCli.sleep(name: assistantName)
                         } else {
-                            AppDelegate.shared?.vellumCli.stop(name: assistantName)
+                            await AppDelegate.shared?.vellumCli.stop(name: assistantName)
                         }
                         try? await Task.sleep(nanoseconds: 500_000_000)
                         try? await AppDelegate.shared?.vellumCli.wake(name: assistantName)

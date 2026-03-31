@@ -9,28 +9,11 @@
  * 4. Channel verification reply templates are non-empty and deterministic.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "deterministic-verify-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -61,14 +44,6 @@ import {
 
 beforeEach(() => {
   initializeDb();
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------

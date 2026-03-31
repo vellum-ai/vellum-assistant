@@ -39,7 +39,7 @@ export type MemoryItemKind =
 
 export type OverrideConfidence = "explicit" | "tentative" | "inferred";
 
-interface ExtractedItem {
+export interface ExtractedItem {
   kind: MemoryItemKind;
   subject: string;
   statement: string;
@@ -50,9 +50,11 @@ interface ExtractedItem {
   overrideConfidence: OverrideConfidence;
   /** True when the LLM emitted a supersedes ID that was rejected (hallucinated). */
   supersedesRejected?: boolean;
+  /** Which speaker's message this item was extracted from (batch extraction only). */
+  sourceRole?: "user" | "assistant";
 }
 
-const VALID_KINDS = new Set<string>([
+export const VALID_KINDS = new Set<string>([
   "identity",
   "preference",
   "project",
@@ -67,10 +69,10 @@ const VALID_KINDS = new Set<string>([
  * because journal memories are created directly from disk files — any
  * LLM-produced journal items would be silently dropped, wasting tokens.
  */
-const EXTRACTION_KINDS = [...VALID_KINDS].filter((k) => k !== "journal");
+export const EXTRACTION_KINDS = [...VALID_KINDS].filter((k) => k !== "journal");
 
 /** Maps old kind names to their new equivalents for graceful migration. */
-const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
+export const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
   profile: "identity",
   fact: "identity",
   relationship: "identity",
@@ -80,70 +82,13 @@ const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
   style: "preference",
 };
 
-const SUPERSEDE_KINDS = new Set<MemoryItemKind>([
+export const SUPERSEDE_KINDS = new Set<MemoryItemKind>([
   "identity",
   "preference",
   "project",
   "decision",
   "constraint",
 ]);
-
-// ── Semantic density gating ────────────────────────────────────────────
-// Skip messages that are too short or consist of low-value filler.
-
-const LOW_VALUE_PATTERNS = new Set([
-  "ok",
-  "okay",
-  "k",
-  "sure",
-  "yes",
-  "no",
-  "yep",
-  "nope",
-  "yeah",
-  "nah",
-  "thanks",
-  "thank you",
-  "ty",
-  "thx",
-  "thanks!",
-  "thank you!",
-  "got it",
-  "understood",
-  "makes sense",
-  "sounds good",
-  "sounds great",
-  "cool",
-  "nice",
-  "great",
-  "awesome",
-  "perfect",
-  "done",
-  "lgtm",
-  "agreed",
-  "right",
-  "correct",
-  "exactly",
-  "yup",
-  "ack",
-  "hm",
-  "hmm",
-  "hmmm",
-  "ah",
-  "oh",
-  "i see",
-]);
-
-function hasSemanticDensity(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length < 15) return false;
-  const lower = trimmed.toLowerCase().replace(/[.!?,;:\s]+$/, "");
-  if (LOW_VALUE_PATTERNS.has(lower)) return false;
-  // Very short messages with only 1-2 words are typically not memorable
-  const wordCount = trimmed.split(/\s+/).length;
-  if (wordCount <= 2) return false;
-  return true;
-}
 
 // ── LLM-powered extraction ────────────────────────────────────────────
 
@@ -154,7 +99,7 @@ function hasSemanticDensity(text: string): boolean {
 // tokens. ~6000 tokens ≈ 24 000 chars is a safe ceiling.
 const EXTRACTION_SYSTEM_PROMPT_CHAR_BUDGET = 24_000;
 
-function buildExtractionSystemPrompt(
+export function buildExtractionSystemPrompt(
   existingItems: Array<{
     id: string;
     kind: string;
@@ -174,18 +119,19 @@ Extract items in these categories:
 - project: Project names, repos, tech stacks, architecture details, action items, follow-ups, things to do later
 - decision: Choices made, approaches selected, trade-offs resolved
 - constraint: Rules, requirements, things that must/must not be done, explicit directives on how the assistant should behave
-- event: Deadlines, milestones, meetings, releases, dates
+- event: Moments that mattered — turning points, breakthroughs, significant shared experiences, deadlines, milestones
 
 For each item, provide:
 - kind: One of the categories above
 - subject: A short label (2-8 words) identifying what this is about
-- statement: A relationship-rich factual statement to remember (1-2 sentences). Include relational context — who recommended it, why it matters, how it connects to other facts. For example, write "Data processing library that Sarah from Marketing recommended for the Q4 pipeline rewrite" instead of just "Uses pandas".
+- statement: A relationship-rich statement to remember (1-2 sentences). Include context about *why this mattered*, not just what happened. Write statements your future self would recognize as significant, not just accurate. Include relational context — who recommended it, why it matters, how it connects to other facts. For example, write "Data processing library that Sarah from Marketing recommended for the Q4 pipeline rewrite" instead of just "Uses pandas".
 - confidence: How confident you are this is accurate (0.0-1.0)
-- importance: How valuable this is to remember (0.0-1.0)
-  - 1.0: Explicit user instructions about assistant behavior
-  - 0.8-0.9: Personal facts, strong preferences, key decisions
-  - 0.6-0.7: Project details, constraints, opinions
-  - 0.3-0.5: Contextual details, minor preferences
+- importance: How valuable this is to remember (0.0-1.0). Not all facts are equally worth remembering — some moments are load-bearing.
+  - 1.0: Moments that changed the working relationship, breakthroughs, hard-won lessons, turning points
+  - 0.8-0.9: Significant decisions, strong preferences, personal facts that shape how you work together
+  - 0.6-0.7: Project details, constraints, opinions, recurring patterns
+  - 0.3-0.5: Contextual details, minor preferences, transient facts
+  - 0.1-0.2: Mundane facts (timezone, editor choice) — worth storing but shouldn't dominate retrieval
 - supersedes: If this item replaces an existing memory item, set this to the ID of the item it replaces. Use null if it does not replace anything. Determine supersession by understanding the semantic meaning — do not rely on keyword matching.
 - overrideConfidence: How confident you are that this overrides an existing item:
   - "explicit": Clear override signal (e.g., "Actually I now prefer X", "I changed my mind about Y", "We switched from A to B")
@@ -198,7 +144,8 @@ Rules:
 - Do NOT extract raw code snippets, JSON fragments, YAML, configuration values, log output, or data structures. Only extract the human-readable meaning or intent behind such content, not the literal syntax.
 - Prefer fewer high-quality items over many low-quality ones.
 - If the message contains no memorable information, return an empty array.
-- The preceding conversation context (if provided) is for disambiguation only. Extract items ONLY from the final message after the --- separator, not from the context messages.`;
+- The preceding conversation context (if provided) is for disambiguation only. Extract items ONLY from the final message after the --- separator, not from the context messages.
+- When superseding an existing memory, capture what shifted — the old state, the new state, and what prompted the change. The evolution is as valuable as the current state.`;
 
   // Try to extract user name from persona text
   let userName = "the user";
@@ -229,6 +176,12 @@ Good extractions from user messages:
 - "We decided to go with Redis for the cache layer because DynamoDB was too expensive at our read volume"
   → kind: decision, subject: "Cache layer choice", statement: "${userName} chose Redis over DynamoDB for caching due to cost at high read volumes"
 
+- "We pair-debugged a 4-hour outage and found the bug was a missing semicolon — user said it was the most frustrating and satisfying debug session"
+  → kind: event, importance: 0.95, subject: "4-hour outage debug session", statement: "${userName} and assistant pair-debugged a 4-hour outage caused by a missing semicolon — ${userName} described it as the most frustrating and satisfying debug session"
+
+- "User scrapped the entire approach mid-project and the rewrite turned out way better"
+  → kind: decision, importance: 0.9, subject: "Architecture rewrite decision", statement: "${userName} scrapped the entire approach mid-project and rewrote it — the rewrite turned out significantly better, validating the decision to start over"
+
 Good extractions from assistant messages:
 - "Based on your earlier mention, I see you're using Next.js 14 with the app router for the dashboard project."
   → kind: project, subject: "Dashboard tech stack", statement: "${userName}'s dashboard project uses Next.js 14 with the app router"
@@ -244,7 +197,10 @@ Do NOT extract:
 - "I think the best approach would be to refactor this" → speculative, no action taken yet
 - "The tests passed" → transient status
 - "Sure, sounds good" → filler
-- "\`\`\`json {"key": "val"} \`\`\`" → raw code/data, extract meaning not syntax`;
+- "\`\`\`json {"key": "val"} \`\`\`" → raw code/data, extract meaning not syntax
+
+Low importance (still worth storing):
+- "User uses VS Code" → kind: preference, importance: 0.15, subject: "Editor choice", statement: "${userName} uses VS Code as their editor"`;
 
   if (existingItems.length > 0) {
     instructions += `\n\nExisting memory items (use these to identify supersession targets — set \`supersedes\` to the item ID if the new information replaces one of these):\n`;
@@ -285,7 +241,7 @@ Do NOT extract:
   return prompt;
 }
 
-const VALID_OVERRIDE_CONFIDENCES = new Set<string>([
+export const VALID_OVERRIDE_CONFIDENCES = new Set<string>([
   "explicit",
   "tentative",
   "inferred",
@@ -306,7 +262,7 @@ interface LLMExtractedItem {
  * extraction LLM awareness of existing items it might supersede.
  * This is a write-path-only heuristic — not used at read time.
  */
-function queryExistingItemsForContext(
+export function queryExistingItemsForContext(
   scopeId: string,
   text: string,
 ): Array<{ id: string; kind: string; subject: string; statement: string }> {
@@ -478,7 +434,7 @@ async function extractItemsWithLLM(
     systemPrompt,
     {
       config: {
-        modelIntent: extractionConfig.modelIntent,
+        modelIntent: "quality-optimized" as const,
         tool_choice: { type: "tool" as const, name: "store_memory_items" },
       },
     },
@@ -632,11 +588,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
   }
 
   const text = extractTextFromStoredMessageContent(message.content);
-  if (!hasSemanticDensity(text)) {
-    log.debug(
-      { messageId },
-      "Skipping extraction — message lacks semantic density",
-    );
+  if (text.length === 0) {
     triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
     return journalUpserted;
   }
@@ -889,7 +841,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function deduplicateItems(items: ExtractedItem[]): ExtractedItem[] {
+export function deduplicateItems(items: ExtractedItem[]): ExtractedItem[] {
   const seen = new Set<string>();
   const unique: ExtractedItem[] = [];
   for (const item of items) {
@@ -901,7 +853,7 @@ function deduplicateItems(items: ExtractedItem[]): ExtractedItem[] {
 }
 
 /** Parse a score value, returning `fallback` for null, undefined, empty strings, and non-finite numbers. */
-function parseScore(value: unknown, fallback: number): number {
+export function parseScore(value: unknown, fallback: number): number {
   if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;

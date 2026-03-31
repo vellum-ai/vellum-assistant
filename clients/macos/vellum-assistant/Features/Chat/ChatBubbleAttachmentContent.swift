@@ -72,7 +72,7 @@ private struct InlineToolCallImageView: View {
 
 // MARK: - Attachment Image Grid (async)
 
-/// Renders image attachments in a horizontal grid.
+/// Renders image attachments in a wrapping grid.
 ///
 /// NSImage(data:) must never be called during SwiftUI view body evaluation or
 /// layout measurement — doing so triggers re-entrant AppKit constraint
@@ -95,73 +95,82 @@ private struct AttachmentImageGrid<Fallback: View>: View {
     /// gray-placeholder state.
     @State private var failedIds: Set<String> = []
 
+    @Environment(\.displayScale) private var displayScale
+
+    /// Single images render at full width; multiple images use a compact grid.
+    private var isSingleImage: Bool { imageAttachments.count == 1 }
+
+    private var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 160, maximum: 160), spacing: VSpacing.sm)]
+    }
+
     @available(macOS, deprecated: 13.0)
     var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            ForEach(imageAttachments, id: \.id) { attachment in
-                Group {
-                    if let nsImage = loadedImages[attachment.id] {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 60, height: 60)
-                            .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .onTapGesture {
-                                onTap(attachment, nsImage)
-                            }
-                            .contextMenu {
-                                ImageActions.contextMenuItems(
-                                    image: nsImage,
-                                    filename: attachment.filename,
-                                    base64Data: attachment.data.isEmpty ? nil : attachment.data,
-                                    lazyAttachmentId: attachment.isLazyLoad ? attachment.id : nil
-                                )
-                            }
-                            .onDrag {
-                                NotificationCenter.default.post(name: .internalImageDragStarted, object: nil)
-                                let provider = NSItemProvider()
-                                let hasBase64 = !attachment.data.isEmpty
+        let content = ForEach(imageAttachments, id: \.id) { attachment in
+            Group {
+                if let nsImage = loadedImages[attachment.id] {
+                    Group {
+                        if isSingleImage {
+                            singleImageContent(nsImage)
+                        } else {
+                            gridImageContent(nsImage)
+                        }
+                    }
+                        .onTapGesture {
+                            onTap(attachment, nsImage)
+                        }
+                        .contextMenu {
+                            ImageActions.contextMenuItems(
+                                image: nsImage,
+                                filename: attachment.filename,
+                                base64Data: attachment.data.isEmpty ? nil : attachment.data,
+                                lazyAttachmentId: attachment.isLazyLoad ? attachment.id : nil
+                            )
+                        }
+                        .onDrag {
+                            NotificationCenter.default.post(name: .internalImageDragStarted, object: nil)
+                            let provider = NSItemProvider()
+                            let hasBase64 = !attachment.data.isEmpty
 
-                                // Pre-compute thumbnail PNG on main thread as a fallback.
-                                // tiffRepresentation is not thread-safe so this must happen
-                                // here, not in the lazy registerDataRepresentation callback.
-                                let thumbnailPNG: Data? = {
-                                    guard let img = loadedImages[attachment.id],
-                                          let tiff = img.tiffRepresentation,
-                                          let rep = NSBitmapImageRep(data: tiff) else { return nil }
-                                    return rep.representation(using: .png, properties: [:])
-                                }()
+                            // Pre-compute thumbnail PNG on main thread as a fallback.
+                            // tiffRepresentation is not thread-safe so this must happen
+                            // here, not in the lazy registerDataRepresentation callback.
+                            let thumbnailPNG: Data? = {
+                                guard let img = loadedImages[attachment.id],
+                                      let tiff = img.tiffRepresentation,
+                                      let rep = NSBitmapImageRep(data: tiff) else { return nil }
+                                return rep.representation(using: .png, properties: [:])
+                            }()
 
-                                if hasBase64 {
-                                    let mimeType = attachment.mimeType
-                                    let utType = UTType(mimeType: mimeType) ?? .png
-                                    let base64String = attachment.data
-                                    provider.registerDataRepresentation(forTypeIdentifier: utType.identifier, visibility: .all) { completion in
-                                        // Decode lazily when drop target requests data
-                                        if let decoded = Data(base64Encoded: base64String), !decoded.isEmpty {
-                                            completion(decoded, nil)
-                                        } else if let thumbnailPNG {
-                                            // Corrupt base64 — fall back to pre-computed thumbnail
-                                            completion(thumbnailPNG, nil)
-                                        } else {
-                                            completion(nil, nil)
-                                        }
-                                        return nil
-                                    }
-                                } else if let thumbnailPNG {
-                                    provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
+                            if hasBase64 {
+                                let mimeType = attachment.mimeType
+                                let utType = UTType(mimeType: mimeType) ?? .png
+                                let base64String = attachment.data
+                                provider.registerDataRepresentation(forTypeIdentifier: utType.identifier, visibility: .all) { completion in
+                                    // Decode lazily when drop target requests data
+                                    if let decoded = Data(base64Encoded: base64String), !decoded.isEmpty {
+                                        completion(decoded, nil)
+                                    } else if let thumbnailPNG {
+                                        // Corrupt base64 — fall back to pre-computed thumbnail
                                         completion(thumbnailPNG, nil)
-                                        return nil
+                                    } else {
+                                        completion(nil, nil)
                                     }
+                                    return nil
                                 }
-                                // Force .png extension when falling back to PNG encoding
-                                let filename = attachment.filename
-                                // Strip extension — Finder appends it from the UTType
-                                provider.suggestedName = (filename as NSString).deletingPathExtension
-                                return provider
+                            } else if let thumbnailPNG {
+                                provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
+                                    completion(thumbnailPNG, nil)
+                                    return nil
+                                }
                             }
-                            .pointerCursor()
+                            // Force .png extension when falling back to PNG encoding
+                            let filename = attachment.filename
+                            // Strip extension — Finder appends it from the UTType
+                            provider.suggestedName = (filename as NSString).deletingPathExtension
+                            return provider
+                        }
+                        .pointerCursor()
                     } else if failedIds.contains(attachment.id) {
                         // All decode paths failed — show a file chip so the user still has the
                         // filename and a download affordance for corrupt/unsupported payloads.
@@ -170,8 +179,12 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         // Placeholder shown while the image is being decoded off the main thread.
                         Rectangle()
                             .fill(VColor.surfaceActive)
-                            .frame(width: 60, height: 60)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .frame(
+                                width: isSingleImage ? nil : 160,
+                                height: isSingleImage ? 200 : 120
+                            )
+                            .frame(maxWidth: isSingleImage ? VSpacing.chatBubbleMaxWidth : nil)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     }
                 }
                 // NSImage(data:) is called directly inside .task — no Task{} wrapper — so
@@ -179,36 +192,61 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 // Wrapping in Task(priority:){}.value creates an unstructured task that is NOT
                 // cancelled by the .task modifier, causing off-screen decodes to run to completion.
                 .task(id: attachment.id) {
-                    // Step 1: thumbnailImage is already decoded — zero cost.
-                    if let img = attachment.thumbnailImage {
-                        loadedImages[attachment.id] = img
-                        return
-                    }
+                    if isSingleImage {
+                        // Single images: prefer full-resolution data so the frame
+                        // sizing (which uses native pixel dimensions) is accurate.
+                        // Thumbnails are 800px max — using them gives ~400pt on
+                        // Retina, adequate for most previews.
+                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
+                           let img = NSImage(data: fullData) {
+                            guard !Task.isCancelled else { return }
+                            loadedImages[attachment.id] = img
+                            return
+                        }
 
-                    guard !Task.isCancelled else { return }
-
-                    // Step 2: thumbnailData (small) — synchronous NSImage decode, called directly.
-                    // Fallback chain: thumbnailData → full attachment.data.
-                    // thumbnailData is preferred (smaller), but if it is corrupt or
-                    // missing we still want to show the image from the full payload.
-                    if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
-                       let img = NSImage(data: thumbnailData) {
                         guard !Task.isCancelled else { return }
-                        loadedImages[attachment.id] = img
-                        return
-                    }
 
-                    guard !Task.isCancelled else { return }
+                        // Full data unavailable (lazy-load or cleared) — fall back to thumbnail.
+                        if let img = attachment.thumbnailImage {
+                            loadedImages[attachment.id] = img
+                            return
+                        }
 
-                    // Step 3: fallback to full base64 data.
-                    if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
-                       let img = NSImage(data: fullData) {
                         guard !Task.isCancelled else { return }
-                        loadedImages[attachment.id] = img
-                        return
+
+                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
+                           let img = NSImage(data: thumbnailData) {
+                            guard !Task.isCancelled else { return }
+                            loadedImages[attachment.id] = img
+                            return
+                        }
+                    } else {
+                        // Grid mode: prefer thumbnails for fast loading of many images.
+                        if let img = attachment.thumbnailImage {
+                            loadedImages[attachment.id] = img
+                            return
+                        }
+
+                        guard !Task.isCancelled else { return }
+
+                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
+                           let img = NSImage(data: thumbnailData) {
+                            guard !Task.isCancelled else { return }
+                            loadedImages[attachment.id] = img
+                            return
+                        }
+
+                        guard !Task.isCancelled else { return }
+
+                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
+                           let img = NSImage(data: fullData) {
+                            guard !Task.isCancelled else { return }
+                            loadedImages[attachment.id] = img
+                            return
+                        }
                     }
 
-                    // All three decode paths exhausted with no image.
+                    // All decode paths exhausted with no image.
                     // Do NOT guard on Task.isCancelled here — once every decode path has
                     // failed we must always transition to the file-chip fallback regardless
                     // of cancellation. Without this, a cancellation that races with decode
@@ -217,7 +255,49 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                     failedIds.insert(attachment.id)
                 }
             }
+
+        if isSingleImage {
+            content
+        } else {
+            LazyVGrid(columns: gridColumns, alignment: .leading, spacing: VSpacing.sm) {
+                content
+            }
         }
+    }
+
+    /// Full-width rendering for a single image attachment, matching tool-generated image sizing.
+    @ViewBuilder
+    private func singleImageContent(_ nsImage: NSImage) -> some View {
+        if let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let nativeWidth = CGFloat(cgImage.width) / displayScale
+            let nativeHeight = CGFloat(cgImage.height) / displayScale
+            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+            Image(decorative: cgImage, scale: displayScale)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(
+                    maxWidth: min(nativeWidth, maxDim),
+                    maxHeight: min(nativeHeight, maxDim)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        } else {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+    }
+
+    /// Compact grid cell for multiple image attachments.
+    private func gridImageContent(_ nsImage: NSImage) -> some View {
+        Image(nsImage: nsImage)
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(width: 160, height: 120)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 }
 
@@ -260,7 +340,7 @@ extension ChatBubble {
                 image: image,
                 filename: attachment.filename,
                 base64Data: attachment.data.isEmpty ? nil : attachment.data,
-                lazyAttachmentId: attachment.isLazyLoad && !attachment.id.isEmpty ? attachment.id : nil
+                lazyAttachmentId: attachment.data.isEmpty && !attachment.id.isEmpty ? attachment.id : nil
             )
         }) { attachment in
             fileAttachmentChip(attachment)

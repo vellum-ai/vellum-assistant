@@ -72,6 +72,19 @@ export interface OpenAICompatibleProviderOptions {
   extraCreateParams?: Record<string, unknown>;
 }
 
+/** Map our internal effort values to OpenAI's reasoning_effort parameter. */
+const EFFORT_TO_REASONING_EFFORT: Record<
+  string,
+  NonNullable<
+    OpenAI.Chat.Completions.ChatCompletionCreateParams["reasoning_effort"]
+  >
+> = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+  max: "high",
+};
+
 const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -113,6 +126,7 @@ export class OpenAIProvider implements Provider {
     const configObj = config as Record<string, unknown> | undefined;
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
+    const effort = configObj?.effort as string | undefined;
 
     try {
       const openaiMessages = this.toOpenAIMessages(messages, systemPrompt);
@@ -128,6 +142,13 @@ export class OpenAIProvider implements Provider {
 
       if (maxTokens) {
         params.max_completion_tokens = maxTokens;
+      }
+
+      const reasoningEffort = effort
+        ? EFFORT_TO_REASONING_EFFORT[effort]
+        : undefined;
+      if (reasoningEffort) {
+        params.reasoning_effort = reasoningEffort;
       }
 
       if (tools && tools.length > 0) {
@@ -154,6 +175,7 @@ export class OpenAIProvider implements Provider {
       let responseModel = modelOverride ?? this.model;
       let promptTokens = 0;
       let completionTokens = 0;
+      let reasoningTokens = 0;
 
       try {
         const stream = await this.client.chat.completions.create(params, {
@@ -188,6 +210,12 @@ export class OpenAIProvider implements Provider {
           if (chunk.usage) {
             promptTokens = chunk.usage.prompt_tokens;
             completionTokens = chunk.usage.completion_tokens;
+            const details = (
+              chunk.usage as {
+                completion_tokens_details?: { reasoning_tokens?: number };
+              }
+            ).completion_tokens_details;
+            reasoningTokens = details?.reasoning_tokens ?? 0;
           }
 
           responseModel = chunk.model;
@@ -239,13 +267,24 @@ export class OpenAIProvider implements Provider {
         usage: {
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
+          ...(reasoningTokens > 0
+            ? {
+                completion_tokens_details: {
+                  reasoning_tokens: reasoningTokens,
+                },
+              }
+            : {}),
         },
       };
 
       return {
         content,
         model: responseModel,
-        usage: { inputTokens: promptTokens, outputTokens: completionTokens },
+        usage: {
+          inputTokens: promptTokens,
+          outputTokens: completionTokens,
+          ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
+        },
         stopReason: finishReason,
         rawRequest: params,
         rawResponse,

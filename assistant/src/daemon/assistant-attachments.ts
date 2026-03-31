@@ -63,6 +63,8 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
   svg: "image/svg+xml",
   ico: "image/x-icon",
   bmp: "image/bmp",
+  heic: "image/heic",
+  heif: "image/heif",
 
   // Documents
   pdf: "application/pdf",

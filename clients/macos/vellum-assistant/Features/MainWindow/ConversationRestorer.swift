@@ -210,11 +210,9 @@ final class ConversationRestorer {
             return
         }
 
-        // Filter out private conversations and conversations bound to external channels
-        // (e.g. Telegram). External channel-bound conversations belong to their own
-        // lane and should not appear in the desktop conversation list.
+        // Filter out private conversations.
         let recentConversations = response.conversations.filter {
-            $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
+            $0.conversationType != "private"
         }
 
         let defaultConversationIsEmpty = delegate.conversations.count == 1
@@ -275,7 +273,8 @@ final class ConversationRestorer {
                 lastSeenAssistantMessageAt: session.assistantAttention?.lastSeenAssistantMessageAt.map {
                     Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
                 },
-                forkParent: session.forkParent
+                forkParent: session.forkParent,
+                originChannel: session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
             )
             if isPinned && session.displayOrder == nil { pinnedCount += 1 }
             // VM creation is lazy — only the active conversation will get a VM via

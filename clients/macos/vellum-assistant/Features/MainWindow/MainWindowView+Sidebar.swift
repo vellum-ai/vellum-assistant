@@ -2,6 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
+struct ChannelConversationGroup: Identifiable {
+    var id: String { channel }
+    let channel: String
+    let conversations: [ConversationModel]
+}
+
 // MARK: - Sidebar Content
 
 extension MainWindowView {
@@ -30,7 +36,7 @@ extension MainWindowView {
     }
 
     var regularConversations: [ConversationModel] {
-        conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation }
+        conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation && !$0.isChannelConversation }
     }
 
     var backgroundConversations: [ConversationModel] {
@@ -43,7 +49,7 @@ extension MainWindowView {
 
     var displayedConversations: [ConversationModel] {
         let all = regularConversations
-        return sidebar.showAllConversations ? all : Array(all.prefix(5))
+        return sidebar.showAllConversations ? all : Array(all.prefix(10))
     }
 
     var displayedScheduleConversations: [ConversationModel] {
@@ -61,6 +67,20 @@ extension MainWindowView {
             return all
         }
         return visible
+    }
+
+    /// All channel-bound conversations, grouped by originChannel.
+    /// Sorted alphabetically by channel name for stable sidebar ordering.
+    var channelConversationGroups: [ChannelConversationGroup] {
+        let channelConversations = conversationManager.visibleConversations.filter { $0.isChannelConversation }
+        var grouped: [String: [ConversationModel]] = [:]
+        for conversation in channelConversations {
+            let channel = conversation.originChannel ?? "unknown"
+            grouped[channel, default: []].append(conversation)
+        }
+        return grouped.keys.sorted().map { key in
+            ChannelConversationGroup(channel: key, conversations: grouped[key]!)
+        }
     }
 
     /// Groups schedule conversations by their scheduleJobId.
@@ -166,8 +186,11 @@ extension MainWindowView {
         }
     }
 
-    /// Builds a `SidebarConversationItem` with all state pre-resolved and closures wired,
-    /// so each row is a pure value view that can be skipped via `Equatable`.
+    /// Builds a `SidebarConversationItem` with closures wired and value-type
+    /// state pre-resolved. Hover state is NOT pre-computed here — the row
+    /// observes `sidebarInteraction.isHoveredConversation` in its own `body`,
+    /// keeping the `@Observable` dependency scoped to each row and preventing
+    /// hover changes from invalidating MainWindowView.
     private func makeSidebarRow(
         conversation: ConversationModel,
         onSelect: (() -> Void)? = nil
@@ -176,7 +199,7 @@ extension MainWindowView {
             conversation: conversation,
             isSelected: isConversationSelected(conversation),
             interactionState: conversationManager.interactionState(for: conversation.id),
-            isHovered: sidebar.isHoveredConversation == conversation.id,
+            sidebarInteraction: sidebar,
             selectConversation: { selectConversation(conversation) },
             onSelect: onSelect,
             onTogglePin: {
@@ -315,29 +338,14 @@ extension MainWindowView {
                                         .transition(.opacity)
                                 }
                             }
-                            .dropDestination(for: String.self) { items, _ in
-                                sidebar.dropTargetConversationId = nil
-                                sidebar.draggingConversationId = nil
-                                guard let droppedId = items.first,
-                                      let sourceUUID = UUID(uuidString: droppedId),
-                                      sourceUUID != conversation.id else { return false }
-                                return conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id)
-                            } isTargeted: { isTargeted in
-                                if isTargeted && conversation.id != sidebar.draggingConversationId {
-                                    sidebar.dropTargetConversationId = conversation.id
-                                    if let dragId = sidebar.draggingConversationId {
-                                        let visible = conversationManager.visibleConversations
-                                        let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                                        let tIdx = visible.firstIndex(where: { $0.id == conversation.id }) ?? 0
-                                        sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                                    }
-                                } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
-                                    sidebar.dropTargetConversationId = nil
-                                }
-                            }
+                            .onDrop(of: [.plainText], delegate: ConversationReorderDropDelegate(
+                                targetConversation: conversation,
+                                sidebar: sidebar,
+                                conversationManager: conversationManager
+                            ))
                     }
 
-                    if regularConversations.count > 5 {
+                    if regularConversations.count > 10 {
                         HStack {
                             VButton(
                                 label: sidebar.showAllConversations ? "Show less" : "Show more",
@@ -441,15 +449,9 @@ extension MainWindowView {
                                             .foregroundStyle(VColor.contentDefault)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
-                                        Text("\(group.conversations.count)")
-                                            .font(.system(size: 10, weight: .medium))
+                                        Text("(\(group.conversations.count))")
+                                            .font(.system(size: 12))
                                             .foregroundStyle(VColor.contentTertiary)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(
-                                                Capsule()
-                                                    .fill(VColor.contentTertiary.opacity(0.12))
-                                            )
                                         Spacer()
                                     }
                                     .padding(.leading, VSpacing.xs)
@@ -571,6 +573,81 @@ extension MainWindowView {
                             .padding(.bottom, VSpacing.xs)
                         }
                         } // end backgroundSectionCollapsed
+                    }
+
+                    // Channel conversation sections
+                    ForEach(Array(channelConversationGroups), id: \ChannelConversationGroup.id) { (group: ChannelConversationGroup) in
+                        let isCollapsed = sidebar.collapsedChannelSections.contains(group.channel)
+                        let sectionHasUnread = isCollapsed &&
+                            group.conversations.contains(where: { $0.hasUnseenLatestAssistantMessage })
+
+                        Button {
+                            withAnimation(VAnimation.fast) {
+                                if isCollapsed {
+                                    sidebar.collapsedChannelSections.remove(group.channel)
+                                } else {
+                                    sidebar.collapsedChannelSections.insert(group.channel)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                HStack(spacing: 2) {
+                                    VIconView(.chevronRight, size: 10)
+                                        .foregroundStyle(VColor.contentTertiary)
+                                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                                        .animation(VAnimation.fast, value: isCollapsed)
+                                    if sectionHasUnread {
+                                        Circle()
+                                            .fill(VColor.systemNegativeStrong)
+                                            .frame(width: 6, height: 6)
+                                            .transition(.opacity)
+                                    }
+                                }
+                                Text(group.channel.capitalized)
+                                    .font(VFont.labelDefault)
+                                    .foregroundStyle(VColor.contentTertiary)
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, VSpacing.xs)
+                        .padding(.trailing, VSpacing.md)
+                        .padding(.top, SidebarLayoutMetrics.scheduledHeaderTopGap)
+                        .padding(.bottom, SidebarLayoutMetrics.scheduledHeaderBottomGap)
+                        .pointerCursor()
+
+                        if !isCollapsed {
+                            let explicitShowAll = sidebar.showAllChannelConversations[group.channel] ?? false
+                            // Auto-expand when any hidden conversation has unread messages.
+                            let hasHiddenUnread = !explicitShowAll
+                                && group.conversations.count > 3
+                                && group.conversations.dropFirst(3).contains(where: { $0.hasUnseenLatestAssistantMessage })
+                            let showAll = explicitShowAll || hasHiddenUnread
+                            let displayed = showAll ? group.conversations : Array(group.conversations.prefix(3))
+
+                            ForEach(displayed) { conversation in
+                                makeSidebarRow(conversation: conversation)
+                                    .equatable()
+                                    .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                            }
+
+                            if group.conversations.count > 3, !hasHiddenUnread {
+                                HStack {
+                                    VButton(
+                                        label: explicitShowAll ? "Show less" : "Show more",
+                                        style: .ghost,
+                                        size: .compact
+                                    ) {
+                                        withAnimation(VAnimation.fast) {
+                                            sidebar.showAllChannelConversations[group.channel] = !explicitShowAll
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
+                                .padding(.bottom, VSpacing.xs)
+                            }
+                        }
                     }
                 }
             }

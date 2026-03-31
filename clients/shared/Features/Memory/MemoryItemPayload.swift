@@ -76,4 +76,6 @@ public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
 public struct MemoryItemsListResponse: Codable, Sendable {
     public let items: [MemoryItemPayload]
     public let total: Int
+    /// Server-side count of items per kind (respects status/search filters but not the kind filter).
+    public let kindCounts: [String: Int]?
 }

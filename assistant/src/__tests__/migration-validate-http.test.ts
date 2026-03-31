@@ -9,11 +9,8 @@
  * - Integration: existing routes are unaffected by the new endpoint
  */
 import { createHash } from "node:crypto";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { gzipSync } from "node:zlib";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 /** Convert a Uint8Array to an ArrayBuffer for BodyInit compatibility. */
 function toArrayBuffer(data: Uint8Array): ArrayBuffer {
@@ -23,22 +20,6 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
     data.byteOffset + data.byteLength,
   ) as ArrayBuffer;
 }
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "migration-validate-http-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -72,14 +53,6 @@ mock.module("../config/env.js", () => ({
 
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
 import { handleMigrationValidate } from "../runtime/routes/migration-routes.js";
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Tar archive builder helpers

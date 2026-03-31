@@ -18,14 +18,14 @@ export interface TemporalContextOptions {
   userTimeZone?: string | null;
 }
 
-const WEEKDAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
+const WEEKDAY_SHORT = [
+  "Sun",
+  "Mon",
+  "Tue",
+  "Wed",
+  "Thu",
+  "Fri",
+  "Sat",
 ] as const;
 const UTC_GMT_OFFSET_TOKEN_RE = /^(?:UTC|GMT)([+-])(\d{1,2})(?::?(\d{2}))?$/i;
 
@@ -183,35 +183,41 @@ const TIMEZONE_TOKEN_RE = new RegExp(
 );
 
 /**
- * Extract the user's timezone from V2 memory recall injected text.
+ * Extract the user's timezone from memory recall injected text.
  *
- * Scans the `<user_identity>` section (if present) for lines containing
- * "timezone" and tries to resolve an IANA identifier. Falls back to
- * scanning the full text body.
+ * Prefers identity items (`<item kind="identity" ...>`) rendered inside the
+ * `<recalled>` section of `<memory_context>`. Falls back to scanning the
+ * full injected text for lines mentioning "timezone".
  */
 export function extractUserTimeZoneFromRecall(
   injectedText: string,
 ): string | null {
   if (!injectedText || injectedText.trim().length === 0) return null;
 
-  // Prefer lines inside <user_identity> that mention "timezone"
-  const identityMatch = injectedText.match(
-    /<user_identity>([\s\S]*?)<\/user_identity>/,
-  );
-  if (identityMatch) {
-    const identityBlock = identityMatch[1];
-    for (const line of identityBlock.split("\n")) {
-      if (/time\s*zone/i.test(line)) {
-        for (const token of extractTimeZoneCandidates(line)) {
+  // Prefer identity items: <item ... kind="identity" ...>content</item>
+  const identityItemRe = /<item\s[^>]*kind="identity"[^>]*>([\s\S]*?)<\/item>/g;
+  let match: RegExpExecArray | null;
+  const identityTexts: string[] = [];
+  while ((match = identityItemRe.exec(injectedText)) !== null) {
+    identityTexts.push(match[1]);
+  }
+
+  if (identityTexts.length > 0) {
+    // First pass: identity items whose text mentions "timezone"
+    for (const text of identityTexts) {
+      if (/time\s*zone/i.test(text)) {
+        for (const token of extractTimeZoneCandidates(text)) {
           const canonical = canonicalizeTimeZone(token);
           if (canonical) return canonical;
         }
       }
     }
-    // Scan full identity block for any timezone token
-    for (const token of extractTimeZoneCandidates(identityBlock)) {
-      const canonical = canonicalizeTimeZone(token);
-      if (canonical) return canonical;
+    // Second pass: any timezone token in any identity item
+    for (const text of identityTexts) {
+      for (const token of extractTimeZoneCandidates(text)) {
+        const canonical = canonicalizeTimeZone(token);
+        if (canonical) return canonical;
+      }
     }
   }
 
@@ -284,30 +290,25 @@ function formatLocalDate(date: Date, timeZone: string): string {
 }
 
 /**
- * Format a Date as local ISO 8601 with timezone offset in the given timezone.
+ * Format HH:MM and UTC offset for the given instant in the given timezone.
  */
-function formatLocalIsoWithOffset(date: Date, timeZone: string): string {
+function formatCompactTimeAndOffset(
+  date: Date,
+  timeZone: string,
+): { time: string; offset: string } {
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
     hourCycle: "h23",
     timeZoneName: "shortOffset",
   });
   const parts = fmt.formatToParts(date);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const offset = normalizeOffsetToken(get("timeZoneName"));
-  const year = get("year");
-  const month = get("month");
-  const day = get("day");
   const hour = get("hour");
   const minute = get("minute");
-  const second = get("second");
-  return `${year}-${month}-${day}T${hour}:${minute}:${second}${offset}`;
+  const offset = normalizeOffsetToken(get("timeZoneName"));
+  return { time: `${hour}:${minute}`, offset };
 }
 
 /**
@@ -345,22 +346,23 @@ export function buildTemporalContext(
         : "assistant_host_fallback";
   const todayParts = localDateParts(now, timeZone);
   const todayStr = formatLocalDate(now, timeZone);
-  const todayWeekday = WEEKDAY_NAMES[todayParts.weekday];
+  const todayWeekday = WEEKDAY_SHORT[todayParts.weekday];
+  const { time, offset } = formatCompactTimeAndOffset(now, timeZone);
+
+  const tzSuffix =
+    timeZoneSource === "assistant_host_fallback" ? " (host fallback)" : "";
 
   const lines = [
     `<temporal_context>`,
-    `Today: ${todayStr} (${todayWeekday})`,
-    `Timezone: ${timeZone}`,
-    `Current local time: ${formatLocalIsoWithOffset(now, timeZone)}`,
-    `Current UTC time: ${now.toISOString()}`,
-    `Timezone source: ${timeZoneSource}`,
+    `Today: ${todayStr} (${todayWeekday}) ${time} ${offset}`,
+    `TZ: ${timeZone}${tzSuffix}`,
   ];
 
   if (userTimeZone && userTimeZone !== timeZone) {
-    lines.push(`User timezone: ${userTimeZone}`);
+    lines.push(`User TZ: ${userTimeZone}`);
   }
   if (resolvedHostTimeZone !== timeZone) {
-    lines.push(`Assistant host timezone: ${resolvedHostTimeZone}`);
+    lines.push(`Host TZ: ${resolvedHostTimeZone}`);
   }
 
   lines.push(`</temporal_context>`);

@@ -11,6 +11,8 @@ interface ContactChannel {
   type: string;
   address: string;
   isPrimary: boolean;
+  externalUserId?: string | null;
+  externalChatId?: string | null;
 }
 
 interface ContactResponse {
@@ -30,7 +32,11 @@ function formatContact(c: ContactResponse): string {
     lines.push("  Channels:");
     for (const ch of c.channels) {
       const primary = ch.isPrimary ? " (primary)" : "";
-      lines.push(`    - ${ch.type}: ${ch.address}${primary}`);
+      const extras: string[] = [];
+      if (ch.externalUserId) extras.push(`userId: ${ch.externalUserId}`);
+      if (ch.externalChatId) extras.push(`chatId: ${ch.externalChatId}`);
+      const extrasStr = extras.length > 0 ? ` (${extras.join(", ")})` : "";
+      lines.push(`    - ${ch.type}: ${ch.address}${primary}${extrasStr}`);
     }
   }
   return lines.join("\n");
@@ -53,7 +59,11 @@ export async function executeContactUpsert(
   }
 
   const rawChannels = input.channels as
-    | Array<{ type: string; address: string; is_primary?: boolean }>
+    | Array<{
+        type: string;
+        address: string;
+        is_primary?: boolean;
+      }>
     | undefined;
   const channels = rawChannels?.map((ch) => ({
     type: ch.type,

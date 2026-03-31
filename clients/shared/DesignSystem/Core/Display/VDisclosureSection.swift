@@ -79,7 +79,7 @@ public struct VDisclosureSection<Content: View>: View {
             if isExpanded {
                 content()
                     .padding(.top, VSpacing.sm)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
             }
         }
     }

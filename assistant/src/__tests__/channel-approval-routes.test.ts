@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeEach,
@@ -13,24 +10,6 @@ import {
 
 import { eq } from "drizzle-orm";
 
-// ---------------------------------------------------------------------------
-// Test isolation: in-memory SQLite via temp directory
-// ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "channel-approval-routes-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -42,6 +21,12 @@ mock.module("../util/logger.js", () => ({
 mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: (content: unknown) => ({
     text: typeof content === "string" ? content : JSON.stringify(content),
+    toolCalls: [],
+    toolCallsBeforeText: false,
+    textSegments: [],
+    contentOrder: [],
+    surfaces: [],
+    thinkingSegments: [],
   }),
 }));
 
@@ -77,11 +62,6 @@ initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------

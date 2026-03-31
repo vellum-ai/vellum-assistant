@@ -11,7 +11,6 @@
  * results with is_valid flag and detailed error descriptions.
  */
 
-import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { z } from "zod";
@@ -23,9 +22,8 @@ import { clearCache as clearTrustCache } from "../../permissions/trust-store.js"
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
-  getHooksDir,
-  getRootDir,
   getWorkspaceDir,
+  getWorkspaceHooksDir,
 } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -145,8 +143,9 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
 
   try {
     const { archive, manifest } = buildExportVBundle({
-      trustPath: join(getRootDir(), "protected", "trust.json"),
-      hooksDir: getHooksDir(),
+      // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
+      // and are included in the workspace walk. Passing hooksDir separately would
+      // export them twice (once as workspace/hooks/... and again as hooks/...).
       workspaceDir: getWorkspaceDir(),
       source: "runtime-export",
       description,
@@ -301,11 +300,9 @@ export async function handleMigrationImportPreflight(
       });
     }
 
-    // Step 2: Analyze what would change on import
     const pathResolver = new DefaultPathResolver(
-      join(getRootDir(), "protected"),
       getWorkspaceDir(),
-      getHooksDir(),
+      getWorkspaceHooksDir(),
     );
 
     const report = analyzeImport({
@@ -386,9 +383,8 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     }
 
     const pathResolver = new DefaultPathResolver(
-      join(getRootDir(), "protected"),
       getWorkspaceDir(),
-      getHooksDir(),
+      getWorkspaceHooksDir(),
     );
 
     // Close the live SQLite connection before overwriting assistant.db on disk.

@@ -9,9 +9,6 @@
  * no candidates are found and injectedText is empty. The tests verify
  * pipeline completion, latency bounds, and token budget enforcement.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -21,19 +18,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "mem-retrieval-bench-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -172,11 +156,6 @@ describe("Memory retrieval benchmark", () => {
 
   afterAll(() => {
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
   });
 
   test("retrieval completes under 500ms for 100 items", async () => {

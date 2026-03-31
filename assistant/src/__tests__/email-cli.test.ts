@@ -4,21 +4,21 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Test isolation: override BASE_DATA_DIR so guardrails state uses a temp dir
+// Test isolation: override VELLUM_WORKSPACE_DIR so guardrails state uses a temp dir
 // ---------------------------------------------------------------------------
 const testDir = join(tmpdir(), `email-cli-test-${Date.now()}`);
-const originalBaseDataDir = process.env.BASE_DATA_DIR;
+const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 
 beforeEach(() => {
   mkdirSync(testDir, { recursive: true });
-  process.env.BASE_DATA_DIR = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
 });
 
 afterEach(() => {
-  if (originalBaseDataDir === undefined) {
-    delete process.env.BASE_DATA_DIR;
+  if (originalWorkspaceDir === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
-    process.env.BASE_DATA_DIR = originalBaseDataDir;
+    process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
   }
   try {
     rmSync(testDir, { recursive: true, force: true });

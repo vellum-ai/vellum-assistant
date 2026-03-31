@@ -69,6 +69,14 @@ export interface OAuthConnectOptions {
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
 
   /**
+   * Callback transport to use for the OAuth redirect.
+   * - `"loopback"` — start a local HTTP server (desktop clients).
+   * - `"gateway"` — use the public gateway ingress (web clients).
+   * Defaults to `"loopback"` when omitted.
+   */
+  callbackTransport?: "loopback" | "gateway";
+
+  /**
    * Called when the deferred (non-interactive) flow completes — either
    * successfully after tokens are stored, or on failure. Lets callers
    * surface the outcome via SSE events, logs, etc.
@@ -142,9 +150,8 @@ export async function orchestrateOAuthConnect(
   const tokenEndpointAuthMethod = providerRow.tokenEndpointAuthMethod as
     | TokenEndpointAuthMethod
     | undefined;
-  const callbackTransport =
-    (providerRow.callbackTransport as "loopback" | "gateway" | null) ??
-    "loopback";
+  const callbackTransport: "loopback" | "gateway" =
+    options.callbackTransport ?? "loopback";
   const loopbackPort = providerRow.loopbackPort ?? undefined;
 
   // Resolve scopes via the scope policy engine

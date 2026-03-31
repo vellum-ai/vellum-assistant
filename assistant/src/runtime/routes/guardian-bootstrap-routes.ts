@@ -93,24 +93,18 @@ export async function handleGuardianBootstrap(
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 
-  // Reject requests forwarded from public networks. The gateway sets
-  // x-forwarded-for to the real client IP; if that IP is on a private
-  // network (loopback, Docker bridge, RFC 1918) the request is still
-  // considered local. Only reject when the forwarded IP is public.
+  // In non-containerized mode, any x-forwarded-for header means the request
+  // came through the gateway from a non-loopback client. Legitimate bare-metal
+  // bootstrap clients connect from localhost; the gateway does not inject
+  // x-forwarded-for for loopback peers (see gateway/src/index.ts). Reject
+  // forwarded requests to prevent LAN-adjacent clients from bootstrapping.
   //
-  // Skip this check when running in a container: the peer IP was already
-  // validated above (Docker bridge network = private), so the request
-  // reached us through a co-located gateway. The x-forwarded-for header
-  // reflects the original external client (e.g. platform proxy) and is
-  // not meaningful for local-only enforcement in this topology.
+  // In containerized mode, skip this check: the peer IP was already validated
+  // above (Docker bridge network = private), and the x-forwarded-for header
+  // reflects the original external client which is not meaningful for
+  // local-only enforcement in this topology.
   const forwarded = req.headers.get("x-forwarded-for");
-  const forwardedIp = forwarded ? forwarded.split(",")[0].trim() : null;
-  if (
-    forwardedIp &&
-    !isPrivateAddress(forwardedIp) &&
-    !isHttpAuthDisabled() &&
-    !getIsContainerized()
-  ) {
+  if (forwarded && !isHttpAuthDisabled() && !getIsContainerized()) {
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 

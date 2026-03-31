@@ -1,26 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "http-conversation-lineage-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => join(testDir, ".vellum"),
-  getDataDir: () => join(testDir, ".vellum", "workspace", "data"),
-  getWorkspaceDir: () => join(testDir, ".vellum", "workspace"),
-  getConversationsDir: () =>
-    join(testDir, ".vellum", "workspace", "conversations"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -86,11 +64,6 @@ describe("conversation lineage in HTTP reads", () => {
   afterAll(async () => {
     await server?.stop();
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("GET /v1/conversations returns forkParent for surviving parents", async () => {

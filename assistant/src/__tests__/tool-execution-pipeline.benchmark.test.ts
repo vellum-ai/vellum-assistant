@@ -15,30 +15,14 @@
  * - Secret scanning < 50ms for large outputs (100KB)
  * - ToolExecutor overhead < 20ms regardless of tool execution time
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "tool-pipeline-bench-"));
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 // Local registry for ToolExecutor tests — the mock delegates to this map
 // so that registerTool/getTool/getAllTools work for our benchmark tools.
 const localRegistry = new Map<string, import("../tools/types.js").Tool>();
 
 // Mocks must precede imports of modules under test.
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  getHooksDir: () => join(testDir, "hooks"),
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -192,14 +176,6 @@ describe("Tool execution pipeline benchmark", () => {
     }
   });
 
-  afterAll(() => {
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
-  });
-
   test("classifyRisk: low-risk tool (file_read) is fast", async () => {
     const { timings } = await benchmarkAsync(
       () => classifyRisk("file_read", { path: "/tmp/test.ts" }, "/tmp"),
@@ -237,7 +213,7 @@ describe("Tool execution pipeline benchmark", () => {
 
     const p50 = percentile(timings, 50);
     expect(p50).toBeLessThan(5);
-    expect(results[0]).toBe(RiskLevel.Medium);
+    expect(results[0]).toBe(RiskLevel.Low);
   });
 
   test("check: full permission check for low-risk tool", async () => {

@@ -18,6 +18,14 @@ import type {
 
 const log = getLogger("retry");
 
+/** Providers that support the `effort` config (extended thinking / reasoning). */
+const EFFORT_SUPPORTED_PROVIDERS = new Set([
+  "anthropic",
+  "openai",
+  "openrouter",
+  "fireworks",
+]);
+
 /** Patterns that indicate a transient streaming corruption from the SDK. */
 const RETRYABLE_STREAM_PATTERNS = [
   "Unexpected event order",
@@ -59,13 +67,16 @@ function normalizeSendMessageOptions(
   const needsThinkingStrip =
     providerName !== "anthropic" && config.thinking !== undefined;
   const needsEffortStrip =
-    providerName !== "anthropic" && config.effort !== undefined;
+    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) && config.effort !== undefined;
+  const needsSpeedStrip =
+    providerName !== "anthropic" && config.speed !== undefined;
 
   if (
     !hasIntent &&
     explicitModel === config.model &&
     !needsThinkingStrip &&
-    !needsEffortStrip
+    !needsEffortStrip &&
+    !needsSpeedStrip
   ) {
     return options;
   }
@@ -78,9 +89,17 @@ function normalizeSendMessageOptions(
     delete nextConfig.thinking;
   }
 
-  // effort is Anthropic-specific; strip it for other providers
-  if (providerName !== "anthropic" && nextConfig.effort !== undefined) {
+  // effort is supported by Anthropic, OpenAI, and OpenAI-compatible providers; strip for others
+  if (
+    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
+    nextConfig.effort !== undefined
+  ) {
     delete nextConfig.effort;
+  }
+
+  // speed (fast mode) is Anthropic-specific; strip for other providers
+  if (providerName !== "anthropic" && nextConfig.speed !== undefined) {
+    delete nextConfig.speed;
   }
 
   if (explicitModel) {

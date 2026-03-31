@@ -74,7 +74,6 @@ final class MessageListForkActionTests: XCTestCase {
             conversationId: nil,
             anchorMessageId: .constant(nil),
             highlightedMessageId: .constant(nil),
-            isNearBottom: .constant(true),
             containerWidth: 0
         )
     }

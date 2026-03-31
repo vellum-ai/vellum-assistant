@@ -1,20 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "channel-delivery-store-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -29,7 +13,7 @@ import {
   getConversationByKey,
   setConversationKey,
 } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   clearPayload,
   findMessageBySourceId,
@@ -55,15 +39,6 @@ import {
 import { handleDeleteConversation } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 function resetTables() {
   const db = getDb();

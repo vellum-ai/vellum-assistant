@@ -24,6 +24,7 @@ export interface AgentLoopConfig {
   maxInputTokens?: number; // context window size for tool result truncation
   thinking?: { enabled: boolean };
   effort: "low" | "medium" | "high" | "max";
+  speed?: "standard" | "fast";
   toolChoice?:
     | { type: "auto" }
     | { type: "any" }
@@ -246,6 +247,10 @@ export class AgentLoop {
           providerConfig.effort = this.config.effort;
         }
 
+        if (this.config.speed && this.config.speed !== "standard") {
+          providerConfig.speed = this.config.speed;
+        }
+
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
         }
@@ -396,7 +401,7 @@ export class AgentLoop {
         );
 
         // Check if the assistant turn contained any visible text (used for
-        // both the empty-response nudge and the anti-repetition notice).
+        // the empty-response nudge).
         const hasTextBlock = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
@@ -598,14 +603,6 @@ export class AgentLoop {
           resultBlocks.push({
             type: "text",
             text: "<system_notice>One or more tool calls returned an error. If the error looks recoverable (e.g. missing or invalid parameters), fix the parameters and retry. If the error is clearly unrecoverable (e.g. a service is down, a resource does not exist, or a permission is permanently denied), report it to the user.</system_notice>",
-          });
-        }
-
-        // Remind the LLM not to repeat text it already streamed
-        if (hasTextBlock) {
-          resultBlocks.push({
-            type: "text",
-            text: '<system_notice>Your previous text was already shown to the user in real time. Do not repeat or rephrase it. Do not narrate retries or internal process chatter ("let me try", "that didn\'t work"). Keep working with tools silently unless you need user input, and only send user-facing text when you have concrete progress or final results.</system_notice>',
           });
         }
 

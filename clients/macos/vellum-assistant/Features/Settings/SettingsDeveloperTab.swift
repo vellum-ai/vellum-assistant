@@ -119,31 +119,6 @@ struct SettingsDeveloperTab: View {
                 revokeAssistantApiKeySection
             }
 
-            // Dangerously Skip Permissions
-            SettingsCard(title: "Dangerously Skip Permissions", subtitle: "Auto-accept all permission prompts without asking. The assistant will never pause for approval — use with caution.") {
-                let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
-                let isDisabled = (assistant?.isRemote ?? false) && !(assistant?.isDocker ?? false)
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    VToggle(isOn: Binding(
-                        get: { store.dangerouslySkipPermissions },
-                        set: { store.setDangerouslySkipPermissions($0) }
-                    ))
-                    .accessibilityLabel("Dangerously Skip Permissions")
-                    .disabled(isDisabled)
-                    .padding(.top, 2)
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Skip all permission prompts")
-                            .font(VFont.bodyMediumLighter)
-                            .foregroundStyle(VColor.contentSecondary)
-                        Text(isDisabled
-                            ? "This setting cannot be changed for remote assistants."
-                            : "When enabled, tools execute immediately without asking for approval. Explicit deny rules are still respected.")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                }
-            }
-
             // Permission Simulator
             if let model = testerModel {
                 ToolPermissionTesterView(model: model)
@@ -157,16 +132,16 @@ struct SettingsDeveloperTab: View {
             sentryTestingSection
         }
         .onAppear {
-            // Fetch skip-permissions state for Docker assistants
-            store.refreshDangerouslySkipPermissions()
-
             // Assistant info setup
-            lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
-            Task { await refreshAwakeStates() }
-            refreshDisplayNames()
-            identity = IdentityInfo.load()
-            resolvePlatformUuid()
+            Task {
+                let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
+                lockfileAssistants = assistants
+                refreshDisplayNames()
+                resolvePlatformUuid()
+                await refreshAwakeStates()
+            }
+            Task { identity = await IdentityInfo.loadAsync() }
             Task { await fetchHealthz() }
 
             // Advanced dev setup
@@ -554,9 +529,7 @@ struct SettingsDeveloperTab: View {
                             Text(displayLabel(for: assistant))
                                 .font(VFont.bodyMediumDefault)
                                 .foregroundStyle(VColor.contentDefault)
-                            Text(displayNames[assistant.assistantId] != nil
-                                ? "\(assistant.assistantId) · \(assistant.home.displayLabel)"
-                                : assistant.home.displayLabel)
+                            Text(assistantSubtitle(for: assistant))
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
@@ -575,7 +548,6 @@ struct SettingsDeveloperTab: View {
                         placeholder: "",
                         selection: $selectedAssistantId,
                         options: awakeAssistants.map { (label: displayLabel(for: $0), value: $0.assistantId) },
-                        size: .small,
                         maxWidth: 200
                     )
                 }
@@ -614,6 +586,18 @@ struct SettingsDeveloperTab: View {
 
     private func displayLabel(for assistant: LockfileAssistant) -> String {
         displayNames[assistant.assistantId] ?? assistant.assistantId
+    }
+
+    private func assistantSubtitle(for assistant: LockfileAssistant) -> String {
+        var parts: [String] = []
+        if displayNames[assistant.assistantId] != nil {
+            parts.append(assistant.assistantId)
+        }
+        parts.append(assistant.home.displayLabel)
+        if assistant.isManaged, let runtimeUrl = assistant.runtimeUrl, !runtimeUrl.isEmpty {
+            parts.append(runtimeUrl)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func refreshAwakeStates() async {

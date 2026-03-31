@@ -100,14 +100,15 @@ extension ComposerView {
 
 extension ComposerView {
     func openAttachmentPreview(_ attachment: ChatAttachment) {
-        // Prefer pre-decoded thumbnail, fall back to decoding base64 data
+        // Prefer full-resolution data for the lightbox, fall back to thumbnail
         let image: NSImage?
-        if let thumbnail = attachment.thumbnailImage {
+        if !attachment.data.isEmpty,
+           let data = Data(base64Encoded: attachment.data),
+           !data.isEmpty,
+           let fullRes = NSImage(data: data) {
+            image = fullRes
+        } else if let thumbnail = attachment.thumbnailImage {
             image = thumbnail
-        } else if !attachment.data.isEmpty,
-                  let data = Data(base64Encoded: attachment.data),
-                  !data.isEmpty {
-            image = NSImage(data: data)
         } else {
             image = nil
         }

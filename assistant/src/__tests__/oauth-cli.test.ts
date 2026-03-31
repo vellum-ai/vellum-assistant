@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
@@ -88,6 +88,10 @@ let mockGetCredentialMetadata: (
   service: string,
   field: string,
 ) => Record<string, unknown> | undefined = () => undefined;
+let mockPlatformClientCreate: () => Promise<Record<
+  string,
+  unknown
+> | null> = async () => null;
 
 // ---------------------------------------------------------------------------
 // Mock token-manager
@@ -236,8 +240,41 @@ mock.module("../oauth/connection-resolver.js", () => ({
 
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
-    create: async () => null,
+    create: () => mockPlatformClientCreate(),
   },
+}));
+
+// ---------------------------------------------------------------------------
+// Mock config/loader (needed by isManagedMode in shared.ts)
+// ---------------------------------------------------------------------------
+
+let mockGetConfig: () => Record<string, unknown> = () => ({
+  services: {},
+});
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => mockGetConfig(),
+  loadConfig: () => mockGetConfig(),
+  saveConfig: () => {},
+  invalidateConfigCache: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  applyNestedDefaults: (c: unknown) => c,
+  deepMergeMissing: (a: unknown) => a,
+  deepMergeOverwrite: (a: unknown) => a,
+  mergeDefaultWorkspaceConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  API_KEY_PROVIDERS: [
+    "anthropic",
+    "openai",
+    "gemini",
+    "ollama",
+    "fireworks",
+    "openrouter",
+    "brave",
+    "perplexity",
+  ],
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -260,6 +297,8 @@ mock.module("../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 const { registerOAuthCommand } = await import("../cli/commands/oauth/index.js");
+const { requirePlatformClient, requirePlatformConnection } =
+  await import("../cli/commands/oauth/shared.js");
 
 // ---------------------------------------------------------------------------
 // Test helper
@@ -949,5 +988,328 @@ describe("assistant oauth ping <provider-key>", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("No access token");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// oauth connect — managed mode 401/403 error messages
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth connect managed mode — platform 401/403 errors", () => {
+  /**
+   * Helper: create a mock platform client whose `fetch` always returns the
+   * given status code and body text.
+   */
+  function makeMockPlatformClient(status: number, body = "") {
+    return {
+      platformAssistantId: "asst-test-123",
+      fetch: async () =>
+        new Response(body, { status, statusText: `HTTP ${status}` }),
+    };
+  }
+
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockOrchestrateOAuthConnect = async () => ({
+      success: true,
+      deferred: false,
+      grantedScopes: [],
+    });
+    mockGetAppByProviderAndClientId = () => undefined;
+    mockGetMostRecentAppByProvider = () => undefined;
+    mockGetSecureKey = () => undefined;
+    mockGetCredentialMetadata = () => undefined;
+
+    // Set up managed mode: provider has managedServiceConfigKey, config
+    // returns the matching service with mode "managed".
+    mockGetProvider = () => ({
+      providerKey: "google",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      managedServiceConfigKey: "google-oauth",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    mockGetConfig = () => ({
+      services: {
+        "google-oauth": { mode: "managed" },
+      },
+    });
+  });
+
+  afterEach(() => {
+    mockPlatformClientCreate = async () => null;
+    mockGetConfig = () => ({ services: {} });
+  });
+
+  test("401 response includes 'vellum platform connect' suggestion", async () => {
+    mockPlatformClientCreate = async () =>
+      makeMockPlatformClient(401, "Unauthorized");
+    const { exitCode, stdout } = await runCli([
+      "connect",
+      "google",
+      "--no-browser",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Platform returned HTTP 401");
+    expect(parsed.error).toContain("Unauthorized");
+    expect(parsed.error).toContain("vellum platform connect");
+  });
+
+  test("403 response includes 'vellum platform connect' suggestion", async () => {
+    mockPlatformClientCreate = async () =>
+      makeMockPlatformClient(403, "Forbidden");
+    const { exitCode, stdout } = await runCli([
+      "connect",
+      "google",
+      "--no-browser",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Platform returned HTTP 403");
+    expect(parsed.error).toContain("Forbidden");
+    expect(parsed.error).toContain("vellum platform connect");
+  });
+
+  test("500 response does NOT include 'vellum platform connect' suggestion", async () => {
+    mockPlatformClientCreate = async () =>
+      makeMockPlatformClient(500, "Internal Server Error");
+    const { exitCode, stdout } = await runCli([
+      "connect",
+      "google",
+      "--no-browser",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Platform returned HTTP 500");
+    expect(parsed.error).not.toContain("vellum platform connect");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requirePlatformClient — improved error messages
+// ---------------------------------------------------------------------------
+
+describe("requirePlatformClient", () => {
+  test("returns error mentioning 'vellum platform connect' when not connected", async () => {
+    mockPlatformClientCreate = async () => null;
+    const stdoutChunks: string[] = [];
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    process.exitCode = 0;
+
+    try {
+      const cmd = new Command();
+      cmd.option("--json");
+      cmd.parse(["node", "test", "--json"]);
+      const result = await requirePlatformClient(cmd);
+      expect(result).toBeNull();
+      expect(process.exitCode).toBe(1);
+      const output = stdoutChunks.join("");
+      const parsed = JSON.parse(output);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("vellum platform connect");
+      expect(parsed.error).toContain("Not connected");
+    } finally {
+      process.stdout.write = originalWrite;
+      process.exitCode = 0;
+    }
+  });
+
+  test("returns distinct error when connected but missing assistant ID", async () => {
+    mockPlatformClientCreate = async () => ({
+      platformAssistantId: "",
+      fetch: async () => new Response(),
+    });
+    const stdoutChunks: string[] = [];
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    process.exitCode = 0;
+
+    try {
+      const cmd = new Command();
+      cmd.option("--json");
+      cmd.parse(["node", "test", "--json"]);
+      const result = await requirePlatformClient(cmd);
+      expect(result).toBeNull();
+      expect(process.exitCode).toBe(1);
+      const output = stdoutChunks.join("");
+      const parsed = JSON.parse(output);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("no assistant ID is configured");
+      expect(parsed.error).toContain("registered on the platform");
+    } finally {
+      process.stdout.write = originalWrite;
+      process.exitCode = 0;
+    }
+  });
+
+  test("returns client when connected with assistant ID", async () => {
+    mockPlatformClientCreate = async () => ({
+      platformAssistantId: "asst-123",
+      fetch: async () => new Response(),
+    });
+    process.exitCode = 0;
+
+    const cmd = new Command();
+    cmd.option("--json");
+    cmd.parse(["node", "test", "--json"]);
+    const result = await requirePlatformClient(cmd);
+    expect(result).not.toBeNull();
+    expect(result!.platformAssistantId).toBe("asst-123");
+    expect(process.exitCode).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requirePlatformConnection
+// ---------------------------------------------------------------------------
+
+describe("requirePlatformConnection", () => {
+  test("returns false and writes error when not connected", async () => {
+    mockPlatformClientCreate = async () => null;
+    const stdoutChunks: string[] = [];
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    process.exitCode = 0;
+
+    try {
+      const cmd = new Command();
+      cmd.option("--json");
+      cmd.parse(["node", "test", "--json"]);
+      const result = await requirePlatformConnection(cmd);
+      expect(result).toBe(false);
+      expect(process.exitCode).toBe(1);
+      const output = stdoutChunks.join("");
+      const parsed = JSON.parse(output);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("vellum platform connect");
+      expect(parsed.error).toContain("Not connected");
+    } finally {
+      process.stdout.write = originalWrite;
+      process.exitCode = 0;
+    }
+  });
+
+  test("returns true when client can be created (even without assistant ID)", async () => {
+    mockPlatformClientCreate = async () => ({
+      platformAssistantId: "",
+      fetch: async () => new Response(),
+    });
+    process.exitCode = 0;
+
+    const cmd = new Command();
+    cmd.option("--json");
+    cmd.parse(["node", "test", "--json"]);
+    const result = await requirePlatformConnection(cmd);
+    expect(result).toBe(true);
+    expect(process.exitCode).toBe(0);
+  });
+
+  test("returns true when client can be created with assistant ID", async () => {
+    mockPlatformClientCreate = async () => ({
+      platformAssistantId: "asst-456",
+      fetch: async () => new Response(),
+    });
+    process.exitCode = 0;
+
+    const cmd = new Command();
+    cmd.option("--json");
+    cmd.parse(["node", "test", "--json"]);
+    const result = await requirePlatformConnection(cmd);
+    expect(result).toBe(true);
+    expect(process.exitCode).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// oauth mode — platform connection guard
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth mode", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockGetProvider = () => ({
+      providerKey: "google",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      managedServiceConfigKey: "google-oauth",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    mockGetConfig = () => ({
+      services: {
+        "google-oauth": { mode: "your-own" },
+      },
+    });
+  });
+
+  afterEach(() => {
+    mockPlatformClientCreate = async () => null;
+    mockGetConfig = () => ({ services: {} });
+    mockGetProvider = () => undefined;
+  });
+
+  test("oauth mode <provider> --set managed fails when not connected to platform", async () => {
+    mockPlatformClientCreate = async () => null;
+    const { exitCode, stdout } = await runCli([
+      "mode",
+      "google",
+      "--set",
+      "managed",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("vellum platform connect");
+  });
+
+  test("oauth mode <provider> --set your-own succeeds without platform connection", async () => {
+    mockPlatformClientCreate = async () => null;
+    const { exitCode, stdout } = await runCli([
+      "mode",
+      "google",
+      "--set",
+      "your-own",
+      "--json",
+    ]);
+    // Setting to "your-own" doesn't need platform — it's a local-only operation
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.mode).toBe("your-own");
+  });
+
+  test("oauth mode <provider> (read) succeeds without platform connection", async () => {
+    mockPlatformClientCreate = async () => null;
+    const { exitCode, stdout } = await runCli(["mode", "google", "--json"]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.provider).toBe("google");
+    expect(parsed.mode).toBe("your-own");
   });
 });

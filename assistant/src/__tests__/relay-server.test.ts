@@ -14,9 +14,6 @@
  * - Malformed message resilience
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeEach,
@@ -28,23 +25,7 @@ import {
   test,
 } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "relay-server-test-"));
-
 // ── Platform + logger mocks (must come before any source imports) ────
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realLogger = require("../util/logger.js");
@@ -162,7 +143,7 @@ mock.module("../providers/registry.js", () => {
         gemini: "gemini-3-flash",
         ollama: "llama3.2",
         fireworks: "accounts/fireworks/models/kimi-k2p5",
-        openrouter: "x-ai/grok-4",
+        openrouter: "x-ai/grok-4.20-beta",
       };
       return defaults[providerName] ?? defaults.anthropic;
     },
@@ -214,11 +195,6 @@ initializeDb();
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ── Mock WebSocket factory ──────────────────────────────────────────

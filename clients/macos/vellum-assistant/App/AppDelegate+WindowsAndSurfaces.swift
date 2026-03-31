@@ -297,6 +297,8 @@ extension AppDelegate {
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            PTTActivator.updateCache(PTTActivator.fromStored())
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -341,6 +343,8 @@ extension AppDelegate {
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            PTTActivator.updateCache(PTTActivator.fromStored())
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -376,24 +380,14 @@ extension AppDelegate {
     }
 
     /// Returns `true` when `~/.vellum.lock.json` contains at least one
-    /// assistant entry.
+    /// assistant entry that belongs to the current platform environment.
+    /// Cross-environment managed assistants (e.g. dev-platform in a
+    /// production build) are excluded.
     func lockfileHasAssistants() -> Bool {
-        let primaryPath = LockfilePaths.primaryPath
-        let fileExists = FileManager.default.fileExists(atPath: primaryPath)
-        log.info("[lockfileCheck] primaryPath=\(primaryPath, privacy: .public) exists=\(fileExists)")
-
-        guard let json = LockfilePaths.read() else {
-            log.warning("[lockfileCheck] LockfilePaths.read() returned nil")
-            return false
-        }
-
-        guard let assistants = json["assistants"] as? [[String: Any]] else {
-            log.warning("[lockfileCheck] lockfile has no 'assistants' array")
-            return false
-        }
-
-        log.info("[lockfileCheck] found \(assistants.count) assistant(s)")
-        return !assistants.isEmpty
+        let all = LockfileAssistant.loadAll()
+        let valid = all.filter { $0.isCurrentEnvironment }
+        log.info("[lockfileCheck] found \(all.count) assistant(s), \(valid.count) in current environment")
+        return !valid.isEmpty
     }
 
     /// Check whether the local gateway is healthy by hitting its /healthz endpoint.
@@ -440,6 +434,8 @@ extension AppDelegate {
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            PTTActivator.updateCache(PTTActivator.fromStored())
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -685,5 +681,28 @@ extension AppDelegate {
             services.settingsStore.pendingSettingsTab = settingsTab
         }
         showSettingsWindow(nil)
+    }
+
+    /// Triggers the platform login flow (WorkOS) in response to a
+    /// `show_platform_login` event from the daemon. On success, re-bootstraps
+    /// actor credentials and the local assistant API key, mirroring the
+    /// post-login flow in SettingsPanel and MainWindowView.
+    public func showPlatformLogin() {
+        Task {
+            await authManager.loginWithToast(showToast: { [weak self] msg, style in
+                self?.mainWindow?.windowState.showToast(message: msg, style: style)
+            }, onSuccess: { [weak self] in
+                guard let self else { return }
+                if !self.isCurrentAssistantManaged {
+                    self.ensureActorCredentials()
+                }
+                self.localBootstrapDidComplete = false
+                self.ensureLocalAssistantApiKey()
+
+                if self.isCurrentAssistantManaged {
+                    self.reconnectManagedAssistant()
+                }
+            })
+        }
     }
 }

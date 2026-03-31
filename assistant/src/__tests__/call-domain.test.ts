@@ -7,24 +7,7 @@
  * - Voice-ingress preflight blocks doomed outbound calls before Twilio dialing.
  * - Pointer messages are written on successful call start and on failure.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "call-domain-test-")));
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -39,7 +22,6 @@ let twilioInitiateCallCount = 0;
 let twilioInitiateCallArgs: Array<Record<string, unknown>> = [];
 let mockIngressEnabled = true;
 let mockIngressPublicBaseUrl = "https://test.example.com";
-
 
 mock.module("../calls/twilio-config.js", () => ({
   getTwilioConfig: (assistantId?: string) => ({
@@ -120,7 +102,6 @@ mock.module("../memory/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
-
 mock.module("../daemon/handlers/config-ingress.js", () => ({
   computeGatewayTarget: () => "http://127.0.0.1:7830",
   handleIngressConfig: async () => {},
@@ -139,7 +120,7 @@ import {
 } from "../calls/call-domain.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();
@@ -203,15 +184,6 @@ function getLatestAssistantText(conversationId: string): string | null {
   }
   return latest.content;
 }
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 function makeConfig(
   overrides: {
@@ -396,7 +368,6 @@ describe("startCall — pointer message regression", () => {
     expect(text!).toContain("+15559876543");
     expect(text!).toContain("failed");
   });
-
 
   test("failed call writes a failed pointer to the initiating conversation", async () => {
     const convId = "conv-domain-ptr-fail";

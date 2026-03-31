@@ -6,28 +6,9 @@
  * from the daemon's internal ID), fails to find the conversation, and
  * silently ignores the cancel — leaving the stream running.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "cancel-resolve-key-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -62,19 +43,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb, resetDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db.js";
 import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 describe("POST /v1/conversations/:id/cancel", () => {
   test("resolves conversation key to internal ID before cancelling", () => {

@@ -1,20 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "oauth-store-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => ":memory:",
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -94,11 +78,6 @@ beforeEach(() => {
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    // best-effort cleanup
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -229,7 +208,6 @@ describe("provider operations", () => {
           userinfoUrl: "https://api.github.com/user",
           baseUrl: "https://api.github.com",
           extraParams: { prompt: "consent" },
-          callbackTransport: "loopback",
 
           pingUrl: "https://api.github.com/user",
         },
@@ -270,7 +248,6 @@ describe("provider operations", () => {
           userinfoUrl: "https://api.github.com/user-v2",
           baseUrl: "https://api.github.com/v2",
           extraParams: { prompt: "login" },
-          callbackTransport: "gateway",
 
           pingUrl: "https://api.github.com/user-v2",
         },
@@ -293,7 +270,6 @@ describe("provider operations", () => {
       expect(row!.tokenEndpointAuthMethod).toBe("client_secret_basic");
       expect(row!.userinfoUrl).toBe("https://api.github.com/user-v2");
       expect(JSON.parse(row!.extraParams!)).toEqual({ prompt: "login" });
-      expect(row!.callbackTransport).toBe("gateway");
       expect(row!.pingUrl).toBe("https://api.github.com/user-v2");
     });
   });
@@ -307,14 +283,12 @@ describe("provider operations", () => {
           tokenUrl: "https://github.com/token",
           defaultScopes: ["repo"],
           scopePolicy: {},
-          callbackTransport: "loopback",
         },
       ]);
 
       const row = getProvider("github");
       expect(row).toBeDefined();
       expect(row!.providerKey).toBe("github");
-      expect(row!.callbackTransport).toBe("loopback");
     });
 
     test("returns undefined for unknown keys", () => {

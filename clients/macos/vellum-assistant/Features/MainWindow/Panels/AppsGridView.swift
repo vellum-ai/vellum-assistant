@@ -45,29 +45,13 @@ struct AppsGridView: View {
     private let maxContentWidth: CGFloat = 1400
 
     var body: some View {
-        Group {
+        VPageContainer(title: "Library") {
             if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared && hasFetchedLocalApps {
                 noAppsEmptyState
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Header
-                    HStack(alignment: .center) {
-                        Text("Library")
-                            .font(VFont.titleLarge)
-                            .foregroundStyle(VColor.contentDefault)
-                        Spacer()
-                    }
-                    .padding(.bottom, VSpacing.md)
-
-                    Divider().background(VColor.borderBase)
-
-                    mainContent
-                }
-                .padding(VSpacing.xl)
+                mainContent
             }
         }
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .onAppear {
             if !hasFetchedShared { fetchSharedApps() }
             if !hasFetchedLocalApps { refreshLocalAppsFromDaemon() }
@@ -95,7 +79,7 @@ struct AppsGridView: View {
 
     private var mainContent: some View {
         ScrollView {
-            VStack(spacing: VSpacing.xxl) {
+            VStack(spacing: VSpacing.xl) {
                 searchBar
 
                 let pinned = filteredPinnedApps
@@ -131,7 +115,6 @@ struct AppsGridView: View {
             }
             .frame(maxWidth: maxContentWidth)
             .frame(maxWidth: .infinity)
-            .padding(.top, VSpacing.lg)
         }
     }
 
@@ -169,7 +152,7 @@ struct AppsGridView: View {
             )
             onOpenApp(app.id)
         } label: {
-            VStack(alignment: .leading, spacing: VSpacing.xl) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 // Preview thumbnail or icon placeholder — all corners rounded.
                 // Use a sized container with .overlay so .fill images don't overflow.
                 Group {
@@ -277,7 +260,7 @@ struct AppsGridView: View {
 
 
                 // Name + date below the image
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(app.name)
                         .font(VFont.bodyLargeEmphasised)
                         .foregroundStyle(VColor.contentDefault)

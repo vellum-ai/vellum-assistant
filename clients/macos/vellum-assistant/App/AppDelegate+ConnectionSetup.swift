@@ -20,15 +20,26 @@ extension AppDelegate {
     /// to the correct assistant.
     ///
     /// Returns the loaded assistant for transport selection, or nil if none found.
+    /// Rejects managed assistants from a different platform environment (e.g.
+    /// dev-platform assistants in a production build) and falls back to the
+    /// first valid current-environment assistant.
     @discardableResult
     func loadAssistantFromLockfile() -> LockfileAssistant? {
         let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant: LockfileAssistant?
+        var assistant: LockfileAssistant?
 
         if let storedId, let found = LockfileAssistant.loadByName(storedId) {
             assistant = found
         } else {
             assistant = LockfileAssistant.loadLatest()
+        }
+
+        // If the resolved assistant is from a different platform environment,
+        // clear the stale stored ID and fall back to any valid assistant.
+        if let resolved = assistant, !resolved.isCurrentEnvironment {
+            log.info("Stored assistant \(resolved.assistantId, privacy: .public) is cross-environment — searching for fallback")
+            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+            assistant = LockfileAssistant.loadAll().first { $0.isCurrentEnvironment }
         }
 
         guard let assistant else { return nil }
@@ -94,13 +105,6 @@ extension AppDelegate {
         hasSetupDaemon = true
 
         let assistant = loadAssistantFromLockfile()
-
-        // Seed AuthService with the platform URL from the lockfile so that any
-        // platform API calls before the daemon connects (e.g. organization
-        // resolution during managed bootstrap) use the correct URL.
-        if let assistant, assistant.isManaged, let runtimeUrl = assistant.runtimeUrl, !runtimeUrl.isEmpty {
-            AuthService.shared.configuredBaseURL = runtimeUrl
-        }
 
         configureDaemonTransport(for: assistant)
 
@@ -198,11 +202,10 @@ extension AppDelegate {
                     }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
-                case .acpPermissionRequest(let msg):
-                    if self.acpPermissionWindow == nil {
-                        self.acpPermissionWindow = AcpPermissionWindow()
-                    }
-                    self.acpPermissionWindow?.show(message: msg)
+                case .showPlatformLogin:
+                    self.showPlatformLogin()
+                case .platformDisconnected:
+                    self.performLogout()
                 case .pairingApprovalRequest(let msg):
                     if self.pairingApprovalWindow == nil {
                         self.pairingApprovalWindow = PairingApprovalWindow()
@@ -563,7 +566,7 @@ extension AppDelegate {
             UserDefaults.standard.set(currentVersion, forKey: "preUpdateVersion")
 
             // Stop daemon before app replacement
-            self.vellumCli.stop()
+            await self.vellumCli.stop()
         }
         updateManager.startAutomaticChecks()
     }
@@ -576,8 +579,10 @@ extension AppDelegate {
     /// Skipped when dev mode is active (developers manage their own PATH)
     /// or when `vellum` already resolves to a different executable
     /// (avoids overwriting a developer's locally-built binary).
-    func installCLISymlinkIfNeeded() {
-        guard !DevModeManager.shared.isDevMode else { return }
+    /// Installs CLI symlinks if needed. Designed to run off the main thread
+    /// (Process.waitUntilExit internally blocks on a DispatchSemaphore).
+    nonisolated static func installCLISymlinkIfNeeded(isDevMode: Bool) {
+        guard !isDevMode else { return }
 
         guard let execURL = Bundle.main.executableURL else { return }
         let macosDir = execURL.deletingLastPathComponent()
@@ -594,7 +599,7 @@ extension AppDelegate {
     /// is not writable. Skips creation when the destination already exists
     /// as a regular file, already points to the correct target, or the
     /// command resolves elsewhere on PATH (developer's local build).
-    private func installSymlink(commandName: String, target: String) {
+    private nonisolated static func installSymlink(commandName: String, target: String) {
         let fm = FileManager.default
 
         // Candidate directories in priority order: /usr/local/bin (system-wide),

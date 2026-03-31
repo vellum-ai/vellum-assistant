@@ -532,10 +532,12 @@ public struct AssistantTextDelta: Codable, Sendable {
 public struct AssistantThinkingDelta: Codable, Sendable {
     public let type: String
     public let thinking: String
+    public let conversationId: String?
 
-    public init(type: String, thinking: String) {
+    public init(type: String, thinking: String, conversationId: String? = nil) {
         self.type = type
         self.thinking = thinking
+        self.conversationId = conversationId
     }
 }
 
@@ -2017,6 +2019,8 @@ public struct HistoryResponseMessage: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     /// Text segments split by tool-call boundaries. Preserves interleaving order.
     public let textSegments: [String]?
+    /// Thinking segments from extended thinking / chain-of-thought blocks.
+    public let thinkingSegments: [String]?
     /// Content block ordering using "text:N", "tool:N", "surface:N" encoding.
     public let contentOrder: [String]?
     /// UI surfaces (widgets) embedded in the message.
@@ -2026,7 +2030,7 @@ public struct HistoryResponseMessage: Codable, Sendable {
     /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
     public let wasTruncated: Bool?
 
-    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
+    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
         self.id = id
         self.role = role
         self.text = text
@@ -2035,6 +2039,7 @@ public struct HistoryResponseMessage: Codable, Sendable {
         self.toolCallsBeforeText = toolCallsBeforeText
         self.attachments = attachments
         self.textSegments = textSegments
+        self.thinkingSegments = thinkingSegments
         self.contentOrder = contentOrder
         self.surfaces = surfaces
         self.subagentNotification = subagentNotification
@@ -2700,6 +2705,22 @@ public struct NavigateSettings: Codable, Sendable {
     public init(type: String, tab: String) {
         self.type = type
         self.tab = tab
+    }
+}
+
+public struct ShowPlatformLogin: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct PlatformDisconnected: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
     }
 }
 
@@ -4841,21 +4862,31 @@ public struct UsageStats: Codable, Sendable {
 
 public struct UsageUpdate: Codable, Sendable {
     public let type: String
+    public let conversationId: String?
     public let inputTokens: Int
     public let outputTokens: Int
     public let totalInputTokens: Int
     public let totalOutputTokens: Int
     public let estimatedCost: Double
     public let model: String
+    public let contextWindowTokens: Int?
+    public let contextWindowMaxTokens: Int?
 
-    public init(type: String, inputTokens: Int, outputTokens: Int, totalInputTokens: Int, totalOutputTokens: Int, estimatedCost: Double, model: String) {
+    public init(type: String, conversationId: String? = nil, inputTokens: Int, outputTokens: Int,
+                totalInputTokens: Int, totalOutputTokens: Int,
+                estimatedCost: Double, model: String,
+                contextWindowTokens: Int? = nil,
+                contextWindowMaxTokens: Int? = nil) {
         self.type = type
+        self.conversationId = conversationId
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.totalInputTokens = totalInputTokens
         self.totalOutputTokens = totalOutputTokens
         self.estimatedCost = estimatedCost
         self.model = model
+        self.contextWindowTokens = contextWindowTokens
+        self.contextWindowMaxTokens = contextWindowMaxTokens
     }
 }
 

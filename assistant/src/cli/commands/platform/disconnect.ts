@@ -1,6 +1,11 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Command } from "commander";
 
+import { isPlatformRemote } from "../../../config/env-registry.js";
 import { credentialKey } from "../../../security/credential-key.js";
+import { getSignalsDir } from "../../../util/platform.js";
 import {
   deleteSecureKeyViaDaemon,
   getSecureKeyViaDaemon,
@@ -46,7 +51,17 @@ Examples:
 
       try {
         // ---------------------------------------------------------------
-        // 1. Check if connected
+        // 1. Reject if running inside a platform host
+        // ---------------------------------------------------------------
+        if (isPlatformRemote()) {
+          writeError(
+            "Cannot disconnect from the platform on a platform-hosted assistant.",
+          );
+          return;
+        }
+
+        // ---------------------------------------------------------------
+        // 2. Check if connected
         // ---------------------------------------------------------------
         const baseUrl = await getSecureKeyViaDaemon(
           credentialKey(
@@ -70,7 +85,7 @@ Examples:
         }
 
         // ---------------------------------------------------------------
-        // 2. Delete all platform credentials
+        // 3. Delete all platform credentials
         // ---------------------------------------------------------------
         const keysToDelete = [
           CREDENTIAL_KEYS.baseUrl,
@@ -97,7 +112,17 @@ Examples:
         }
 
         // ---------------------------------------------------------------
-        // 3. Output result
+        // 4. Notify connected clients
+        // ---------------------------------------------------------------
+        const signalsDir = getSignalsDir();
+        mkdirSync(signalsDir, { recursive: true });
+        writeFileSync(
+          join(signalsDir, "emit-event"),
+          JSON.stringify({ type: "platform_disconnected" }),
+        );
+
+        // ---------------------------------------------------------------
+        // 5. Output result
         // ---------------------------------------------------------------
         writeOutput(cmd, {
           ok: true,

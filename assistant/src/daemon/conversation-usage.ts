@@ -75,6 +75,26 @@ function extractAnthropicCacheCreation(
   };
 }
 
+/**
+ * Extract the speed indicator from Anthropic fast mode API responses.
+ * The API returns `usage.speed: "fast" | "standard"` when using the
+ * fast-mode beta. For multi-response arrays, returns "fast" if any
+ * response used fast mode.
+ */
+function extractAnthropicSpeed(
+  rawResponse: unknown,
+): "fast" | "standard" | null {
+  const responses = Array.isArray(rawResponse) ? rawResponse : [rawResponse];
+  let foundStandard = false;
+  for (const response of responses) {
+    const rec = asRecord(response);
+    const usage = asRecord(rec?.usage);
+    if (usage?.speed === "fast") return "fast";
+    if (usage?.speed === "standard") foundStandard = true;
+  }
+  return foundStandard ? "standard" : null;
+}
+
 function resolveStructuredPricing(
   providerName: string,
   model: string,
@@ -105,6 +125,8 @@ export function recordUsage(
   cacheCreationInputTokens = 0,
   cacheReadInputTokens = 0,
   rawResponse?: unknown,
+  llmCallCount = 1,
+  contextWindow?: { tokens: number; maxTokens: number },
 ): void {
   if (inputTokens <= 0 && outputTokens <= 0) return;
 
@@ -120,15 +142,16 @@ export function recordUsage(
     0,
   );
 
+  const isAnthropic = ctx.providerName === "anthropic";
   const pricingUsage: PricingUsage = {
     directInputTokens,
     outputTokens,
     cacheCreationInputTokens: normalizedCacheCreationInputTokens,
     cacheReadInputTokens: normalizedCacheReadInputTokens,
-    anthropicCacheCreation:
-      ctx.providerName === "anthropic"
-        ? extractAnthropicCacheCreation(rawResponse)
-        : null,
+    anthropicCacheCreation: isAnthropic
+      ? extractAnthropicCacheCreation(rawResponse)
+      : null,
+    speed: isAnthropic ? extractAnthropicSpeed(rawResponse) : null,
   };
   const pricing = resolveStructuredPricing(
     ctx.providerName,
@@ -152,12 +175,17 @@ export function recordUsage(
   );
   onEvent({
     type: "usage_update",
+    conversationId: ctx.conversationId,
     inputTokens,
     outputTokens,
     totalInputTokens: ctx.usageStats.inputTokens,
     totalOutputTokens: ctx.usageStats.outputTokens,
     estimatedCost,
     model,
+    ...(contextWindow && {
+      contextWindowTokens: contextWindow.tokens,
+      contextWindowMaxTokens: contextWindow.maxTokens,
+    }),
   });
 
   // Dual-write: persist per-turn usage event to the new ledger table
@@ -174,6 +202,7 @@ export function recordUsage(
         conversationId: ctx.conversationId,
         runId: null,
         requestId,
+        llmCallCount,
       },
       pricing,
     );

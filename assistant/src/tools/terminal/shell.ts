@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
@@ -8,7 +9,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
-import { getDataDir, getRootDir } from "../../util/platform.js";
+import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
 import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
@@ -38,20 +39,16 @@ function buildCredentialRefTrace(
  * Build the list of absolute paths that should be blocked from read access
  * inside the sandbox when CES shell lockdown is active.
  *
- * Protected paths include:
- * - ~/.vellum/protected/ - credential store secrets (also covers local-mode
- *   CES data root at ~/.vellum/protected/credential-executor/)
+ * Blocked paths include:
+ * - Gateway security directory (credential store secrets, CES data)
  * - ~/.vellum/workspace/data/db/ - database files that may contain credential metadata
- * - CES bootstrap socket directory (/run/ces-bootstrap/ or CES_BOOTSTRAP_SOCKET_DIR) -
- *   prevents untrusted shells from connecting to the CES sidecar directly
- * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when
- *   CES_MANAGED_MODE is set) - prevents access to CES-private state in
- *   managed deployments (local-mode is already covered by the protected/
- *   entry)
+ * - CES bootstrap socket directory (/run/ces-bootstrap/ or CES_BOOTSTRAP_SOCKET_DIR)
+ * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when CES_MANAGED_MODE is set)
  */
 function buildCesProtectedPaths(): string[] {
-  const root = getRootDir();
-  const paths = [`${root}/protected`, `${root}/workspace/data/db`];
+  const securityDir =
+    process.env.GATEWAY_SECURITY_DIR || join(homedir(), ".vellum", "protected");
+  const paths = [securityDir, join(getWorkspaceDir(), "data", "db")];
 
   // CES bootstrap socket directory - block access to the Unix socket that
   // accepts RPC commands from the assistant process.
@@ -70,7 +67,7 @@ function buildCesProtectedPaths(): string[] {
 
   // CES managed-mode private data root - in managed deployments the CES
   // data lives outside the Vellum root, so it isn't covered by the
-  // `protected/` entry above.
+  // gateway security directory entry above.
   const cesDataDir = process.env["CES_DATA_DIR"];
   if (cesDataDir) {
     paths.push(cesDataDir);

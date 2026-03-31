@@ -4,7 +4,11 @@ import { join } from "path";
 
 import { saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
-import { startLocalDaemon, startGateway } from "../lib/local";
+import {
+  generateLocalSigningKey,
+  startLocalDaemon,
+  startGateway,
+} from "../lib/local";
 import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
 
@@ -66,9 +70,14 @@ export async function recover(): Promise<void> {
   unlinkSync(archivePath);
   unlinkSync(metadataPath);
 
-  // 7. Start daemon + gateway (same as wake)
-  await startLocalDaemon(false, entry.resources);
-  await startGateway(false, entry.resources);
+  // 7. Persist signing key so it survives daemon/gateway restarts (same as wake)
+  const signingKey = generateLocalSigningKey();
+  entry.resources = { ...entry.resources, signingKey };
+  saveAssistantEntry(entry);
+
+  // 8. Start daemon + gateway
+  await startLocalDaemon(false, entry.resources, { signingKey });
+  await startGateway(false, entry.resources, { signingKey });
 
   console.log(`✅ Recovered assistant '${name}'.`);
 }

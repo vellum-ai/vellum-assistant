@@ -17,6 +17,7 @@ struct IdentityPanel: View {
     @State private var lockfileAssistant: LockfileAssistant?
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
+    @State private var skillCategoryLookup: [String: SkillCategory] = [:]
     @State private var viewingFilePath: String?
     @State private var isFullscreen: Bool = false
     @State private var showAvatarSheet: Bool = false
@@ -61,38 +62,13 @@ struct IdentityPanel: View {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
                             // Intro heading — show daemon-generated text, fall back to static name
-                            if isEditingName {
-                                inlineEditField(
-                                    text: $editingNameText,
-                                    placeholder: "Enter a name",
-                                    font: VFont.titleMedium,
-                                    isSaving: isSavingIdentityField,
-                                    onSave: { saveIdentityField(field: "Name", value: editingNameText) },
-                                    onCancel: { isEditingName = false }
-                                )
-                                .padding(.top, VSpacing.xxl)
-                                .padding(.horizontal, VSpacing.lg)
-                            } else {
-                                HStack(spacing: VSpacing.xs) {
-                                    Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : "I need a name!"))
-                                        .font(VFont.titleMedium)
-                                        .foregroundStyle(VColor.contentDefault)
-                                        .multilineTextAlignment(.center)
-
-                                    VButton(
-                                        label: "Edit name",
-                                        iconOnly: VIcon.pencil.rawValue,
-                                        style: .ghost,
-                                        size: .compact
-                                    ) {
-                                        editingNameText = hasRealName ? assistantDisplayName : ""
-                                        isEditingName = true
-                                    }
-                                }
+                            Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
+                                .font(VFont.titleMedium)
+                                .foregroundStyle(VColor.contentDefault)
+                                .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.top, VSpacing.xxl)
                                 .padding(.horizontal, VSpacing.lg)
-                            }
 
                             Spacer()
 
@@ -116,12 +92,12 @@ struct IdentityPanel: View {
 
                             // Update Avatar button
                             VButton(label: "Update Avatar", style: .outlined) { showAvatarSheet = true }
-                                .padding(.top, VSpacing.md)
+                                .padding(.top, VSpacing.xxl)
 
                             Spacer()
 
                             // Divider
-                            Divider().background(VColor.borderBase)
+                            Rectangle().fill(VColor.surfaceOverlay).frame(height: 2)
 
                             // Role + Hatched date
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -129,35 +105,7 @@ struct IdentityPanel: View {
                                     remoteIdentity?.role.nilIfEmpty,
                                     identity?.role
                                 ])
-                                if isEditingRole {
-                                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                                        Text("Role")
-                                            .font(VFont.labelDefault)
-                                            .foregroundStyle(VColor.contentTertiary)
-                                        inlineEditField(
-                                            text: $editingRoleText,
-                                            placeholder: "Enter a role",
-                                            font: VFont.labelDefault,
-                                            isSaving: isSavingIdentityField,
-                                            onSave: { saveIdentityField(field: "Role", value: editingRoleText) },
-                                            onCancel: { isEditingRole = false }
-                                        )
-                                    }
-                                } else {
-                                    HStack(spacing: VSpacing.xs) {
-                                        identityInfoRow(label: "Role", value: role ?? "Not set")
-                                        Spacer()
-                                        VButton(
-                                            label: "Edit role",
-                                            iconOnly: VIcon.pencil.rawValue,
-                                            style: .ghost,
-                                            size: .compact
-                                        ) {
-                                            editingRoleText = role ?? ""
-                                            isEditingRole = true
-                                        }
-                                    }
-                                }
+                                identityInfoRow(label: "Role", value: role ?? "Not set")
                                 if let date = metadata?.createdAt {
                                     identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
                                 }
@@ -180,6 +128,7 @@ struct IdentityPanel: View {
                 identity: identity,
                 skills: skills,
                 workspaceFiles: workspaceFiles,
+                categoryLookup: skillCategoryLookup,
                 onNavigateToSkill: onNavigateToSkill,
                 onNavigateToFile: onNavigateToFile,
                 isFullscreen: $isFullscreen
@@ -210,8 +159,8 @@ struct IdentityPanel: View {
                 .frame(width: 360)
                 .fixedSize(horizontal: false, vertical: true)
             }
-            .onAppear {
-                identity = IdentityInfo.load()
+            .task {
+                identity = await IdentityInfo.loadAsync()
                 metadata = AssistantMetadata.load()
                 lockfileAssistant = LockfileAssistant.loadLatest()
                 workspaceFiles = WorkspaceFileNode.scan()
@@ -230,7 +179,7 @@ struct IdentityPanel: View {
                     isBootstrapActive = fileResponse != nil
 
                     if !isBootstrapActive && introText == nil {
-                        if let soulIntro = IdentityInfo.loadIdentityIntro() {
+                        if let soulIntro = await IdentityInfo.loadIdentityIntroAsync() {
                             introText = soulIntro
                         } else {
                             generateIntro()
@@ -306,14 +255,14 @@ struct IdentityPanel: View {
             )
 
             if success {
-                identity = IdentityInfo.load()
+                identity = await IdentityInfo.loadAsync()
                 isEditingName = false
                 isEditingRole = false
 
                 if field == "Name" {
                     introText = nil
                     if !isBootstrapActive {
-                        if let soulIntro = IdentityInfo.loadIdentityIntro() {
+                        if let soulIntro = await IdentityInfo.loadIdentityIntroAsync() {
                             introText = soulIntro
                         } else {
                             generateIntro()
@@ -362,7 +311,14 @@ struct IdentityPanel: View {
         Task {
             let response = await SkillsClient().fetchSkillsList(includeCatalog: false)
             if let response {
-                skills = response.skills.filter { $0.state == "enabled" }
+                let enabled = response.skills.filter { $0.state == "enabled" }
+                skills = enabled
+                var map: [String: SkillCategory] = [:]
+                map.reserveCapacity(enabled.count)
+                for skill in enabled {
+                    map[skill.id] = inferCategory(skill)
+                }
+                skillCategoryLookup = map
             }
         }
     }
@@ -442,10 +398,10 @@ struct IdentityPanel: View {
     private func identityInfoRow(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
-                .font(VFont.bodyMediumLighter)
+                .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentTertiary)
             Text(value)
-                .font(VFont.bodyMediumEmphasised)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentEmphasized)
         }
     }

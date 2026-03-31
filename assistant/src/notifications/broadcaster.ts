@@ -147,6 +147,19 @@ export class NotificationBroadcaster {
         };
       }
 
+      // For tool_grant_request signals, prefer the deterministic template seed
+      // over LLM-generated prose. The enriched questionText is already concise
+      // and informative — LLM rewording just adds noise.
+      if (signal.contextPayload?.requestKind === "tool_grant_request") {
+        if (!fallbackCopy) {
+          fallbackCopy = composeFallbackCopy(signal, decision.selectedChannels);
+        }
+        const templateSeed = fallbackCopy[channel]?.conversationSeedMessage;
+        if (templateSeed) {
+          copy = { ...copy, conversationSeedMessage: templateSeed };
+        }
+      }
+
       // Resolve the per-channel conversation action from the decision (default: start_new)
       const conversationAction: ConversationAction | undefined =
         decision.conversationActions?.[channel];

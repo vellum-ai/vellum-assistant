@@ -110,9 +110,7 @@ final class VellumCli {
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
     nonisolated private static let forwardedEnvKeys: [String] = [
-        "BASE_DATA_DIR",
         "VELLUM_PLATFORM_URL",
-        "TELEMETRY_APP_TOKEN",
         "ASSISTANT_GIT_USER_NAME", "ASSISTANT_GIT_USER_EMAIL",
         "CLI_GIT_USER_NAME", "CLI_GIT_USER_EMAIL",
         "PROXY_ALLOWED_HOSTS", "HTTP_USER_AGENT", "DOCTOR_SERVICE_URL",
@@ -151,23 +149,6 @@ final class VellumCli {
         guard let execURL = Bundle.main.executableURL else { return nil }
         let candidate = execURL.deletingLastPathComponent().appendingPathComponent("vellum-cli")
         return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
-    }
-
-    // MARK: - File Paths
-
-    private var vellumDir: URL {
-        if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-            return URL(fileURLWithPath: baseDir).appendingPathComponent(".vellum")
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".vellum")
-    }
-
-    private var pidFileURL: URL {
-        vellumDir.appendingPathComponent("vellum.pid")
-    }
-
-    private var gatewayPidFileURL: URL {
-        vellumDir.appendingPathComponent("gateway.pid")
     }
 
     // MARK: - Public API
@@ -327,14 +308,82 @@ final class VellumCli {
         log.info("[audit] CLI done: retire exit=0 duration=\(retireMs)ms")
     }
 
-    /// Non-destructive stop: sends SIGTERM to the daemon and gateway processes
-    /// without waiting for them to exit. This is intentionally fire-and-forget
-    /// so that applicationWillTerminate returns instantly (no beach-ball).
-    /// Orphaned processes are cleaned up on next launch via `detectOrphanedProcesses`.
-    func stop(name: String? = nil) {
-        log.info("[audit] CLI invoke: stop args=\(name ?? "", privacy: .public)")
-        signalViaPIDFile(pidFileURL, label: "daemon")
-        signalViaPIDFile(gatewayPidFileURL, label: "gateway")
+    /// How long to wait for the `sleep` CLI before giving up.
+    /// The CLI sends SIGTERM then waits up to 5s (daemon) + 7s (gateway).
+    nonisolated private static let stopTimeout: TimeInterval = 15.0
+
+    /// Stops the daemon and gateway processes via `vellum sleep --force`.
+    /// Waits asynchronously until the CLI exits or `stopTimeout` expires (15 seconds).
+    ///
+    /// Uses `--force` to bypass the phone-call keepalive lease check so
+    /// the app can always shut down cleanly.
+    ///
+    /// Marked `nonisolated` so callers can await this without holding the
+    /// main actor — important for `applicationWillTerminate` where the main
+    /// thread blocks on a semaphore while waiting for this to complete.
+    nonisolated func stop(name: String? = nil) async {
+        guard let execURL = Bundle.main.executableURL else {
+            log.info("No bundled CLI binary found — skipping stop (dev mode)")
+            return
+        }
+        let binaryURL = execURL.deletingLastPathComponent().appendingPathComponent("vellum-cli")
+        guard FileManager.default.fileExists(atPath: binaryURL.path) else {
+            log.info("No bundled CLI binary found — skipping stop (dev mode)")
+            return
+        }
+
+        var arguments = ["sleep", "--force"]
+        if let name {
+            arguments.append(name)
+        }
+
+        log.info("[audit] CLI invoke: stop args=\(arguments.dropFirst().joined(separator: " "), privacy: .public)")
+
+        let startTime = ContinuousClock.now
+        let env = Self.makeBaseEnvironment()
+        let timeout = Self.stopTimeout
+
+        let status: Int32 = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
+            let proc = Process()
+            proc.executableURL = binaryURL
+            proc.arguments = arguments
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            proc.environment = env
+
+            let once = OnceFlag()
+            let timeoutSeconds = Int(timeout)
+
+            let timeoutItem = DispatchWorkItem { [weak proc] in
+                if once.trySet() {
+                    log.warning("CLI sleep timed out after \(timeoutSeconds)s — terminating process")
+                    proc?.terminate()
+                    continuation.resume(returning: -1)
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+
+            proc.terminationHandler = { finished in
+                timeoutItem.cancel()
+                if once.trySet() {
+                    continuation.resume(returning: finished.terminationStatus)
+                }
+            }
+
+            do {
+                try proc.run()
+            } catch {
+                timeoutItem.cancel()
+                if once.trySet() {
+                    log.error("Failed to launch CLI sleep: \(error.localizedDescription, privacy: .public)")
+                    continuation.resume(returning: -1)
+                }
+            }
+        }
+
+        let elapsed = ContinuousClock.now - startTime
+        let ms = elapsed.components.seconds * 1000 + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
+        log.info("[audit] CLI done: stop exit=\(status) duration=\(ms)ms")
     }
 
 
@@ -964,26 +1013,6 @@ final class VellumCli {
         let error: String
         let message: String
         let detail: String?
-    }
-
-    /// Send SIGTERM to a process identified by a PID file. Does not wait for
-    /// the process to exit — the next launch will clean up any stragglers.
-    private func signalViaPIDFile(_ pidFileURL: URL, label: String) {
-        guard FileManager.default.fileExists(atPath: pidFileURL.path) else { return }
-        let pidData: Data
-        do {
-            pidData = try Data(contentsOf: pidFileURL)
-        } catch {
-            return
-        }
-        guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = pid_t(pidString),
-              kill(pid, 0) == 0 else {
-            return
-        }
-
-        log.info("Sending SIGTERM to \(label, privacy: .public) (pid \(pid))")
-        kill(pid, SIGTERM)
     }
 
     /// Run a CLI command, log the invocation and result, and return

@@ -1,26 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "conversation-fork-route-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => join(testDir, ".vellum"),
-  getDataDir: () => join(testDir, ".vellum", "workspace", "data"),
-  getWorkspaceDir: () => join(testDir, ".vellum", "workspace"),
-  getConversationsDir: () =>
-    join(testDir, ".vellum", "workspace", "conversations"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -123,11 +101,6 @@ describe("POST /v1/conversations/fork", () => {
   afterAll(async () => {
     await server?.stop();
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("returns the same conversation summary shape as GET /v1/conversations/:id", async () => {
