@@ -663,7 +663,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     /// Verifies that `enterManagedAssistantMaintenanceMode` does not overwrite
     /// `managedAssistantMaintenanceMode` when `connectedOrganizationId` changes mid-flight.
     func testEnterDiscardsStaleResponseWhenOrgIdChangesMidFlight() async {
-        defer { cleanupStandard() }
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
@@ -727,7 +726,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     /// Verifies that `exitManagedAssistantMaintenanceMode` does not overwrite
     /// `managedAssistantMaintenanceMode` when `connectedAssistantId` changes mid-flight.
     func testExitDiscardsStaleResponseWhenAssistantIdChangesMidFlight() async {
-        defer { cleanupStandard() }
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
@@ -799,7 +797,6 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     /// Verifies that `exitManagedAssistantMaintenanceMode` does not overwrite
     /// `managedAssistantMaintenanceMode` when `connectedOrganizationId` changes mid-flight.
     func testExitDiscardsStaleResponseWhenOrgIdChangesMidFlight() async {
-        defer { cleanupStandard() }
 
         let url = URL(string: "https://example.com")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
