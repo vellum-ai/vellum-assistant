@@ -16,12 +16,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "bun:test";
 
+import { resetDb } from "../memory/db-connection.js";
+
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "vellum-test-workspace-")),
 );
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 afterAll(() => {
+  resetDb();
   delete process.env.VELLUM_WORKSPACE_DIR;
   try {
     rmSync(testDir, { recursive: true, force: true });
