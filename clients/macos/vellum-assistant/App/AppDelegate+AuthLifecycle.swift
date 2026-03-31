@@ -417,6 +417,10 @@ extension AppDelegate {
             return
         }
 
+        // Capture the previous assistant ID before any state changes so we can
+        // rollback if the new assistant's gateway connection fails.
+        let previousAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+
         // 1. Clear assistant-scoped runtime state while the assistant is still
         // running so forceStop can deliver a recording_status message.
         recordingManager.forceStop()
@@ -472,6 +476,80 @@ extension AppDelegate {
 
         // Reload avatar for the new assistant (customAvatarURL now resolves
         // to the new assistant's path after connectedAssistantId was updated).
+        AvatarAppearanceManager.shared.reloadAvatar()
+
+        showMainWindow()
+
+        // 7. Validate the gateway connection with a timeout. If the connection
+        //    doesn't establish within 15 seconds, roll back to the previous
+        //    assistant so the app doesn't end up in a broken state.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let connected = await self.waitForGatewayConnection(timeout: 15)
+            if !connected {
+                log.error("Gateway connection failed after switching to \(assistant.assistantId, privacy: .public) — rolling back")
+                self.mainWindow?.windowState.showToast(
+                    message: "Could not connect to assistant — it may be offline",
+                    style: .error
+                )
+
+                // Roll back to the previous assistant if one was connected
+                if let previousAssistantId,
+                   let previousAssistant = LockfileAssistant.loadByName(previousAssistantId) {
+                    log.info("Rolling back to previous assistant \(previousAssistantId, privacy: .public)")
+                    self.rollbackToPreviousAssistant(previousAssistant)
+                }
+            }
+        }
+    }
+
+    /// Waits for `connectionManager.isConnected` to become `true`, polling
+    /// every 500ms up to the given timeout in seconds.
+    ///
+    /// Returns `true` if the connection was established within the timeout,
+    /// `false` otherwise.
+    private func waitForGatewayConnection(timeout: Int) async -> Bool {
+        let iterations = timeout * 2  // 500ms per iteration
+        for _ in 0..<iterations {
+            if connectionManager.isConnected { return true }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        return connectionManager.isConnected
+    }
+
+    /// Rolls back to a previous assistant after a failed switch. Performs
+    /// the same sequence as `performSwitchAssistant` but without the
+    /// post-switch validation to avoid infinite rollback loops.
+    private func rollbackToPreviousAssistant(_ assistant: LockfileAssistant) {
+        // Disconnect the failed connection
+        connectionManager.disconnect()
+        AvatarAppearanceManager.shared.resetForDisconnect()
+        threadWindowManager?.closeAll()
+        mainWindow?.close()
+        mainWindow = nil
+
+        // Restore the previous assistant selection
+        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
+        UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        SentryDeviceInfo.updateOrganizationTag(nil)
+        actorTokenBootstrapTask?.cancel()
+        actorTokenBootstrapTask = nil
+        ActorTokenManager.deleteToken()
+
+        // Reconfigure transport and reconnect
+        hasSetupDaemon = false
+        setupGatewayConnectionManager()
+
+        if !isCurrentAssistantManaged {
+            ensureActorCredentials()
+        }
+        localBootstrapDidComplete = false
+        ensureLocalAssistantApiKey()
+        syncApiKeysToAssistant(assistant)
+
+        featureFlagStore.reloadFromDisk()
         AvatarAppearanceManager.shared.reloadAvatar()
 
         showMainWindow()
