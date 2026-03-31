@@ -162,7 +162,7 @@ mock.module("../shared.js", () => ({
         JSON.stringify({
           ok: false,
           error:
-            "Platform prerequisites not met (not logged in or missing assistant ID)",
+            "Not connected to Vellum platform. Run `vellum platform connect` to connect first.",
         }) + "\n",
       );
       return null;
