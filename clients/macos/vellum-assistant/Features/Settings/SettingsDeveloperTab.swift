@@ -810,9 +810,16 @@ struct SettingsDeveloperTab: View {
                 }
             }
         } else {
-            Text("Maintenance status unavailable")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Maintenance status unavailable")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                if let refreshError = store.maintenanceModeRefreshError {
+                    Text(refreshError)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                }
+            }
         }
     }
 
