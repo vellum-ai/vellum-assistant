@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 const mockFindActiveSession = mock(() => null as unknown);
-mock.module("../memory/channel-verification-sessions.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   findActiveSession: mockFindActiveSession,
 }));
 
