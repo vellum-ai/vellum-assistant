@@ -2505,9 +2505,15 @@ public final class SettingsStore: ObservableObject {
             return
         }
 
+        let taskAssistantId = connectedId
+
         maintenanceModeRefreshing = true
         maintenanceModeRefreshError = nil
-        defer { maintenanceModeRefreshing = false }
+        defer {
+            if UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId {
+                maintenanceModeRefreshing = false
+            }
+        }
 
         do {
             let updated = try await AuthService.shared.refreshAssistant(
@@ -2554,9 +2560,15 @@ public final class SettingsStore: ObservableObject {
                 return
             }
 
+            let taskAssistantId = connectedId
+
             maintenanceModeEntering = true
             maintenanceModeEnterError = nil
-            defer { maintenanceModeEntering = false }
+            defer {
+                if UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId {
+                    maintenanceModeEntering = false
+                }
+            }
 
             do {
                 let updated = try await AuthService.shared.enterMaintenanceMode(
@@ -2605,9 +2617,15 @@ public final class SettingsStore: ObservableObject {
                 return
             }
 
+            let taskAssistantId = connectedId
+
             maintenanceModeExiting = true
             maintenanceModeExitError = nil
-            defer { maintenanceModeExiting = false }
+            defer {
+                if UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId {
+                    maintenanceModeExiting = false
+                }
+            }
 
             do {
                 let updated = try await AuthService.shared.exitMaintenanceMode(
