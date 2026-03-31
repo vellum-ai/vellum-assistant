@@ -4,7 +4,7 @@ import SwiftUI
 public struct VSkillTypePill: View {
     public enum SkillType {
         case vellum
-        case openclaw
+        case community
         case custom
         case available
         case other(label: String, icon: String, foreground: Color, background: Color)
@@ -12,7 +12,7 @@ public struct VSkillTypePill: View {
         var label: String {
             switch self {
             case .vellum: return "Vellum"
-            case .openclaw: return "OpenClaw"
+            case .community: return "Community"
             case .custom: return "Custom"
             case .available: return "Available"
             case .other(let label, _, _, _): return label
@@ -22,7 +22,7 @@ public struct VSkillTypePill: View {
         var vIcon: VIcon {
             switch self {
             case .vellum: return .package
-            case .openclaw: return .globe
+            case .community: return .globe
             case .custom: return .user
             case .available: return .arrowDownToLine
             case .other(_, let icon, _, _): return .resolve(icon)
@@ -32,7 +32,7 @@ public struct VSkillTypePill: View {
         var foregroundColor: Color {
             switch self {
             case .vellum: return VColor.primaryBase
-            case .openclaw: return VColor.funTeal
+            case .community: return VColor.funTeal
             case .custom: return VColor.funPurple
             case .available: return VColor.funTeal
             case .other(_, _, let fg, _): return fg
@@ -42,7 +42,7 @@ public struct VSkillTypePill: View {
         var backgroundColor: Color {
             switch self {
             case .vellum: return VColor.primaryBase.opacity(0.12)
-            case .openclaw: return VColor.funTeal.opacity(0.12)
+            case .community: return VColor.funTeal.opacity(0.12)
             case .custom: return VColor.funPurple.opacity(0.12)
             case .available: return VColor.funTeal.opacity(0.12)
             case .other(_, _, _, let bg): return bg
@@ -65,13 +65,13 @@ public struct VSkillTypePill: View {
         case "bundled":
             self.type = .vellum
         case "clawhub":
-            self.type = .openclaw
+            self.type = .community
         case "managed":
             switch provenanceKind {
             case "first-party":
                 self.type = .vellum
             case "third-party":
-                self.type = .openclaw
+                self.type = .community
             default:
                 self.type = .custom
             }

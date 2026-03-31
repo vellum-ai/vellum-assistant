@@ -239,7 +239,7 @@ struct AgentPanelContent: View {
         case .installed: return "No Skills Installed"
         case .available: return "No Skills Available"
         case .vellum: return "No Vellum Skills"
-        case .openclaw: return "No OpenClaw Skills"
+        case .community: return "No Community Skills"
         case .custom: return "No Custom Skills"
         }
     }
@@ -253,7 +253,7 @@ struct AgentPanelContent: View {
         case .installed: return "Ask your assistant in chat to search for and install new skills."
         case .available: return "All available skills have been installed."
         case .vellum: return "No bundled Vellum skills found."
-        case .openclaw: return "No OpenClaw skills found. Try installing some from the catalog."
+        case .community: return "No Community skills found. Try installing some from the catalog."
         case .custom: return "Create a custom skill by describing what you want in chat."
         }
     }
@@ -267,7 +267,7 @@ struct AgentPanelContent: View {
         case .installed: return VIcon.zap.rawValue
         case .available: return VIcon.circleCheck.rawValue
         case .vellum: return VIcon.package.rawValue
-        case .openclaw: return VIcon.globe.rawValue
+        case .community: return VIcon.globe.rawValue
         case .custom: return VIcon.user.rawValue
         }
     }
@@ -418,7 +418,7 @@ struct AvailableSkillItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if skill.source == "clawhub" {
-                            VSkillTypePill(type: .openclaw)
+                            VSkillTypePill(type: .community)
                         } else if skill.source == "catalog" {
                             VSkillTypePill(type: .vellum)
                         }

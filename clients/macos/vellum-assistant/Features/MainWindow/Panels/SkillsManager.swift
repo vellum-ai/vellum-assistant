@@ -8,7 +8,7 @@ enum SkillFilter: String, CaseIterable {
     case installed = "Installed"
     case available = "Available"
     case vellum = "Vellum"
-    case openclaw = "OpenClaw"
+    case community = "Community"
     case custom = "Custom"
 
     var icon: VIcon {
@@ -17,13 +17,13 @@ enum SkillFilter: String, CaseIterable {
         case .installed: return .circleCheck
         case .available: return .arrowDownToLine
         case .vellum: return .package
-        case .openclaw: return .globe
+        case .community: return .globe
         case .custom: return .user
         }
     }
 
     static var statusFilters: [SkillFilter] { [.all, .installed, .available] }
-    static var sourceFilters: [SkillFilter] { [.vellum, .openclaw, .custom] }
+    static var sourceFilters: [SkillFilter] { [.vellum, .community, .custom] }
 }
 
 @MainActor
@@ -149,7 +149,7 @@ final class SkillsManager {
             baseSkills = skills.filter {
                 $0.source == "bundled" || ($0.source == "managed" && $0.provenance?.kind == "first-party")
             }
-        case .openclaw:
+        case .community:
             baseSkills = skills.filter {
                 $0.source == "clawhub" || ($0.source == "managed" && $0.provenance?.kind == "third-party")
             }
@@ -204,11 +204,11 @@ final class SkillsManager {
         case "bundled":
             return "Vellum"
         case "clawhub":
-            return "OpenClaw"
+            return "Community"
         case "managed":
             switch provenanceKind {
             case "first-party": return "Vellum"
-            case "third-party": return "OpenClaw"
+            case "third-party": return "Community"
             default: return "Custom"
             }
         case "workspace", "extra":
