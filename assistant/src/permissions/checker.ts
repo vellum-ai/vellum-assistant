@@ -663,11 +663,13 @@ export async function classifyRisk(
   signal?.throwIfAborted();
   ensureRiskCacheInvalidationHook();
 
-  // Check cache first (skip when preParsed is provided since caller already
-  // parsed and we'd just be duplicating the key computation cost).
-  const cacheKey = preParsed
-    ? null
-    : riskCacheKey(toolName, input, workingDir, manifestOverride);
+  // Check cache first. Skip when preParsed is provided (caller already
+  // parsed) and for file_read (risk depends on mutable filesystem state
+  // like symlinks, so cached results could become stale).
+  const cacheKey =
+    preParsed || toolName === "file_read"
+      ? null
+      : riskCacheKey(toolName, input, workingDir, manifestOverride);
   if (cacheKey) {
     const cached = riskCache.get(cacheKey);
     if (cached !== undefined) {
