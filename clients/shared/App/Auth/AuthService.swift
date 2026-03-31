@@ -366,6 +366,7 @@ public final class AuthService {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = Data("{}".utf8)
         urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
         if let token = await SessionTokenManager.getTokenAsync() {
@@ -420,6 +421,7 @@ public final class AuthService {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = Data("{}".utf8)
         urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
         if let token = await SessionTokenManager.getTokenAsync() {
