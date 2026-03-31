@@ -310,14 +310,6 @@ public final class SettingsStore: ObservableObject {
             .flatMap { LockfileAssistant.loadByName($0) }?.isRemote ?? false
     }
 
-    /// Whether the connected assistant runs in Docker on the local machine.
-    /// Docker assistants are "remote" for filesystem purposes (workspace is on
-    /// a Docker volume) but support config changes via the HTTP API.
-    private var isCurrentAssistantDocker: Bool {
-        UserDefaults.standard.string(forKey: "connectedAssistantId")
-            .flatMap { LockfileAssistant.loadByName($0) }?.isDocker ?? false
-    }
-
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
     /// response arrives.
