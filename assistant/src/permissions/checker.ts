@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -948,21 +949,30 @@ function isActorTokenSigningKeyPath(
   workingDir?: string,
 ): boolean {
   if (!filePath) return false;
-  const resolvedPath = resolve(workingDir ?? process.cwd(), filePath);
-  const legacyPath = join(
-    homedir(),
-    ".vellum",
-    "protected",
-    "actor-token-signing-key",
-  );
-  const workspaceDeprecatedPath = resolve(
-    workingDir ?? process.cwd(),
-    "deprecated",
-    "actor-token-signing-key",
-  );
-  return (
-    resolvedPath === legacyPath || resolvedPath === workspaceDeprecatedPath
-  );
+  const cwd = workingDir ?? process.cwd();
+  const resolvedPath = resolve(cwd, filePath);
+  const signingKeyPaths = [
+    join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
+    resolve(cwd, "deprecated", "actor-token-signing-key"),
+  ];
+
+  // Lexical match (handles normal paths and cases where files don't exist)
+  if (signingKeyPaths.includes(resolvedPath)) return true;
+
+  // Canonicalize via realpath to catch symlink/hardlink aliases
+  let realInput: string;
+  try {
+    realInput = realpathSync(resolvedPath);
+  } catch {
+    return false;
+  }
+  return signingKeyPaths.some((p) => {
+    try {
+      return realInput === realpathSync(p);
+    } catch {
+      return realInput === p;
+    }
+  });
 }
 
 export async function check(

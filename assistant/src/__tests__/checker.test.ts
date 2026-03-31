@@ -203,6 +203,42 @@ describe("Permission Checker", () => {
         });
         expect(risk).toBe(RiskLevel.High);
       });
+
+      test("file_read via symlink alias to signing key is high risk", async () => {
+        const workspaceDir = join(checkerTestDir, "workspace");
+        const deprecatedDir = join(workspaceDir, "deprecated");
+        const keyPath = join(deprecatedDir, "actor-token-signing-key");
+        const aliasPath = join(workspaceDir, "innocent-file");
+
+        // Create the signing key file and a symlink alias
+        mkdirSync(deprecatedDir, { recursive: true });
+        writeFileSync(keyPath, "fake-key-content");
+        try {
+          symlinkSync(keyPath, aliasPath);
+        } catch {
+          // Symlink may already exist from a previous run
+        }
+
+        try {
+          const risk = await classifyRisk(
+            "file_read",
+            { path: "innocent-file" },
+            workspaceDir,
+          );
+          expect(risk).toBe(RiskLevel.High);
+        } finally {
+          try {
+            rmSync(aliasPath);
+          } catch {
+            /* cleanup */
+          }
+          try {
+            rmSync(keyPath);
+          } catch {
+            /* cleanup */
+          }
+        }
+      });
     });
 
     // file_write is always low (sandboxed)
