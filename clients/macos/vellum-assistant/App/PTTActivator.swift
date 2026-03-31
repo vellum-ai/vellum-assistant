@@ -90,6 +90,10 @@ struct PTTActivator: Codable, Equatable {
     /// a previously-started `warmCache()` without launching a second read.
     @MainActor private static var _cacheTask: Task<PTTActivator, Never>?
 
+    /// Generation counter incremented on every cache write. Used by
+    /// `ensureCacheReady()` to discard stale warm-cache results.
+    @MainActor private static var _cacheGeneration: Int = 0
+
     /// Returns the cached activator, falling back to `defaultActivator`
     /// until the cache is populated.
     @MainActor static var cached: PTTActivator {
@@ -105,14 +109,21 @@ struct PTTActivator: Codable, Equatable {
     }
 
     /// Awaits the in-flight cache load (started by `warmCache()`) and
-    /// applies the result. If `warmCache()` was never called, reads
-    /// synchronously on a detached task.
+    /// applies the result **only if** no intervening `updateCache()` or
+    /// `refreshCache()` has already populated a fresher value.
     @MainActor static func ensureCacheReady() async {
         if let task = _cacheTask {
-            _cached = await task.value
+            let gen = _cacheGeneration
+            let result = await task.value
+            // Only apply if no fresher write happened while we were awaiting.
+            if _cacheGeneration == gen {
+                _cached = result
+                _cacheGeneration += 1
+            }
             _cacheTask = nil
-        } else {
+        } else if _cached == nil {
             _cached = await Task.detached { Self.fromStored() }.value
+            _cacheGeneration += 1
         }
     }
 
@@ -122,12 +133,14 @@ struct PTTActivator: Codable, Equatable {
         _cacheTask = nil
         let result = await Task.detached { Self.fromStored() }.value
         _cached = result
+        _cacheGeneration += 1
     }
 
     /// Synchronously updates the cache after a local write (e.g. settings change).
     @MainActor static func updateCache(_ activator: PTTActivator) {
         _cached = activator
         _cacheTask = nil
+        _cacheGeneration += 1
     }
 
     // MARK: - Persistence

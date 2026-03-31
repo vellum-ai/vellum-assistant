@@ -120,9 +120,12 @@ extension AppDelegate {
         // starting monitors so they use the user's stored key, not the default.
         // The background read was kicked off early in launch and is almost
         // certainly complete, so the await typically returns immediately.
+        // Guard: if an activationKeyChanged notification already triggered
+        // restartKeyMonitors(), monitors are already set up — skip the start.
         Task { @MainActor [weak self] in
             await PTTActivator.ensureCacheReady()
-            self?.voiceInput?.start()
+            guard let vi = self?.voiceInput, !vi.hasStarted else { return }
+            vi.start()
         }
 
         // Restart key monitors when the activation key is changed remotely via HTTP
