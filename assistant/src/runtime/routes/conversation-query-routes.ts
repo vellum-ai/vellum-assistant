@@ -1,6 +1,6 @@
 /**
  * HTTP route definitions for model configuration, embedding configuration,
- * permissions configuration, conversation search, message content, LLM
+ * conversation search, message content, LLM
  * context inspection, and queued message deletion.
  *
  * These routes expose conversation query functionality over the HTTP API.
