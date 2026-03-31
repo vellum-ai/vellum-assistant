@@ -130,6 +130,26 @@ function buildConversationTitleMap(
 }
 
 // ---------------------------------------------------------------------------
+// Semantic search constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum number of candidate IDs fetched from Qdrant for semantic search.
+ *
+ * Kind-filtering and pagination happen *after* this fetch, so if a broad query
+ * matches more items than this ceiling, results beyond it are silently excluded
+ * — kind-filtered counts may be under-reported and offsets past this value are
+ * unreachable. The limit exists to bound Qdrant query cost and the size of the
+ * subsequent `IN (...)` SQL clauses (SQLite's SQLITE_MAX_VARIABLE_NUMBER is
+ * 32,766 in Bun's bundled build, so 10k stays well within that).
+ *
+ * If this becomes a real bottleneck for large memory stores, consider pushing
+ * kind/status filters into Qdrant payload filtering so the fetch limit only
+ * needs to cover the final result set.
+ */
+const SEMANTIC_SEARCH_FETCH_CEILING = 10_000;
+
+// ---------------------------------------------------------------------------
 // Semantic search helper
 // ---------------------------------------------------------------------------
 
@@ -243,17 +263,22 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
     // Kind filtering is applied post-hoc while preserving relevance order.
     const semanticResult = await searchItemsSemantic(
       searchParam,
-      10_000,
+      SEMANTIC_SEARCH_FETCH_CEILING,
       null,
       statusParam,
     );
 
     if (semanticResult && semanticResult.ids.length > 0) {
-      // Compute kindCounts from all semantic matches (no kind filter)
+      // Compute kindCounts from all semantic matches (no kind filter).
+      // Status filter is applied as defense-in-depth against stale Qdrant payloads.
+      const kindCountConditions = [inArray(memoryItems.id, semanticResult.ids)];
+      if (statusParam && statusParam !== "all") {
+        kindCountConditions.push(eq(memoryItems.status, statusParam));
+      }
       const kindCountRows = db
         .select({ kind: memoryItems.kind, count: count() })
         .from(memoryItems)
-        .where(inArray(memoryItems.id, semanticResult.ids))
+        .where(and(...kindCountConditions))
         .groupBy(memoryItems.kind)
         .all();
       const semanticKindCounts: Record<string, number> = {};
@@ -261,19 +286,22 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
         semanticKindCounts[row.kind] = row.count;
       }
 
-      // Apply kind filter while preserving semantic relevance ordering
+      // Apply kind filter while preserving semantic relevance ordering.
+      // Status filter is applied here too for defense-in-depth consistency.
       let filteredIds = semanticResult.ids;
       if (kindParam) {
+        const kindFilterConditions = [
+          inArray(memoryItems.id, semanticResult.ids),
+          eq(memoryItems.kind, kindParam),
+        ];
+        if (statusParam && statusParam !== "all") {
+          kindFilterConditions.push(eq(memoryItems.status, statusParam));
+        }
         const kindIdSet = new Set(
           db
             .select({ id: memoryItems.id })
             .from(memoryItems)
-            .where(
-              and(
-                inArray(memoryItems.id, semanticResult.ids),
-                eq(memoryItems.kind, kindParam),
-              ),
-            )
+            .where(and(...kindFilterConditions))
             .all()
             .map((r) => r.id),
         );
