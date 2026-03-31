@@ -7,11 +7,15 @@ struct SettingsArchivedConversationsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             if conversationManager.archivedConversations.isEmpty {
-                VEmptyState(
-                    title: "No archived conversations",
-                    subtitle: "Conversations you archive will appear here.",
-                    icon: VIcon.archive.rawValue
-                )
+                GeometryReader { geo in
+                    VEmptyState(
+                        title: "No archived conversations",
+                        subtitle: "Conversations you archive will appear here.",
+                        icon: VIcon.archive.rawValue
+                    )
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+                .frame(minHeight: 400)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(conversationManager.archivedConversations.enumerated()), id: \.element.id) { index, conversation in
