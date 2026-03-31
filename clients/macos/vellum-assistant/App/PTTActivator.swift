@@ -131,9 +131,13 @@ struct PTTActivator: Codable, Equatable {
     /// Used when the activation key is changed remotely.
     @MainActor static func refreshCache() async {
         _cacheTask = nil
+        let gen = _cacheGeneration
         let result = await Task.detached { Self.fromStored() }.value
-        _cached = result
-        _cacheGeneration += 1
+        // Only apply if no fresher write happened while we were awaiting.
+        if _cacheGeneration == gen {
+            _cached = result
+            _cacheGeneration += 1
+        }
     }
 
     /// Synchronously updates the cache after a local write (e.g. settings change).
