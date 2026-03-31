@@ -302,12 +302,9 @@ struct AboutVellumView: View {
 
     private func fetchHealthz() async {
         guard !selectedAssistantId.isEmpty else { return }
-        let healthPath = topology == .managed
-            ? "assistants/{assistantId}/healthz"
-            : "health"
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: healthPath,
+                path: "assistants/{assistantId}/healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()

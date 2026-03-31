@@ -421,13 +421,9 @@ struct SettingsDeveloperTab: View {
     }
 
     private func fetchHealthz() async {
-        let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
-        let healthPath = assistant?.isManaged == true
-            ? "assistants/{assistantId}/healthz"
-            : "health"
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: healthPath,
+                path: "assistants/{assistantId}/healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()

@@ -201,15 +201,8 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             }
 
             // Fetch the current service group version from health endpoint.
-            // Managed assistants route through the platform proxy at
-            // /v1/assistants/{assistantId}/healthz/ (the flat /v1/health/ path
-            // does not exist on the platform). Docker/local assistants hit
-            // the gateway directly at /v1/health/.
-            let healthPath = assistant.isManaged
-                ? "assistants/{assistantId}/healthz"
-                : "health"
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: healthPath,
+                path: "assistants/{assistantId}/healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
 
