@@ -109,6 +109,65 @@ function decodeJsEscapes(raw: string): string {
 }
 
 /**
+ * Strip JS block comments and line comments from source, replacing them
+ * with same-length whitespace so character offsets (used for line-number
+ * calculation) are preserved.  String literals are left intact.
+ */
+function stripJsComments(source: string): string {
+  let out = "";
+  for (let i = 0; i < source.length; ) {
+    const c = source[i];
+    const next = source[i + 1];
+
+    // String literal — pass through unchanged
+    if (c === '"' || c === "'" || c === "`") {
+      const q = c;
+      out += source[i++];
+      while (i < source.length && source[i] !== q) {
+        if (source[i] === "\\") {
+          out += source[i++]; // backslash
+        }
+        if (i < source.length) out += source[i++]; // char or escaped char
+      }
+      if (i < source.length) out += source[i++]; // closing quote
+      continue;
+    }
+
+    // Block comment → replace with spaces (keep newlines for line counting)
+    if (c === "/" && next === "*") {
+      out += "  "; // replace /*
+      i += 2;
+      while (
+        i < source.length &&
+        !(source[i] === "*" && source[i + 1] === "/")
+      ) {
+        out += source[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < source.length) {
+        out += "  "; // replace */
+        i += 2;
+      }
+      continue;
+    }
+
+    // Line comment → replace with spaces
+    if (c === "/" && next === "/") {
+      out += "  "; // replace //
+      i += 2;
+      while (i < source.length && source[i] !== "\n") {
+        out += " ";
+        i++;
+      }
+      continue;
+    }
+
+    out += source[i++];
+  }
+  return out;
+}
+
+/**
  * Validate that all relative/absolute import paths in source files resolve
  * within the app directory. This prevents crafted apps from importing
  * arbitrary host files (e.g. `import data from '../../../../etc/passwd'`).
@@ -131,12 +190,15 @@ async function validateImportPaths(
     const content = await readFile(filePath, "utf-8");
     const fileDir = dirname(filePath);
 
+    // Strip JS comments so patterns like `from /* */ "path"` are detected
+    const scannable = isJs ? stripJsComments(content) : content;
+
     const specifiers: Array<{ specifier: string; index: number }> = [];
 
     if (isJs) {
       // Match: from "x", import "x", import("x"), require("x")
       const re = /(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g;
-      for (const m of content.matchAll(re)) {
+      for (const m of scannable.matchAll(re)) {
         specifiers.push({ specifier: m[1], index: m.index! });
       }
     } else {

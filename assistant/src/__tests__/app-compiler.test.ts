@@ -289,6 +289,36 @@ console.log("styled");`,
     );
   });
 
+  test("rejects import hidden behind block comment", async () => {
+    const appDir = await scaffold("escape-block-comment", {
+      "main.tsx": `import data from /* bypass */ "../../../../etc/passwd";\nconsole.log(data);`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].text).toContain(
+      "resolves outside the app directory",
+    );
+  });
+
+  test("rejects import hidden behind line comment", async () => {
+    const appDir = await scaffold("escape-line-comment", {
+      "main.tsx": `import data from // bypass\n"../../../../etc/passwd";\nconsole.log(data);`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].text).toContain(
+      "resolves outside the app directory",
+    );
+  });
+
   test("rejects dynamic import escaping app directory", async () => {
     const appDir = await scaffold("escape-dynamic", {
       "main.tsx": `const data = await import("../../../../etc/hosts");\nconsole.log(data);`,
