@@ -768,7 +768,7 @@ struct MessageListView: View {
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity)
         .environment(\.bubbleMaxWidth, containerWidth > 0
-            ? min(VSpacing.chatBubbleMaxWidth, containerWidth - 2 * VSpacing.xl)
+            ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
             : VSpacing.chatBubbleMaxWidth)
     }
 
