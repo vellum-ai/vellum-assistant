@@ -26,10 +26,8 @@ const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
 /**
  * Resolve the redirect URI for a provider based on its loopback port.
  *
- * Transport is now chosen per-flow by the caller (defaulting to loopback),
- * not per-provider. This helper resolves the loopback redirect URI for
- * display purposes. Gateway redirect URIs are resolved dynamically at
- * connect time.
+ * Resolves the loopback redirect URI for display purposes. Gateway
+ * redirect URIs are resolved dynamically at connect time.
  */
 function resolveRedirectUri(loopbackPort: number | null): string | null {
   if (!loopbackPort) {
