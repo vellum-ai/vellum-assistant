@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -663,13 +662,11 @@ export async function classifyRisk(
   signal?.throwIfAborted();
   ensureRiskCacheInvalidationHook();
 
-  // Check cache first. Skip when preParsed is provided (caller already
-  // parsed) and for file_read (risk depends on mutable filesystem state
-  // like symlinks, so cached results could become stale).
-  const cacheKey =
-    preParsed || toolName === "file_read"
-      ? null
-      : riskCacheKey(toolName, input, workingDir, manifestOverride);
+  // Check cache first (skip when preParsed is provided since caller already
+  // parsed and we'd just be duplicating the key computation cost).
+  const cacheKey = preParsed
+    ? null
+    : riskCacheKey(toolName, input, workingDir, manifestOverride);
   if (cacheKey) {
     const cached = riskCache.get(cacheKey);
     if (cached !== undefined) {
@@ -956,27 +953,9 @@ function isActorTokenSigningKeyPath(
   const signingKeyPaths = [
     join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
     join(getDeprecatedDir(), "actor-token-signing-key"),
-    // Also check against workingDir-relative path for defense-in-depth
     resolve(cwd, "deprecated", "actor-token-signing-key"),
   ];
-
-  // Lexical match (handles normal paths and cases where files don't exist)
-  if (signingKeyPaths.includes(resolvedPath)) return true;
-
-  // Canonicalize via realpath to catch symlink/hardlink aliases
-  let realInput: string;
-  try {
-    realInput = realpathSync(resolvedPath);
-  } catch {
-    return false;
-  }
-  return signingKeyPaths.some((p) => {
-    try {
-      return realInput === realpathSync(p);
-    } catch {
-      return realInput === p;
-    }
-  });
+  return signingKeyPaths.includes(resolvedPath);
 }
 
 export async function check(
