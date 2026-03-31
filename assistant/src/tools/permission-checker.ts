@@ -8,6 +8,7 @@ import {
 } from "../permissions/checker.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
+import { RiskLevel } from "../permissions/types.js";
 import {
   getEffectiveMode,
   setConversationMode,
@@ -145,6 +146,10 @@ export class PermissionChecker {
         // Exception: inline-command skill loads (skill_load_dynamic:*) must
         // never be silently auto-approved — they execute embedded commands
         // and require explicit human review or a pinned trust rule.
+        // Exception: high-risk tools (e.g. destructive shell commands, writes
+        // to sensitive paths) are denied — unattended sessions must not
+        // auto-approve operations that could cause significant damage if
+        // triggered by prompt injection from untrusted content.
         const isDynamicSkillLoad =
           result.matchedRule?.pattern.startsWith("skill_load_dynamic:") ===
           true;
@@ -152,7 +157,8 @@ export class PermissionChecker {
           context.isInteractive === false &&
           context.trustClass === "guardian" &&
           !context.requireFreshApproval &&
-          !isDynamicSkillLoad
+          !isDynamicSkillLoad &&
+          riskLevel !== RiskLevel.High
         ) {
           log.info(
             { toolName: name, riskLevel },
