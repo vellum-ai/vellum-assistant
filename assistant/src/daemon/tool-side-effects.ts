@@ -255,7 +255,7 @@ registerHook("bash", (_name, input, result) => {
 
   // Try full content first (handles pretty-printed single-object JSON)
   try {
-    if (dispatch(JSON.parse(result.content.trim()) as Parsed)) return;
+    if (dispatch(JSON.parse(result.content.trim()) as Parsed) !== null) return;
   } catch {
     // Not a single JSON object — fall back to line-by-line for
     // multi-object output (e.g. cancel + create chained with &&).
