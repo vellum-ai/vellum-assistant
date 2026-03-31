@@ -462,10 +462,10 @@ public final class SettingsStore: ObservableObject {
         // Resolve lockfile-derived state (gateway URL, assistant topology)
         // on a background thread so that synchronous Data(contentsOf:)
         // file I/O does not block the main thread during init.
-        Task.detached { [weak self] in
-            let result = Self.loadLockfileState()
-            await MainActor.run { self?.applyLockfileState(result) }
-        }
+        // Uses the shared refreshLockfileState() path so the startup read
+        // is tracked in lockfileRefreshTask and can be cancelled if an
+        // assistant switch arrives before it completes.
+        refreshLockfileState()
 
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
         // dropFirst must come before debounce: it consumes the synchronous initial emission so that
@@ -613,10 +613,10 @@ public final class SettingsStore: ObservableObject {
     /// assistant switches happen in quick succession.
     private func refreshLockfileState() {
         lockfileRefreshTask?.cancel()
-        lockfileRefreshTask = Task.detached { [weak self] in
-            let result = Self.loadLockfileState()
+        lockfileRefreshTask = Task { [weak self] in
+            let result = await Task.detached { Self.loadLockfileState() }.value
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.applyLockfileState(result) }
+            self?.applyLockfileState(result)
         }
     }
 

@@ -157,19 +157,17 @@ struct SettingsDeveloperTab: View {
             sentryTestingSection
         }
         .onAppear {
-            // Fetch skip-permissions state for Docker assistants
-            store.refreshDangerouslySkipPermissions()
-
             // Assistant info setup
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
-            Task.detached {
-                let assistants = LockfileAssistant.loadAll()
-                await MainActor.run {
-                    self.lockfileAssistants = assistants
-                    self.refreshDisplayNames()
-                }
+            Task {
+                let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
+                lockfileAssistants = assistants
+                refreshDisplayNames()
+                await refreshAwakeStates()
+                // Fetch skip-permissions state for Docker assistants after
+                // the lockfile-derived cache has been populated.
+                store.refreshDangerouslySkipPermissions()
             }
-            Task { await refreshAwakeStates() }
             identity = IdentityInfo.load()
             resolvePlatformUuid()
             Task { await fetchHealthz() }
