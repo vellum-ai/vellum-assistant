@@ -3149,6 +3149,8 @@ public final class SettingsStore: ObservableObject {
     private func watchConfigFile() {
         configFileMonitor?.cancel()
         configFileMonitor = nil
+        configDirMonitor?.cancel()
+        configDirMonitor = nil
 
         let path = workspaceConfigURL.path
         let fd = open(path, O_EVTONLY)
