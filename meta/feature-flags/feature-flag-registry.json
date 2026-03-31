@@ -26,6 +26,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "local-docker-enabled",
+      "scope": "macos",
+      "key": "local-docker-enabled",
+      "label": "Local Docker Mode",
+      "description": "When enabled, the Local hosting option uses Docker under the hood for sandboxed execution, hiding the separate Docker card",
+      "defaultEnabled": false
+    },
+    {
       "id": "contacts",
       "scope": "assistant",
       "key": "contacts",
