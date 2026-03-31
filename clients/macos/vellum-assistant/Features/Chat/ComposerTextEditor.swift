@@ -170,7 +170,7 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         let fontChanged = coordinator.lastAppliedFont != font
             || coordinator.lastAppliedLineSpacing != lineSpacing
-        let colorChanged = coordinator.lastAppliedTextColor !== textColor
+        let colorChanged = coordinator.lastAppliedTextColor != textColor
 
         if fontChanged {
             coordinator.lastAppliedFont = font
