@@ -735,7 +735,17 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     public var displayedMessageCount: Int {
         get { paginationState.displayedMessageCount }
-        set { paginationState.displayedMessageCount = newValue }
+        set {
+            paginationState.displayedMessageCount = newValue
+            // Full recompute from the live messages array — not just the
+            // paginated suffix — because callers often mutate `messages` and
+            // `displayedMessageCount` in the same synchronous block (e.g.
+            // trimOldMessagesIfNeeded, populateFromHistory). The async
+            // Combine bridge hasn't delivered the new messages yet, so the
+            // cached `displayedMessages` would be stale if we only called
+            // recomputePaginatedSuffix().
+            paginationState.recomputeVisibleMessages(from: messageManager.messages)
+        }
     }
 
     public var isLoadingMoreMessages: Bool {
@@ -745,6 +755,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     public var displayedMessages: [ChatMessage] {
         paginationState.displayedMessages
+    }
+
+    /// Pre-computed paginated visible messages for the current display window.
+    /// Cached at the model layer so view bodies read O(1) instead of running
+    /// the O(n) visibility filter on every body evaluation.
+    public var paginatedVisibleMessages: [ChatMessage] {
+        paginationState.paginatedVisibleMessages
     }
 
     public var historyCursor: Double? {

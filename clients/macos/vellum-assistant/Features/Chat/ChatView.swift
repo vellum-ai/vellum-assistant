@@ -328,6 +328,7 @@ struct ChatView: View {
                 onRetryConversationError: { messageId in viewModel.retryAfterConversationError(messageId: messageId) },
                 subagentDetailStore: viewModel.subagentDetailStore,
                 activePendingRequestId: viewModel.activePendingRequestId,
+                paginatedVisibleMessages: viewModel.paginatedVisibleMessages,
                 displayedMessageCount: viewModel.displayedMessageCount,
                 hasMoreMessages: viewModel.hasMoreMessages,
                 isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
