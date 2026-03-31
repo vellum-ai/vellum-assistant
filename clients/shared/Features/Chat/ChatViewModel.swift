@@ -737,7 +737,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         get { paginationState.displayedMessageCount }
         set {
             paginationState.displayedMessageCount = newValue
-            paginationState.recomputePaginatedSuffix()
+            // Full recompute from the live messages array — not just the
+            // paginated suffix — because callers often mutate `messages` and
+            // `displayedMessageCount` in the same synchronous block (e.g.
+            // trimOldMessagesIfNeeded, populateFromHistory). The async
+            // Combine bridge hasn't delivered the new messages yet, so the
+            // cached `displayedMessages` would be stale if we only called
+            // recomputePaginatedSuffix().
+            paginationState.recomputeVisibleMessages(from: messageManager.messages)
         }
     }
 
