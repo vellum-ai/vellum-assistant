@@ -4,6 +4,15 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+ConnectionSetup")
 
+/// Thrown when the assistant does not become ready within the expected timeout.
+enum AssistantNotReadyError: LocalizedError {
+    case timeout
+
+    var errorDescription: String? {
+        "Assistant did not become ready within the expected timeout."
+    }
+}
+
 extension AppDelegate {
 
     // MARK: - Theme
@@ -682,5 +691,47 @@ extension AppDelegate {
         }
 
         log.warning("Could not install CLI symlink for \(commandName) in any candidate directory")
+    }
+
+    // MARK: - Assistant Readiness Check
+
+    /// Verifies the assistant is actually responding after a switch by checking
+    /// both the SSE connection state and the gateway health endpoint.
+    ///
+    /// First waits for `connectionManager.isConnected` to become `true`,
+    /// then performs a health endpoint check to confirm the assistant is
+    /// serving requests (not just accepting TCP connections).
+    ///
+    /// - Parameter timeout: Maximum time to wait in seconds (default 10).
+    /// - Throws: `AssistantNotReadyError.timeout` if the assistant does not
+    ///   become ready within the timeout.
+    func verifyAssistantReady(timeout: TimeInterval = 10) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        // Phase 1: Wait for the SSE connection to establish.
+        while !connectionManager.isConnected {
+            if Date() >= deadline {
+                log.error("verifyAssistantReady: SSE connection not established within \(timeout)s")
+                throw AssistantNotReadyError.timeout
+            }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+
+        // Phase 2: Hit the health endpoint to verify the assistant is
+        // actually serving requests. For local assistants this reaches the
+        // gateway's /readyz endpoint; for managed/remote assistants it
+        // routes through GatewayHTTPClient with auth.
+        while Date() < deadline {
+            let healthy = await HealthCheckClient.isReachable(timeout: 2)
+            if healthy {
+                log.info("verifyAssistantReady: assistant is healthy")
+                return
+            }
+            log.info("verifyAssistantReady: health check failed, retrying...")
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+
+        log.error("verifyAssistantReady: health endpoint not responding within \(timeout)s")
+        throw AssistantNotReadyError.timeout
     }
 }

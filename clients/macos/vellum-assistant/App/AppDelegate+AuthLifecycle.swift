@@ -562,20 +562,21 @@ extension AppDelegate {
 
         showMainWindow()
 
-        // 7. Validate the gateway connection with a timeout. If the connection
-        //    doesn't establish within 15 seconds, roll back to the previous
-        //    assistant so the app doesn't end up in a broken state.
+        // 7. Verify the assistant is actually responding after the switch.
+        //    Uses verifyAssistantReady() which checks both SSE connection state
+        //    and the gateway health endpoint. If the assistant doesn't respond
+        //    within the timeout, roll back to the previous assistant.
         self.switchValidationTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let connected = await self.waitForGatewayConnection(timeout: 15)
+            do {
+                try await self.verifyAssistantReady(timeout: 15)
+            } catch {
+                // If a newer switch cancelled this task, bail out — the rollback
+                // target (previousAssistantId) is stale.
+                guard !Task.isCancelled else { return }
 
-            // If a newer switch cancelled this task, bail out — the rollback
-            // target (previousAssistantId) is stale.
-            guard !Task.isCancelled else { return }
-
-            if !connected {
-                log.error("Gateway connection failed after switching to \(assistant.assistantId, privacy: .public) — rolling back")
+                log.error("Assistant readiness check failed after switching to \(assistant.assistantId, privacy: .public): \(error.localizedDescription) — rolling back")
 
                 // Roll back to the previous assistant if one was connected.
                 // Show the error toast AFTER rollback so it appears on the
@@ -586,26 +587,15 @@ extension AppDelegate {
                     self.rollbackToPreviousAssistant(previousAssistant)
                 }
 
+                let toastMessage = previousAssistantId != nil
+                    ? "Assistant is not responding. Switching back to previous assistant."
+                    : "Assistant is not responding. It may be offline."
                 self.mainWindow?.windowState.showToast(
-                    message: "Could not connect to assistant — it may be offline",
+                    message: toastMessage,
                     style: .error
                 )
             }
         }
-    }
-
-    /// Waits for `connectionManager.isConnected` to become `true`, polling
-    /// every 500ms up to the given timeout in seconds.
-    ///
-    /// Returns `true` if the connection was established within the timeout,
-    /// `false` otherwise.
-    private func waitForGatewayConnection(timeout: Int) async -> Bool {
-        let iterations = timeout * 2  // 500ms per iteration
-        for _ in 0..<iterations {
-            if connectionManager.isConnected { return true }
-            try? await Task.sleep(nanoseconds: 500_000_000)
-        }
-        return connectionManager.isConnected
     }
 
     /// Rolls back to a previous assistant after a failed switch. Performs
