@@ -134,6 +134,18 @@ struct AssistantUpgradeSection: View {
         return !VersionCompat.isCompatible(clientVersion: clientVersion, serviceGroupVersion: sgVersion)
     }
 
+    /// Whether the app version is older than the selected target version.
+    /// Used to determine if Sparkle should be triggered after a service group upgrade.
+    private var isAppBehindTarget: Bool {
+        guard let target = effectiveSelectedVersion,
+              let clientVersion = appVersion,
+              let targetParsed = VersionCompat.parse(target),
+              let clientParsed = VersionCompat.parse(clientVersion) else { return false }
+        if targetParsed.major != clientParsed.major { return targetParsed.major > clientParsed.major }
+        if targetParsed.minor != clientParsed.minor { return targetParsed.minor > clientParsed.minor }
+        return targetParsed.patch > clientParsed.patch
+    }
+
     /// Whether the service group version is older than the client version.
     private var isServiceGroupBehind: Bool {
         guard let sgVersion = currentVersion, !sgVersion.isEmpty,
@@ -403,6 +415,8 @@ struct AssistantUpgradeSection: View {
         } message: {
             if isRollback {
                 Text("Rollback to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
+            } else if isAppBehindTarget {
+                Text("Upgrade to version \(effectiveSelectedVersion ?? "latest")? Both the assistant and the app will be updated. The assistant will be briefly unavailable during the upgrade.")
             } else {
                 Text("Upgrade to version \(effectiveSelectedVersion ?? "latest")? The assistant will be briefly unavailable during the upgrade.")
             }
@@ -503,6 +517,10 @@ struct AssistantUpgradeSection: View {
                 try await cli.upgrade(name: name, version: version)
             }
             successMessage = isRollback ? "Rollback complete." : "Upgrade complete."
+            if !isRollback && isAppBehindTarget {
+                successMessage! += " Checking for app update…"
+                AppDelegate.shared?.updateManager.checkForUpdates()
+            }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
             await loadReleasesQuietly()
@@ -540,6 +558,10 @@ struct AssistantUpgradeSection: View {
             successMessage = isRollback
                 ? "Rollback initiated. The assistant may be briefly unavailable."
                 : "Upgrade initiated. The assistant may be briefly unavailable."
+            if !isRollback && isAppBehindTarget {
+                successMessage! += " Checking for app update…"
+                AppDelegate.shared?.updateManager.checkForUpdates()
+            }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
             // Refresh releases to update UI without clearing success message
