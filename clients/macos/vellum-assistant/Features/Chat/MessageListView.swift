@@ -767,6 +767,7 @@ struct MessageListView: View {
         .padding(.bottom, VSpacing.md)
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity)
+        .environment(\.bubbleMaxWidth, min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0)))
     }
 
     // MARK: - Scroll-to-latest overlay

@@ -112,12 +112,11 @@ struct ChatView: View {
                     chatBackground
                 }
                 .background(VColor.surfaceBase)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: ChatContainerWidthKey.self, value: geo.size.width)
-                    }
-                )
-                .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { newWidth in
+                    containerWidth = newWidth
+                }
                 .overlay(alignment: .bottom) {
                     btwOverlay
                 }
@@ -735,12 +734,4 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
     }
 }
 
-/// Propagates the chat container's measured width up to ChatView so it can
-/// forward it to MessageListView for resize-aware scroll stabilization.
-private struct ChatContainerWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
 
