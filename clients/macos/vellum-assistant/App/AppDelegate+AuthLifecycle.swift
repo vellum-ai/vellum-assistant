@@ -438,7 +438,7 @@ extension AppDelegate {
     /// 3. Persist the new assistant selection
     /// 4. Reconfigure transport and reconnect
     /// 5. Resume credential bootstrap
-    func performSwitchAssistant(to assistant: LockfileAssistant) {
+    func performSwitchAssistant(to assistant: LockfileAssistant, skipValidation: Bool = false) {
         // If switching to a managed assistant while logged out, check whether
         // a valid session token exists before forcing re-authentication.
         // The in-memory auth state may be stale (tied to the previous assistant's
@@ -451,7 +451,7 @@ extension AppDelegate {
                     // proceed with the switch directly without showing login.
                     await authManager.checkSession()
                     log.info("[switchAssistant] Session token valid — proceeding with managed switch to \(assistant.assistantId, privacy: .public) without re-auth")
-                    self.performSwitchAssistantCore(to: assistant)
+                    self.performSwitchAssistantCore(to: assistant, skipValidation: skipValidation)
                 } else {
                     // Token is expired/invalid — persist the target and show login.
                     log.info("[switchAssistant] Session token invalid — requiring re-auth for managed switch to \(assistant.assistantId, privacy: .public)")
@@ -462,7 +462,7 @@ extension AppDelegate {
             return
         }
 
-        performSwitchAssistantCore(to: assistant)
+        performSwitchAssistantCore(to: assistant, skipValidation: skipValidation)
     }
 
     /// Validates the stored session token against the platform API.
@@ -489,7 +489,7 @@ extension AppDelegate {
     /// Core switch logic, extracted so it can be called both from the
     /// synchronous path (non-managed or already-authenticated) and from
     /// the async token-validation path.
-    private func performSwitchAssistantCore(to assistant: LockfileAssistant) {
+    private func performSwitchAssistantCore(to assistant: LockfileAssistant, skipValidation: Bool = false) {
         // Cancel any in-flight bootstrap tasks from a previous assistant switch.
         // Incrementing switchGeneration causes running bootstrap tasks to detect
         // staleness and abort, preventing credential confusion during rapid switches.
@@ -566,34 +566,39 @@ extension AppDelegate {
         //    Uses verifyAssistantReady() which checks both SSE connection state
         //    and the gateway health endpoint. If the assistant doesn't respond
         //    within the timeout, roll back to the previous assistant.
-        self.switchValidationTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        //    Skip validation when the caller plans to retire/stop the previous
+        //    assistant — rolling back to a dead assistant would be worse than
+        //    staying on the new one.
+        if !skipValidation {
+            self.switchValidationTask = Task { @MainActor [weak self] in
+                guard let self else { return }
 
-            do {
-                try await self.verifyAssistantReady(timeout: 15)
-            } catch {
-                // If a newer switch cancelled this task, bail out — the rollback
-                // target (previousAssistantId) is stale.
-                guard !Task.isCancelled else { return }
+                do {
+                    try await self.verifyAssistantReady(timeout: 15)
+                } catch {
+                    // If a newer switch cancelled this task, bail out — the rollback
+                    // target (previousAssistantId) is stale.
+                    guard !Task.isCancelled else { return }
 
-                log.error("Assistant readiness check failed after switching to \(assistant.assistantId, privacy: .public): \(error.localizedDescription) — rolling back")
+                    log.error("Assistant readiness check failed after switching to \(assistant.assistantId, privacy: .public): \(error.localizedDescription) — rolling back")
 
-                // Roll back to the previous assistant if one was connected.
-                // Show the error toast AFTER rollback so it appears on the
-                // newly created main window (rollback closes the current one).
-                if let previousAssistantId,
-                   let previousAssistant = LockfileAssistant.loadByName(previousAssistantId) {
-                    log.info("Rolling back to previous assistant \(previousAssistantId, privacy: .public)")
-                    self.rollbackToPreviousAssistant(previousAssistant)
+                    // Roll back to the previous assistant if one was connected.
+                    // Show the error toast AFTER rollback so it appears on the
+                    // newly created main window (rollback closes the current one).
+                    if let previousAssistantId,
+                       let previousAssistant = LockfileAssistant.loadByName(previousAssistantId) {
+                        log.info("Rolling back to previous assistant \(previousAssistantId, privacy: .public)")
+                        self.rollbackToPreviousAssistant(previousAssistant)
+                    }
+
+                    let toastMessage = previousAssistantId != nil
+                        ? "Assistant is not responding. Switching back to previous assistant."
+                        : "Assistant is not responding. It may be offline."
+                    self.mainWindow?.windowState.showToast(
+                        message: toastMessage,
+                        style: .error
+                    )
                 }
-
-                let toastMessage = previousAssistantId != nil
-                    ? "Assistant is not responding. Switching back to previous assistant."
-                    : "Assistant is not responding. It may be offline."
-                self.mainWindow?.windowState.showToast(
-                    message: toastMessage,
-                    style: .error
-                )
             }
         }
     }
@@ -727,21 +732,21 @@ extension AppDelegate {
             if !remaining.isEmpty {
                 // Try remote assistants first — they're always reachable
                 if let remote = remaining.first(where: { $0.isRemote }) {
-                    performSwitchAssistant(to: remote)
+                    performSwitchAssistant(to: remote, skipValidation: true)
                     return true
                 }
 
                 // Try local assistants — check if awake, otherwise wake them
                 for candidate in remaining {
                     if await HealthCheckClient.isReachable(for: candidate) {
-                        performSwitchAssistant(to: candidate)
+                        performSwitchAssistant(to: candidate, skipValidation: true)
                         return true
                     }
 
                     // Sleeping — try to wake it
                     do {
                         try await vellumCli.wake(name: candidate.assistantId)
-                        performSwitchAssistant(to: candidate)
+                        performSwitchAssistant(to: candidate, skipValidation: true)
                         return true
                     } catch {
                         log.warning("Failed to wake \(candidate.assistantId): \(error.localizedDescription)")
