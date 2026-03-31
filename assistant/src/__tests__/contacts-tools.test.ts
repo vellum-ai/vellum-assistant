@@ -137,6 +137,37 @@ describe("contact_upsert tool", () => {
     expect(result.content).toContain("slack: @bob");
   });
 
+  test("ignores external identity bindings supplied through tool input", async () => {
+    const result = await executeContactUpsert(
+      {
+        display_name: "Eve",
+        channels: [
+          {
+            type: "slack",
+            address: "@eve",
+            external_user_id: "UATTACKER",
+            external_chat_id: "DATTACKER",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+
+    const row = getRawDb()
+      .query(
+        "SELECT externalUserId, externalChatId FROM contact_channels WHERE type = 'slack' AND address = '@eve'",
+      )
+      .get() as {
+      externalUserId: string | null;
+      externalChatId: string | null;
+    };
+
+    expect(row.externalUserId).toBeNull();
+    expect(row.externalChatId).toBeNull();
+  });
+
   test("updates an existing contact by ID", async () => {
     const createResult = await executeContactUpsert(
       { display_name: "Charlie" },
