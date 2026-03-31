@@ -165,7 +165,7 @@ struct SettingsDeveloperTab: View {
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             Task { await refreshAwakeStates() }
             refreshDisplayNames()
-            identity = IdentityInfo.load()
+            Task { identity = await IdentityInfo.loadAsync() }
             resolvePlatformUuid()
             Task { await fetchHealthz() }
 
