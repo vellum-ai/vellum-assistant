@@ -479,8 +479,9 @@ async function buildAllImages(
 
 /**
  * Returns a function that builds the `docker run` arguments for a given
- * service. Each container joins a shared Docker bridge network so they
- * can be restarted independently.
+ * service. All three containers share a network namespace via
+ * `--network=container:` so inter-service traffic is over localhost,
+ * matching the platform's Kubernetes pod topology.
  */
 export function serviceDockerRunArgs(opts: {
   signingKey?: string;
@@ -511,6 +512,8 @@ export function serviceDockerRunArgs(opts: {
         "--name",
         res.assistantContainer,
         `--network=${res.network}`,
+        "-p",
+        `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
         "-v",
         `${res.workspaceVolume}:/workspace`,
         "-v",
@@ -526,9 +529,9 @@ export function serviceDockerRunArgs(opts: {
         "-e",
         "VELLUM_WORKSPACE_DIR=/workspace",
         "-e",
-        `CES_CREDENTIAL_URL=http://${res.cesContainer}:8090`,
+        "CES_CREDENTIAL_URL=http://localhost:8090",
         "-e",
-        `GATEWAY_INTERNAL_URL=http://${res.gatewayContainer}:${GATEWAY_INTERNAL_PORT}`,
+        `GATEWAY_INTERNAL_URL=http://localhost:${GATEWAY_INTERNAL_PORT}`,
       ];
       if (defaultWorkspaceConfigPath) {
         const containerPath = `/tmp/vellum-default-workspace-config-${Date.now()}.json`;
@@ -567,9 +570,7 @@ export function serviceDockerRunArgs(opts: {
       "-d",
       "--name",
       res.gatewayContainer,
-      `--network=${res.network}`,
-      "-p",
-      `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
+      `--network=container:${res.assistantContainer}`,
       "-v",
       `${res.workspaceVolume}:/workspace`,
       "-v",
@@ -581,13 +582,13 @@ export function serviceDockerRunArgs(opts: {
       "-e",
       `GATEWAY_PORT=${GATEWAY_INTERNAL_PORT}`,
       "-e",
-      `ASSISTANT_HOST=${res.assistantContainer}`,
+      "ASSISTANT_HOST=localhost",
       "-e",
       `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
       "-e",
       "RUNTIME_PROXY_ENABLED=true",
       "-e",
-      `CES_CREDENTIAL_URL=http://${res.cesContainer}:8090`,
+      "CES_CREDENTIAL_URL=http://localhost:8090",
       ...(cesServiceToken
         ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
         : []),
@@ -605,7 +606,7 @@ export function serviceDockerRunArgs(opts: {
       "-d",
       "--name",
       res.cesContainer,
-      `--network=${res.network}`,
+      `--network=container:${res.assistantContainer}`,
       "-v",
       `${res.socketVolume}:/run/ces-bootstrap`,
       "-v",
@@ -842,6 +843,15 @@ function startFileWatcher(opts: {
     const services = pendingServices;
     pendingServices = new Set();
 
+    // Gateway and CES share the assistant's network namespace. If the
+    // assistant container is removed and recreated, the shared namespace
+    // is destroyed and the other two lose connectivity. Cascade the
+    // restart to all three services in that case.
+    if (services.has("assistant")) {
+      services.add("gateway");
+      services.add("credential-executor");
+    }
+
     const serviceNames = [...services].join(", ");
     console.log(`\n🔄 Changes detected — rebuilding: ${serviceNames}`);
 
@@ -854,7 +864,10 @@ function startFileWatcher(opts: {
         }),
       );
 
-      for (const service of services) {
+      // Restart in dependency order (assistant first) so the network
+      // namespace owner is up before dependents try to attach.
+      for (const service of SERVICE_START_ORDER) {
+        if (!services.has(service)) continue;
         const container = containerForService[service];
         console.log(`🔄 Restarting ${container}...`);
         await removeContainer(container);
