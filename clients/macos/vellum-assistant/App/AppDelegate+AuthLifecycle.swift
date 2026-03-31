@@ -201,7 +201,7 @@ extension AppDelegate {
             // Clear platform identity credentials from the running assistant (local assistants only).
             // Skip when the assistant was never set up (e.g. logout during onboarding) —
             // there are no credentials to clear and no assistant to stop.
-            if !isCurrentAssistantManaged && !isCurrentAssistantRemote && hasSetupDaemon {
+            if !isCurrentAssistantManaged && (!isCurrentAssistantRemote || isCurrentAssistantDocker) && hasSetupDaemon {
                 let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
                 if !cleared {
                     log.warning("Credential cleanup incomplete — stopping assistant to prevent stale managed credential state")
@@ -324,7 +324,7 @@ extension AppDelegate {
     /// 10s, so that assistant switches (which clear then re-bootstrap actor
     /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
-        guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else {
+        guard !isCurrentAssistantManaged, (!isCurrentAssistantRemote || isCurrentAssistantDocker) else {
             log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) remote=\(self.isCurrentAssistantRemote, privacy: .public)")
             return
         }

@@ -66,6 +66,7 @@ extension AppDelegate {
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
         isCurrentAssistantManaged = assistant?.isManaged ?? false
+        isCurrentAssistantDocker = assistant?.isDocker ?? false
 
         // Managed assistant: platform proxy with session token auth.
         if let assistant, assistant.isManaged {

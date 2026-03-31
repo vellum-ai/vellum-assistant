@@ -160,6 +160,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// derived from the platform session, not local actor tokens.
     var isCurrentAssistantManaged = false
 
+    /// Whether the current assistant is running in Docker (cloud == "docker").
+    /// Docker assistants are classified as remote for transport purposes but
+    /// need local credential provisioning like bare-metal local assistants.
+    var isCurrentAssistantDocker = false
+
     /// Set to `true` when `.localBootstrapCompleted` has been posted, so
     /// `awaitLocalBootstrapCompleted` can return immediately if bootstrap
     /// finished before the observer was registered.
@@ -642,7 +647,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     // If the user is signed in with a local assistant, wait for
                     // credential provisioning to complete before sending the wake-up
                     // greeting, so the managed-proxy key is available for the LLM call.
-                    if authManager.isAuthenticated && !isCurrentAssistantRemote {
+                    if authManager.isAuthenticated && (!isCurrentAssistantRemote || isCurrentAssistantDocker) {
                         await awaitLocalBootstrapCompleted(timeout: 30)
                     }
 
