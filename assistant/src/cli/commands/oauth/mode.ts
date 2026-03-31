@@ -95,12 +95,6 @@ Examples:
           return;
         }
 
-        // Require platform connection when switching to managed mode
-        if (opts.set === "managed") {
-          const connected = await requirePlatformConnection(cmd);
-          if (!connected) return;
-        }
-
         const managedKey = getManagedServiceConfigKey(provider);
 
         // -----------------------------------------------------------------
@@ -185,6 +179,12 @@ Examples:
           });
           process.exitCode = 1;
           return;
+        }
+
+        // Require platform connection when switching to managed mode
+        if (newMode === "managed") {
+          const connected = await requirePlatformConnection(cmd);
+          if (!connected) return;
         }
 
         // Read current mode

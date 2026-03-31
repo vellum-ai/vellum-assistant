@@ -86,13 +86,6 @@ Examples:
     )
     .action(
       async (key: string, value: string, _opts: unknown, cmd: Command) => {
-        // Require platform connection when setting a service mode to "managed"
-        if (SERVICE_MODE_PATH_RE.test(key) && value === "managed") {
-          const connected = await requirePlatformConnection(cmd);
-          if (!connected) return;
-        }
-
-        const raw = loadRawConfig();
         // Try to parse as JSON for booleans/numbers, fall back to string
         let parsed: unknown = value;
         try {
@@ -100,6 +93,14 @@ Examples:
         } catch {
           // keep as string
         }
+
+        // Require platform connection when setting a service mode to "managed"
+        if (SERVICE_MODE_PATH_RE.test(key) && parsed === "managed") {
+          const connected = await requirePlatformConnection(cmd);
+          if (!connected) return;
+        }
+
+        const raw = loadRawConfig();
         setNestedValue(raw, key, parsed);
         saveRawConfig(raw);
         log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
