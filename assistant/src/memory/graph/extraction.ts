@@ -12,11 +12,6 @@ import { join } from "node:path";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
-import type {
-  ContentBlock,
-  ImageContent,
-  Message,
-} from "../../providers/types.js";
 import { resolveGuardianPersona } from "../../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
@@ -24,6 +19,11 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import type {
+  ContentBlock,
+  ImageContent,
+  Message,
+} from "../../providers/types.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getConversationDirPath } from "../conversation-disk-view.js";
