@@ -872,7 +872,7 @@ The reducer (`context-overflow-reducer.ts`) applies four monotonically more aggr
 | ------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | 1. Forced compaction      | Emergency `maybeCompact()` with `force: true`, `minKeepRecentUserTurns: 0` | Summarizes older history more aggressively than normal compaction                            |
 | 2. Tool-result truncation | `truncateToolResultsAcrossHistory()` at 4,000 chars per result             | Shrinks verbose tool outputs (shell, file reads) across all retained messages                |
-| 3. Media/file stubbing    | `stripMediaPayloadsForRetry()`                                             | Replaces image and file content blocks with lightweight text stubs                           |
+| 3. Media/file stubbing    | `stripMediaPayloadsForRetry()`                                             | Replaces image and file content blocks with lightweight text stubs; media in the latest user message is retained based on available token budget rather than a fixed count |
 | 4. Injection downgrade    | Sets `injectionMode` to `"minimal"`                                        | Drops runtime injections (workspace listing, temporal context, memory recall) to minimal set |
 
 After each tier, the reducer re-estimates tokens. If the estimate is within budget, the loop breaks and the provider call proceeds. The loop is bounded by `maxAttempts` (default 3).
