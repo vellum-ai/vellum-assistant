@@ -157,13 +157,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private var pendingRenames: [UUID: String] = [:]
     /// Flag to suppress lastActiveConversationIdString writes during initialization and conversation restoration.
     private var isRestoringConversations = false
-    /// Subscription to activeViewModel's messages count changes.
-    /// Drives activeMessageCount so only message-count-dependent views re-render,
-    /// not the entire window tree.
     /// Combines `$conversations` and `$groups` to recompute cached derived
     /// state (`visibleConversations`, `unseenVisibleConversationCount`,
     /// `groupSortPositionMap`) in a single pass whenever either source changes.
     private var derivedStateCancellable: AnyCancellable?
+    /// Subscription to activeViewModel's messages count changes.
+    /// Drives activeMessageCount so only message-count-dependent views re-render,
+    /// not the entire window tree.
     private var activeViewModelCancellable: AnyCancellable?
     /// Tracks the message count of the active conversation's view model.
     /// SwiftUI views that need to react to new messages should observe this
