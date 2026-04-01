@@ -119,15 +119,15 @@ USER root
 
 EXPOSE 3001
 
-ARG VELLUM_SERVICE_VERSION=""
-ENV VELLUM_SERVICE_VERSION=$VELLUM_SERVICE_VERSION
-
 ENV RUNTIME_HTTP_PORT=3001
 ENV IS_CONTAINERIZED=true
 
 # Copy from builder
 COPY --from=builder /app /app
 RUN chmod +x /app/assistant/docker-entrypoint.sh
+
+ARG VELLUM_SERVICE_VERSION=""
+ENV VELLUM_SERVICE_VERSION=$VELLUM_SERVICE_VERSION
 
 # Run the daemon + http server
 CMD ["/app/assistant/docker-entrypoint.sh"]
