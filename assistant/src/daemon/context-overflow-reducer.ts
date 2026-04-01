@@ -257,7 +257,7 @@ function applyMediaStubbing(
           mediaTokens += estimateContentBlockTokens(block, {
             providerName: config.providerName,
           });
-        } else if (block.type === "tool_result" && block.contentBlocks) {
+        } else if ((block.type === "tool_result" || block.type === "web_search_tool_result") && block.contentBlocks) {
           for (const cb of block.contentBlocks) {
             if (cb.type === "image" || cb.type === "file") {
               mediaTokens += estimateContentBlockTokens(cb, {
