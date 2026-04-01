@@ -960,6 +960,14 @@ struct MessageListView: View {
                 // response. Daemon confirmation resumes stay bottom-pinned.
                 if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
                     scrollState.enterPushToTop(messageId: lastUserMsg.id)
+                    // Scroll immediately in the same transaction as the tail
+                    // spacer state change. SwiftUI batches both mutations into
+                    // a single layout pass, so the spacer provides room and
+                    // the scroll resolves together — no blank-frame flash.
+                    scrollState.pendingPushToTopTarget = nil
+                    withAnimation(VAnimation.fast) {
+                        scrollPosition.scrollTo(id: lastUserMsg.id, anchor: .top)
+                    }
                     os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                                 "target=userMessage reason=pushToTop")
                 } else {
@@ -983,8 +991,9 @@ struct MessageListView: View {
     }
 
     private func handleUIVersionChanged() {
-        // Consume any pending push-to-top target now that the
-        // body has re-evaluated with the tail spacer rendered.
+        // Fallback: if a push-to-top target wasn't consumed by the
+        // immediate scroll in handleSendingChanged (e.g. edge-case
+        // timing), consume it here after the tail spacer has rendered.
         guard let targetId = scrollState.pendingPushToTopTarget,
               scrollState.mode.pushToTopMessageId != nil else { return }
         scrollState.pendingPushToTopTarget = nil
@@ -1141,7 +1150,7 @@ struct MessageListView: View {
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 scrollState.endStabilization()
