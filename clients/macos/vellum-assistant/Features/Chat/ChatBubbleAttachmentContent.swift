@@ -429,7 +429,7 @@ extension ChatBubble {
     /// Used to suppress the corresponding tool-block image attachments from the
     /// attachment grid only when inline tool previews are actually rendered.
     var inlineToolCallImageCount: Int {
-        message.toolCalls.filter { $0.cachedImage != nil }.count
+        message.toolCalls.reduce(0) { $0 + $1.cachedImages.count }
     }
 
     /// Returns the image attachments that should still render in the attachment grid.
@@ -478,9 +478,10 @@ extension ChatBubble {
     /// at full width in the message flow instead of as tiny attachment thumbnails.
     @ViewBuilder
     func inlineToolCallImages(from toolCalls: [ToolCallData]) -> some View {
-        let imagesWithIds: [(id: UUID, image: NSImage)] = toolCalls.compactMap { tc in
-            guard let img = tc.cachedImage else { return nil }
-            return (tc.id, img)
+        let imagesWithIds: [(id: String, image: NSImage)] = toolCalls.flatMap { tc in
+            tc.cachedImages.enumerated().map { (idx, img) in
+                ("\(tc.id.uuidString)-\(idx)", img)
+            }
         }
         if !imagesWithIds.isEmpty {
             ForEach(imagesWithIds, id: \.id) { item in

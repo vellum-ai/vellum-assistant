@@ -72,7 +72,7 @@ public struct ToolCallChip: View {
     }
 
     private var hasExpandableContent: Bool {
-        toolCall.result != nil || toolCall.cachedImage != nil
+        toolCall.result != nil || !toolCall.cachedImages.isEmpty
     }
 
     /// Lazily resolved full input text, using the cached value when available.
@@ -150,8 +150,8 @@ public struct ToolCallChip: View {
                     }
                     .padding(.horizontal, VSpacing.sm)
 
-                    // Image preview (for browser_screenshot etc.)
-                    if let cachedImage = toolCall.cachedImage {
+                    // Image preview (for browser_screenshot, image generation etc.)
+                    ForEach(Array(toolCall.cachedImages.enumerated()), id: \.offset) { _, cachedImage in
                         #if os(macOS)
                         let canOpenImage = !toolCall.inputRawValue.isEmpty
                             && FileManager.default.fileExists(atPath: toolCall.inputRawValue)

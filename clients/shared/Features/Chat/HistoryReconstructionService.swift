@@ -41,8 +41,8 @@ enum HistoryReconstructionService {
             let toolsBeforeText = item.toolCallsBeforeText ?? true
             if let historyToolCalls = item.toolCalls {
                 toolCalls = historyToolCalls.map { tc in
-                    // Decode image eagerly — pass imageData:nil to init to skip
-                    // its internal decode, then set cachedImage directly below.
+                    // Decode images eagerly — pass imageDataList:nil to init to skip
+                    // its internal decode, then set cachedImages directly below.
                     var toolCall = ToolCallData(
                         toolName: tc.name,
                         inputSummary: summarizeToolInputStatic(tc.input),
@@ -52,11 +52,11 @@ enum HistoryReconstructionService {
                         isError: tc.isError ?? false,
                         isComplete: true,
                         arrivedBeforeText: toolsBeforeText,
-                        imageData: nil
+                        imageDataList: nil
                     )
-                    // Decode image eagerly — NSImage/UIImage init from Data is
-                    // thread-safe and the views expect cachedImage to be populated.
-                    toolCall.cachedImage = ToolCallData.decodeImage(from: tc.imageData)
+                    // Decode images eagerly — NSImage/UIImage init from Data is
+                    // thread-safe and the views expect cachedImages to be populated.
+                    toolCall.cachedImages = (tc.imageDataList ?? []).compactMap { ToolCallData.decodeImage(from: $0) }
                     toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
                         ?? (tc.input["reason"]?.value as? String)
                         ?? (tc.input["reasoning"]?.value as? String)

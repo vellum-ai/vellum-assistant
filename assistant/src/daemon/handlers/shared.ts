@@ -60,8 +60,8 @@ export interface HistoryToolCall {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
-  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
-  imageData?: string;
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
+  imageDataList?: string[];
   /** Unix ms when the tool started executing. */
   startedAt?: number;
   /** Unix ms when the tool completed. */
@@ -341,16 +341,19 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       const resultContent =
         typeof block.content === "string" ? block.content : "";
       const isError = block.is_error === true;
-      // Extract base64 image data from persisted contentBlocks (e.g. browser_screenshot)
-      let imageData: string | undefined;
+      // Extract base64 image data from persisted contentBlocks (e.g. browser_screenshot, image generation)
+      const imageDataList: string[] = [];
       if (Array.isArray(block.contentBlocks)) {
-        const imgBlock = block.contentBlocks.find(
-          (b: Record<string, unknown>) => isRecord(b) && b.type === "image",
-        );
-        if (imgBlock && isRecord(imgBlock) && isRecord(imgBlock.source)) {
-          const src = imgBlock.source as Record<string, unknown>;
-          if (typeof src.data === "string") {
-            imageData = src.data;
+        for (const cb of block.contentBlocks) {
+          if (
+            isRecord(cb) &&
+            cb.type === "image" &&
+            isRecord(cb.source) &&
+            typeof (cb.source as Record<string, unknown>).data === "string"
+          ) {
+            imageDataList.push(
+              (cb.source as Record<string, unknown>).data as string,
+            );
           }
         }
       }
@@ -358,14 +361,14 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       if (matched) {
         matched.result = resultContent;
         matched.isError = isError;
-        if (imageData) matched.imageData = imageData;
+        if (imageDataList.length > 0) matched.imageDataList = imageDataList;
       } else {
         toolCalls.push({
           name: "unknown",
           input: {},
           result: resultContent,
           isError,
-          ...(imageData ? { imageData } : {}),
+          ...(imageDataList.length > 0 ? { imageDataList } : {}),
         });
       }
       continue;

@@ -124,8 +124,8 @@ export interface ToolResult {
   };
   status?: string;
   conversationId?: string;
-  /** Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot). */
-  imageData?: string;
+  /** Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot, image generation). */
+  imageDataList?: string[];
   /** The tool_use block ID for client-side correlation. */
   toolUseId?: string;
 }

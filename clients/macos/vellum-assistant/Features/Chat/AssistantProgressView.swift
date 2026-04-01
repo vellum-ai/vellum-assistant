@@ -480,7 +480,7 @@ struct AssistantProgressView: View {
                 && tc.inputFull.isEmpty
                 && tc.result == nil
                 && tc.inputRawDict == nil
-                && tc.cachedImage == nil
+                && tc.cachedImages.isEmpty
         }
     }
 

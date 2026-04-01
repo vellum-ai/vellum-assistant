@@ -169,11 +169,11 @@ final class RenderChurnTests: XCTestCase {
                        "Local attachment with data should report isLazyLoad = false")
     }
 
-    // MARK: - ToolCallData Equatable (imageData excluded)
+    // MARK: - ToolCallData Equatable (imageDataList excluded)
 
-    /// Two ToolCallData instances that differ only in imageData should be equal
-    /// because imageData is intentionally excluded from the == implementation.
-    func testToolCallDataEqualityExcludesImageData() {
+    /// Two ToolCallData instances that differ only in imageDataList should be equal
+    /// because imageDataList is intentionally excluded from the == implementation.
+    func testToolCallDataEqualityExcludesImageDataList() {
         let id = UUID()
         let a = ToolCallData(
             id: id,
@@ -183,7 +183,7 @@ final class RenderChurnTests: XCTestCase {
             isError: false,
             isComplete: true,
             arrivedBeforeText: true,
-            imageData: "AAAA"
+            imageDataList: ["AAAA"]
         )
         let b = ToolCallData(
             id: id,
@@ -193,11 +193,11 @@ final class RenderChurnTests: XCTestCase {
             isError: false,
             isComplete: true,
             arrivedBeforeText: true,
-            imageData: "BBBB"
+            imageDataList: ["BBBB"]
         )
 
         XCTAssertEqual(a, b,
-                       "ToolCallData instances differing only in imageData should be equal")
+                       "ToolCallData instances differing only in imageDataList should be equal")
     }
 
     /// Two ToolCallData instances that differ in toolName should NOT be equal.

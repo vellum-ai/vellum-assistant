@@ -2100,8 +2100,8 @@ public struct HistoryResponseToolCall: Codable, Sendable {
     public let input: [String: AnyCodable]
     public let result: String?
     public let isError: Bool?
-    /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
-    public let imageData: String?
+    /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation).
+    public let imageDataList: [String]?
     /// Unix ms when the tool started executing.
     public let startedAt: Int?
     /// Unix ms when the tool completed.
@@ -2111,12 +2111,12 @@ public struct HistoryResponseToolCall: Codable, Sendable {
     /// Friendly label for the confirmation (e.g. "Edit File", "Run Command").
     public let confirmationLabel: String?
 
-    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageData: String? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil) {
+    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageDataList: [String]? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil) {
         self.name = name
         self.input = input
         self.result = result
         self.isError = isError
-        self.imageData = imageData
+        self.imageDataList = imageDataList
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.confirmationDecision = confirmationDecision
@@ -4589,12 +4589,12 @@ public struct ToolResult: Codable, Sendable {
     public let diff: ToolResultDiff?
     public let status: String?
     public let conversationId: String?
-    /// Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot).
-    public let imageData: String?
+    /// Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot, image generation).
+    public let imageDataList: [String]?
     /// The tool_use block ID for client-side correlation.
     public let toolUseId: String?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageData: String? = nil, toolUseId: String? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4602,7 +4602,7 @@ public struct ToolResult: Codable, Sendable {
         self.diff = diff
         self.status = status
         self.conversationId = conversationId
-        self.imageData = imageData
+        self.imageDataList = imageDataList
         self.toolUseId = toolUseId
     }
 }

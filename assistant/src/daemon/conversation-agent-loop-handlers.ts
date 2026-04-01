@@ -427,9 +427,12 @@ export function handleToolResult(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_result" }>,
 ): void {
-  const imageBlock = event.contentBlocks?.find(
+  const imageBlocks = event.contentBlocks?.filter(
     (b): b is ImageContent => b.type === "image",
   );
+  const imageDataList = imageBlocks?.length
+    ? imageBlocks.map((b) => b.source.data)
+    : undefined;
   deps.onEvent({
     type: "tool_result",
     toolName: "",
@@ -438,7 +441,7 @@ export function handleToolResult(
     diff: event.diff,
     status: event.status,
     conversationId: deps.ctx.conversationId,
-    imageData: imageBlock?.source.data,
+    imageDataList,
     toolUseId: event.toolUseId,
   });
   state.pendingToolResults.set(event.toolUseId, {

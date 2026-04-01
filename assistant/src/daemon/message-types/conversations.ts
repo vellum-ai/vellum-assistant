@@ -264,8 +264,8 @@ export interface HistoryResponseToolCall {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
-  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
-  imageData?: string;
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
+  imageDataList?: string[];
   /** Unix ms when the tool started executing. */
   startedAt?: number;
   /** Unix ms when the tool completed. */

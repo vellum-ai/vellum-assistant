@@ -355,7 +355,7 @@ public final class SubagentDetailStore {
             case "tool_result":
                 handleEvent(
                     subagentId: subagentId,
-                    event: .toolResult(ToolResult(type: "tool_result", toolName: event.toolName ?? "unknown", result: event.content, isError: event.isError, diff: nil, status: nil, conversationId: nil, imageData: nil))
+                    event: .toolResult(ToolResult(type: "tool_result", toolName: event.toolName ?? "unknown", result: event.content, isError: event.isError, diff: nil, status: nil, conversationId: nil, imageDataList: nil))
                 )
             default:
                 break

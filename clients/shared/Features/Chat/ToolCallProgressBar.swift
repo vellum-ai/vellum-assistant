@@ -180,8 +180,8 @@ public struct ToolCallProgressBar: View {
                 }
             }
 
-            // Screenshot
-            if let cachedImage = toolCall.cachedImage {
+            // Screenshots / generated images
+            ForEach(Array(toolCall.cachedImages.enumerated()), id: \.offset) { _, cachedImage in
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text("Screenshot")
                         .font(VFont.labelDefault)
