@@ -105,10 +105,10 @@ struct SidebarSectionHeader: View {
             }
             if conversationCount > 0 {
                 Text("\(conversationCount)")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, VSpacing.sm - VSpacing.xxs)
+                    .padding(.vertical, VSpacing.xxs)
                     .background(
                         Capsule()
                             .fill(VColor.contentTertiary.opacity(0.12))
