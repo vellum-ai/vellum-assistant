@@ -176,7 +176,7 @@ export function estimateUnconditionalStubTokens(
         stubTokens += estimateContentBlockTokens(imageBlockToStub(block), options);
       } else if (block.type === "file" && msgIndex !== latestUserIndex) {
         stubTokens += estimateContentBlockTokens(fileBlockToStub(block), options);
-      } else if (block.type === "tool_result" && block.contentBlocks) {
+      } else if (block.type === "tool_result" && block.contentBlocks) { // guard:allow-tool-result-only — web_search_tool_result has no contentBlocks
         for (const cb of block.contentBlocks) {
           if (cb.type === "image") {
             stubTokens += estimateContentBlockTokens(imageBlockToStub(cb), options);
