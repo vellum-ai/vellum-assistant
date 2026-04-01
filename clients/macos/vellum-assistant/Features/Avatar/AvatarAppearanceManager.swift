@@ -617,7 +617,7 @@ final class AvatarAppearanceManager {
     // MARK: - Dock Label
 
     /// Default app name used for the dock label when no assistant is connected.
-    private static let defaultDockLabel = AppDelegate.appName
+    private static let defaultDockLabel = "Vellum"
 
     /// Sentinel file that `build.sh` reads at build time to set
     /// `CFBundleDisplayName` so the Dock shows the assistant name from
