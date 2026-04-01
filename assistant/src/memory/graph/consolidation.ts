@@ -44,6 +44,7 @@ function buildConsolidationPrompt(
     reinforcementCount: number;
     created: number;
     eventDate: number | null;
+    hasImage: boolean;
   }>,
   edges: Array<{ sourceId: string; targetId: string; relationship: string }>,
 ): string {
@@ -54,7 +55,8 @@ function buildConsolidationPrompt(
         n.eventDate != null
           ? ` eventDate=${new Date(n.eventDate).toISOString().split("T")[0]}`
           : "";
-      return `  [${n.id}] type=${n.type} sig=${n.significance.toFixed(2)} fidelity=${n.fidelity} reinforced=${n.reinforcementCount}x age=${age}d${eventStr}\n    ${n.content}`;
+      const imageStr = n.hasImage ? " [has_image]" : "";
+      return `  [${n.id}] type=${n.type} sig=${n.significance.toFixed(2)} fidelity=${n.fidelity} reinforced=${n.reinforcementCount}x age=${age}d${eventStr}${imageStr}\n    ${n.content}`;
     })
     .join("\n\n");
 
@@ -439,6 +441,7 @@ async function consolidateChunk(
       reinforcementCount: n.reinforcementCount,
       created: n.created,
       eventDate: n.eventDate,
+      hasImage: n.imageRefs != null && n.imageRefs.length > 0,
     })),
     dedupedEdges,
   );
@@ -525,6 +528,16 @@ async function consolidateChunk(
         survivor.eventDate == null
       ) {
         updateNode(merge.survivor_id, { eventDate: deleted.eventDate });
+      }
+
+      // Preserve imageRefs from deleted node if survivor doesn't have any
+      if (
+        survivor &&
+        deleted?.imageRefs != null &&
+        deleted.imageRefs.length > 0 &&
+        (survivor.imageRefs == null || survivor.imageRefs.length === 0)
+      ) {
+        updateNode(merge.survivor_id, { imageRefs: deleted.imageRefs });
       }
     } catch (err) {
       log.warn({ err }, "Failed to create merge edge");
