@@ -26,14 +26,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "contacts",
-      "scope": "assistant",
-      "key": "contacts",
-      "label": "Contacts",
-      "description": "Show the Contacts tab in Settings for viewing and managing contacts",
-      "defaultEnabled": true
-    },
-    {
       "id": "email-channel",
       "scope": "assistant",
       "key": "email-channel",
