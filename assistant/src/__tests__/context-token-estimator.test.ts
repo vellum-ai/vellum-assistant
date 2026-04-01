@@ -287,9 +287,9 @@ describe("token estimator", () => {
 
     // 1920x1080 scaled to fit 1568px bounding box: dimScale = 1568/1920 = 0.8167
     // scaledWidth = round(1920 * 0.8167) = 1568, scaledHeight = round(1080 * 0.8167) = 882
-    // pixels = 1568 * 882 = 1,382,976 > 1,150,000 → mpScale = sqrt(1150000/1382976) = 0.9117
-    // scaledWidth = round(1568 * 0.9117) = 1430, scaledHeight = round(882 * 0.9117) = 804
-    // tokens = ceil(1430 * 804 / 750) = ceil(1533.12) = ~1,533
+    // pixels = 1568 * 882 = 1,382,976 > 1,200,000 → mpScale = sqrt(1200000/1382976) = 0.9315
+    // scaledWidth = round(1568 * 0.9315) = 1461, scaledHeight = round(882 * 0.9315) = 822
+    // tokens = ceil(1461 * 822 / 750) = ceil(1601.26) = ~1,602
     // With IMAGE_BLOCK_OVERHEAD_TOKENS and media_type overhead, still well under 5000
     expect(anthropicTokens).toBeLessThan(5_000);
 
@@ -415,10 +415,10 @@ describe("token estimator", () => {
     );
 
     // 2000x2000 → dimScale = 1568/2000 = 0.784 → 1568x1568 = 2,458,624 pixels
-    // 2,458,624 > 1,150,000 → mpScale = sqrt(1150000/2458624) ≈ 0.6837
-    // scaledWidth = round(1568 * 0.6837) = 1072, scaledHeight = round(1568 * 0.6837) = 1072
-    // tokens = ceil(1072 * 1072 / 750) = ceil(1532.7) ≈ 1533
-    // Previously would have been ceil(1568 * 1568 / 750) ≈ 3277
+    // 2,458,624 > 1,200,000 → mpScale = sqrt(1200000/2458624) ≈ 0.6987
+    // scaledWidth = round(1568 * 0.6987) = 1096, scaledHeight = round(1568 * 0.6987) = 1096
+    // tokens = ceil(1096 * 1096 / 750) = ceil(1601.6) ≈ 1602
+    // Without megapixel cap would have been ceil(1568 * 1568 / 750) ≈ 3277
     expect(tokens).toBeLessThanOrEqual(1_700);
   });
 
@@ -450,23 +450,17 @@ describe("token estimator", () => {
       { providerName: "anthropic" },
     );
 
-    // 1092x1092 = 1,192,464 pixels → slightly above 1,150,000 but close.
-    // The image tokens (excluding block overhead) should be ~1,590.
-    // With IMAGE_BLOCK_OVERHEAD_TOKENS (16) + media_type overhead (~3), total includes overhead.
-    // We check that the result (with overhead) is in a reasonable range.
-    // 1092*1092 = 1,192,464 > 1,150,000 → slight scaling applies
-    // mpScale = sqrt(1150000/1192464) ≈ 0.9824
-    // scaledWidth = round(1092 * 0.9824) = 1073, scaledHeight = round(1092 * 0.9824) = 1073
-    // tokens = ceil(1073 * 1073 / 750) = ceil(1535.2) ≈ 1536
-    // With overhead: 16 + 3 + 1536 = 1555
+    // 1092x1092 = 1,192,464 pixels < 1,200,000 → no megapixel scaling needed.
+    // tokens = ceil(1092 * 1092 / 750) = ceil(1589.95) ≈ 1590
+    // With overhead: 16 + 3 + 1590 = 1609
     expect(squareTokens).toBeGreaterThan(1_400);
     expect(squareTokens).toBeLessThan(1_800);
 
-    // 784*1568 = 1,229,312 > 1,150,000 → slight scaling applies
-    // mpScale = sqrt(1150000/1229312) ≈ 0.9674
-    // scaledWidth = round(784 * 0.9674) = 758, scaledHeight = round(1568 * 0.9674) = 1517
-    // tokens = ceil(758 * 1517 / 750) = ceil(1533.5) ≈ 1534
-    // With overhead: 16 + 3 + 1534 = 1553
+    // 784*1568 = 1,229,312 > 1,200,000 → slight scaling applies
+    // mpScale = sqrt(1200000/1229312) ≈ 0.9881
+    // scaledWidth = round(784 * 0.9881) = 775, scaledHeight = round(1568 * 0.9881) = 1549
+    // tokens = ceil(775 * 1549 / 750) = ceil(1600.6) ≈ 1601
+    // With overhead: 16 + 3 + 1601 = 1620
     expect(tallTokens).toBeGreaterThan(1_400);
     expect(tallTokens).toBeLessThan(1_800);
   });
