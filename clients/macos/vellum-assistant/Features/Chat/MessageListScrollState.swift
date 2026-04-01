@@ -393,7 +393,7 @@ final class MessageListScrollState {
     /// deferred scroll target that will fire after the next uiVersion bump
     /// (guaranteeing the tail spacer is rendered).
     func enterPushToTop(messageId: UUID) {
-        log.debug("[push-to-top] enterPushToTop: messageId=\(messageId), showTailSpacer will be=\(ScrollMode.pushToTop(messageId: messageId).showsTailSpacer), scrollTo closure set=\(scrollTo != nil)")
+        log.debug("[push-to-top] enterPushToTop: messageId=\(messageId), showTailSpacer will be=\(ScrollMode.pushToTop(messageId: messageId).showsTailSpacer), scrollTo closure set=\(self.scrollTo != nil)")
         transition(to: .pushToTop(messageId: messageId))
         pendingPushToTopTarget = messageId
         syncUIImmediately()
