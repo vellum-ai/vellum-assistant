@@ -39,7 +39,7 @@ Diagnostic checks performed:
   2.  API key configured         Checks for a valid provider API key in secure storage
   3.  Assistant reachable         HTTP health check against the assistant server
   4.  Database exists/readable   Opens the SQLite database and runs a test query
-  5.  Directory structure        Verifies required ~/.vellum/ directories exist
+  5.  Directory structure        Verifies required workspace directories exist
   6.  Disk space                 Ensures at least 100MB free on the data partition
   7.  Log file size              Warns if the log file exceeds 50MB
   8.  Database integrity         Runs SQLite PRAGMA integrity_check
@@ -129,7 +129,7 @@ Examples:
         fail("Database exists and readable", `not found at ${dbPath}`);
       }
 
-      // 5. ~/.vellum/ directory structure (workspace layout)
+      // 5. Workspace directory structure
       const protectedDir = getProtectedDir();
       const dataDir = getDataDir();
       const workspaceDir = getWorkspaceDir();
