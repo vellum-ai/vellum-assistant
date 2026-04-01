@@ -73,7 +73,6 @@ export interface SkillSummary {
   bundled?: boolean;
   icon?: string;
   emoji?: string;
-  homepage?: string;
   source: SkillSource;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;

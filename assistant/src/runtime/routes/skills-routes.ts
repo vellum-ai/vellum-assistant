@@ -66,25 +66,31 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
               id: z.string(),
               name: z.string(),
               description: z.string(),
-              emoji: z.string().optional(),
-              homepage: z.string().optional(),
-              source: z.enum([
-                "bundled",
-                "managed",
-                "workspace",
-                "clawhub",
-                "extra",
-                "catalog",
-              ]),
-              state: z.enum(["enabled", "disabled"]),
-              installStatus: z.enum(["bundled", "installed", "available"]),
-              updateAvailable: z.boolean(),
-              provenance: z.object({
-                kind: z.enum(["first-party", "third-party", "local"]),
-                provider: z.string().optional(),
-                originId: z.string().optional(),
-                sourceUrl: z.string().optional(),
-              }),
+              kind: z.enum(["bundled", "installed", "catalog"]),
+              origin: z.enum(["vellum", "clawhub", "skillssh", "custom"]),
+              status: z.enum(["enabled", "disabled", "available"]),
+              vellum: z
+                .object({
+                  emoji: z.string().optional(),
+                })
+                .optional(),
+              clawhub: z
+                .object({
+                  slug: z.string(),
+                  author: z.string(),
+                  stars: z.number(),
+                  installs: z.number(),
+                  reports: z.number(),
+                  publishedAt: z.string().optional(),
+                })
+                .optional(),
+              skillssh: z
+                .object({
+                  slug: z.string(),
+                  sourceRepo: z.string(),
+                  installs: z.number(),
+                })
+                .optional(),
             }),
           )
           .describe("Skill objects"),
