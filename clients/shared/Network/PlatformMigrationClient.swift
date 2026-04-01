@@ -141,6 +141,37 @@ public enum PlatformMigrationClient {
         return (statusCode: statusCode, data: data)
     }
 
+    /// Imports a migration bundle by sending the raw data directly to the platform.
+    ///
+    /// This is the fallback path when signed URL uploads are not available. It matches
+    /// the CLI's `platformImportBundle()` function: POST to `/v1/migrations/import/`
+    /// with the bundle data as an octet-stream body.
+    ///
+    /// - Parameter bundleData: The raw bundle data to import.
+    /// - Returns: A tuple of the HTTP status code and raw response data.
+    /// - Throws: `PlatformMigrationError` on auth failures, or network errors from `URLSession`.
+    public static func importInline(bundleData: Data) async throws -> (statusCode: Int, data: Data) {
+        let (baseURL, token, orgId) = try resolveAuthContext()
+
+        guard let url = URL(string: "\(baseURL)/v1/migrations/import/") else {
+            throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        if let orgId {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+        request.httpBody = bundleData
+
+        let (data, statusCode) = try await executeWithRetry(request: request, label: "import-inline")
+
+        return (statusCode: statusCode, data: data)
+    }
+
     // MARK: - Internals
 
     /// Status codes that indicate a transient server error worth retrying.
