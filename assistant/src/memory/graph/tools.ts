@@ -61,10 +61,6 @@ export const graphRecallDefinition: ToolDefinition = {
             description:
               "Only return memories created before this date (ISO 8601)",
           },
-          min_confidence: {
-            type: "number",
-            description: "Minimum confidence threshold (0-1)",
-          },
         },
       },
     },

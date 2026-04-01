@@ -9,7 +9,7 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
-import { enqueueGraphNodeEmbed,searchGraphNodes } from "./graph-search.js";
+import { enqueueGraphNodeEmbed, searchGraphNodes } from "./graph-search.js";
 import {
   createNode,
   deleteNode,
@@ -39,7 +39,6 @@ export interface RecallInput {
     types?: string[];
     after?: string;
     before?: string;
-    min_confidence?: number;
   };
 }
 
@@ -118,14 +117,6 @@ async function handleMemoryRecall(
     if (input.filters?.before) {
       const beforeMs = new Date(input.filters.before).getTime();
       if (!isNaN(beforeMs) && node.created > beforeMs) return [];
-    }
-
-    // Confidence filter
-    if (
-      input.filters?.min_confidence != null &&
-      node.confidence < input.filters.min_confidence
-    ) {
-      return [];
     }
 
     return [
