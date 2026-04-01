@@ -26,7 +26,7 @@ enum HistoryReconstructionService {
     /// Reconstructs ChatMessage and SubagentInfo arrays from raw history items.
     /// This method is nonisolated and accesses no @MainActor state, so it can
     /// be called from a background context. Images are decoded eagerly via
-    /// `ToolCallData.decodeImage` and stored in `cachedImage` for display.
+    /// `ToolCallData.decodeImage` and stored in `cachedImages` for display.
     nonisolated static func reconstructMessages(
         from historyMessages: [HistoryResponseMessage],
         conversationId: String?

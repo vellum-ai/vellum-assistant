@@ -60,6 +60,8 @@ export interface HistoryToolCall {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). @deprecated Use imageDataList. */
+  imageData?: string;
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
   imageDataList?: string[];
   /** Unix ms when the tool started executing. */
@@ -361,14 +363,19 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       if (matched) {
         matched.result = resultContent;
         matched.isError = isError;
-        if (imageDataList.length > 0) matched.imageDataList = imageDataList;
+        if (imageDataList.length > 0) {
+          matched.imageData = imageDataList[0];
+          matched.imageDataList = imageDataList;
+        }
       } else {
         toolCalls.push({
           name: "unknown",
           input: {},
           result: resultContent,
           isError,
-          ...(imageDataList.length > 0 ? { imageDataList } : {}),
+          ...(imageDataList.length > 0
+            ? { imageData: imageDataList[0], imageDataList }
+            : {}),
         });
       }
       continue;

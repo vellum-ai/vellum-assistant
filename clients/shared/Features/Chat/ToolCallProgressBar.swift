@@ -183,7 +183,7 @@ public struct ToolCallProgressBar: View {
             // Screenshots / generated images
             ForEach(Array(toolCall.cachedImages.enumerated()), id: \.offset) { _, cachedImage in
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                    Text("Screenshot")
+                    Text("Image")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
 

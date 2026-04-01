@@ -441,6 +441,7 @@ export function handleToolResult(
     diff: event.diff,
     status: event.status,
     conversationId: deps.ctx.conversationId,
+    imageData: imageDataList?.[0],
     imageDataList,
     toolUseId: event.toolUseId,
   });
