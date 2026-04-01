@@ -169,7 +169,7 @@ Examples:
 
         const [skillsShResult, clawhubResult] = await Promise.allSettled([
           searchSkillsRegistry(query, limit),
-          clawhubSearch(query),
+          clawhubSearch(query, { limit }),
         ]);
 
         if (skillsShResult.status === "fulfilled") {
