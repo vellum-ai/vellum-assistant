@@ -130,7 +130,7 @@ function formatNodeEntry(scored: ScoredNode): string {
  */
 export function assembleContextBlock(
   nodes: ScoredNode[],
-  options?: AssemblyOptions & { serendipityNodes?: ScoredNode[] },
+  options?: { serendipityNodes?: ScoredNode[] },
 ): string {
   // Partition nodes into sections
   const rightNow: ScoredNode[] = [];
