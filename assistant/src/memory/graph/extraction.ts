@@ -737,17 +737,34 @@ export async function runGraphExtraction(
     triggersCreated: 0,
   };
 
-  // 1. Load transcript
+  // 1. Load transcript — try multimodal first, fall back to text-only
+  const imageResult = loadTranscriptWithImages(
+    conversationId,
+    opts?.afterTimestamp,
+  );
+
   let transcript = opts?.transcript;
   if (!transcript) {
     transcript =
       loadTranscriptFromDisk(conversationId, opts?.afterTimestamp) ?? undefined;
     if (!transcript) {
-      log.warn(
-        { conversationId },
-        "No transcript found on disk, skipping extraction",
-      );
-      return emptyResult;
+      // If we have a multimodal result but no disk transcript, extract text
+      // from the multimodal message content blocks for candidate search.
+      if (imageResult) {
+        transcript = imageResult.message.content
+          .filter(
+            (b): b is { type: "text"; text: string } => b.type === "text",
+          )
+          .map((b) => b.text)
+          .join("");
+      }
+      if (!transcript) {
+        log.warn(
+          { conversationId },
+          "No transcript found on disk, skipping extraction",
+        );
+        return emptyResult;
+      }
     }
   }
 
@@ -791,6 +808,7 @@ export async function runGraphExtraction(
   const conversationTimestamp =
     opts?.conversationTimestamp ??
     resolveConversationTimestamp(conversationId) ??
+    imageResult?.lastTimestamp ??
     Date.now();
 
   const convDate = new Date(conversationTimestamp);
@@ -808,13 +826,30 @@ export async function runGraphExtraction(
       hour12: true,
     });
 
-  // 6. LLM call
+  // 6. LLM call — use multimodal message when images are present
+  const useMultimodal = imageResult?.hasImages === true;
+
+  const extractionMessages: Message[] = useMultimodal
+    ? [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text" as const,
+              text: `## Conversation Date\n\n${conversationDate}\n\n## Conversation Transcript\n\n`,
+            },
+            ...imageResult.message.content,
+          ],
+        },
+      ]
+    : [
+        userMessage(
+          `## Conversation Date\n\n${conversationDate}\n\n## Conversation Transcript\n\n${transcript}`,
+        ),
+      ];
+
   const response = await provider.sendMessage(
-    [
-      userMessage(
-        `## Conversation Date\n\n${conversationDate}\n\n## Conversation Transcript\n\n${transcript}`,
-      ),
-    ],
+    extractionMessages,
     [EXTRACT_TOOL_SCHEMA],
     systemPrompt,
     {
