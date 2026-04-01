@@ -488,8 +488,8 @@ Arguments:
 
 Notes:
   Fetches the skill's SKILL.md and supporting files from the specified GitHub
-  repository and installs them into the workspace skills directory. A
-  version.json file is written with origin metadata for provenance tracking.
+  repository and installs them into the workspace skills directory. An
+  install-meta.json file is written with origin metadata for provenance tracking.
 
 Examples:
   $ assistant skills add vercel-labs/skills@find-skills

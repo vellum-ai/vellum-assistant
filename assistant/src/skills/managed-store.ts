@@ -275,11 +275,9 @@ export function createManagedSkill(
   });
 
   // Clean up legacy version.json if present (superseded by install-meta.json)
-  if (!params.version) {
-    const metaPath = getVersionMetaPath(params.id);
-    if (existsSync(metaPath)) {
-      rmSync(metaPath);
-    }
+  const metaPath = getVersionMetaPath(params.id);
+  if (existsSync(metaPath)) {
+    rmSync(metaPath);
   }
 
   log.info(

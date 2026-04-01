@@ -40,6 +40,7 @@ interface SkillInstallMeta {
   origin: "vellum" | "clawhub" | "skillssh" | "custom";
   installedAt: string;
   installedBy?: string;
+  backfilledBy?: string;
   version?: string;
   slug?: string;
   sourceRepo?: string;
@@ -282,8 +283,9 @@ export const backfillInstallMetaMigration: WorkspaceMigration = {
 
       const meta = inferInstallMeta(skillDir, name, integrityManifest);
 
-      // installedBy is left undefined for all backfilled skills
-      writeInstallMeta(skillDir, meta);
+      // Mark as backfilled so down() can safely identify and remove only
+      // migration-created files without touching CLI-installed ones.
+      writeInstallMeta(skillDir, { ...meta, backfilledBy: "migration-026" });
     }
   },
 
@@ -308,10 +310,10 @@ export const backfillInstallMetaMigration: WorkspaceMigration = {
             readFileSync(installMetaPath, "utf-8"),
           ) as SkillInstallMeta;
 
-          // Only remove install-meta.json that were backfilled (no installedBy).
-          // If installedBy is present, the file was written by the new install
-          // flow and should be preserved.
-          if (meta.installedBy === undefined) {
+          // Only remove install-meta.json that were backfilled by this migration.
+          // Files written by the normal install flow (CLI, daemon, etc.) won't
+          // have backfilledBy set and are safely preserved on rollback.
+          if (meta.backfilledBy === "migration-026") {
             unlinkSync(installMetaPath);
           }
         } catch {
