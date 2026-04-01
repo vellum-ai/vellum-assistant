@@ -96,9 +96,7 @@ struct IntegrationDetailModal: View {
             HStack {
                 Spacer()
                 VButton(label: "Close", style: .outlined, action: onClose)
-                if draftMode == "managed" {
-                    managedFooterButton
-                } else {
+                if draftMode == "your-own" {
                     yourOwnFooterButton
                 }
             }
@@ -177,38 +175,27 @@ struct IntegrationDetailModal: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if !isLoggedIn {
                 managedLoginPrompt
-            } else if !connections.isEmpty {
-                managedConnectionsList
-            } else if isConnecting {
-                managedConnectingState
             } else {
-                Text("No accounts connected yet.")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentTertiary)
+                if !connections.isEmpty {
+                    managedConnectionsList
+                }
+
+                if isConnecting {
+                    managedConnectingState
+                } else {
+                    VButton(
+                        label: connections.isEmpty ? "Connect Account" : "Connect Another Account",
+                        leftIcon: "lucide-plus",
+                        style: .ghost,
+                        isFullWidth: true
+                    ) {
+                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                    }
+                }
             }
 
             if let error = store.managedError(for: providerKey) {
                 VInlineMessage(error, tone: .error)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var managedFooterButton: some View {
-        if isLoggedIn && !isConnecting {
-            VButton(
-                label: connections.isEmpty ? "Connect" : "Connect Another Account",
-                leftIcon: connections.isEmpty ? nil : "lucide-plus",
-                style: .primary
-            ) {
-                store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
-            }
-        } else if isConnecting {
-            HStack(spacing: VSpacing.sm) {
-                VBusyIndicator(size: 8, color: VColor.contentTertiary)
-                Text("Waiting for authorization...")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
