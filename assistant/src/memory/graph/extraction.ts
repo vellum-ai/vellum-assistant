@@ -9,9 +9,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
+import type {
+  ContentBlock,
+  ImageContent,
+  Message,
+} from "../../providers/types.js";
 import { resolveGuardianPersona } from "../../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
@@ -23,6 +28,7 @@ import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getConversationDirPath } from "../conversation-disk-view.js";
 import { getDb } from "../db.js";
+import { hasImageBlocks } from "../message-content.js";
 import { conversations, messages } from "../schema.js";
 import {
   enqueueGraphNodeEmbed,
@@ -942,6 +948,113 @@ function loadTranscriptFromDisk(
   } catch {
     return null;
   }
+}
+
+/**
+ * Load a conversation transcript from the DB with interleaved text and image
+ * content blocks.  Returns a single consolidated `Message` with role "user"
+ * containing text annotations and `ImageContent` blocks so the extraction LLM
+ * can see images alongside their textual context.
+ *
+ * Images are capped at 10 per transcript to control extraction cost.
+ */
+export function loadTranscriptWithImages(
+  conversationId: string,
+  afterTimestamp?: number,
+): { message: Message; hasImages: boolean; lastTimestamp: number | null } | null {
+  const db = getDb();
+
+  // Build query conditions
+  const conditions = [eq(messages.conversationId, conversationId)];
+  if (afterTimestamp !== undefined) {
+    conditions.push(gt(messages.createdAt, afterTimestamp));
+  }
+
+  const rows = db
+    .select({
+      id: messages.id,
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(and(...conditions))
+    .orderBy(asc(messages.createdAt))
+    .all();
+
+  if (rows.length === 0) return null;
+
+  const MAX_IMAGES = 10;
+  let imageCount = 0;
+  let hasImagesFlag = false;
+  let totalTextLength = 0;
+  let lastTimestamp: number | null = null;
+
+  const contentBlocks: ContentBlock[] = [];
+
+  for (const row of rows) {
+    lastTimestamp = row.createdAt;
+
+    let parsed: ContentBlock[];
+    try {
+      const raw = JSON.parse(row.content) as unknown;
+      if (typeof raw === "string") {
+        parsed = [{ type: "text", text: raw }];
+      } else if (Array.isArray(raw)) {
+        parsed = raw as ContentBlock[];
+      } else {
+        continue;
+      }
+    } catch {
+      // If content is a plain string (not JSON), wrap it
+      parsed = [{ type: "text", text: row.content }];
+    }
+
+    // Extract text blocks for the transcript line
+    const textParts: string[] = [];
+    for (const block of parsed) {
+      if (block.type === "text") {
+        textParts.push(block.text);
+      }
+    }
+
+    if (textParts.length > 0) {
+      const textLine = `[${row.role}]: ${textParts.join("\n")}`;
+      totalTextLength += textLine.length;
+      contentBlocks.push({ type: "text", text: textLine });
+    }
+
+    // Check for image blocks and interleave them
+    if (hasImageBlocks(row.content)) {
+      for (let i = 0; i < parsed.length; i++) {
+        const block = parsed[i];
+        if (block?.type === "image") {
+          if (imageCount < MAX_IMAGES) {
+            const imgBlock = block as ImageContent;
+            // Add annotation so the extraction LLM knows the image's reference coordinates
+            contentBlocks.push({
+              type: "text",
+              text: `<image message_id="${row.id}" block_index="${i}" type="${imgBlock.source.media_type}" />`,
+            });
+            contentBlocks.push(imgBlock);
+            imageCount++;
+            hasImagesFlag = true;
+          }
+          // After cap, skip image blocks but continue processing text
+        }
+      }
+    }
+  }
+
+  // Skip if transcript is too short
+  if (totalTextLength < 100) return null;
+
+  const message: Message = {
+    role: "user",
+    content: contentBlocks,
+  };
+
+  return { message, hasImages: hasImagesFlag, lastTimestamp };
 }
 
 async function findCandidateNodes(
