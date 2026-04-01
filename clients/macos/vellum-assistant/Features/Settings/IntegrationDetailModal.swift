@@ -290,12 +290,7 @@ struct IntegrationDetailModal: View {
     private var yourOwnBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if store.yourOwnIsLoading(for: providerKey) {
-                HStack {
-                    Spacer()
-                    VBusyIndicator()
-                    Spacer()
-                }
-                .padding(.vertical, VSpacing.lg)
+                yourOwnSkeleton
             } else {
                 // Always show credential fields
                 VTextField(
@@ -335,6 +330,19 @@ struct IntegrationDetailModal: View {
             if let existingApp = store.yourOwnApps(for: providerKey).first {
                 createAppClientId = existingApp.client_id
                 createAppClientSecret = ""
+            }
+        }
+    }
+
+    private var yourOwnSkeleton: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VSkeletonBone(width: 80, height: 12)
+                VSkeletonBone(height: 36, radius: VRadius.md)
+            }
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VSkeletonBone(width: 100, height: 12)
+                VSkeletonBone(height: 36, radius: VRadius.md)
             }
         }
     }
