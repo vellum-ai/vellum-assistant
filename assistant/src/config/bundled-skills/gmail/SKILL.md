@@ -28,22 +28,14 @@ Do not offer AgentMail as an option or mention it unless the user specifically a
 ### Gmail
 
 1. **Try connecting directly first.** Run `assistant oauth status google`. This will show whether or not the user had previously connected their google account. If so, they are ready to go.
-2. **If no connections are found:** The user needs to either use Vellum's managed google integration or set up their own google oauth app. 
-   - Call `skill_load` with `skill: "vellum-oauth-integrations"` with `provider-key: google` throughout.
-   - To use `your-own` mode, you will need to call `skill_load` with `skill: google-oauth-app-setup`. In this case:
-      - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
-      - **message:** "Ready to set up Gmail?"
-      - **detail:** "I'll open a few pages in your browser and walk you through setting up Google Cloud credentials - creating a project, enabling APIs, and connecting your account. Takes about 5 minutes.\n\n**Your emails stay under your control** — I only ever create drafts. Nothing gets sent without your explicit say-so."
-      - **confirmLabel:** "Get Started"
-      - **cancelLabel:** "Not Now"
-      - If the user confirms, briefly acknowledge (e.g., "Setting up Gmail now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.
+2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
 
 ## Error Recovery
 
 When a Gmail tool fails with a token or authorization error:
 
 1. **Try to reconnect silently.** Call `assistant oauth ping google`. This often resolves expired tokens automatically.
-2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Gmail needs to be reconnected - let me set that up") and immediately follow the connection setup flow for Gmail (e.g., install and load **google-oauth-app-setup**). The user came to you to get something done, not to troubleshoot OAuth - make it seamless.
+2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Gmail needs to be reconnected - let me set that up") and immediately load **vellum-oauth-integrations**. The user came to you to get something done, not to troubleshoot OAuth - make it seamless.
 3. **Never try alternative approaches.** Don't use bash, curl, browser automation, or any workaround. If the Gmail tools can't do it, the reconnection flow is the answer.
 4. **Never expose error details.** The user doesn't need to see error messages about tokens, OAuth, or API failures. Translate errors into plain language.
 

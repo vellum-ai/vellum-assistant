@@ -44,7 +44,7 @@ Before using any messaging tool, verify that the platform is connected by callin
 
 ### Public Ingress (required for Telegram)
 
-Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `containerized: true` with a non-empty `assistantId` and `available: true`, use the platform callback route flow and do not prompt for ngrok. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail/Outlook on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the google-oauth-app-setup skill) handles public ingress internally when needed.
+Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `containerized: true` with a non-empty `assistantId` and `available: true`, use the platform callback route flow and do not prompt for ngrok. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail/Outlook on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the vellum-oauth-integrations skill) handles public ingress internally when needed.
 
 ### Email Connection Flow
 
@@ -57,21 +57,12 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 ### Gmail
 
 1. **Try connecting directly first.** Run `assistant oauth status google`. This will show whether or not the user had previously connected their google account. If so, they are ready to go.
-2. **If no connections are found:** The user needs to either use Vellum's managed google integration or set up their own google oauth app.
-   - Call `skill_load` with `skill: "vellum-oauth-integrations"` with `provider-key: google` throughout.
-   - To use `your-own` mode, you will need to call `skill_load` with `skill: google-oauth-app-setup`. In this case:
-     - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
-     - **message:** "Ready to set up Gmail?"
-     - **detail:** "I'll open a few pages in your browser and walk you through setting up Google Cloud credentials - creating a project, enabling APIs, and connecting your account. Takes about 5 minutes."
-     - **confirmLabel:** "Get Started"
-     - **cancelLabel:** "Not Now"
-     - If the user confirms, briefly acknowledge (e.g., "Setting up Gmail now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.
+2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
 
 ### Outlook
 
 1. **Try connecting directly first.** Run `assistant oauth status outlook`. This will show whether the user has previously connected their Outlook account.
-2. **If no connections are found:** The user needs to either use Vellum's managed outlook integration or set up their own azure oauth app.
-   - Call `skill_load` with `skill: "vellum-oauth-integrations"` with `provider-key: outlook` throughout.
+2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
 
 ### Slack
 
@@ -102,7 +93,7 @@ The guardian-verify-setup skill handles the full outbound verification flow for 
 When a messaging tool fails with a token or authorization error:
 
 1. **Try to reconnect silently.** Run `assistant oauth ping <provider>`. This often resolves expired tokens automatically.
-2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Gmail needs to be reconnected - let me set that up") and immediately follow the connection setup flow for that platform (e.g., install and load **google-oauth-app-setup** for Gmail). The user came to you to get something done, not to troubleshoot OAuth - make it seamless.
+2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Gmail needs to be reconnected - let me set that up") and immediately load **vellum-oauth-integrations**. The user came to you to get something done, not to troubleshoot OAuth - make it seamless.
 3. **Never try alternative approaches.** Don't use bash, curl, browser automation, or any workaround. If the messaging tools can't do it, the reconnection flow is the answer.
 4. **Never expose error details.** The user doesn't need to see error messages about tokens, OAuth, or API failures. Translate errors into plain language.
 
