@@ -286,9 +286,12 @@ public enum VIcon: String, CaseIterable, Sendable {
     /// Pass `nil` for the unsized base image, or a size for a sized variant.
     private func cachedNSImage(size: CGFloat? = nil) -> NSImage? {
         let cacheKey: String
+        let roundedSize: CGFloat?
         if let size {
-            cacheKey = "\(rawValue)-\(size)"
+            roundedSize = CGFloat(Int(size.rounded()))
+            cacheKey = "\(rawValue)-\(Int(size.rounded()))"
         } else {
+            roundedSize = nil
             cacheKey = "\(rawValue)-base"
         }
 
@@ -301,8 +304,8 @@ public enum VIcon: String, CaseIterable, Sendable {
 
         guard let url = pdfURL, let img = NSImage(contentsOf: url) else { return nil }
         img.isTemplate = true
-        if let size {
-            img.size = NSSize(width: size, height: size)
+        if let roundedSize {
+            img.size = NSSize(width: roundedSize, height: roundedSize)
         }
 
         Self.nsImageLock.lock()
