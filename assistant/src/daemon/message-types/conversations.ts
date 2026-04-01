@@ -370,6 +370,7 @@ export interface ContextCompacted {
 export type ConversationErrorCode =
   | "PROVIDER_NETWORK"
   | "PROVIDER_RATE_LIMIT"
+  | "PROVIDER_OVERLOADED"
   | "PROVIDER_API"
   | "PROVIDER_BILLING"
   | "PROVIDER_ORDERING"
