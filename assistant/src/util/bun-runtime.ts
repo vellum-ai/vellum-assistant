@@ -14,6 +14,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -137,7 +138,6 @@ async function downloadBun(installDir: string): Promise<string> {
       if (existsSync(finalPath)) {
         rmSync(finalPath);
       }
-      const { renameSync } = await import("node:fs");
       renameSync(extractedBun, finalPath);
       rmSync(join(installDir, `bun-${target}`), {
         recursive: true,
