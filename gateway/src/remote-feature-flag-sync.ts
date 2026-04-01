@@ -89,23 +89,39 @@ export class RemoteFeatureFlagSync {
     string,
     boolean
   > | null> {
-    const [platformUrlRaw, assistantIdRaw, platformApiKeyRaw] =
+    const [platformUrlRaw, assistantIdRaw, assistantApiKeyRaw] =
       await Promise.all([
         this.credentials.get(credentialKey("vellum", "platform_base_url")),
         this.credentials.get(credentialKey("vellum", "platform_assistant_id")),
         this.credentials.get(credentialKey("vellum", "assistant_api_key")),
       ]);
 
-    const platformUrl = platformUrlRaw?.trim().replace(/\/+$/, "");
-    const assistantId = assistantIdRaw?.trim();
-    const platformApiKey = platformApiKeyRaw?.trim();
+    // Fall back to env vars when credential cache values are missing, matching
+    // the daemon's resolvePlatformCallbackRegistrationContext() behaviour.
+    const platformUrl = (
+      platformUrlRaw?.trim() ||
+      process.env.VELLUM_PLATFORM_URL?.trim() ||
+      "https://platform.vellum.ai"
+    ).replace(/\/+$/, "");
 
-    if (!platformUrl || !assistantId || !platformApiKey) {
+    const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
+    const platformInternalApiKey = !assistantApiKey
+      ? process.env.PLATFORM_INTERNAL_API_KEY?.trim()
+      : undefined;
+    const apiKey = assistantApiKey || platformInternalApiKey;
+    const authScheme = assistantApiKey ? "Api-Key" : "Bearer";
+
+    const assistantId =
+      assistantIdRaw?.trim() ||
+      process.env.PLATFORM_ASSISTANT_ID?.trim() ||
+      undefined;
+
+    if (!apiKey || !assistantId) {
       log.debug(
         {
           hasPlatformUrl: !!platformUrl,
+          hasApiKey: !!apiKey,
           hasAssistantId: !!assistantId,
-          hasPlatformApiKey: !!platformApiKey,
         },
         "Remote feature flag sync skipped: missing credentials",
       );
@@ -118,7 +134,7 @@ export class RemoteFeatureFlagSync {
     const response = await fetchImpl(url, {
       method: "GET",
       headers: {
-        Authorization: `Api-Key ${platformApiKey}`,
+        Authorization: `${authScheme} ${apiKey}`,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(10_000),
