@@ -126,12 +126,40 @@ export interface SkillsOperationResponse {
   data?: unknown;
 }
 
-export interface SkillDetailResponse {
+export interface SkillBodyResponse {
   type: "skill_detail_response";
   skillId: string;
   body: string;
   icon?: string;
   error?: string;
+}
+
+// ─── Detail endpoint response (HTTP API) ──────────────────────────────────
+
+export interface ClawhubDetailMeta extends ClawhubSkillMeta {
+  owner?: { handle: string; displayName: string; image?: string } | null;
+  stats?: {
+    stars: number;
+    installs: number;
+    downloads: number;
+    versions: number;
+  } | null;
+  latestVersion?: { version: string; changelog?: string } | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+}
+
+export interface SkillDetailResponse {
+  id: string;
+  name: string;
+  description: string;
+  kind: "bundled" | "installed" | "catalog";
+  origin: "vellum" | "clawhub" | "skillssh" | "custom";
+  status: "enabled" | "disabled" | "available";
+  vellum?: VellumSkillMeta;
+  clawhub?: ClawhubDetailMeta;
+  skillssh?: SkillsshSkillMeta;
+  body?: string;
 }
 
 export interface SkillsDraftResponse {
@@ -188,7 +216,7 @@ export type _SkillsClientMessages =
 
 export type _SkillsServerMessages =
   | SkillsListResponse
-  | SkillDetailResponse
+  | SkillBodyResponse
   | SkillStateChanged
   | SkillsOperationResponse
   | SkillsInspectResponse
