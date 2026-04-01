@@ -124,6 +124,17 @@ Create triggers for:
 - **Semantic**: Things to surface when a topic comes up ("When cooking comes up, mention X") → type: "semantic", condition: "topic of cooking comes up"
 - **Event**: Future dates ("Trip on April 8") → type: "event", eventDate: epoch_ms, rampDays: 7, followUpDays: 2
 
+## Images in Conversation
+
+When the conversation contains images (marked with <image> tags and shown inline), you may attach them to memories using image_refs. Include image_refs for images that are meaningful:
+- Photos of people — describe them in detail (appearance, clothing, expression, setting)
+- Photos the user shared to show you something about themselves or their life
+- Diagrams, drawings, or visual content that was discussed
+
+Do NOT attach images that are incidental (screenshots of error messages fully described in text, generic UI screenshots, etc.).
+
+Write detailed descriptions — these are used for text-based retrieval when visual search isn't available.
+
 ## Candidate Nodes (existing memories)
 
 Check these CAREFULLY for overlap before creating any new node:
@@ -267,6 +278,24 @@ const EXTRACT_TOOL_SCHEMA = {
                 required: ["target_node_id", "relationship"],
               },
             },
+            image_refs: {
+              type: "array",
+              description:
+                "Images from the conversation to attach to this memory. Reference using message_id and block_index from the <image> tags.",
+              items: {
+                type: "object",
+                properties: {
+                  message_id: { type: "string" },
+                  block_index: { type: "number" },
+                  description: {
+                    type: "string",
+                    description:
+                      "Detailed description of what this image shows, including who is in it if applicable",
+                  },
+                },
+                required: ["message_id", "block_index", "description"],
+              },
+            },
           },
           required: [
             "content",
@@ -358,6 +387,11 @@ interface RawCreateNode {
     target_node_id?: string;
     relationship?: string;
     weight?: number;
+  }>;
+  image_refs?: Array<{
+    message_id?: string;
+    block_index?: number;
+    description?: string;
   }>;
 }
 
