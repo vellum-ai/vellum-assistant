@@ -551,6 +551,7 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
       if (c.partOfStory !== undefined) updates.partOfStory = c.partOfStory;
       if (c.sourceConversations !== undefined)
         updates.sourceConversations = JSON.stringify(c.sourceConversations);
+      if (c.eventDate !== undefined) updates.eventDate = c.eventDate;
 
       if (Object.keys(updates).length > 0) {
         tx.update(memoryGraphNodes)
