@@ -145,7 +145,7 @@ extension MainWindowView {
                 sidebar.renamingGroupId = nil
             },
             onDelete: group.isSystemGroup ? nil : {
-                Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+                groupToDelete = group
             },
             selectedConversationId: conversationManager.activeConversationId,
             onToggleExpand: { sidebar.toggleSection(group.id) },
@@ -427,6 +427,22 @@ extension MainWindowView {
                             value: contentGeo.size.height
                         )
                     })
+            }
+            .sheet(item: $groupToDelete) { group in
+                DeleteGroupConfirmationSheet(
+                    groupName: group.name,
+                    onDelete: {
+                        groupToDelete = nil
+                        Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+                    },
+                    onArchiveAndDelete: {
+                        groupToDelete = nil
+                        Task<Void, Never> { await conversationManager.deleteGroupAndArchiveConversations(group.id) }
+                    },
+                    onCancel: {
+                        groupToDelete = nil
+                    }
+                )
             }
             .background(GeometryReader { scrollGeo in
                 Color.clear.preference(
