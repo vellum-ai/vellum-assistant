@@ -143,9 +143,6 @@ if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
     fi
 fi
 BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
-# Brand name used in menus, the About panel, and the DMG volume name.
-# Defaults to "Vellum"; staging releases override to "Vellum Staging".
-APP_BRAND_NAME="${APP_BRAND_NAME:-Vellum}"
 APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
@@ -835,7 +832,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     $LSE_ENVIRONMENT_PLIST
     $COMMIT_SHA_PLIST
     <key>VellumBrandName</key>
-    <string>$APP_BRAND_NAME</string>
+    <string>$BUNDLE_DISPLAY_NAME</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSApplicationCategoryType</key>
@@ -1310,7 +1307,7 @@ if [ "$RELEASE_APP_MODE" = true ]; then
         fi
 
         create-dmg \
-            --volname "$APP_BRAND_NAME" \
+            --volname "$BUNDLE_DISPLAY_NAME" \
             "${DMG_BG_ARGS[@]}" \
             --window-pos 200 120 \
             --window-size 660 500 \
@@ -1333,7 +1330,7 @@ if [ "$RELEASE_APP_MODE" = true ]; then
         }
     else
         echo "(create-dmg not found, using hdiutil — install via 'brew install create-dmg' for production-like DMGs)"
-        hdiutil create -volname "$APP_BRAND_NAME" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_PATH"
+        hdiutil create -volname "$BUNDLE_DISPLAY_NAME" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_PATH"
     fi
 
     echo "DMG created: $DMG_PATH"

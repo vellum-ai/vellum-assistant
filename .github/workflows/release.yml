@@ -1114,8 +1114,9 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
-            export APP_BRAND_NAME="Vellum Staging"
+            export BUNDLE_DISPLAY_NAME="Vellum Staging"
           fi
+          BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -1127,13 +1128,13 @@ jobs:
           SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
-          APP_PATH="dist/Vellum.app"
+          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
           ls -la "$APP_PATH"
           codesign --verify --strict "$APP_PATH"
           echo "Code signature verified"
 
           echo "Main executable architecture:"
-          file "$APP_PATH/Contents/MacOS/Vellum"
+          file "$APP_PATH/Contents/MacOS/$BUNDLE_DISPLAY_NAME"
 
       - name: Upload dSYMs to Sentry
         continue-on-error: true
@@ -1177,11 +1178,11 @@ jobs:
         run: |
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            VOL_NAME="Vellum Staging"
+            BUNDLE_DISPLAY_NAME="Vellum Staging"
           else
-            VOL_NAME="Vellum"
+            BUNDLE_DISPLAY_NAME="Vellum"
           fi
-          APP_PATH="dist/Vellum.app"
+          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
 
           DMG_STAGING="build/dmg-staging"
           mkdir -p "$DMG_STAGING"
@@ -1192,15 +1193,15 @@ jobs:
           du -sh "$DMG_STAGING"
 
           create-dmg \
-            --volname "$VOL_NAME" \
+            --volname "$BUNDLE_DISPLAY_NAME" \
             --background "dmg/dmg-background@2x.png" \
             --window-pos 200 120 \
             --window-size 660 400 \
             --icon-size 128 \
             --text-size 10 \
-            --icon "Vellum.app" 175 190 \
+            --icon "$BUNDLE_DISPLAY_NAME.app" 175 190 \
             --icon "Applications" 530 190 \
-            --hide-extension "Vellum.app" \
+            --hide-extension "$BUNDLE_DISPLAY_NAME.app" \
             --no-internet-enable \
             "$DMG_PATH" \
             "$DMG_STAGING/" \
@@ -1522,8 +1523,9 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
-            export APP_BRAND_NAME="Vellum Staging"
+            export BUNDLE_DISPLAY_NAME="Vellum Staging"
           fi
+          BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -1535,13 +1537,13 @@ jobs:
           SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
-          APP_PATH="dist/Vellum.app"
+          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
           ls -la "$APP_PATH"
           codesign --verify --strict "$APP_PATH"
           echo "Code signature verified"
 
           echo "Main executable architecture:"
-          file "$APP_PATH/Contents/MacOS/Vellum"
+          file "$APP_PATH/Contents/MacOS/$BUNDLE_DISPLAY_NAME"
 
           echo "Daemon binary architecture:"
           file "$APP_PATH/Contents/MacOS/vellum-daemon"
@@ -1586,11 +1588,11 @@ jobs:
         run: |
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            VOL_NAME="Vellum Staging"
+            BUNDLE_DISPLAY_NAME="Vellum Staging"
           else
-            VOL_NAME="Vellum"
+            BUNDLE_DISPLAY_NAME="Vellum"
           fi
-          APP_PATH="dist/Vellum.app"
+          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
 
           DMG_STAGING="build/dmg-staging"
           mkdir -p "$DMG_STAGING"
@@ -1601,15 +1603,15 @@ jobs:
           du -sh "$DMG_STAGING"
 
           create-dmg \
-            --volname "$VOL_NAME" \
+            --volname "$BUNDLE_DISPLAY_NAME" \
             --background "dmg/dmg-background@2x.png" \
             --window-pos 200 120 \
             --window-size 660 400 \
             --icon-size 128 \
             --text-size 10 \
-            --icon "Vellum.app" 175 190 \
+            --icon "$BUNDLE_DISPLAY_NAME.app" 175 190 \
             --icon "Applications" 530 190 \
-            --hide-extension "Vellum.app" \
+            --hide-extension "$BUNDLE_DISPLAY_NAME.app" \
             --no-internet-enable \
             "$DMG_PATH" \
             "$DMG_STAGING/" \
