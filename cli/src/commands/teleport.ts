@@ -793,6 +793,7 @@ async function importToAssistant(
 export async function resolveOrHatchTarget(
   targetEnv: "local" | "docker" | "platform",
   targetName?: string,
+  orgId?: string,
 ): Promise<AssistantEntry> {
   // If a name is provided, try to find an existing assistant
   if (targetName) {
@@ -872,19 +873,25 @@ export async function resolveOrHatchTarget(
       process.exit(1);
     }
 
-    let orgId: string;
-    try {
-      orgId = await fetchOrganizationId(token);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("401") || msg.includes("403")) {
-        console.error("Authentication failed. Run 'vellum login' to refresh.");
-        process.exit(1);
+    let resolvedOrgId: string;
+    if (orgId) {
+      resolvedOrgId = orgId;
+    } else {
+      try {
+        resolvedOrgId = await fetchOrganizationId(token);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("401") || msg.includes("403")) {
+          console.error(
+            "Authentication failed. Run 'vellum login' to refresh.",
+          );
+          process.exit(1);
+        }
+        throw err;
       }
-      throw err;
     }
 
-    const result = await hatchAssistant(token, orgId);
+    const result = await hatchAssistant(token, resolvedOrgId);
     const entry: AssistantEntry = {
       assistantId: result.id,
       runtimeUrl: getPlatformUrl(),
@@ -1141,40 +1148,11 @@ export async function teleport(): Promise<void> {
           console.error("Not logged in. Run 'vellum login' first.");
           process.exit(1);
         }
-        let orgId: string;
-        try {
-          orgId = await fetchOrganizationId(token);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("401") || msg.includes("403")) {
-            console.error(
-              "Authentication failed. Run 'vellum login' to refresh.",
-            );
-            process.exit(1);
-          }
-          throw err;
-        }
-        // Check if signed uploads are available
-        let signedUploadsAvailable = true;
-        try {
-          await platformRequestUploadUrl(token, orgId);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("not available")) {
-            signedUploadsAvailable = false;
-          } else {
-            throw err;
-          }
-        }
-        console.log(
-          `  Would upload bundle to GCS${signedUploadsAvailable ? "" : " (signed uploads unavailable — would use inline upload)"}`,
-        );
+        console.log(`  Would upload bundle via signed URL (if available)`);
         console.log(
           `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
         );
-        console.log(
-          `  Would import data into the new assistant${signedUploadsAvailable ? " from GCS" : " via inline upload"}`,
-        );
+        console.log(`  Would import data into the new assistant`);
       } else {
         console.log(
           `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
@@ -1234,7 +1212,7 @@ export async function teleport(): Promise<void> {
     }
 
     // Step D — Hatch (upload succeeded or fallback to inline — safe to hatch)
-    const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
+    const toEntry = await resolveOrHatchTarget(targetEnv, targetName, orgId);
     const toCloud = resolveCloud(toEntry);
 
     // Step E — Import from GCS (or inline fallback)
