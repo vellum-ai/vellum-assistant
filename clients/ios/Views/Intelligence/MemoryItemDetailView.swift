@@ -327,6 +327,7 @@ struct MemoryItemDetailView: View {
 
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
+        formatter.timeZone = .autoupdatingCurrent
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
