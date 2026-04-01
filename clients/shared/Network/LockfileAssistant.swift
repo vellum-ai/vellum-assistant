@@ -207,6 +207,14 @@ public struct LockfileAssistant {
         return loadByName(id)?.instanceDir
     }
 
+    /// Reads just the `activeAssistant` field from the lockfile JSON without
+    /// parsing all assistant entries. Designed for efficient use by the
+    /// lockfile watcher to detect CLI-driven assistant changes.
+    public static func loadActiveAssistantId() -> String? {
+        guard let json = LockfilePaths.read() else { return nil }
+        return json["activeAssistant"] as? String
+    }
+
     /// Creates or refreshes a managed entry for the given `assistantId`.
     /// Existing entries keep their original `hatchedAt` value but have the
     /// managed runtime URL refreshed so sign-in follows the current platform.

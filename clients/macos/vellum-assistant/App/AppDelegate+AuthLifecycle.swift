@@ -252,6 +252,7 @@ extension AppDelegate {
             } else {
                 // Managed (platform): full teardown — close everything and
                 // show the reauth screen.
+                stopLockfileWatcher()
                 let detachedWindow = mainWindow?.detachWindow()
                 mainWindow = nil
                 conversationBadgeCancellable?.cancel()

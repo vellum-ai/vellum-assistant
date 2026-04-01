@@ -135,6 +135,9 @@ extension AppDelegate {
         // Subscribe to SSE event stream for UI event routing.
         startEventSubscription()
 
+        // Watch the lockfile for CLI-driven assistant changes (e.g. vellum hatch).
+        startLockfileWatcher()
+
         Task {
             // Import guardian token from CLI file before connecting, so the
             // health check has valid credentials in the credential store.
@@ -570,6 +573,91 @@ extension AppDelegate {
             await self.vellumCli.stop()
         }
         updateManager.startAutomaticChecks()
+    }
+
+    // MARK: - Lockfile Watcher
+
+    /// Starts a file-system watcher on the lockfile to detect CLI-driven
+    /// assistant changes (e.g. `vellum hatch --remote vellum`). When the
+    /// lockfile's `activeAssistant` field changes and differs from the
+    /// current `connectedAssistantId`, the app auto-switches to the new
+    /// assistant.
+    func startLockfileWatcher() {
+        // Guard against re-starting if already active
+        guard lockfileWatcherSource == nil else { return }
+
+        let path = LockfilePaths.primaryPath
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else {
+            // Lockfile doesn't exist yet — no-op, can be called again later
+            log.info("Lockfile watcher: file not found at \(path, privacy: .public), skipping")
+            return
+        }
+
+        lockfileWatcherFd = fd
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .rename],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+
+        // Debounce work item — 0.5s delay to coalesce rapid writes
+        var debounceWorkItem: DispatchWorkItem?
+
+        source.setEventHandler { [weak self] in
+            debounceWorkItem?.cancel()
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+
+                guard let activeId = LockfileAssistant.loadActiveAssistantId() else { return }
+
+                let currentId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                guard activeId != currentId else { return }
+
+                // Verify the target assistant exists in the lockfile
+                guard let targetAssistant = LockfileAssistant.loadByName(activeId) else {
+                    log.info("Lockfile watcher: activeAssistant '\(activeId, privacy: .public)' not found in lockfile assistants, ignoring")
+                    return
+                }
+
+                log.info("Lockfile watcher: activeAssistant changed from '\(currentId ?? "<none>", privacy: .public)' to '\(activeId, privacy: .public)' — switching")
+
+                Task { @MainActor [weak self] in
+                    self?.performSwitchAssistant(to: targetAssistant)
+                }
+            }
+            debounceWorkItem = workItem
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + 0.5,
+                execute: workItem
+            )
+        }
+
+        source.setCancelHandler { [weak self] in
+            guard let self else { return }
+            if self.lockfileWatcherFd >= 0 {
+                close(self.lockfileWatcherFd)
+                self.lockfileWatcherFd = -1
+            }
+        }
+
+        source.resume()
+        lockfileWatcherSource = source
+        log.info("Lockfile watcher started on \(path, privacy: .public)")
+    }
+
+    /// Stops the lockfile watcher and closes the file descriptor.
+    func stopLockfileWatcher() {
+        if let source = lockfileWatcherSource {
+            source.cancel()
+            lockfileWatcherSource = nil
+        }
+        // The cancel handler closes the fd, but guard against it not firing
+        if lockfileWatcherFd >= 0 {
+            close(lockfileWatcherFd)
+            lockfileWatcherFd = -1
+        }
     }
 
     // MARK: - CLI Symlink
