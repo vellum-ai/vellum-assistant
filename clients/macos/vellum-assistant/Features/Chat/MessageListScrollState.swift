@@ -395,10 +395,13 @@ final class MessageListScrollState {
     }
 
     /// Exits push-to-top and transitions to followingBottom with a
-    /// bottom-pin scroll.
+    /// bottom-pin scroll. Synchronously removes the tail spacer before
+    /// scrolling so the scroll target reflects the actual content bottom
+    /// (without the viewport-height spacer).
     func exitPushToTop(animated: Bool = true) {
         let wasPushToTop = mode.pushToTopMessageId != nil
         transition(to: .followingBottom)
+        syncUIImmediately()
         if wasPushToTop {
             executeScrollToBottom(animated: animated)
         }
