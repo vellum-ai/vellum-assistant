@@ -9,7 +9,7 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
-import { searchGraphNodes, enqueueGraphNodeEmbed } from "./graph-search.js";
+import { enqueueGraphNodeEmbed,searchGraphNodes } from "./graph-search.js";
 import {
   createNode,
   deleteNode,
@@ -100,7 +100,7 @@ async function handleMemoryRecall(
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
   // Apply filters
-  let results = searchResults.flatMap((r) => {
+  const results = searchResults.flatMap((r) => {
     const node = nodeMap.get(r.nodeId);
     if (!node || node.fidelity === "gone") return [];
 
@@ -144,12 +144,11 @@ async function handleMemoryRecall(
 
 async function handleArchiveRecall(
   input: RecallInput,
-  scopeId: string,
+  _scopeId: string,
 ): Promise<RecallResult> {
   // Archive mode: search raw conversation transcripts via messages FTS
   // This is a simple text search — no embedding needed
-  const { rawAll, getDb } = await import("../db.js");
-  const db = getDb();
+  const { rawAll } = await import("../db.js");
 
   try {
     // Use SQLite FTS on messages table

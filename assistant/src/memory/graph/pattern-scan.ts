@@ -17,7 +17,6 @@ import {
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { createEdge, createNode, queryNodes } from "./store.js";
-import type { MemoryNode } from "./types.js";
 
 const log = getLogger("graph-pattern-scan");
 
@@ -119,7 +118,7 @@ export interface PatternScanResult {
 
 export async function runPatternScan(
   scopeId: string = "default",
-  config: AssistantConfig,
+  _config: AssistantConfig,
 ): Promise<PatternScanResult> {
   const start = Date.now();
   const result: PatternScanResult = {
@@ -244,7 +243,7 @@ export async function runPatternScan(
           created: now,
         });
         result.edgesCreated++;
-      } catch (err) {
+      } catch {
         log.warn(
           { sourceId, patternId: newNode.id },
           "Failed to create pattern edge",

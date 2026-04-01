@@ -12,14 +12,14 @@ import { buildCliProgram } from "../../cli/program.js";
 import { getConfig } from "../../config/loader.js";
 import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
-import { getDb } from "../db.js";
-import { enqueueMemoryJob } from "../jobs-store.js";
-import { memoryGraphNodes } from "../schema.js";
 import {
   fromSkillSummary,
   type SkillCapabilityInput,
 } from "../../skills/skill-memory.js";
 import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db.js";
+import { enqueueMemoryJob } from "../jobs-store.js";
+import { memoryGraphNodes } from "../schema.js";
 import { createNode } from "./store.js";
 
 const log = getLogger("graph-capability-seed");

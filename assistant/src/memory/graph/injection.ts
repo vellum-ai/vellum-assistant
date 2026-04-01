@@ -95,30 +95,8 @@ export class InContextTracker {
 // Full detail available via the recall tool.
 // ---------------------------------------------------------------------------
 
-interface AssemblyOptions {
-  // No token cap — the retriever's node count (30-40) is the only limit.
-  // The context block includes full node content.
-}
-
-/**
- * Compress a node's content to 1-2 sentences for the context block.
- * The full prose lives in the node — the context block is a highlight reel.
- */
-function compressContent(content: string, maxChars: number = 200): string {
-  // Take up to the first two sentences
-  const sentences = content.match(/[^.!?]+[.!?]+/g);
-  if (!sentences) return content.slice(0, maxChars);
-
-  let result = sentences[0].trim();
-  if (sentences.length > 1 && result.length + sentences[1].length < maxChars) {
-    result += " " + sentences[1].trim();
-  }
-
-  if (result.length > maxChars) {
-    return result.slice(0, maxChars - 1) + "…";
-  }
-  return result;
-}
+// No assembly options needed — the retriever's node count (30-40) is the only limit.
+// The context block includes full node content.
 
 /** Format relative time from epoch ms. */
 function relativeAge(createdMs: number): string {

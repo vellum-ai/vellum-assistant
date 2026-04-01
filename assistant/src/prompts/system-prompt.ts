@@ -9,7 +9,6 @@ import {
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
-import { getConfig } from "../config/loader.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";

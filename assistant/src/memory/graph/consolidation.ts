@@ -13,27 +13,14 @@
 
 import type { AssistantConfig } from "../../config/types.js";
 import {
-  extractText,
   extractToolUse,
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  getEdgesForNode,
-  queryNodes,
-  updateNode,
-  deleteNode,
-  applyDiff,
-} from "./store.js";
-import type {
-  MemoryNode,
-  MemoryDiff,
-  NewNode,
-  NodeUpdate,
-  NewEdge,
-} from "./types.js";
+import { deleteNode, getEdgesForNode, queryNodes, updateNode } from "./store.js";
+import type { MemoryNode } from "./types.js";
 
 const log = getLogger("graph-consolidation");
 
@@ -251,7 +238,7 @@ const DUPE_DETECT_TOOL = {
  */
 async function identifyDuplicateGroups(
   nodes: MemoryNode[],
-  config: AssistantConfig,
+  _config: AssistantConfig,
 ): Promise<MemoryNode[][]> {
   if (nodes.length < 2) return [];
 
@@ -382,7 +369,7 @@ interface ChunkResult extends ConsolidationPartitionResult {
 async function consolidateChunk(
   chunkName: string,
   nodes: MemoryNode[],
-  config: AssistantConfig,
+  _config: AssistantConfig,
 ): Promise<ChunkResult> {
   const result: ChunkResult = {
     nodesUpdated: 0,

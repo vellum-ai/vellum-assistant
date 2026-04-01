@@ -2,7 +2,16 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
-import { rawAll, rawRun } from "./db.js";
+import { rawRun } from "./db.js";
+import { runConsolidation } from "./graph/consolidation.js";
+import { runDecayTick } from "./graph/decay.js";
+import { graphExtractJob } from "./graph/extraction-job.js";
+import {
+  embedGraphNodeJob,
+  embedGraphTriggerJob,
+} from "./graph/graph-search.js";
+import { runNarrativeRefinement } from "./graph/narrative.js";
+import { runPatternScan } from "./graph/pattern-scan.js";
 import { backfillJob } from "./job-handlers/backfill.js";
 import { pruneOldConversationsJob } from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
@@ -18,15 +27,6 @@ import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
-import { graphExtractJob } from "./graph/extraction-job.js";
-import {
-  embedGraphNodeJob,
-  embedGraphTriggerJob,
-} from "./graph/graph-search.js";
-import { runConsolidation } from "./graph/consolidation.js";
-import { runDecayTick } from "./graph/decay.js";
-import { runPatternScan } from "./graph/pattern-scan.js";
-import { runNarrativeRefinement } from "./graph/narrative.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
 import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import {

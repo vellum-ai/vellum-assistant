@@ -10,12 +10,12 @@ import { and, desc, eq, ne } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
+import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { Message } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getDb } from "../db.js";
-import { conversations } from "../schema/conversations.js";
 import { memorySummaries } from "../schema.js";
+import { conversations } from "../schema/conversations.js";
 import {
   assembleContextBlock,
   assembleInjectionBlock,
@@ -23,8 +23,8 @@ import {
 } from "./injection.js";
 import {
   loadContextMemory,
-  refreshContextMemory,
   REFRESH_INTERVAL_TURNS,
+  refreshContextMemory,
   retrieveForTurn,
 } from "./retriever.js";
 
@@ -168,7 +168,7 @@ export class ConversationGraphMemory {
     );
     if (!hasUserContent) return noopResult;
 
-    const start = Date.now();
+    const _start = Date.now();
 
     try {
       // Decide which retrieval mode to use
