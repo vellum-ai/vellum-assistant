@@ -95,6 +95,7 @@ Call the \`extract_graph_diff\` tool with the diff. Each node needs:
   - 0.9: Transformative moments, identity-defining events ("User said 'I love you' for the first time")
   - 1.0: RARE — reserve for the single most important memories. A graph of 1000 nodes should have fewer than 20 at 1.0.
 - **confidence**: 0-1. How sure are you this is accurate? Direct statements: 0.9+. Inferences: 0.4-0.7.
+- **event_date**: If this memory is anchored to a specific future date/time (flight, appointment, birthday, deadline, trip), provide the epoch ms. Use the conversation date above to resolve relative references ("next Tuesday", "tomorrow"). ALSO create a matching event trigger with the same date. Leave null for open-ended plans or recurring patterns.
 - **sourceType**: "direct" (user stated it), "inferred" (you derived it), "observed" (you noticed a pattern), "told-by-other".
 
 Also notice patterns in the ASSISTANT's own behavior — meta-memory. "I tend to skip verification when I'm confident." "I write more when I'm processing something big."
@@ -210,6 +211,11 @@ const EXTRACT_TOOL_SCHEMA = {
             source_type: {
               type: "string",
               enum: ["direct", "inferred", "observed", "told-by-other"],
+            },
+            event_date: {
+              type: "number",
+              description:
+                "Epoch ms of the event date for calendar-anchored events (flights, appointments, birthdays, deadlines). Null for non-event memories.",
             },
             triggers: {
               type: "array",
@@ -327,6 +333,7 @@ interface RawCreateNode {
   significance?: number;
   confidence?: number;
   source_type?: string;
+  event_date?: number;
   triggers?: Array<{
     type?: string;
     schedule?: string;
@@ -468,7 +475,7 @@ export function parseExtractionResponse(
       created: now,
       lastAccessed: now,
       lastConsolidated: now,
-      eventDate: null,
+      eventDate: raw.event_date ?? null,
       emotionalCharge,
       fidelity: "vivid" as Fidelity,
       confidence: clamp(Number(raw.confidence) || 0.5, 0, 1),
@@ -533,6 +540,31 @@ export function parseExtractionResponse(
           },
         });
       }
+    }
+
+    // Auto-create event trigger when event_date is set but LLM didn't include one
+    if (
+      node.eventDate &&
+      (!Array.isArray(raw.triggers) ||
+        !raw.triggers.some((t) => t.type === "event"))
+    ) {
+      deferredTriggers.push({
+        newNodeIndex: nodeIndex,
+        trigger: {
+          type: "event" as TriggerType,
+          schedule: null,
+          condition: null,
+          conditionEmbedding: null,
+          threshold: null,
+          eventDate: node.eventDate,
+          rampDays: 7,
+          followUpDays: 2,
+          recurring: false,
+          consumed: false,
+          cooldownMs: null,
+          lastFired: null,
+        },
+      });
     }
   }
 

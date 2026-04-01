@@ -690,6 +690,226 @@ describe("parseExtractionResponse — deferred triggers", () => {
 });
 
 // ---------------------------------------------------------------------------
+// event_date parsing
+// ---------------------------------------------------------------------------
+
+describe("parseExtractionResponse — event_date parsing", () => {
+  test("parses event_date onto node.eventDate", () => {
+    const eventDate = NOW + 7 * 24 * 60 * 60 * 1000;
+    const { diff } = parse({
+      create_nodes: [
+        {
+          content: "Flight to NYC on April 8.",
+          type: "prospective",
+          emotional_charge: {
+            valence: 0.4,
+            intensity: 0.3,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.6,
+          confidence: 0.9,
+          source_type: "direct",
+          event_date: eventDate,
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+
+    expect(diff.createNodes).toHaveLength(1);
+    expect(diff.createNodes[0].eventDate).toBe(eventDate);
+  });
+
+  test("event_date: null results in eventDate: null", () => {
+    const { diff } = parse({
+      create_nodes: [
+        {
+          content: "User likes hiking.",
+          type: "semantic",
+          emotional_charge: {
+            valence: 0.3,
+            intensity: 0.2,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.5,
+          confidence: 0.8,
+          source_type: "direct",
+          event_date: null,
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+
+    expect(diff.createNodes[0].eventDate).toBeNull();
+  });
+
+  test("missing event_date results in eventDate: null", () => {
+    const { diff } = parse({
+      create_nodes: [
+        {
+          content: "User likes dark mode.",
+          type: "semantic",
+          emotional_charge: {
+            valence: 0,
+            intensity: 0.1,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.3,
+          confidence: 0.9,
+          source_type: "direct",
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+
+    expect(diff.createNodes[0].eventDate).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-trigger for event_date
+// ---------------------------------------------------------------------------
+
+describe("parseExtractionResponse — event_date auto-trigger", () => {
+  test("auto-creates event trigger when event_date is set but no event trigger provided", () => {
+    const eventDate = NOW + 7 * 24 * 60 * 60 * 1000;
+    const { diff, deferredTriggers } = parse({
+      create_nodes: [
+        {
+          content: "Dentist appointment next week.",
+          type: "prospective",
+          emotional_charge: {
+            valence: -0.1,
+            intensity: 0.2,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.5,
+          confidence: 0.9,
+          source_type: "direct",
+          event_date: eventDate,
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+
+    expect(diff.createNodes).toHaveLength(1);
+    expect(diff.createNodes[0].eventDate).toBe(eventDate);
+    expect(deferredTriggers).toHaveLength(1);
+    expect(deferredTriggers[0].newNodeIndex).toBe(0);
+    expect(deferredTriggers[0].trigger.type).toBe("event");
+    expect(deferredTriggers[0].trigger.eventDate).toBe(eventDate);
+    expect(deferredTriggers[0].trigger.rampDays).toBe(7);
+    expect(deferredTriggers[0].trigger.followUpDays).toBe(2);
+    expect(deferredTriggers[0].trigger.recurring).toBe(false);
+    expect(deferredTriggers[0].trigger.consumed).toBe(false);
+    expect(deferredTriggers[0].trigger.cooldownMs).toBeNull();
+  });
+
+  test("no duplicate trigger when LLM already provided an event trigger", () => {
+    const eventDate = NOW + 7 * 24 * 60 * 60 * 1000;
+    const { deferredTriggers } = parse({
+      create_nodes: [
+        {
+          content: "Trip to Paris next week.",
+          type: "prospective",
+          emotional_charge: {
+            valence: 0.6,
+            intensity: 0.5,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.7,
+          confidence: 0.9,
+          source_type: "direct",
+          event_date: eventDate,
+          triggers: [
+            {
+              type: "event",
+              event_date: eventDate,
+              ramp_days: 5,
+              follow_up_days: 3,
+            },
+          ],
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+
+    // Should only have the LLM-provided trigger, no auto-created duplicate
+    expect(deferredTriggers).toHaveLength(1);
+    expect(deferredTriggers[0].trigger.type).toBe("event");
+    expect(deferredTriggers[0].trigger.rampDays).toBe(5); // LLM's value, not auto-trigger's 7
+  });
+
+  test("auto-creates event trigger alongside non-event triggers", () => {
+    const eventDate = NOW + 14 * 24 * 60 * 60 * 1000;
+    const { deferredTriggers } = parse({
+      create_nodes: [
+        {
+          content: "Project deadline in two weeks.",
+          type: "prospective",
+          emotional_charge: {
+            valence: -0.2,
+            intensity: 0.4,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.6,
+          confidence: 0.8,
+          source_type: "direct",
+          event_date: eventDate,
+          triggers: [
+            {
+              type: "semantic",
+              condition: "project deadline discussion",
+            },
+          ],
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+
+    // Should have the LLM-provided semantic trigger plus an auto-created event trigger
+    expect(deferredTriggers).toHaveLength(2);
+    const types = deferredTriggers.map((t) => t.trigger.type);
+    expect(types).toContain("semantic");
+    expect(types).toContain("event");
+
+    const autoTrigger = deferredTriggers.find(
+      (t) => t.trigger.type === "event",
+    )!;
+    expect(autoTrigger.trigger.eventDate).toBe(eventDate);
+    expect(autoTrigger.trigger.rampDays).toBe(7);
+  });
+
+  test("no auto-trigger when event_date is not set", () => {
+    const { deferredTriggers } = parse({
+      create_nodes: [
+        {
+          content: "User likes functional programming.",
+          type: "semantic",
+          emotional_charge: {
+            valence: 0.2,
+            intensity: 0.1,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.3,
+          confidence: 0.9,
+          source_type: "direct",
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+
+    expect(deferredTriggers).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Empty / missing fields
 // ---------------------------------------------------------------------------
 
