@@ -28,7 +28,7 @@ enum IntegrationIcon {
                 .fill(color)
             Text(initials)
                 .font(.system(size: size * 0.4, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(VColor.auxWhite)
         }
         .frame(width: size, height: size)
     }
