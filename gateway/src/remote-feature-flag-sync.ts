@@ -89,23 +89,36 @@ export class RemoteFeatureFlagSync {
     string,
     boolean
   > | null> {
-    const [platformUrlRaw, assistantIdRaw, platformApiKeyRaw] =
+    const [platformUrlRaw, assistantIdRaw, assistantApiKeyRaw] =
       await Promise.all([
         this.credentials.get(credentialKey("vellum", "platform_base_url")),
         this.credentials.get(credentialKey("vellum", "platform_assistant_id")),
         this.credentials.get(credentialKey("vellum", "assistant_api_key")),
       ]);
 
-    const platformUrl = platformUrlRaw?.trim().replace(/\/+$/, "");
-    const assistantId = assistantIdRaw?.trim();
-    const platformApiKey = platformApiKeyRaw?.trim();
+    // Fall back to env vars when credential cache values are missing.
+    const platformUrl = (
+      platformUrlRaw?.trim() ||
+      process.env.VELLUM_PLATFORM_URL?.trim() ||
+      ""
+    ).replace(/\/+$/, "");
 
-    if (!platformUrl || !assistantId || !platformApiKey) {
+    // Feature flag sync hits the public platform API (/v1/assistants/…),
+    // which requires Api-Key auth. PLATFORM_INTERNAL_API_KEY is only valid
+    // for internal gateway endpoints and would produce 401s here.
+    const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
+
+    const assistantId =
+      process.env.PLATFORM_ASSISTANT_ID?.trim() ||
+      assistantIdRaw?.trim() ||
+      undefined;
+
+    if (!platformUrl || !assistantApiKey || !assistantId) {
       log.debug(
         {
           hasPlatformUrl: !!platformUrl,
+          hasApiKey: !!assistantApiKey,
           hasAssistantId: !!assistantId,
-          hasPlatformApiKey: !!platformApiKey,
         },
         "Remote feature flag sync skipped: missing credentials",
       );
@@ -118,7 +131,7 @@ export class RemoteFeatureFlagSync {
     const response = await fetchImpl(url, {
       method: "GET",
       headers: {
-        Authorization: `Api-Key ${platformApiKey}`,
+        Authorization: `Api-Key ${assistantApiKey}`,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(10_000),
