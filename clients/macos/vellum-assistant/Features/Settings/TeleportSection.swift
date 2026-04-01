@@ -50,6 +50,8 @@ private enum TeleportError: LocalizedError {
     case managedEntryNotFound
     case localAssistantNotFound
     case dockerAssistantNotFound
+    case noOrganizations
+    case multipleOrganizations
 
     var errorDescription: String? {
         switch self {
@@ -69,6 +71,10 @@ private enum TeleportError: LocalizedError {
             return "Could not find or create a local assistant"
         case .dockerAssistantNotFound:
             return "Could not find or create a Docker assistant"
+        case .noOrganizations:
+            return "No organizations found for this account"
+        case .multipleOrganizations:
+            return "Multiple organizations found — please select one in account settings first"
         }
     }
 }
@@ -339,7 +345,11 @@ struct TeleportSection: View {
         phase = .transferring(step: "Exporting assistant data...")
         let bundleData = try await exportAssistantBundle()
 
-        // Step 2 — Upload to GCS via signed URL (with inline fallback)
+        // Step 2 — Resolve and validate org ID before upload (upload reads org from UserDefaults)
+        phase = .transferring(step: "Resolving organization...")
+        let organizationId = try await resolveOrganizationId()
+
+        // Step 3 — Upload to GCS via signed URL (with inline fallback)
         phase = .transferring(step: "Uploading data to cloud...")
         let bundleKey: String?
         do {
@@ -354,18 +364,8 @@ struct TeleportSection: View {
             }
         }
 
-        // Step 3 — Ensure managed assistant exists on platform via direct hatch
+        // Step 4 — Ensure managed assistant exists on platform via direct hatch
         phase = .transferring(step: "Setting up cloud assistant...")
-        let organizationId: String
-        if let storedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !storedOrgId.isEmpty {
-            organizationId = storedOrgId
-        } else {
-            let orgs = try await AuthService.shared.getOrganizations()
-            guard let firstOrg = orgs.first else {
-                throw TeleportError.notSignedIn
-            }
-            organizationId = firstOrg.id
-        }
         let hatchResult = try await AuthService.shared.hatchAssistant(organizationId: organizationId)
         let platformAssistant: PlatformAssistant
         switch hatchResult {
@@ -383,18 +383,18 @@ struct TeleportSection: View {
             throw TeleportError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
         }
 
-        // Step 4 — Import bundle to managed assistant
+        // Step 5 — Import bundle to managed assistant
         phase = .transferring(step: "Importing data to cloud...")
         try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
 
-        // Step 5 — Resolve managed assistant for later switch
+        // Step 6 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
             throw TeleportError.managedEntryNotFound
         }
         targetAssistant = managedAssistant
         transferTask = nil
 
-        // Step 6 — Verification phase (do NOT retire or switch yet)
+        // Step 7 — Verification phase (do NOT retire or switch yet)
         phase = .verifying
     }
 
@@ -482,7 +482,11 @@ struct TeleportSection: View {
         phase = .transferring(step: "Exporting assistant data...")
         let bundleData = try await exportAssistantBundle()
 
-        // Step 2 — Upload to GCS via signed URL (with inline fallback)
+        // Step 2 — Resolve and validate org ID before upload (upload reads org from UserDefaults)
+        phase = .transferring(step: "Resolving organization...")
+        let organizationId = try await resolveOrganizationId()
+
+        // Step 3 — Upload to GCS via signed URL (with inline fallback)
         phase = .transferring(step: "Uploading data to cloud...")
         let bundleKey: String?
         do {
@@ -497,18 +501,8 @@ struct TeleportSection: View {
             }
         }
 
-        // Step 3 — Ensure managed assistant exists on platform via direct hatch
+        // Step 4 — Ensure managed assistant exists on platform via direct hatch
         phase = .transferring(step: "Setting up cloud assistant...")
-        let organizationId: String
-        if let storedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !storedOrgId.isEmpty {
-            organizationId = storedOrgId
-        } else {
-            let orgs = try await AuthService.shared.getOrganizations()
-            guard let firstOrg = orgs.first else {
-                throw TeleportError.notSignedIn
-            }
-            organizationId = firstOrg.id
-        }
         let hatchResult = try await AuthService.shared.hatchAssistant(organizationId: organizationId)
         let platformAssistant: PlatformAssistant
         switch hatchResult {
@@ -526,22 +520,56 @@ struct TeleportSection: View {
             throw TeleportError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
         }
 
-        // Step 4 — Import bundle to managed assistant
+        // Step 5 — Import bundle to managed assistant
         phase = .transferring(step: "Importing data to cloud...")
         try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
 
-        // Step 5 — Resolve managed assistant for later switch
+        // Step 6 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
             throw TeleportError.managedEntryNotFound
         }
         targetAssistant = managedAssistant
         transferTask = nil
 
-        // Step 6 — Verification phase (do NOT retire or switch yet)
+        // Step 7 — Verification phase (do NOT retire or switch yet)
         phase = .verifying
     }
 
     // MARK: - Helpers
+
+    /// Resolves and validates the organization ID, mirroring the logic in
+    /// `ManagedAssistantBootstrapService.resolveOrganizationId()`.
+    ///
+    /// Always fetches orgs from the API and validates any persisted value.
+    /// Persists the resolved org ID to UserDefaults so downstream callers
+    /// (e.g. `PlatformMigrationClient.requestUploadUrl()`) can read it.
+    private func resolveOrganizationId() async throws -> String {
+        let orgs = try await AuthService.shared.getOrganizations()
+        let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
+        // If a persisted org ID exists and is valid, use it
+        if let persistedOrgId, !persistedOrgId.isEmpty, orgs.contains(where: { $0.id == persistedOrgId }) {
+            log.info("[teleport] Validated persisted organization: \(persistedOrgId, privacy: .public)")
+            return persistedOrgId
+        }
+
+        if persistedOrgId != nil {
+            log.warning("[teleport] Persisted organization ID not found in user's orgs — re-resolving")
+        }
+
+        // Re-resolve from the org list
+        switch orgs.count {
+        case 0:
+            throw TeleportError.noOrganizations
+        case 1:
+            let orgId = orgs[0].id
+            UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
+            log.info("[teleport] Resolved organization: \(orgId, privacy: .public)")
+            return orgId
+        default:
+            throw TeleportError.multipleOrganizations
+        }
+    }
 
     /// Exports the current assistant's data as a `.vbundle` binary archive.
     private func exportAssistantBundle() async throws -> Data {
