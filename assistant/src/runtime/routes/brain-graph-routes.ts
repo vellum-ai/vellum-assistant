@@ -2,7 +2,7 @@
  * Route handlers for the brain graph visualization endpoint.
  *
  * Queries the memory database to return a knowledge graph shaped for brain-lobe
- * visualization, with memory items mapped to brain regions based on their kind.
+ * visualization, with memory items mapped to brain regions based on their type.
  */
 
 import { readFileSync } from "node:fs";
@@ -12,7 +12,7 @@ import { count } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../../memory/db.js";
-import { memoryItems } from "../../memory/schema.js";
+import { memoryGraphNodes } from "../../memory/schema.js";
 import { resolveBundledDir } from "../../util/bundled-asset.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -41,11 +41,11 @@ function handleGetBrainGraph(): Response {
 
     const kindCountRows = db
       .select({
-        kind: memoryItems.kind,
+        kind: memoryGraphNodes.type,
         count: count(),
       })
-      .from(memoryItems)
-      .groupBy(memoryItems.kind)
+      .from(memoryGraphNodes)
+      .groupBy(memoryGraphNodes.type)
       .all();
 
     const memorySummary = kindCountRows.map((row) => ({
@@ -86,9 +86,6 @@ export function handleServeBrainGraphUI(bearerToken?: string): Response {
     );
     let html = readFileSync(join(brainGraphDir, "brain-graph.html"), "utf-8");
     if (bearerToken) {
-      // Inject token as a meta tag for client-side fetch authentication.
-      // HTML-escape the token value to guard against injection if the token
-      // comes from an environment variable with special characters.
       const escapedToken = bearerToken
         .replace(/&/g, "&amp;")
         .replace(/"/g, "&quot;")
@@ -99,8 +96,6 @@ export function handleServeBrainGraphUI(bearerToken?: string): Response {
         `  <meta name="api-token" content="${escapedToken}">\n</head>`,
       );
     }
-    // CSP permits the CDN sources required by D3.js and Three.js.
-    // 'unsafe-eval' is needed by Three.js's shader compilation path.
     const csp = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://d3js.org",

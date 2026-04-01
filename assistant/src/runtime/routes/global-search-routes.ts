@@ -100,34 +100,36 @@ function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
 
   interface MemoryRow {
     id: string;
-    kind: string;
-    statement: string;
-    subject: string;
+    type: string;
+    content: string;
     confidence: number;
-    last_seen_at: number;
+    last_accessed: number;
   }
 
-  // Search on both statement and subject for broader recall
   const rows = rawAll<MemoryRow>(
-    `SELECT id, kind, statement, subject, confidence, last_seen_at
-     FROM memory_items
-     WHERE (statement LIKE ? OR subject LIKE ?) AND status = 'active'
-     ORDER BY last_seen_at DESC
+    `SELECT id, type, content, confidence, last_accessed
+     FROM memory_graph_nodes
+     WHERE content LIKE ? AND fidelity != 'gone'
+     ORDER BY last_accessed DESC
      LIMIT ?`,
-    likePattern,
     likePattern,
     limit,
   );
 
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind,
-    text: r.statement,
-    subject: r.subject || null,
-    confidence: r.confidence,
-    updatedAt: r.last_seen_at,
-    source: "lexical" as const,
-  }));
+  return rows.map((r) => {
+    const nl = r.content.indexOf("\n");
+    const subject = nl >= 0 ? r.content.slice(0, nl) : r.content;
+    const statement = nl >= 0 ? r.content.slice(nl + 1) : r.content;
+    return {
+      id: r.id,
+      kind: r.type,
+      text: statement,
+      subject: subject || null,
+      confidence: r.confidence,
+      updatedAt: r.last_accessed,
+      source: "lexical" as const,
+    };
+  });
 }
 
 async function searchMemoriesSemantic(

@@ -45,8 +45,7 @@ import {
   conversations,
   cronJobs,
   cronRuns,
-  memoryItems,
-  memoryItemSources,
+  memoryGraphNodes,
   memoryJobs,
   messages,
   taskRuns,
@@ -56,6 +55,9 @@ import {
   invalidateAssistantInferredItemsForConversation,
   isConversationFailed,
 } from "../memory/task-memory-cleanup.js";
+
+const DEFAULT_EMOTIONAL_CHARGE =
+  '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}';
 
 describe("invalidateAssistantInferredItemsForConversation", () => {
   const now = 1_701_100_000_000;
@@ -68,8 +70,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
   beforeEach(() => {
     const db = getDb();
-    db.run("DELETE FROM memory_item_sources");
-    db.run("DELETE FROM memory_items");
+    db.run("DELETE FROM memory_graph_nodes");
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM cron_runs");
@@ -128,165 +129,161 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       .run();
   }
 
-  function seedMemoryItems() {
+  function seedMemoryGraphNodes() {
     const db = getDb();
-    db.insert(memoryItems)
+    db.insert(memoryGraphNodes)
       .values([
         {
           id: "item-assistant-inferred",
-          kind: "fact",
-          subject: "DMV appointment",
-          statement: "Booked a DMV appointment at 9 AM.",
-          status: "active",
+          content: "DMV appointment\nBooked a DMV appointment at 9 AM.",
+          type: "semantic",
+          created: now + 10,
+          lastAccessed: now + 10,
+          lastConsolidated: now + 10,
+          emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
+          fidelity: "vivid",
           confidence: 0.8,
-          importance: 0.7,
-          fingerprint: "fp-assistant-inferred",
-          verificationState: "assistant_inferred",
-          sourceType: "extraction",
-          sourceMessageRole: "assistant",
+          significance: 0.7,
+          stability: 14,
+          reinforcementCount: 0,
+          lastReinforced: now + 10,
+          sourceConversations: JSON.stringify([convId]),
+          sourceType: "inferred",
+          narrativeRole: null,
+          partOfStory: null,
           scopeId: "default",
-          firstSeenAt: now + 10,
-          lastSeenAt: now + 10,
         },
         {
           id: "item-user-reported",
-          kind: "preference",
-          subject: "notification pref",
-          statement: "User prefers email notifications.",
-          status: "active",
+          content: "notification pref\nUser prefers email notifications.",
+          type: "semantic",
+          created: now + 20,
+          lastAccessed: now + 20,
+          lastConsolidated: now + 20,
+          emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
+          fidelity: "vivid",
           confidence: 0.9,
-          importance: 0.8,
-          fingerprint: "fp-user-reported",
-          verificationState: "user_reported",
-          sourceType: "extraction",
-          sourceMessageRole: "user",
+          significance: 0.8,
+          stability: 14,
+          reinforcementCount: 0,
+          lastReinforced: now + 20,
+          sourceConversations: JSON.stringify([convId]),
+          sourceType: "direct",
+          narrativeRole: null,
+          partOfStory: null,
           scopeId: "default",
-          firstSeenAt: now + 20,
-          lastSeenAt: now + 20,
         },
         {
           id: "item-other-conv",
-          kind: "fact",
-          subject: "weather check",
-          statement: "Checked weather for tomorrow.",
-          status: "active",
+          content: "weather check\nChecked weather for tomorrow.",
+          type: "semantic",
+          created: now + 30,
+          lastAccessed: now + 30,
+          lastConsolidated: now + 30,
+          emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
+          fidelity: "vivid",
           confidence: 0.7,
-          importance: 0.5,
-          fingerprint: "fp-other-conv",
-          verificationState: "assistant_inferred",
-          sourceType: "extraction",
-          sourceMessageRole: "assistant",
+          significance: 0.5,
+          stability: 14,
+          reinforcementCount: 0,
+          lastReinforced: now + 30,
+          sourceConversations: JSON.stringify([otherConvId]),
+          sourceType: "inferred",
+          narrativeRole: null,
+          partOfStory: null,
           scopeId: "default",
-          firstSeenAt: now + 30,
-          lastSeenAt: now + 30,
         },
         {
-          id: "item-already-superseded",
-          kind: "fact",
-          subject: "old claim",
-          statement: "Old assistant claim already superseded.",
-          status: "superseded",
+          id: "item-already-gone",
+          content: "old claim\nOld assistant claim already gone.",
+          type: "semantic",
+          created: now + 5,
+          lastAccessed: now + 5,
+          lastConsolidated: now + 5,
+          emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
+          fidelity: "gone",
           confidence: 0.6,
-          importance: 0.4,
-          fingerprint: "fp-already-superseded",
-          verificationState: "assistant_inferred",
-          sourceType: "extraction",
-          sourceMessageRole: "assistant",
+          significance: 0.4,
+          stability: 14,
+          reinforcementCount: 0,
+          lastReinforced: now + 5,
+          sourceConversations: JSON.stringify([convId]),
+          sourceType: "inferred",
+          narrativeRole: null,
+          partOfStory: null,
           scopeId: "default",
-          firstSeenAt: now + 5,
-          lastSeenAt: now + 5,
-        },
-      ])
-      .run();
-
-    db.insert(memoryItemSources)
-      .values([
-        {
-          memoryItemId: "item-assistant-inferred",
-          messageId: "msg-task-1",
-          evidence: "booking claim",
-          createdAt: now + 10,
-        },
-        {
-          memoryItemId: "item-user-reported",
-          messageId: "msg-task-2",
-          evidence: "user stated",
-          createdAt: now + 20,
-        },
-        {
-          memoryItemId: "item-other-conv",
-          messageId: "msg-other",
-          evidence: "weather",
-          createdAt: now + 30,
-        },
-        {
-          memoryItemId: "item-already-superseded",
-          messageId: "msg-task-1",
-          evidence: "old claim",
-          createdAt: now + 5,
         },
       ])
       .run();
   }
 
-  test("only invalidates assistant_inferred items, not user_reported", () => {
+  test("only invalidates inferred items, not direct (user-reported)", () => {
     seedConversations();
     seedMessages();
-    seedMemoryItems();
+    seedMemoryGraphNodes();
 
     const affected = invalidateAssistantInferredItemsForConversation(convId);
 
     expect(affected).toBe(1);
 
     const db = getDb();
-    const assistantItem = db
+    const inferredItem = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-assistant-inferred"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.id, "item-assistant-inferred"))
       .get();
-    expect(assistantItem?.status).toBe("invalidated");
-    expect(assistantItem?.invalidAt).not.toBeNull();
+    expect(inferredItem?.fidelity).toBe("gone");
 
-    const userItem = db
+    const directItem = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-user-reported"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.id, "item-user-reported"))
       .get();
-    expect(userItem?.status).toBe("active");
-    expect(userItem?.invalidAt).toBeNull();
+    expect(directItem?.fidelity).toBe("vivid");
   });
 
   test("does not affect items from other conversations", () => {
     seedConversations();
     seedMessages();
-    seedMemoryItems();
+    seedMemoryGraphNodes();
 
     invalidateAssistantInferredItemsForConversation(convId);
 
     const db = getDb();
     const otherItem = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-other-conv"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.id, "item-other-conv"))
       .get();
-    expect(otherItem?.status).toBe("active");
-    expect(otherItem?.invalidAt).toBeNull();
+    expect(otherItem?.fidelity).toBe("vivid");
   });
 
   test("does not invalidate items also sourced from another conversation", () => {
     seedConversations();
     seedMessages();
-    seedMemoryItems();
 
-    // Add a second source from the other conversation to the assistant-inferred item.
-    // This simulates deduplication: the same fact was extracted from both conversations.
+    // Insert a node sourced from both conversations (corroboration).
     const db = getDb();
-    db.insert(memoryItemSources)
+    db.insert(memoryGraphNodes)
       .values({
-        memoryItemId: "item-assistant-inferred",
-        messageId: "msg-other",
-        evidence: "corroborating source from other conversation",
-        createdAt: now + 40,
+        id: "item-corroborated",
+        content: "DMV appointment\nBooked a DMV appointment at 9 AM.",
+        type: "semantic",
+        created: now + 10,
+        lastAccessed: now + 10,
+        lastConsolidated: now + 10,
+        emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
+        fidelity: "vivid",
+        confidence: 0.8,
+        significance: 0.7,
+        stability: 14,
+        reinforcementCount: 0,
+        lastReinforced: now + 10,
+        sourceConversations: JSON.stringify([convId, otherConvId]),
+        sourceType: "inferred",
+        narrativeRole: null,
+        partOfStory: null,
+        scopeId: "default",
       })
       .run();
 
@@ -297,33 +294,32 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     const item = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-assistant-inferred"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.id, "item-corroborated"))
       .get();
-    expect(item?.status).toBe("active");
-    expect(item?.invalidAt).toBeNull();
+    expect(item?.fidelity).toBe("vivid");
   });
 
-  test("does not affect already-superseded items", () => {
+  test("does not affect already-gone items", () => {
     seedConversations();
     seedMessages();
-    seedMemoryItems();
+    seedMemoryGraphNodes();
 
     invalidateAssistantInferredItemsForConversation(convId);
 
     const db = getDb();
-    const supersededItem = db
+    const goneItem = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-already-superseded"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.id, "item-already-gone"))
       .get();
-    expect(supersededItem?.status).toBe("superseded");
+    expect(goneItem?.fidelity).toBe("gone");
   });
 
   test("returns 0 when no matching items exist", () => {
     seedConversations();
     seedMessages();
-    // No memory items seeded
+    // No memory graph nodes seeded
 
     const affected = invalidateAssistantInferredItemsForConversation(convId);
     expect(affected).toBe(0);
@@ -332,7 +328,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   test("returns 0 for unknown conversation", () => {
     seedConversations();
     seedMessages();
-    seedMemoryItems();
+    seedMemoryGraphNodes();
 
     const affected =
       invalidateAssistantInferredItemsForConversation("conv-nonexistent");
@@ -412,41 +408,28 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       ])
       .run();
 
-    // A memory item sourced from both conversations
-    db.insert(memoryItems)
+    // A memory node sourced from both failed conversations
+    db.insert(memoryGraphNodes)
       .values({
         id: "item-cross-sourced",
-        kind: "fact",
-        subject: "cross-sourced claim",
-        statement: "Claim from two failed tasks.",
-        status: "active",
+        content: "cross-sourced claim\nClaim from two failed tasks.",
+        type: "semantic",
+        created: now + 10,
+        lastAccessed: now + 20,
+        lastConsolidated: now + 10,
+        emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
+        fidelity: "vivid",
         confidence: 0.8,
-        importance: 0.7,
-        fingerprint: "fp-cross-sourced",
-        verificationState: "assistant_inferred",
-        sourceType: "extraction",
-        sourceMessageRole: "assistant",
+        significance: 0.7,
+        stability: 14,
+        reinforcementCount: 0,
+        lastReinforced: now + 10,
+        sourceConversations: JSON.stringify([convA, convB]),
+        sourceType: "inferred",
+        narrativeRole: null,
+        partOfStory: null,
         scopeId: "default",
-        firstSeenAt: now + 10,
-        lastSeenAt: now + 20,
       })
-      .run();
-
-    db.insert(memoryItemSources)
-      .values([
-        {
-          memoryItemId: "item-cross-sourced",
-          messageId: "msg-a",
-          evidence: "claim from A",
-          createdAt: now + 10,
-        },
-        {
-          memoryItemId: "item-cross-sourced",
-          messageId: "msg-b",
-          evidence: "claim from B",
-          createdAt: now + 20,
-        },
-      ])
       .run();
 
     // Invalidating for convA should succeed because convB is also from a failed task
@@ -455,11 +438,10 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     const item = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-cross-sourced"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.id, "item-cross-sourced"))
       .get();
-    expect(item?.status).toBe("invalidated");
-    expect(item?.invalidAt).not.toBeNull();
+    expect(item?.fidelity).toBe("gone");
   });
 
   test("invalidates items when corroborating conversation is from a failed schedule run", () => {
@@ -538,40 +520,27 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       ])
       .run();
 
-    db.insert(memoryItems)
+    db.insert(memoryGraphNodes)
       .values({
         id: "item-cross-sched",
-        kind: "fact",
-        subject: "cross-sourced schedule claim",
-        statement: "Claim from two failed schedules.",
-        status: "active",
+        content: "cross-sourced schedule claim\nClaim from two failed schedules.",
+        type: "semantic",
+        created: now + 10,
+        lastAccessed: now + 20,
+        lastConsolidated: now + 10,
+        emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
+        fidelity: "vivid",
         confidence: 0.8,
-        importance: 0.7,
-        fingerprint: "fp-cross-sched",
-        verificationState: "assistant_inferred",
-        sourceType: "extraction",
-        sourceMessageRole: "assistant",
+        significance: 0.7,
+        stability: 14,
+        reinforcementCount: 0,
+        lastReinforced: now + 10,
+        sourceConversations: JSON.stringify([convA, convB]),
+        sourceType: "inferred",
+        narrativeRole: null,
+        partOfStory: null,
         scopeId: "default",
-        firstSeenAt: now + 10,
-        lastSeenAt: now + 20,
       })
-      .run();
-
-    db.insert(memoryItemSources)
-      .values([
-        {
-          memoryItemId: "item-cross-sched",
-          messageId: "msg-sched-a",
-          evidence: "claim from A",
-          createdAt: now + 10,
-        },
-        {
-          memoryItemId: "item-cross-sched",
-          messageId: "msg-sched-b",
-          evidence: "claim from B",
-          createdAt: now + 20,
-        },
-      ])
       .run();
 
     const affected = invalidateAssistantInferredItemsForConversation(convA);
@@ -579,10 +548,10 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     const item = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-cross-sched"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.id, "item-cross-sched"))
       .get();
-    expect(item?.status).toBe("invalidated");
+    expect(item?.fidelity).toBe("gone");
   });
 
   test("preserves items when corroborating conversation is from a successful task run", () => {
@@ -656,40 +625,27 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       ])
       .run();
 
-    db.insert(memoryItems)
+    db.insert(memoryGraphNodes)
       .values({
         id: "item-with-good-corroboration",
-        kind: "fact",
-        subject: "corroborated claim",
-        statement: "Claim corroborated by successful task.",
-        status: "active",
+        content: "corroborated claim\nClaim corroborated by successful task.",
+        type: "semantic",
+        created: now + 10,
+        lastAccessed: now + 20,
+        lastConsolidated: now + 10,
+        emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
+        fidelity: "vivid",
         confidence: 0.8,
-        importance: 0.7,
-        fingerprint: "fp-good-corroboration",
-        verificationState: "assistant_inferred",
-        sourceType: "extraction",
-        sourceMessageRole: "assistant",
+        significance: 0.7,
+        stability: 14,
+        reinforcementCount: 0,
+        lastReinforced: now + 10,
+        sourceConversations: JSON.stringify([convFailed, convSuccess]),
+        sourceType: "inferred",
+        narrativeRole: null,
+        partOfStory: null,
         scopeId: "default",
-        firstSeenAt: now + 10,
-        lastSeenAt: now + 20,
       })
-      .run();
-
-    db.insert(memoryItemSources)
-      .values([
-        {
-          memoryItemId: "item-with-good-corroboration",
-          messageId: "msg-failed",
-          evidence: "claim from failed",
-          createdAt: now + 10,
-        },
-        {
-          memoryItemId: "item-with-good-corroboration",
-          messageId: "msg-success",
-          evidence: "claim from success",
-          createdAt: now + 20,
-        },
-      ])
       .run();
 
     // The successful task run corroborates the claim, so it should NOT be invalidated
@@ -699,10 +655,10 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     const item = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-with-good-corroboration"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.id, "item-with-good-corroboration"))
       .get();
-    expect(item?.status).toBe("active");
+    expect(item?.fidelity).toBe("vivid");
   });
 
   test("isConversationFailed derives state from durable task_runs/cron_runs", () => {

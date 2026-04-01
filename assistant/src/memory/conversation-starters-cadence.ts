@@ -24,7 +24,7 @@ export function maybeEnqueueConversationStartersJob(scopeId: string): void {
 
   // Count total active memory items
   const countRow = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM memory_items WHERE status = 'active' AND scope_id = ?`,
+    `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
     scopeId,
   );
   const totalActive = countRow?.c ?? 0;

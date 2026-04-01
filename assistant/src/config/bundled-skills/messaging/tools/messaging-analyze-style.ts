@@ -1,10 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../../../../memory/db.js";
-import { computeMemoryFingerprint } from "../../../../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
-import { memoryItems } from "../../../../memory/schema.js";
+import { memoryGraphNodes } from "../../../../memory/schema.js";
 import { clampUnitInterval } from "../../../../memory/validation.js";
 import { extractStylePatterns } from "../../../../messaging/style-analyzer.js";
 import type {
@@ -23,58 +22,59 @@ function upsertMemoryItem(opts: {
 }): void {
   const db = getDb();
   const now = Date.now();
-  const fingerprint = computeMemoryFingerprint(
-    opts.scopeId,
-    opts.kind,
-    opts.subject,
-    opts.statement,
-  );
+  const content = `${opts.subject}\n${opts.statement}`;
 
   const existing = db
     .select()
-    .from(memoryItems)
+    .from(memoryGraphNodes)
     .where(
       and(
-        eq(memoryItems.fingerprint, fingerprint),
-        eq(memoryItems.scopeId, opts.scopeId),
+        eq(memoryGraphNodes.content, content),
+        eq(memoryGraphNodes.scopeId, opts.scopeId),
+        sql`${memoryGraphNodes.fidelity} != 'gone'`,
       ),
     )
     .get();
 
   if (existing) {
-    db.update(memoryItems)
+    db.update(memoryGraphNodes)
       .set({
-        statement: opts.statement,
-        status: "active",
-        importance: clampUnitInterval(
-          Math.max(existing.importance ?? 0, opts.importance),
+        content,
+        fidelity: "vivid",
+        significance: clampUnitInterval(
+          Math.max(existing.significance ?? 0, opts.importance),
         ),
-        lastSeenAt: now,
-        sourceType: existing.sourceType === "tool" ? "tool" : "extraction",
+        lastAccessed: now,
+        sourceType: existing.sourceType === "direct" ? "direct" : "inferred",
       })
-      .where(eq(memoryItems.id, existing.id))
+      .where(eq(memoryGraphNodes.id, existing.id))
       .run();
-    enqueueMemoryJob("embed_item", { itemId: existing.id });
+    enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
   } else {
     const id = uuid();
-    db.insert(memoryItems)
+    db.insert(memoryGraphNodes)
       .values({
         id,
-        kind: opts.kind,
-        subject: opts.subject,
-        statement: opts.statement,
-        status: "active",
+        content,
+        type: opts.kind,
+        created: now,
+        lastAccessed: now,
+        lastConsolidated: now,
+        emotionalCharge: '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}',
+        fidelity: "vivid",
         confidence: 0.8,
-        importance: clampUnitInterval(opts.importance),
-        fingerprint,
-        sourceType: "extraction",
+        significance: clampUnitInterval(opts.importance),
+        stability: 14,
+        reinforcementCount: 0,
+        lastReinforced: now,
+        sourceConversations: "[]",
+        sourceType: "inferred",
+        narrativeRole: null,
+        partOfStory: null,
         scopeId: opts.scopeId,
-        firstSeenAt: now,
-        lastSeenAt: now,
-        lastUsedAt: null,
       })
       .run();
-    enqueueMemoryJob("embed_item", { itemId: id });
+    enqueueMemoryJob("embed_graph_node", { nodeId: id });
   }
 }
 

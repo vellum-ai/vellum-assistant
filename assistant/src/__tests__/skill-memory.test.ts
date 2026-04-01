@@ -1,7 +1,7 @@
 import { rmSync } from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -61,7 +61,7 @@ mock.module("../config/loader.js", () => ({
 
 import type { SkillSummary } from "../config/skills.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { memoryItems, memoryJobs } from "../memory/schema.js";
+import { memoryGraphNodes, memoryJobs } from "../memory/schema.js";
 import {
   buildCapabilityStatement,
   deleteSkillCapabilityMemory,
@@ -81,9 +81,8 @@ afterAll(() => {
 
 function resetTables() {
   const db = getDb();
-  db.run("DELETE FROM memory_item_sources");
   db.run("DELETE FROM memory_embeddings");
-  db.run("DELETE FROM memory_items");
+  db.run("DELETE FROM memory_graph_nodes");
   db.run("DELETE FROM memory_jobs");
 }
 
@@ -231,59 +230,59 @@ describe("fromSkillSummary", () => {
 describe("upsertSkillCapabilityMemory", () => {
   beforeEach(resetTables);
 
-  test("inserts with correct kind, subject, confidence, importance", () => {
+  test("inserts with correct type, content, confidence, significance", () => {
     const input = fromSkillSummary(makeSkillSummary());
     upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
-    const items = db.select().from(memoryItems).all();
+    const items = db.select().from(memoryGraphNodes).all();
     expect(items).toHaveLength(1);
-    expect(items[0].kind).toBe("capability");
-    expect(items[0].subject).toBe("skill:test-skill");
+    expect(items[0].type).toBe("procedural");
+    expect(items[0].content).toMatch(/^skill:test-skill\n/);
     expect(items[0].confidence).toBe(1.0);
-    expect(items[0].importance).toBe(0.7);
-    expect(items[0].status).toBe("active");
+    expect(items[0].significance).toBe(0.7);
+    expect(items[0].fidelity).toBe("vivid");
     expect(items[0].scopeId).toBe("default");
 
-    // Should also enqueue an embed_item job
+    // Should also enqueue an embed_graph_node job
     const jobs = db.select().from(memoryJobs).all();
     expect(jobs).toHaveLength(1);
-    expect(jobs[0].type).toBe("embed_item");
+    expect(jobs[0].type).toBe("embed_graph_node");
   });
 
-  test("is idempotent (same entry only touches lastSeenAt)", () => {
+  test("is idempotent (same entry only touches lastAccessed)", () => {
     const input = fromSkillSummary(makeSkillSummary());
     upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
-    const before = db.select().from(memoryItems).all();
+    const before = db.select().from(memoryGraphNodes).all();
     expect(before).toHaveLength(1);
-    const originalLastSeen = before[0].lastSeenAt;
+    const originalLastAccessed = before[0].lastAccessed;
 
     // Upsert again
     upsertSkillCapabilityMemory("test-skill", input);
 
-    const after = db.select().from(memoryItems).all();
+    const after = db.select().from(memoryGraphNodes).all();
     expect(after).toHaveLength(1);
-    // Fingerprint should be the same, so only lastSeenAt changes
-    expect(after[0].fingerprint).toBe(before[0].fingerprint);
-    expect(after[0].lastSeenAt).toBeGreaterThanOrEqual(originalLastSeen);
+    // Same content, so only lastAccessed changes
+    expect(after[0].content).toBe(before[0].content);
+    expect(after[0].lastAccessed).toBeGreaterThanOrEqual(originalLastAccessed);
 
     // Should NOT enqueue a second embed job (only 1 from initial insert)
     const jobs = db.select().from(memoryJobs).all();
     expect(jobs).toHaveLength(1);
   });
 
-  test("updates statement when description changes", () => {
+  test("updates content when description changes", () => {
     const input = fromSkillSummary(
       makeSkillSummary({ description: "Original description" }),
     );
     upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
-    const before = db.select().from(memoryItems).all();
+    const before = db.select().from(memoryGraphNodes).all();
     expect(before).toHaveLength(1);
-    expect(before[0].statement).toContain("Original description");
+    expect(before[0].content).toContain("Original description");
 
     // Change description
     const updatedInput = fromSkillSummary(
@@ -291,10 +290,10 @@ describe("upsertSkillCapabilityMemory", () => {
     );
     upsertSkillCapabilityMemory("test-skill", updatedInput);
 
-    const after = db.select().from(memoryItems).all();
+    const after = db.select().from(memoryGraphNodes).all();
     expect(after).toHaveLength(1);
-    expect(after[0].statement).toContain("Updated description");
-    expect(after[0].fingerprint).not.toBe(before[0].fingerprint);
+    expect(after[0].content).toContain("Updated description");
+    expect(after[0].content).not.toBe(before[0].content);
 
     // Should enqueue a second embed job
     const jobs = db.select().from(memoryJobs).all();
@@ -307,13 +306,13 @@ describe("upsertSkillCapabilityMemory", () => {
 
     const db = getDb();
     // Soft-delete the item
-    db.update(memoryItems)
-      .set({ status: "deleted" })
-      .where(eq(memoryItems.subject, "skill:test-skill"))
+    db.update(memoryGraphNodes)
+      .set({ fidelity: "gone" })
+      .where(like(memoryGraphNodes.content, "skill:test-skill\n%"))
       .run();
 
-    const deleted = db.select().from(memoryItems).all();
-    expect(deleted[0].status).toBe("deleted");
+    const deleted = db.select().from(memoryGraphNodes).all();
+    expect(deleted[0].fidelity).toBe("gone");
 
     // Clear jobs from initial insert
     db.run("DELETE FROM memory_jobs");
@@ -321,14 +320,14 @@ describe("upsertSkillCapabilityMemory", () => {
     // Upsert again — should reactivate
     upsertSkillCapabilityMemory("test-skill", input);
 
-    const reactivated = db.select().from(memoryItems).all();
+    const reactivated = db.select().from(memoryGraphNodes).all();
     expect(reactivated).toHaveLength(1);
-    expect(reactivated[0].status).toBe("active");
+    expect(reactivated[0].fidelity).toBe("vivid");
 
     // Should enqueue embed job for reactivated item
     const jobs = db.select().from(memoryJobs).all();
     expect(jobs).toHaveLength(1);
-    expect(jobs[0].type).toBe("embed_item");
+    expect(jobs[0].type).toBe("embed_graph_node");
   });
 
   test("does not throw on DB error", () => {
@@ -338,9 +337,9 @@ describe("upsertSkillCapabilityMemory", () => {
     // dropping the table it reads from. Use a fresh DB without initialization.
     // Instead, verify the try/catch by closing and reopening:
     // resetDb closes the connection; getDb lazily reconnects.
-    // We drop the memory_items table to force an error on the next query.
+    // We drop the memory_graph_nodes table to force an error on the next query.
     const db = getDb();
-    db.run("DROP TABLE IF EXISTS memory_items");
+    db.run("DROP TABLE IF EXISTS memory_graph_nodes");
 
     expect(() => {
       upsertSkillCapabilityMemory(
@@ -372,15 +371,15 @@ describe("deleteSkillCapabilityMemory", () => {
     upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
-    const before = db.select().from(memoryItems).all();
+    const before = db.select().from(memoryGraphNodes).all();
     expect(before).toHaveLength(1);
-    expect(before[0].status).toBe("active");
+    expect(before[0].fidelity).toBe("vivid");
 
     deleteSkillCapabilityMemory("test-skill");
 
-    const after = db.select().from(memoryItems).all();
+    const after = db.select().from(memoryGraphNodes).all();
     expect(after).toHaveLength(1);
-    expect(after[0].status).toBe("deleted");
+    expect(after[0].fidelity).toBe("gone");
   });
 
   test("is no-op for missing item", () => {
@@ -390,7 +389,7 @@ describe("deleteSkillCapabilityMemory", () => {
     }).not.toThrow();
 
     const db = getDb();
-    const items = db.select().from(memoryItems).all();
+    const items = db.select().from(memoryGraphNodes).all();
     expect(items).toHaveLength(0);
   });
 
@@ -398,7 +397,7 @@ describe("deleteSkillCapabilityMemory", () => {
     // Close and reopen DB, then drop the table to force a query error
     resetDb();
     const db = getDb();
-    db.run("DROP TABLE IF EXISTS memory_items");
+    db.run("DROP TABLE IF EXISTS memory_graph_nodes");
 
     expect(() => {
       deleteSkillCapabilityMemory("test-skill");
@@ -450,21 +449,21 @@ describe("seedCatalogSkillMemories", () => {
     const db = getDb();
     const items = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.kind, "capability"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.type, "procedural"))
       .all();
     expect(items).toHaveLength(3);
 
-    const subjects = items.map((i) => i.subject).sort();
-    expect(subjects).toEqual([
+    const contentPrefixes = items.map((i) => i.content.split("\n")[0]).sort();
+    expect(contentPrefixes).toEqual([
       "skill:skill-a",
       "skill:skill-b",
       "skill:skill-c",
     ]);
 
-    // All should be active
+    // All should be vivid
     for (const item of items) {
-      expect(item.status).toBe("active");
+      expect(item.fidelity).toBe("vivid");
     }
   });
 
@@ -491,16 +490,16 @@ describe("seedCatalogSkillMemories", () => {
     const db = getDb();
     const items = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.kind, "capability"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.type, "procedural"))
       .all();
     expect(items).toHaveLength(2);
 
-    const subjects = items.map((i) => i.subject).sort();
-    expect(subjects).toEqual(["skill:bundled-skill", "skill:managed-skill"]);
+    const contentPrefixes = items.map((i) => i.content.split("\n")[0]).sort();
+    expect(contentPrefixes).toEqual(["skill:bundled-skill", "skill:managed-skill"]);
 
     for (const item of items) {
-      expect(item.status).toBe("active");
+      expect(item.fidelity).toBe("vivid");
     }
   });
 
@@ -550,14 +549,14 @@ describe("seedCatalogSkillMemories", () => {
     const db = getDb();
     const items = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.kind, "capability"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.type, "procedural"))
       .all();
 
     // Only allowed-bundled and managed-skill should be seeded
     expect(items).toHaveLength(2);
-    const subjects = items.map((i) => i.subject).sort();
-    expect(subjects).toEqual(["skill:allowed-bundled", "skill:managed-skill"]);
+    const contentPrefixes = items.map((i) => i.content.split("\n")[0]).sort();
+    expect(contentPrefixes).toEqual(["skill:allowed-bundled", "skill:managed-skill"]);
 
     // Restore default config mock
     mock.module("../config/loader.js", () => ({
@@ -594,11 +593,11 @@ describe("seedCatalogSkillMemories", () => {
     const db = getDb();
     const beforeItems = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.kind, "capability"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.type, "procedural"))
       .all();
     expect(beforeItems).toHaveLength(3);
-    expect(beforeItems.every((i) => i.status === "active")).toBe(true);
+    expect(beforeItems.every((i) => i.fidelity === "vivid")).toBe(true);
 
     // Now seed with only skill-a — skill-b and skill-c should be pruned
     mockLoadSkillCatalog = () => [
@@ -612,20 +611,20 @@ describe("seedCatalogSkillMemories", () => {
 
     const afterItems = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.kind, "capability"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.type, "procedural"))
       .all();
     expect(afterItems).toHaveLength(3); // still 3 rows, but 2 are soft-deleted
 
-    const active = afterItems.filter((i) => i.status === "active");
-    const deleted = afterItems.filter((i) => i.status === "deleted");
+    const active = afterItems.filter((i) => i.fidelity === "vivid");
+    const deleted = afterItems.filter((i) => i.fidelity === "gone");
 
     expect(active).toHaveLength(1);
-    expect(active[0].subject).toBe("skill:skill-a");
+    expect(active[0].content).toMatch(/^skill:skill-a\n/);
 
     expect(deleted).toHaveLength(2);
-    const deletedSubjects = deleted.map((i) => i.subject).sort();
-    expect(deletedSubjects).toEqual(["skill:skill-b", "skill:skill-c"]);
+    const deletedPrefixes = deleted.map((i) => i.content.split("\n")[0]).sort();
+    expect(deletedPrefixes).toEqual(["skill:skill-b", "skill:skill-c"]);
   });
 
   test("handles empty catalog without errors", () => {
@@ -636,38 +635,44 @@ describe("seedCatalogSkillMemories", () => {
     );
 
     const db = getDb();
-    const beforeItems = db.select().from(memoryItems).all();
+    const beforeItems = db.select().from(memoryGraphNodes).all();
     expect(beforeItems).toHaveLength(1);
-    expect(beforeItems[0].status).toBe("active");
+    expect(beforeItems[0].fidelity).toBe("vivid");
 
     // Seed with empty catalog
     mockLoadSkillCatalog = () => [];
     seedCatalogSkillMemories();
 
     // The existing skill should be pruned (soft-deleted)
-    const afterItems = db.select().from(memoryItems).all();
+    const afterItems = db.select().from(memoryGraphNodes).all();
     expect(afterItems).toHaveLength(1);
-    expect(afterItems[0].status).toBe("deleted");
+    expect(afterItems[0].fidelity).toBe("gone");
   });
 
   test("does not prune non-skill capability memories", () => {
     // Pre-insert a non-skill capability memory directly into the DB
     const db = getDb();
     const now = Date.now();
-    db.insert(memoryItems)
+    db.insert(memoryGraphNodes)
       .values({
         id: "cli-doctor-item",
-        kind: "capability",
-        subject: "cli:doctor",
-        statement: "The doctor command diagnoses issues.",
-        status: "active",
+        type: "procedural",
+        content: "cli:doctor\nThe doctor command diagnoses issues.",
+        fidelity: "vivid",
         confidence: 1.0,
-        importance: 0.7,
-        fingerprint: "cli-doctor-fp",
-        sourceType: "extraction",
+        significance: 0.7,
+        sourceType: "inferred",
         scopeId: "default",
-        firstSeenAt: now,
-        lastSeenAt: now,
+        created: now,
+        lastAccessed: now,
+        lastConsolidated: now,
+        emotionalCharge: '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}',
+        stability: 14,
+        reinforcementCount: 0,
+        lastReinforced: now,
+        sourceConversations: "[]",
+        narrativeRole: null,
+        partOfStory: null,
       })
       .run();
 
@@ -677,11 +682,11 @@ describe("seedCatalogSkillMemories", () => {
 
     const item = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.subject, "cli:doctor"))
+      .from(memoryGraphNodes)
+      .where(like(memoryGraphNodes.content, "cli:doctor\n%"))
       .get();
     expect(item).toBeDefined();
-    expect(item!.status).toBe("active");
+    expect(item!.fidelity).toBe("vivid");
   });
 
   test("does not throw when loadSkillCatalog throws", () => {
@@ -717,14 +722,14 @@ describe("seedCatalogSkillMemories", () => {
     const db = getDb();
     const items = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.kind, "capability"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.type, "procedural"))
       .all();
 
     // Only the unflagged skill should have a capability row
     expect(items).toHaveLength(1);
-    expect(items[0].subject).toBe("skill:unflagged-skill");
-    expect(items[0].status).toBe("active");
+    expect(items[0].content).toMatch(/^skill:unflagged-skill\n/);
+    expect(items[0].fidelity).toBe("vivid");
   });
 
   test("prunes pre-existing capability for a skill whose flag becomes disabled", () => {
@@ -749,11 +754,11 @@ describe("seedCatalogSkillMemories", () => {
     const db = getDb();
     const beforeItems = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.kind, "capability"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.type, "procedural"))
       .all();
     expect(beforeItems).toHaveLength(2);
-    expect(beforeItems.every((i) => i.status === "active")).toBe(true);
+    expect(beforeItems.every((i) => i.fidelity === "vivid")).toBe(true);
 
     // Now disable the flag — the flagged skill should be pruned
     mockIsFeatureFlagEnabled = (key: string) => key !== "my_gated_feature";
@@ -761,19 +766,19 @@ describe("seedCatalogSkillMemories", () => {
 
     const afterItems = db
       .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.kind, "capability"))
+      .from(memoryGraphNodes)
+      .where(eq(memoryGraphNodes.type, "procedural"))
       .all();
     expect(afterItems).toHaveLength(2); // still 2 rows, but one soft-deleted
 
-    const active = afterItems.filter((i) => i.status === "active");
-    const deleted = afterItems.filter((i) => i.status === "deleted");
+    const active = afterItems.filter((i) => i.fidelity === "vivid");
+    const deleted = afterItems.filter((i) => i.fidelity === "gone");
 
     expect(active).toHaveLength(1);
-    expect(active[0].subject).toBe("skill:unflagged-skill");
+    expect(active[0].content).toMatch(/^skill:unflagged-skill\n/);
 
     expect(deleted).toHaveLength(1);
-    expect(deleted[0].subject).toBe("skill:flagged-skill");
+    expect(deleted[0].content).toMatch(/^skill:flagged-skill\n/);
   });
 
   test("does not throw on DB error during pruning", () => {
@@ -785,10 +790,10 @@ describe("seedCatalogSkillMemories", () => {
       }),
     ];
 
-    // Drop memory_items to force a DB error during the prune phase
+    // Drop memory_graph_nodes to force a DB error during the prune phase
     resetDb();
     const db = getDb();
-    db.run("DROP TABLE IF EXISTS memory_items");
+    db.run("DROP TABLE IF EXISTS memory_graph_nodes");
 
     expect(() => seedCatalogSkillMemories()).not.toThrow();
 

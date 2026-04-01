@@ -5,7 +5,7 @@
  * suggestion chips shown on the empty conversation page.
  */
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { loadSkillCatalog } from "../../config/skills.js";
@@ -26,7 +26,7 @@ import { rawAll, rawGet } from "../raw-query.js";
 import {
   conversationStarters,
   memoryCheckpoints,
-  memoryItems,
+  memoryGraphNodes,
 } from "../schema.js";
 
 const log = getLogger("conversation-starters-gen");
@@ -42,26 +42,27 @@ const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 // ── Rollup construction ───────────────────────────────────────────
 
 export function buildMemoryRollup(scopeId: string): string {
-  let items: Array<{
-    kind: string;
-    subject: string;
-    statement: string;
-    importance: number | null;
+  let rows: Array<{
+    type: string;
+    content: string;
+    significance: number | null;
   }>;
   try {
     const db = getDb();
-    items = db
+    rows = db
       .select({
-        kind: memoryItems.kind,
-        subject: memoryItems.subject,
-        statement: memoryItems.statement,
-        importance: memoryItems.importance,
+        type: memoryGraphNodes.type,
+        content: memoryGraphNodes.content,
+        significance: memoryGraphNodes.significance,
       })
-      .from(memoryItems)
+      .from(memoryGraphNodes)
       .where(
-        and(eq(memoryItems.status, "active"), eq(memoryItems.scopeId, scopeId))
+        and(
+          sql`${memoryGraphNodes.fidelity} != 'gone'`,
+          eq(memoryGraphNodes.scopeId, scopeId),
+        )
       )
-      .orderBy(desc(memoryItems.importance))
+      .orderBy(desc(memoryGraphNodes.significance))
       .limit(60)
       .all();
   } catch {
@@ -69,16 +70,19 @@ export function buildMemoryRollup(scopeId: string): string {
     return "";
   }
 
-  if (items.length === 0) return "";
+  if (rows.length === 0) return "";
 
   const byKind = new Map<string, string[]>();
-  for (const item of items) {
-    let lines = byKind.get(item.kind);
+  for (const item of rows) {
+    const nl = item.content.indexOf("\n");
+    const subject = nl >= 0 ? item.content.slice(0, nl) : item.content;
+    const statement = nl >= 0 ? item.content.slice(nl + 1) : item.content;
+    let lines = byKind.get(item.type);
     if (!lines) {
       lines = [];
-      byKind.set(item.kind, lines);
+      byKind.set(item.type, lines);
     }
-    lines.push(`- ${item.subject}: ${item.statement}`);
+    lines.push(`- ${subject}: ${statement}`);
   }
 
   let rollup = "";
@@ -101,12 +105,11 @@ function buildNewItemsDiff(scopeId: string): string {
 
   const newItems = rawAll<{
     kind: string;
-    subject: string;
-    statement: string;
+    content: string;
   }>(
-    `SELECT kind, subject, statement FROM memory_items
-     WHERE status = 'active' AND scope_id = ? AND first_seen_at > ?
-     ORDER BY first_seen_at DESC LIMIT 20`,
+    `SELECT type AS kind, content FROM memory_graph_nodes
+     WHERE fidelity != 'gone' AND scope_id = ? AND created > ?
+     ORDER BY created DESC LIMIT 20`,
     scopeId,
     lastGenAt
   );
@@ -115,7 +118,12 @@ function buildNewItemsDiff(scopeId: string): string {
 
   return (
     "## New since last generation\n" +
-    newItems.map((i) => `- (${i.kind}) ${i.subject}: ${i.statement}`).join("\n")
+    newItems.map((i) => {
+      const nl = i.content.indexOf("\n");
+      const subject = nl >= 0 ? i.content.slice(0, nl) : i.content;
+      const statement = nl >= 0 ? i.content.slice(nl + 1) : i.content;
+      return `- (${i.kind}) ${subject}: ${statement}`;
+    }).join("\n")
   );
 }
 
@@ -395,16 +403,19 @@ export async function generateConversationStartersJob(
     ? parseInt(batchCheckpoint.value, 10) + 1
     : 1;
 
-  // Collect the memory kinds that informed this batch
+  // Collect the memory types that informed this batch
   let sourceKinds = "";
   try {
     const kindRows = db
-      .select({ kind: memoryItems.kind })
-      .from(memoryItems)
+      .select({ kind: memoryGraphNodes.type })
+      .from(memoryGraphNodes)
       .where(
-        and(eq(memoryItems.status, "active"), eq(memoryItems.scopeId, scopeId))
+        and(
+          sql`${memoryGraphNodes.fidelity} != 'gone'`,
+          eq(memoryGraphNodes.scopeId, scopeId),
+        )
       )
-      .groupBy(memoryItems.kind)
+      .groupBy(memoryGraphNodes.type)
       .all();
     sourceKinds = kindRows.map((r) => r.kind).join(",");
   } catch {
@@ -435,7 +446,7 @@ export async function generateConversationStartersJob(
 
   // Count active items for checkpoint
   const countRow = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM memory_items WHERE status = 'active' AND scope_id = ?`,
+    `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
     scopeId
   );
   const totalActive = countRow?.c ?? 0;
