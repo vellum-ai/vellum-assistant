@@ -79,7 +79,7 @@ struct MessageInspectorView: View {
                     .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.trailing)
                     .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
             }
         }
         .padding(.horizontal, VSpacing.lg)

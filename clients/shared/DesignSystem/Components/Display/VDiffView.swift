@@ -62,7 +62,7 @@ public struct VDiffView: View {
             }
             .fixedSize(horizontal: true, vertical: true)
         }
-        .textSelection(.enabled)
+        .textSelectionIfAvailable()
     }
 
     private func diffLine(_ line: Substring) -> some View {

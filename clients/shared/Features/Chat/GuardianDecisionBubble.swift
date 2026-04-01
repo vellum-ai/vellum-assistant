@@ -131,7 +131,7 @@ public struct GuardianDecisionBubble: View {
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+                        .textSelectionIfAvailable()
                 }
                 .frame(maxHeight: 120)
                 .padding(VSpacing.sm)

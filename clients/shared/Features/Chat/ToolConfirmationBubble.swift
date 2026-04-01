@@ -320,7 +320,7 @@ public struct ToolConfirmationBubble: View {
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+                .textSelectionIfAvailable()
         }
         .frame(maxHeight: maxHeight)
         .padding(VSpacing.sm)
@@ -381,7 +381,7 @@ public struct ToolConfirmationBubble: View {
                             )
                     }
                 }
-                .textSelection(.enabled)
+                .textSelectionIfAvailable()
                 .transition(.opacity)
             }
         }

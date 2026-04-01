@@ -68,7 +68,7 @@ public struct FileUploadSurfaceView: View {
                 Text(data.prompt)
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
 
                 // Drop zone
                 dropZone
@@ -78,7 +78,7 @@ public struct FileUploadSurfaceView: View {
                     Text(errorMessage)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.systemNegativeStrong)
-                        .textSelection(.enabled)
+                        .textSelectionIfAvailable()
                 }
 
                 // File previews
@@ -176,12 +176,12 @@ public struct FileUploadSurfaceView: View {
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentDefault)
                             .lineLimit(1)
-                            .textSelection(.enabled)
+                            .textSelectionIfAvailable()
 
                         Text(formatFileSize(file.size))
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
-                            .textSelection(.enabled)
+                            .textSelectionIfAvailable()
                     }
 
                     Spacer()
@@ -209,13 +209,13 @@ public struct FileUploadSurfaceView: View {
                 Text("Max \(data.maxFiles) files")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
             }
             if let types = data.acceptedTypes, !types.isEmpty {
                 Text(types.joined(separator: ", "))
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
             }
         }
     }

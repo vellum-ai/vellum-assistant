@@ -102,7 +102,7 @@ struct MessageInspectorPromptTab: View {
             Text(section.displayText)
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentDefault)
-                .textSelection(.enabled)
+                .textSelectionIfAvailable()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.md)
                 .background(VColor.surfaceBase)

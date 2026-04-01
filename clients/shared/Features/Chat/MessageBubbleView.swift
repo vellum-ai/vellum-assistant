@@ -270,7 +270,7 @@ public struct MessageBubbleView: View {
                 .padding(VSpacing.md)
                 .background(VColor.surfaceActive)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                .textSelection(.enabled)
+                .textSelectionIfAvailable()
                 .contextMenu {
                     sharedContextMenu()
                 }

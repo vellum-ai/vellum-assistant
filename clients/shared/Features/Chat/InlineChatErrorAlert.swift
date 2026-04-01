@@ -98,7 +98,7 @@ public struct InlineChatErrorAlert: View {
                 Text(message)
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentDefault)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
                     .fixedSize(horizontal: false, vertical: true)
 
                 // Recovery suggestion

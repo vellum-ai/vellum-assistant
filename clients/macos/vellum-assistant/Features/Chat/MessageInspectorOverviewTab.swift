@@ -67,7 +67,7 @@ struct MessageInspectorOverviewTab: View {
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
             }
         }
     }
@@ -84,7 +84,7 @@ struct MessageInspectorOverviewTab: View {
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
             }
         }
     }
@@ -116,7 +116,7 @@ struct MessageInspectorOverviewTab: View {
                 .foregroundStyle(VColor.contentDefault)
                 .multilineTextAlignment(.trailing)
                 .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+                .textSelectionIfAvailable()
         }
     }
 }

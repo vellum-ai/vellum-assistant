@@ -74,14 +74,14 @@ struct ChatConversationErrorToast: View {
                 Text(message)
                     .font(VFont.bodyMediumLighter)
                     .lineLimit(nil)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
 
                 if let subtitle {
                     Text(subtitle)
                         .font(VFont.labelSmall)
                         .opacity(0.8)
                         .lineLimit(2)
-                        .textSelection(.enabled)
+                        .textSelectionIfAvailable()
                 }
             }
 
