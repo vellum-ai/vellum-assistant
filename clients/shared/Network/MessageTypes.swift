@@ -895,34 +895,90 @@ extension ErrorMessage {
 /// Backed by generated `AppDataResponse`.
 public typealias AppDataResponseMessage = AppDataResponse
 
-/// ClaWHub metadata for a skill.
-/// Backed by generated `SkillsListResponseSkillClawhub`.
-public typealias ClawhubInfo = SkillsListResponseSkillClawhub
-
-/// Provenance metadata indicating whether a skill is first-party, third-party, or local.
-/// Backed by generated `SkillsListResponseSkillProvenance`.
-public typealias SkillProvenance = SkillsListResponseSkillProvenance
+/// ClaWHub metadata for a skill (slim/list response).
+/// Backed by generated `ClawhubSkillMeta`.
+public typealias ClawhubInfo = ClawhubSkillMeta
 
 /// Full skill info from the daemon's resolved skill list.
 /// Backed by generated `SkillsListResponseSkill`.
 public typealias SkillInfo = SkillsListResponseSkill
 
+/// Legacy provenance type — retained for backward compatibility until all call sites migrate.
+/// Will be removed once downstream views no longer reference `provenance`.
+public struct SkillsListResponseSkillProvenance: Codable, Sendable {
+    public let kind: String
+    public let provider: String?
+    public let originId: String?
+    public let sourceUrl: String?
+
+    public init(kind: String, provider: String? = nil, originId: String? = nil, sourceUrl: String? = nil) {
+        self.kind = kind
+        self.provider = provider
+        self.originId = originId
+        self.sourceUrl = sourceUrl
+    }
+}
+
+/// Legacy type alias for backward compatibility.
+public typealias SkillProvenance = SkillsListResponseSkillProvenance
+
 extension SkillsListResponseSkill: Identifiable {}
 
 extension SkillsListResponseSkill {
-    /// Returns a copy with a different `state`, preserving all other fields including `id`.
-    public func withState(_ newState: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, installStatus: installStatus, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, clawhub: clawhub, provenance: provenance)
+    /// Returns a copy with a different `status`, preserving all other fields including `id`.
+    public func withStatus(_ newStatus: String) -> Self {
+        Self(id: id, name: name, description: description, kind: kind, origin: origin, status: newStatus, vellum: vellum, clawhub: clawhub, skillssh: skillssh)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.
-    public var isAvailable: Bool { installStatus == "available" }
+    public var isAvailable: Bool { status == "available" }
 
     /// Whether the skill is a bundled (core) skill.
-    public var isBundled: Bool { installStatus == "bundled" }
+    public var isBundled: Bool { kind == "bundled" }
 
     /// Whether the skill is currently installed (explicitly installed or bundled).
-    public var isInstalled: Bool { installStatus == "installed" || installStatus == "bundled" }
+    public var isInstalled: Bool { kind == "installed" || kind == "bundled" }
+
+    // MARK: - Backward-compatibility shims (remove when all call sites migrate to new fields)
+
+    /// Legacy `emoji` accessor — reads from the `vellum` sub-object.
+    public var emoji: String? { vellum?.emoji }
+
+    /// Legacy `source` accessor — maps `origin` to the old source vocabulary.
+    public var source: String { origin }
+
+    /// Legacy `state` accessor — maps `status` to the old state vocabulary.
+    public var state: String { status }
+
+    /// Legacy `installStatus` accessor — derives from `kind`/`status`.
+    public var installStatus: String? {
+        switch kind {
+        case "bundled": return "bundled"
+        case "installed": return "installed"
+        case "catalog": return "available"
+        default: return nil
+        }
+    }
+
+    /// Legacy `homepage` accessor — no longer carried on slim responses.
+    public var homepage: String? { nil }
+
+    /// Legacy `installedVersion` accessor — no longer carried on slim responses.
+    public var installedVersion: String? { nil }
+
+    /// Legacy `latestVersion` accessor — no longer carried on slim responses.
+    public var latestVersion: String? { nil }
+
+    /// Legacy `updateAvailable` accessor — no longer carried on slim responses.
+    public var updateAvailable: Bool { false }
+
+    /// Legacy `provenance` accessor — no longer carried on slim responses.
+    public var provenance: SkillsListResponseSkillProvenance? { nil }
+
+    /// Returns a copy with a different `state` (legacy — delegates to withStatus).
+    public func withState(_ newState: String) -> Self {
+        withStatus(newState)
+    }
 }
 
 /// Response containing the list of available skills.
