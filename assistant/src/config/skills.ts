@@ -981,7 +981,18 @@ export function listReferenceFiles(directoryPath: string): string | null {
     const entries = readdirSync(refsDir, { recursive: true }) as string[];
     const mdFiles = entries
       .filter((f) => f.toLowerCase().endsWith(".md"))
-      .filter((f) => !isEscapingSymlink(join(refsDir, f), directoryPath))
+      .filter((f) => {
+        // Check the file itself
+        if (isEscapingSymlink(join(refsDir, f), directoryPath)) return false;
+        // Check all intermediate directory components (e.g. for "sub/dir/file.md"
+        // check "sub" and "sub/dir") to prevent traversal through symlinked dirs.
+        const parts = f.split("/");
+        for (let i = 1; i < parts.length; i++) {
+          const ancestor = join(refsDir, ...parts.slice(0, i));
+          if (isEscapingSymlink(ancestor, directoryPath)) return false;
+        }
+        return true;
+      })
       .sort((a, b) => a.localeCompare(b));
 
     if (mdFiles.length === 0) return null;
