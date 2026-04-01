@@ -38,6 +38,7 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     created: row.created,
     lastAccessed: row.lastAccessed,
     lastConsolidated: row.lastConsolidated,
+    eventDate: row.eventDate ?? null,
     emotionalCharge: JSON.parse(row.emotionalCharge) as EmotionalCharge,
     fidelity: row.fidelity as Fidelity,
     confidence: row.confidence,
@@ -61,6 +62,7 @@ function nodeToInsertValues(node: NewNode, id: string) {
     created: node.created,
     lastAccessed: node.lastAccessed,
     lastConsolidated: node.lastConsolidated,
+    eventDate: node.eventDate ?? null,
     emotionalCharge: JSON.stringify(node.emotionalCharge),
     fidelity: node.fidelity,
     confidence: node.confidence,
@@ -175,6 +177,7 @@ export function updateNode(
   if (changes.partOfStory !== undefined)
     updates.partOfStory = changes.partOfStory;
   if (changes.scopeId !== undefined) updates.scopeId = changes.scopeId;
+  if (changes.eventDate !== undefined) updates.eventDate = changes.eventDate;
 
   if (Object.keys(updates).length === 0) return;
 
@@ -200,6 +203,9 @@ export interface NodeQueryFilters {
   minSignificance?: number;
   createdAfter?: number;
   createdBefore?: number;
+  hasEventDate?: boolean;
+  eventDateAfter?: number;
+  eventDateBefore?: number;
   limit?: number;
 }
 
@@ -234,6 +240,19 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
   if (filters.createdBefore !== undefined) {
     conditions.push(
       sql`${memoryGraphNodes.created} <= ${filters.createdBefore}`,
+    );
+  }
+  if (filters.hasEventDate) {
+    conditions.push(sql`${memoryGraphNodes.eventDate} IS NOT NULL`);
+  }
+  if (filters.eventDateAfter !== undefined) {
+    conditions.push(
+      sql`${memoryGraphNodes.eventDate} >= ${filters.eventDateAfter}`,
+    );
+  }
+  if (filters.eventDateBefore !== undefined) {
+    conditions.push(
+      sql`${memoryGraphNodes.eventDate} <= ${filters.eventDateBefore}`,
     );
   }
 
@@ -532,6 +551,7 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
       if (c.partOfStory !== undefined) updates.partOfStory = c.partOfStory;
       if (c.sourceConversations !== undefined)
         updates.sourceConversations = JSON.stringify(c.sourceConversations);
+      if (c.eventDate !== undefined) updates.eventDate = c.eventDate;
 
       if (Object.keys(updates).length > 0) {
         tx.update(memoryGraphNodes)

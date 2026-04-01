@@ -480,9 +480,56 @@ export async function loadContextMemory(
     });
   });
 
-  // Remove prospective nodes from the main pool (they have reserved slots)
-  const mainPool = scored.filter((s) => !prospectiveIds.has(s.node.id));
-  const mainSlots = maxNodes - serendipitySlots - reservedNodes.length;
+  // Reserve slots for upcoming events (nodes with event dates in the future).
+  // Like prospective reservation, these MUST surface — if the user said
+  // "I have a flight Tuesday," the assistant must remember it regardless of score.
+  const UPCOMING_RESERVE = 5;
+  const upcomingEvents = queryNodes({
+    scopeId: opts.scopeId,
+    fidelityNot: ["gone"],
+    hasEventDate: true,
+    eventDateAfter: nowMs,
+    eventDateBefore: nowMs + 30 * 24 * 60 * 60 * 1000, // next 30 days
+    limit: 20, // Fetch extra candidates — post-sort by proximity below
+  });
+
+  // Sort by event date ascending so soonest events get reserved first
+  // (queryNodes sorts by significance, which would drop a tomorrow-event
+  // with low significance in favor of a 3-weeks-away high-significance one)
+  upcomingEvents.sort((a, b) => (a.eventDate ?? 0) - (b.eventDate ?? 0));
+
+  const unresolvedUpcoming = upcomingEvents
+    .filter((node) => {
+      if (prospectiveIds.has(node.id)) return false; // already reserved as prospective
+      const incoming = getEdgesForNode(node.id, "incoming");
+      return !incoming.some(
+        (e) =>
+          e.relationship === "supersedes" || e.relationship === "resolved-by",
+      );
+    })
+    .slice(0, UPCOMING_RESERVE);
+
+  const upcomingIds = new Set(unresolvedUpcoming.map((n) => n.id));
+  const reservedUpcoming: ScoredNode[] = unresolvedUpcoming.map((node) => {
+    const existing = scored.find((s) => s.node.id === node.id);
+    if (existing) return existing;
+    return scoreCandidate(node, {
+      semanticSimilarity: 0,
+      effectiveSignificance: computeEffectiveSignificance(node, nowMs),
+      emotionalIntensity: node.emotionalCharge.intensity,
+      temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
+      recencyBoost: computeRecencyBoost(node, nowMs),
+      triggerBoost: 0,
+      activationBoost: 0,
+    });
+  });
+
+  // Remove prospective and upcoming nodes from the main pool (they have reserved slots)
+  const mainPool = scored.filter(
+    (s) => !prospectiveIds.has(s.node.id) && !upcomingIds.has(s.node.id),
+  );
+  const mainSlots =
+    maxNodes - serendipitySlots - reservedNodes.length - reservedUpcoming.length;
 
   // 7. LLM re-ranking on the main pool: dedup + select
   const reranked = await rerankAndDedup(
@@ -491,8 +538,8 @@ export async function loadContextMemory(
     opts.config,
   );
 
-  // 8. Combine: reserved prospective + reranked main pool
-  const deterministic = [...reservedNodes, ...reranked].slice(
+  // 8. Combine: reserved prospective + reserved upcoming + reranked main pool
+  const deterministic = [...reservedNodes, ...reservedUpcoming, ...reranked].slice(
     0,
     maxNodes - serendipitySlots,
   );
