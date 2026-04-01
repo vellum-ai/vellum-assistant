@@ -12,6 +12,7 @@ import { resolve } from "node:path";
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
+import { ensureBun } from "../util/bun-runtime.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -379,7 +380,8 @@ async function startDaemonLocked(): Promise<{
   const stderrPath = getDaemonStderrLogPath();
   const stderrFd = openSync(stderrPath, "w");
 
-  const child = spawn("bun", ["run", mainPath], {
+  const bunPath = await ensureBun();
+  const child = spawn(bunPath, ["run", mainPath], {
     detached: true,
     stdio: ["ignore", "ignore", stderrFd],
     env: spawnEnv,

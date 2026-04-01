@@ -1,42 +1,19 @@
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { extname, join } from "node:path";
 
-import { pathExists } from "../util/fs.js";
+import { ensureBun } from "../util/bun-runtime.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getHookSettings } from "./config.js";
 import type { DiscoveredHook, HookEventData } from "./types.js";
 
-/**
- * Resolve a usable bun runtime path. When the daemon runs under plain bun
- * (dev mode), `process.execPath` is the bun CLI and works directly.  When the
- * daemon is a `bun build --compile` binary, `process.execPath` points to the
- * compiled binary itself -- spawning it with `['run', script]` would re-launch
- * the daemon.  In that case we locate bun via PATH or at `~/.bun/bin/bun`.
- */
-function resolveBunPath(): string {
-  const execBasename = basename(process.execPath);
-  if (execBasename === "bun" || execBasename === "bun.exe") {
-    return process.execPath;
-  }
-
-  // Compiled-binary mode -- find a standalone bun runtime.
-  const found = Bun.which("bun");
-  if (found) return found;
-
-  const fallback = join(homedir(), ".bun", "bin", "bun");
-  if (pathExists(fallback)) return fallback;
-
-  throw new Error(
-    "Cannot find a bun runtime to execute .ts hooks. " +
-      "Install bun (https://bun.sh) or ensure it is on your PATH.",
-  );
-}
-
-function getSpawnArgs(scriptPath: string): { command: string; args: string[] } {
+async function getSpawnArgs(
+  scriptPath: string,
+): Promise<{ command: string; args: string[] }> {
   const ext = extname(scriptPath);
   if (ext === ".ts") {
-    return { command: resolveBunPath(), args: ["run", scriptPath] };
+    const bunPath = await ensureBun();
+    return { command: bunPath, args: ["run", scriptPath] };
   }
   return { command: scriptPath, args: [] };
 }
@@ -54,15 +31,15 @@ export async function runHookScript(
 ): Promise<HookRunResult> {
   const timeoutMs = options?.timeoutMs ?? 5000;
 
+  let spawnResult: { command: string; args: string[] };
+  try {
+    spawnResult = await getSpawnArgs(hook.scriptPath);
+  } catch (err) {
+    return { exitCode: null, stdout: "", stderr: (err as Error).message };
+  }
+  const { command, args } = spawnResult;
+
   return new Promise<HookRunResult>((resolve) => {
-    let spawnResult: { command: string; args: string[] };
-    try {
-      spawnResult = getSpawnArgs(hook.scriptPath);
-    } catch (err) {
-      resolve({ exitCode: null, stdout: "", stderr: (err as Error).message });
-      return;
-    }
-    const { command, args } = spawnResult;
     const child = spawn(command, args, {
       cwd: hook.dir,
       env: {
