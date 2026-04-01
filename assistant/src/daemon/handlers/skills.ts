@@ -46,6 +46,7 @@ import {
   deleteSkillCapabilityMemory,
   seedCatalogSkillMemories,
 } from "../../skills/skill-memory.js";
+import { searchSkillsRegistry } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
@@ -787,7 +788,7 @@ export async function searchSkills(
       installs: number;
       version: string;
       createdAt: number;
-      source: "vellum" | "clawhub";
+      source: "vellum" | "clawhub" | "skillssh";
     }
 
     const catalogItems: SearchItem[] = catalogMatches.map((s) => ({
@@ -802,25 +803,62 @@ export async function searchSkills(
       source: "vellum" as const,
     }));
 
-    // Search the community registry (non-fatal on failure)
-    let communitySkills: SearchItem[] = [];
-    try {
-      const communityResult = await clawhubSearch(query);
-      communitySkills = communityResult.skills;
-    } catch (err) {
+    // Search both community registries in parallel (non-fatal on failure)
+    const [clawhubResult, skillsshResult] = await Promise.allSettled([
+      clawhubSearch(query),
+      searchSkillsRegistry(query, 25),
+    ]);
+
+    let clawhubSkills: SearchItem[] = [];
+    if (clawhubResult.status === "fulfilled") {
+      clawhubSkills = clawhubResult.value.skills;
+    } else {
       log.warn(
-        { err },
-        "clawhub search failed, returning catalog-only results",
+        { err: clawhubResult.reason },
+        "clawhub search failed, continuing without clawhub results",
       );
     }
 
-    // Deduplicate: catalog takes precedence when slugs collide
-    const catalogSlugs = new Set(catalogItems.map((s) => s.slug));
-    const deduped = communitySkills.filter((s) => !catalogSlugs.has(s.slug));
+    let skillsshSkills: SearchItem[] = [];
+    if (skillsshResult.status === "fulfilled") {
+      skillsshSkills = skillsshResult.value.map((r) => ({
+        name: r.name,
+        slug: r.id,
+        description: "",
+        author: "",
+        stars: 0,
+        installs: r.installs,
+        version: "",
+        createdAt: 0,
+        source: "skillssh" as const,
+      }));
+    } else {
+      log.warn(
+        { err: skillsshResult.reason },
+        "skills.sh search failed, continuing without skills.sh results",
+      );
+    }
+
+    // Deduplicate: catalog > clawhub > skills.sh (first occurrence wins)
+    const seenSlugs = new Set(catalogItems.map((s) => s.slug));
+
+    const dedupedClawhub = clawhubSkills.filter((s) => {
+      if (seenSlugs.has(s.slug)) return false;
+      seenSlugs.add(s.slug);
+      return true;
+    });
+
+    const dedupedSkillssh = skillsshSkills.filter((s) => {
+      if (seenSlugs.has(s.slug)) return false;
+      seenSlugs.add(s.slug);
+      return true;
+    });
 
     return {
       success: true,
-      data: { skills: [...catalogItems, ...deduped] },
+      data: {
+        skills: [...catalogItems, ...dedupedClawhub, ...dedupedSkillssh],
+      },
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
