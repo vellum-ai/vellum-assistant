@@ -29,14 +29,6 @@ import { getCatalog } from "../../skills/catalog-cache.js";
 import { installSkillLocally } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import {
-  clawhubCheckUpdates,
-  clawhubInspect,
-  type ClawhubInspectResult,
-  clawhubInstall,
-  clawhubSearch,
-  clawhubUpdate,
-} from "../../skills/clawhub.js";
-import {
   createManagedSkill,
   deleteManagedSkill,
   removeSkillsIndexEntry,
@@ -46,6 +38,14 @@ import {
   deleteSkillCapabilityMemory,
   seedCatalogSkillMemories,
 } from "../../skills/skill-memory.js";
+import {
+  clawhubCheckUpdates,
+  clawhubInspect,
+  type ClawhubInspectResult,
+  clawhubInstall,
+  clawhubSearch,
+  clawhubUpdate,
+} from "../../skills/skillssh.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,

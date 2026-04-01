@@ -77,9 +77,6 @@ export const RemoteProvidersConfigSchema = z
     skillssh: RemoteProviderConfigSchema.default(
       RemoteProviderConfigSchema.parse({}),
     ).describe("skills.sh remote skill provider"),
-    clawhub: RemoteProviderConfigSchema.default(
-      RemoteProviderConfigSchema.parse({}),
-    ).describe("ClawHub remote skill provider"),
   })
   .describe("Remote skill provider configurations");
 

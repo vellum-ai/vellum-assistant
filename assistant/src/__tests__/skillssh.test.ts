@@ -17,7 +17,7 @@ import {
   clawhubInstall,
   loadIntegrityManifest,
   verifyAndRecordSkillHash,
-} from "../skills/clawhub.js";
+} from "../skills/skillssh.js";
 
 // ---------------------------------------------------------------------------
 // Slug validation (exercised through public API)

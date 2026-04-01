@@ -65,7 +65,6 @@ function makeConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
       allowBundled: null,
       remoteProviders: {
         skillssh: { enabled: true },
-        clawhub: { enabled: true },
       },
       remotePolicy: {
         blockSuspicious: true,
