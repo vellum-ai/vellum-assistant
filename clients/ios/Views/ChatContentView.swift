@@ -648,6 +648,7 @@ struct ChatContentView: View {
         switch category {
         case .providerNetwork: return .wifiOff
         case .rateLimit: return .clockAlert
+        case .providerOverloaded: return .cloudOff
         case .providerApi: return .cloudOff
         case .providerOrdering: return .cloudOff
         case .providerWebSearch: return .cloudOff
