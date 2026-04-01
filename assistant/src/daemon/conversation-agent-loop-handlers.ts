@@ -440,18 +440,10 @@ export function handleToolResult(
   const imageDataList = imageBlocks?.length
     ? imageBlocks.map((b) => b.source.data)
     : undefined;
-  deps.onEvent({
-    type: "tool_result",
-    toolName: "",
-    result: event.content,
-    isError: event.isError,
-    diff: event.diff,
-    status: event.status,
-    conversationId: deps.ctx.conversationId,
-    imageData: imageDataList?.[0],
-    imageDataList,
-    toolUseId: event.toolUseId,
-  });
+
+  // Perform state mutations before deps.onEvent() so that if onEvent throws
+  // (e.g. SSE disconnection) and the error is suppressed by dispatchAgentEvent,
+  // critical state like pendingToolResults and currentToolUseId is still updated.
   state.pendingToolResults.set(event.toolUseId, {
     content: event.content,
     isError: event.isError,
@@ -514,6 +506,20 @@ export function handleToolResult(
   if (allToolsDone && state.currentTurnToolUseIds.length > 0) {
     annotatePersistedAssistantMessage(state, deps);
   }
+
+  // Send to client last so state is consistent even if onEvent throws.
+  deps.onEvent({
+    type: "tool_result",
+    toolName: "",
+    result: event.content,
+    isError: event.isError,
+    diff: event.diff,
+    status: event.status,
+    conversationId: deps.ctx.conversationId,
+    imageData: imageDataList?.[0],
+    imageDataList,
+    toolUseId: event.toolUseId,
+  });
 }
 
 /**
