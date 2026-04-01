@@ -21,8 +21,10 @@ import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { parseEpochMs } from "./extraction.js";
 import {
+  createTrigger,
   deleteNode,
   getEdgesForNode,
+  getTriggersForNode,
   queryNodes,
   updateNode,
 } from "./store.js";
@@ -530,6 +532,28 @@ async function consolidateChunk(
         survivor.eventDate == null
       ) {
         updateNode(merge.survivor_id, { eventDate: deleted.eventDate });
+
+        // The deleted node's triggers will be cascade-deleted when the node
+        // is removed. Ensure the survivor has an event trigger for the
+        // inherited eventDate (updateNode only syncs existing triggers).
+        const survivorTriggers = getTriggersForNode(merge.survivor_id);
+        if (!survivorTriggers.some((t) => t.type === "event")) {
+          createTrigger({
+            nodeId: merge.survivor_id,
+            type: "event",
+            schedule: null,
+            condition: null,
+            conditionEmbedding: null,
+            threshold: null,
+            eventDate: deleted.eventDate,
+            rampDays: 7,
+            followUpDays: 2,
+            recurring: false,
+            consumed: false,
+            cooldownMs: null,
+            lastFired: null,
+          });
+        }
       }
 
       // Preserve imageRefs from deleted node if survivor doesn't have any

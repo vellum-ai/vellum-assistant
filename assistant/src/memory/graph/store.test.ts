@@ -9,6 +9,7 @@ import {
   createTrigger,
   deleteEdge,
   deleteNode,
+  deleteTrigger,
   getActiveTriggersByType,
   getEdgesForNode,
   getNode,
@@ -893,5 +894,157 @@ describe("applyDiff", () => {
     expect(result.nodesReinforced).toBe(1);
     expect(getNode(existingNode.id)!.content).toBe("Updated.");
     expect(getNode(existingNode.id)!.reinforcementCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deleteTrigger
+// ---------------------------------------------------------------------------
+
+describe("deleteTrigger", () => {
+  test("removes a trigger by ID", () => {
+    const node = createNode(makeNewNode());
+    const trigger = createTrigger({
+      nodeId: node.id,
+      type: "event",
+      schedule: null,
+      condition: null,
+      conditionEmbedding: null,
+      threshold: null,
+      eventDate: Date.now(),
+      rampDays: 7,
+      followUpDays: 2,
+      recurring: false,
+      consumed: false,
+      cooldownMs: null,
+      lastFired: null,
+    });
+    deleteTrigger(trigger.id);
+    expect(getTriggersForNode(node.id)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateNode — event trigger sync
+// ---------------------------------------------------------------------------
+
+describe("updateNode event trigger sync", () => {
+  test("syncs event trigger eventDate when node eventDate is updated", () => {
+    const originalDate = 1712534400000;
+    const newDate = 1712620800000;
+    const node = createNode(makeNewNode({ eventDate: originalDate }));
+    const trigger = createTrigger({
+      nodeId: node.id,
+      type: "event",
+      schedule: null,
+      condition: null,
+      conditionEmbedding: null,
+      threshold: null,
+      eventDate: originalDate,
+      rampDays: 7,
+      followUpDays: 2,
+      recurring: false,
+      consumed: false,
+      cooldownMs: null,
+      lastFired: null,
+    });
+
+    updateNode(node.id, { eventDate: newDate });
+
+    const triggers = getTriggersForNode(node.id);
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].eventDate).toBe(newDate);
+  });
+
+  test("deletes event trigger when node eventDate is cleared to null", () => {
+    const eventDate = 1712534400000;
+    const node = createNode(makeNewNode({ eventDate }));
+    createTrigger({
+      nodeId: node.id,
+      type: "event",
+      schedule: null,
+      condition: null,
+      conditionEmbedding: null,
+      threshold: null,
+      eventDate,
+      rampDays: 7,
+      followUpDays: 2,
+      recurring: false,
+      consumed: false,
+      cooldownMs: null,
+      lastFired: null,
+    });
+
+    updateNode(node.id, { eventDate: null });
+
+    const triggers = getTriggersForNode(node.id);
+    expect(triggers).toHaveLength(0);
+  });
+
+  test("does not affect non-event triggers when eventDate changes", () => {
+    const node = createNode(makeNewNode({ eventDate: 1712534400000 }));
+    createTrigger({
+      nodeId: node.id,
+      type: "event",
+      schedule: null,
+      condition: null,
+      conditionEmbedding: null,
+      threshold: null,
+      eventDate: 1712534400000,
+      rampDays: 7,
+      followUpDays: 2,
+      recurring: false,
+      consumed: false,
+      cooldownMs: null,
+      lastFired: null,
+    });
+    createTrigger({
+      nodeId: node.id,
+      type: "semantic",
+      schedule: null,
+      condition: "cooking topic",
+      conditionEmbedding: null,
+      threshold: 0.7,
+      eventDate: null,
+      rampDays: null,
+      followUpDays: null,
+      recurring: false,
+      consumed: false,
+      cooldownMs: null,
+      lastFired: null,
+    });
+
+    updateNode(node.id, { eventDate: null });
+
+    const triggers = getTriggersForNode(node.id);
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].type).toBe("semantic");
+  });
+
+  test("does not touch triggers when eventDate is not in changes", () => {
+    const eventDate = 1712534400000;
+    const node = createNode(makeNewNode({ eventDate }));
+    createTrigger({
+      nodeId: node.id,
+      type: "event",
+      schedule: null,
+      condition: null,
+      conditionEmbedding: null,
+      threshold: null,
+      eventDate,
+      rampDays: 7,
+      followUpDays: 2,
+      recurring: false,
+      consumed: false,
+      cooldownMs: null,
+      lastFired: null,
+    });
+
+    // Update something other than eventDate
+    updateNode(node.id, { content: "Updated content." });
+
+    const triggers = getTriggersForNode(node.id);
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].eventDate).toBe(eventDate);
   });
 });

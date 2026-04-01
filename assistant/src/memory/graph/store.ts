@@ -190,6 +190,21 @@ export function updateNode(
     .set(updates)
     .where(eq(memoryGraphNodes.id, id))
     .run();
+
+  // Sync event triggers when eventDate changes
+  if (changes.eventDate !== undefined) {
+    const triggers = getTriggersForNode(id);
+    const eventTriggers = triggers.filter((t) => t.type === "event");
+    for (const trigger of eventTriggers) {
+      if (changes.eventDate === null) {
+        // Clearing eventDate — delete orphaned event trigger
+        deleteTrigger(trigger.id);
+      } else {
+        // Updating eventDate — sync trigger's eventDate
+        updateTrigger(trigger.id, { eventDate: changes.eventDate });
+      }
+    }
+  }
 }
 
 export function deleteNode(id: string): void {
@@ -363,6 +378,13 @@ export function createTrigger(trigger: NewTrigger): MemoryTrigger {
     })
     .run();
   return { ...trigger, id };
+}
+
+export function deleteTrigger(id: string): void {
+  const db = getDb();
+  db.delete(memoryGraphTriggers)
+    .where(eq(memoryGraphTriggers.id, id))
+    .run();
 }
 
 export function updateTrigger(
