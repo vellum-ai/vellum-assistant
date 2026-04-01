@@ -66,13 +66,14 @@ public final class AuthManager {
                     return
                 }
             } catch is CancellationError {
+                state = .unauthenticated
                 return
             } catch {
                 lastError = error
                 log.warning("Session check attempt \(attempt)/3 failed: \(error.localizedDescription, privacy: .public)")
                 if attempt < 3 {
                     try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds between retries
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled else { state = .unauthenticated; return }
                 }
             }
         }
