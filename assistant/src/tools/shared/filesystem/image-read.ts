@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 
-import type { ImageContent } from "../../../providers/types.js";
 import { optimizeImageForTransport } from "../../../agent/image-optimize.js";
+import type { ImageContent } from "../../../providers/types.js";
 import type { ToolExecutionResult } from "../../types.js";
 
 export const IMAGE_EXTENSIONS = new Set([

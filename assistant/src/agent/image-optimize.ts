@@ -1,10 +1,10 @@
-import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -65,7 +65,7 @@ function evictIfNeeded(dir: string): void {
         return { path: full, mtimeMs: statSync(full).mtimeMs };
       })
       .sort((a, b) => a.mtimeMs - b.mtimeMs);
-    let excess = entries.length - CACHE_MAX_ENTRIES;
+    const excess = entries.length - CACHE_MAX_ENTRIES;
     for (let i = 0; i < excess; i++) {
       try {
         unlinkSync(entries[i]!.path);
