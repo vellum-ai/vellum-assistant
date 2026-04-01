@@ -1,4 +1,4 @@
-import providerEnvVarsRegistry from "../../../meta/provider-env-vars.json";
+import providerEnvVarsRegistry from "../config/provider-env-vars.json";
 
 /**
  * Canonical internal assistant ID used as the default/fallback across the CLI
