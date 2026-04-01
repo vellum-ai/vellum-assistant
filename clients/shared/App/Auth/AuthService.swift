@@ -336,7 +336,8 @@ public final class AuthService {
                let message = body["detail"] {
                 detail = message
             } else {
-                detail = String(data: data, encoding: .utf8) ?? "Access denied"
+                let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                detail = (raw?.isEmpty == false) ? raw! : "Access denied"
             }
             throw PlatformAPIError.accessDenied(detail: detail)
         }
