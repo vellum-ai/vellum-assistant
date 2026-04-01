@@ -628,14 +628,18 @@ export class ContextWindowManager {
       const excess = totalTokens - maxTranscriptTokens;
       if (blockTokens > excess && result[i].type === "text") {
         // Truncate this block to shed exactly the excess tokens.
-        const keepTokens = blockTokens - excess;
+        // Subtract the cost of the "[...truncated] " prefix so the final
+        // block (prefix + kept text) stays within budget.
+        const truncationPrefix = "[...truncated] ";
+        const prefixTokens = estimateTextTokens(truncationPrefix);
+        const keepTokens = Math.max(1, blockTokens - excess - prefixTokens);
         const text = (result[i] as { type: "text"; text: string }).text;
         // Approximate: 1 token ≈ 4 characters for truncation purposes.
         const keepChars = Math.max(1, Math.floor(keepTokens * 4));
         const truncatedText = text.slice(-keepChars);
         const truncatedBlock: ContentBlock = {
           type: "text",
-          text: `[...truncated] ${truncatedText}`,
+          text: `${truncationPrefix}${truncatedText}`,
         };
         const newBlockTokens = estimateBlockTokens(truncatedBlock);
         droppedTokens += blockTokens - newBlockTokens;
