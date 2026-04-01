@@ -443,10 +443,10 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       method: "GET",
       policyKey: "skills",
       summary: "Get skill",
-      description: "Return a single skill by ID.",
+      description: "Return a single skill by ID with enriched detail fields.",
       tags: ["skills"],
-      handler: ({ params }) => {
-        const result = getSkill(params.id, ctx());
+      handler: async ({ params }) => {
+        const result = await getSkill(params.id, ctx());
         if ("error" in result) {
           if (result.status === 404) {
             return httpError("NOT_FOUND", result.error, 404);

@@ -59,7 +59,9 @@ import {
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import type {
+  ClawhubDetailMeta,
   ClawhubSkillMeta,
+  SkillDetailResponse,
   SkillsshSkillMeta,
   SlimSkillResponse,
   VellumSkillMeta,
@@ -409,15 +411,63 @@ function findSkillById(
   return { item, summary: r.summary };
 }
 
-export function getSkill(
+export async function getSkill(
   skillId: string,
   _ctx: SkillOperationContext,
-): { skill: SlimSkillResponse } | { error: string; status: number } {
+): Promise<{ skill: SkillDetailResponse } | { error: string; status: number }> {
   const found = findSkillById(skillId);
   if (!found) {
     return { error: `Skill "${skillId}" not found`, status: 404 };
   }
-  return { skill: found.item };
+
+  const slim = found.item;
+
+  // Read SKILL.md body from disk
+  let body: string | undefined;
+  const skillMdPath = join(found.summary.directoryPath, "SKILL.md");
+  try {
+    if (existsSync(skillMdPath)) {
+      body = readFileSync(skillMdPath, "utf-8");
+    }
+  } catch {
+    // Best-effort: body is optional
+  }
+
+  // Build the detail response, starting from the slim shape
+  const detail: SkillDetailResponse = {
+    id: slim.id,
+    name: slim.name,
+    description: slim.description,
+    kind: slim.kind,
+    origin: slim.origin,
+    status: slim.status,
+    ...(slim.vellum ? { vellum: slim.vellum } : {}),
+    ...(slim.skillssh ? { skillssh: slim.skillssh } : {}),
+    ...(body !== undefined ? { body } : {}),
+  };
+
+  // For clawhub-origin skills, enrich with inspect data
+  if (slim.origin === "clawhub" && slim.clawhub) {
+    const enriched: ClawhubDetailMeta = { ...slim.clawhub };
+    try {
+      const inspectResult = await clawhubInspect(slim.clawhub.slug);
+      if (inspectResult.data) {
+        const data = inspectResult.data;
+        enriched.owner = data.owner;
+        enriched.stats = data.stats;
+        enriched.latestVersion = data.latestVersion;
+        enriched.createdAt = data.createdAt;
+        enriched.updatedAt = data.updatedAt;
+      }
+    } catch (err) {
+      log.warn({ err, skillId }, "Failed to enrich clawhub skill detail");
+    }
+    detail.clawhub = enriched;
+  } else if (slim.clawhub) {
+    detail.clawhub = slim.clawhub;
+  }
+
+  return { skill: detail };
 }
 
 // ─── Skill file listing ──────────────────────────────────────────────────────
