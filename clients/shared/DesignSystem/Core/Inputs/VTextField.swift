@@ -244,6 +244,16 @@ public struct VTextField: View {
                     .font(font)
                     .foregroundStyle(VColor.contentDefault)
                     .onSubmit { onSubmit?() }
+                    // SecureField is single-line by design (Apple docs) and
+                    // renders blank when the bound string contains newline
+                    // characters. Strip newlines on change so pasted multi-line
+                    // credentials (PEM keys, JSON tokens) display as masked dots.
+                    .onChange(of: text) { _, newValue in
+                        let stripped = newValue.filter { !$0.isNewline }
+                        if stripped != newValue {
+                            text = stripped
+                        }
+                    }
             } else {
                 TextField(placeholder, text: $text)
                     .textFieldStyle(.plain)
