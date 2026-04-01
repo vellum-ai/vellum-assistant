@@ -117,6 +117,48 @@ public enum GuardianTokenFileReader {
         return true
     }
 
+    /// Polls for a CLI-persisted guardian token file to appear on disk, then
+    /// imports it into `ActorTokenManager`.
+    ///
+    /// The CLI writes `guardian-token.json` during `vellum hatch` after calling
+    /// `POST /v1/guardian/init`. The desktop app may launch before the CLI
+    /// finishes writing the file, so this method polls at a fixed interval
+    /// until the file appears and is successfully imported, or the timeout
+    /// expires.
+    ///
+    /// - Parameters:
+    ///   - assistantId: The assistant instance name (e.g., `fuzzy-dolphin-7821`).
+    ///   - timeout: Maximum time to wait for the file (default: 30 seconds).
+    ///   - pollInterval: Time between poll attempts in nanoseconds (default: 500ms).
+    /// - Returns: `true` if credentials were successfully imported, `false` if
+    ///   the timeout expired without a successful import.
+    public static func pollAndImport(
+        assistantId: String,
+        timeout: TimeInterval = 30,
+        pollInterval: UInt64 = 500_000_000
+    ) async -> Bool {
+        let path = guardianTokenPath(for: assistantId)
+        log.info("Polling for guardian token file at \(path, privacy: .public) (timeout: \(timeout)s)")
+
+        let deadline = CFAbsoluteTimeGetCurrent() + timeout
+
+        while !Task.isCancelled {
+            if importIfAvailable(assistantId: assistantId) {
+                return true
+            }
+
+            if CFAbsoluteTimeGetCurrent() >= deadline {
+                log.warning("Guardian token file did not appear within \(timeout)s at \(path, privacy: .public)")
+                return false
+            }
+
+            let jitter = UInt64.random(in: 0...(pollInterval / 4))
+            try? await Task.sleep(nanoseconds: pollInterval + jitter)
+        }
+
+        return false
+    }
+
     // MARK: - Path Resolution
 
     /// Resolves `$XDG_CONFIG_HOME/vellum/assistants/<id>/guardian-token.json`,
