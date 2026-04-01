@@ -12,7 +12,9 @@ final class ComposerTextView: NSTextView {
 
     // MARK: - Properties
 
-    var placeholderString: String = ""
+    var placeholderString: String = "" {
+        didSet { needsDisplay = true }
+    }
     var cmdEnterToSend: Bool = false
     var onSubmit: (() -> Void)?
     var onTab: (() -> Bool)?
