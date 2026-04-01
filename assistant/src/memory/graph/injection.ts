@@ -192,9 +192,12 @@ export function formatEventDate(epochMs: number): string {
   );
 
   let relative: string;
-  if (diffDays === 0 || diffDays === -1) {
-    // Same calendar day, or just crossed midnight — treat as "today"
+  if (diffDays === 0) {
     relative = "today";
+  } else if (diffDays === -1) {
+    // For date-only inputs (no time component), -1 day can be UTC midnight drift — treat as "today".
+    // For timed events, -1 day is genuinely yesterday.
+    relative = hasTime ? "yesterday" : "today";
   } else if (diffDays < -1) {
     // Past dates
     const absDays = -diffDays;
