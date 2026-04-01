@@ -490,16 +490,24 @@ export async function loadContextMemory(
     hasEventDate: true,
     eventDateAfter: nowMs,
     eventDateBefore: nowMs + 30 * 24 * 60 * 60 * 1000, // next 30 days
-    limit: UPCOMING_RESERVE,
+    limit: 20, // Fetch extra candidates — post-sort by proximity below
   });
 
-  const unresolvedUpcoming = upcomingEvents.filter((node) => {
-    if (prospectiveIds.has(node.id)) return false; // already reserved as prospective
-    const incoming = getEdgesForNode(node.id, "incoming");
-    return !incoming.some(
-      (e) => e.relationship === "supersedes" || e.relationship === "resolved-by",
-    );
-  });
+  // Sort by event date ascending so soonest events get reserved first
+  // (queryNodes sorts by significance, which would drop a tomorrow-event
+  // with low significance in favor of a 3-weeks-away high-significance one)
+  upcomingEvents.sort((a, b) => (a.eventDate ?? 0) - (b.eventDate ?? 0));
+
+  const unresolvedUpcoming = upcomingEvents
+    .filter((node) => {
+      if (prospectiveIds.has(node.id)) return false; // already reserved as prospective
+      const incoming = getEdgesForNode(node.id, "incoming");
+      return !incoming.some(
+        (e) =>
+          e.relationship === "supersedes" || e.relationship === "resolved-by",
+      );
+    })
+    .slice(0, UPCOMING_RESERVE);
 
   const upcomingIds = new Set(unresolvedUpcoming.map((n) => n.id));
   const reservedUpcoming: ScoredNode[] = unresolvedUpcoming.map((node) => {
