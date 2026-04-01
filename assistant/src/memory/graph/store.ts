@@ -15,6 +15,7 @@ import type {
   ApplyDiffResult,
   EmotionalCharge,
   Fidelity,
+  ImageRef,
   MemoryDiff,
   MemoryEdge,
   MemoryNode,
@@ -50,7 +51,7 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     sourceType: row.sourceType as SourceType,
     narrativeRole: row.narrativeRole,
     partOfStory: row.partOfStory,
-    imageRefs: null, // Column added in a later migration; default to null until then.
+    imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
     scopeId: row.scopeId,
   };
 }
@@ -75,6 +76,7 @@ function nodeToInsertValues(node: NewNode, id: string) {
     sourceType: node.sourceType,
     narrativeRole: node.narrativeRole,
     partOfStory: node.partOfStory,
+    imageRefs: node.imageRefs ? JSON.stringify(node.imageRefs) : null,
     scopeId: node.scopeId,
   };
 }
@@ -177,6 +179,8 @@ export function updateNode(
     updates.narrativeRole = changes.narrativeRole;
   if (changes.partOfStory !== undefined)
     updates.partOfStory = changes.partOfStory;
+  if (changes.imageRefs !== undefined)
+    updates.imageRefs = changes.imageRefs ? JSON.stringify(changes.imageRefs) : null;
   if (changes.scopeId !== undefined) updates.scopeId = changes.scopeId;
   if (changes.eventDate !== undefined) updates.eventDate = changes.eventDate;
 
@@ -550,6 +554,8 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
       if (c.narrativeRole !== undefined)
         updates.narrativeRole = c.narrativeRole;
       if (c.partOfStory !== undefined) updates.partOfStory = c.partOfStory;
+      if (c.imageRefs !== undefined)
+        updates.imageRefs = c.imageRefs ? JSON.stringify(c.imageRefs) : null;
       if (c.sourceConversations !== undefined)
         updates.sourceConversations = JSON.stringify(c.sourceConversations);
       if (c.eventDate !== undefined) updates.eventDate = c.eventDate;
