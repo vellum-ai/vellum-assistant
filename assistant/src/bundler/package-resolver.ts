@@ -3,10 +3,15 @@
  *
  * Maintains a shared cache at ~/.vellum/package-cache/ so packages are
  * installed once and reused across all app compilations.
+ *
+ * Uses direct npm tarball download (no `bun install` dependency) so
+ * resolution works reliably inside compiled binaries where a standalone
+ * `bun` CLI may not be on PATH.
  */
 
-import { existsSync } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -24,7 +29,7 @@ export const ALLOWED_PACKAGES: readonly string[] = [
   "lucide",
 ] as const;
 
-const INSTALL_TIMEOUT_MS = 10_000;
+const INSTALL_TIMEOUT_MS = 15_000;
 const MAX_PACKAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 /** In-flight install promises keyed by package name, to deduplicate concurrent requests. */
@@ -70,6 +75,7 @@ export async function resolvePackage(name: string): Promise<string | null> {
   const pkg = packageName(name);
 
   if (!ALLOWED_PACKAGES.includes(pkg)) {
+    log.warn({ pkg }, "Package not in allowlist, skipping");
     return null;
   }
 
@@ -88,7 +94,7 @@ export async function resolvePackage(name: string): Promise<string | null> {
     return existing;
   }
 
-  const promise = installPackage(pkg, cacheDir, nodeModulesDir, pkgDir);
+  const promise = installPackage(pkg, nodeModulesDir, pkgDir);
   inflight.set(pkg, promise);
   try {
     return await promise;
@@ -97,79 +103,172 @@ export async function resolvePackage(name: string): Promise<string | null> {
   }
 }
 
-async function installPackage(
+// ---------------------------------------------------------------------------
+// npm tarball download (no `bun` CLI dependency)
+// ---------------------------------------------------------------------------
+
+interface NpmDistMeta {
+  tarball: string;
+  integrity?: string;
+  shasum?: string;
+}
+
+/**
+ * Fetch the latest version metadata for a package from the npm registry
+ * and return the tarball URL + integrity hash.
+ */
+async function fetchPackageMeta(
   pkg: string,
-  cacheDir: string,
-  nodeModulesDir: string,
-  pkgDir: string,
-): Promise<string | null> {
-  // Ensure cache directory exists with a package.json so bun install works
-  await mkdir(cacheDir, { recursive: true });
-  const pkgJsonPath = join(cacheDir, "package.json");
-  if (!existsSync(pkgJsonPath)) {
-    const { writeFile } = await import("node:fs/promises");
-    await writeFile(
-      pkgJsonPath,
-      JSON.stringify({ name: "vellum-pkg-cache", private: true }),
+): Promise<{ tarballUrl: string; integrity: string }> {
+  const encoded = pkg.replace("/", "%2f");
+  const url = `https://registry.npmjs.org/${encoded}/latest`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(
+      `npm registry metadata fetch failed for ${pkg}: ${res.status} ${res.statusText}`,
     );
   }
 
-  log.info({ pkg }, "Installing package into shared cache");
+  const data = (await res.json()) as { dist?: NpmDistMeta };
+  const dist = data.dist;
+  if (!dist?.tarball) {
+    throw new Error(`Missing tarball URL in npm metadata for ${pkg}`);
+  }
+
+  let integrity: string;
+  if (typeof dist.integrity === "string" && dist.integrity.length > 0) {
+    integrity = dist.integrity;
+  } else if (typeof dist.shasum === "string" && dist.shasum.length > 0) {
+    integrity = `sha1-${Buffer.from(dist.shasum, "hex").toString("base64")}`;
+  } else {
+    throw new Error(`Missing integrity metadata for ${pkg}`);
+  }
+
+  return { tarballUrl: dist.tarball, integrity };
+}
+
+/** Verify a tarball against its npm integrity hash. */
+function verifyIntegrity(
+  tarball: Uint8Array,
+  integrity: string,
+  pkg: string,
+): void {
+  const [algorithm, expectedDigest] = integrity.split("-", 2);
+  if (!algorithm || !expectedDigest) {
+    throw new Error(`Invalid integrity format for ${pkg}: ${integrity}`);
+  }
+  if (algorithm !== "sha512" && algorithm !== "sha1") {
+    throw new Error(`Unsupported integrity algorithm ${algorithm} for ${pkg}`);
+  }
+  const actualDigest = createHash(algorithm).update(tarball).digest("base64");
+  if (actualDigest !== expectedDigest) {
+    throw new Error(`Integrity verification failed for ${pkg}`);
+  }
+}
+
+/**
+ * Download and install a single package via direct npm tarball fetch.
+ *
+ * Downloads the tarball, verifies integrity, extracts into the shared
+ * node_modules cache, and enforces size limits.  Does NOT depend on
+ * `bun` or any other package-manager CLI being on PATH.
+ */
+async function installPackage(
+  pkg: string,
+  nodeModulesDir: string,
+  pkgDir: string,
+): Promise<string | null> {
+  log.info({ pkg }, "Downloading package from npm registry");
 
   try {
-    const proc = Bun.spawn(["bun", "install", "--no-save", pkg], {
-      cwd: cacheDir,
-      stdout: "pipe",
-      stderr: "pipe",
-      env: {
-        ...process.env,
-        PATH: `${homedir()}/.bun/bin:${process.env.PATH}`,
-      },
-    });
+    // Fetch metadata + tarball URL from npm
+    const { tarballUrl, integrity } = await withTimeout(
+      fetchPackageMeta(pkg),
+      INSTALL_TIMEOUT_MS,
+      `npm metadata fetch timed out for ${pkg}`,
+    );
 
-    // Race against timeout
-    const exited = proc.exited;
-    let timer: ReturnType<typeof setTimeout>;
-    const timeout = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(() => resolve("timeout"), INSTALL_TIMEOUT_MS);
-    });
-
-    const raceResult = await Promise.race([exited, timeout]);
-    clearTimeout(timer!);
-
-    if (raceResult === "timeout") {
-      proc.kill();
-      log.warn({ pkg }, "Package install timed out");
+    // Download tarball
+    const res = await withTimeout(
+      fetch(tarballUrl),
+      INSTALL_TIMEOUT_MS,
+      `npm tarball download timed out for ${pkg}`,
+    );
+    if (!res.ok) {
+      log.warn({ pkg, status: res.status }, "npm tarball download failed");
       return null;
     }
 
-    if (raceResult !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      log.warn({ pkg, stderr }, "Package install failed");
-      return null;
-    }
+    const tarball = new Uint8Array(await res.arrayBuffer());
+    verifyIntegrity(tarball, integrity, pkg);
 
-    // Enforce max size
-    if (existsSync(pkgDir)) {
-      const size = await dirSize(pkgDir);
-      if (size > MAX_PACKAGE_SIZE_BYTES) {
-        log.warn({ pkg, size }, "Package exceeds size limit, removing");
-        const { rm } = await import("node:fs/promises");
-        await rm(pkgDir, { recursive: true, force: true });
-        return null;
+    // Extract into node_modules/<pkg>/
+    mkdirSync(pkgDir, { recursive: true });
+    const tmpTar = join(pkgDir, `download-${Date.now()}.tgz`);
+    writeFileSync(tmpTar, Buffer.from(tarball));
+
+    try {
+      const proc = Bun.spawn({
+        cmd: ["tar", "xzf", tmpTar, "-C", pkgDir, "--strip-components=1"],
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      await proc.exited;
+      if (proc.exitCode !== 0) {
+        const stderr = await new Response(proc.stderr).text();
+        throw new Error(`tar extraction failed for ${pkg}: ${stderr}`);
+      }
+    } finally {
+      try {
+        rmSync(tmpTar);
+      } catch {
+        /* ignore cleanup failure */
       }
     }
 
-    return existsSync(pkgDir) ? nodeModulesDir : null;
+    // Enforce max size
+    const size = await dirSize(pkgDir);
+    if (size > MAX_PACKAGE_SIZE_BYTES) {
+      log.warn({ pkg, size }, "Package exceeds size limit, removing");
+      await rm(pkgDir, { recursive: true, force: true });
+      return null;
+    }
+
+    log.info({ pkg }, "Package installed successfully");
+    return nodeModulesDir;
   } catch (err) {
     log.warn({ pkg, err }, "Package resolution failed");
+    // Clean up partial install
+    try {
+      if (existsSync(pkgDir)) {
+        rmSync(pkgDir, { recursive: true, force: true });
+      }
+    } catch {
+      /* ignore */
+    }
     return null;
+  }
+}
+
+/** Race a promise against a timeout. */
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
   }
 }
 
 /** Recursively sum file sizes under a directory. */
 async function dirSize(dir: string): Promise<number> {
-  const { readdir } = await import("node:fs/promises");
   const entries = await readdir(dir, { withFileTypes: true });
   let total = 0;
   for (const entry of entries) {

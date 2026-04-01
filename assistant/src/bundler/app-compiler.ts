@@ -241,6 +241,7 @@ async function validateImportPaths(
 async function resolveAppImports(srcDir: string): Promise<void> {
   const importRe = /(?:import|from)\s+["']([^"'.][^"']*)["']/g;
   const seen = new Set<string>();
+  const failed: string[] = [];
 
   const files = await readdir(srcDir, { recursive: true });
   for (const file of files) {
@@ -252,8 +253,18 @@ async function resolveAppImports(srcDir: string): Promise<void> {
       const pkg = packageName(specifier);
       if (seen.has(pkg)) continue;
       seen.add(pkg);
-      await resolvePackage(pkg);
+      const result = await resolvePackage(pkg);
+      if (result === null) {
+        failed.push(pkg);
+      }
     }
+  }
+
+  if (failed.length > 0) {
+    log.warn(
+      { failed },
+      "Some imported packages could not be resolved — esbuild may fail",
+    );
   }
 }
 
