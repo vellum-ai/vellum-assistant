@@ -204,6 +204,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // may be a custom dock label (e.g. an assistant name), so we patch
         // both the process name and the main menu items.
         ProcessInfo.processInfo.processName = Self.appName
+
+        FontWarmupCoordinator.shared.start(registerFonts: {
+            AppDelegate.registerBundledFonts()
+        })
     }
 
     /// Installs observers that patch the app menu bar title and items to
@@ -462,7 +466,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         applyThemePreference()
-        registerBundledFonts()
         AvatarAppearanceManager.shared.start()
 
         #if DEBUG
@@ -472,9 +475,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         if let statusFile = ProcessInfo.processInfo.environment["E2E_STATUS_FILE"] {
-            let overlay = E2EStatusOverlayWindow(statusFilePath: statusFile)
-            overlay.show()
-            self.e2eStatusOverlayWindow = overlay
+            Task { @MainActor in
+                await FontWarmupCoordinator.shared.awaitReady()
+                let overlay = E2EStatusOverlayWindow(statusFilePath: statusFile)
+                overlay.show()
+                self.e2eStatusOverlayWindow = overlay
+            }
         }
 
         // Set up menu bar and hotkeys early so they work regardless of auth state.
@@ -497,13 +503,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
 
         if !skipOnboarding && !hasAssistants {
-            log.info("[appLaunch] → showOnboarding()")
-            showOnboarding()
+            log.info("[appLaunch] → showOnboarding() (awaiting font warmup)")
+            Task { @MainActor in
+                await FontWarmupCoordinator.shared.awaitReady()
+                self.showOnboarding()
+            }
             return
         }
 
-        log.info("[appLaunch] → startAuthenticatedFlow()")
-        startAuthenticatedFlow()
+        log.info("[appLaunch] → startAuthenticatedFlow() (awaiting font warmup)")
+        Task { @MainActor in
+            await FontWarmupCoordinator.shared.awaitReady()
+            self.startAuthenticatedFlow()
+        }
     }
 
     var hasSetupApp = false

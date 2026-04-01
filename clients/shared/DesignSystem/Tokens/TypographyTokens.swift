@@ -177,4 +177,59 @@ public enum VFont {
         NSFontManager.shared.convert(nsMono, toHaveTrait: .italicFontMask)
     }()
     #endif
+
+    // MARK: - Prewarm
+
+    /// Eagerly accesses every static font token, forcing CoreText to resolve and cache them.
+    ///
+    /// Safe to call from any thread — uses only CoreText (thread-safe).
+    /// Called by `FontWarmupCoordinator` during off-main warmup.
+    ///
+    /// **Note:** `nsMonoBold` and `nsMonoItalic` are excluded because they use
+    /// `NSFontManager.shared` which must be accessed on the main thread.
+    /// Use `prewarmNSFontManagerTokens()` on MainActor for those.
+    public static func prewarmForAppLaunch() {
+        // SwiftUI Font tokens
+        _ = brandMedium
+        _ = brandSmall
+        _ = displayLarge
+        _ = titleLarge
+        _ = titleMedium
+        _ = titleSmall
+        _ = bodyLargeLighter
+        _ = bodyLargeDefault
+        _ = bodyLargeEmphasised
+        _ = bodyMediumLighter
+        _ = bodyMediumDefault
+        _ = bodyMediumEmphasised
+        _ = bodySmallDefault
+        _ = bodySmallEmphasised
+        _ = labelDefault
+        _ = labelSmall
+        _ = menuCompact
+        _ = chat
+
+        // NSFont tokens (macOS only — CoreText-only, no AppKit dependency)
+        #if os(macOS)
+        _ = nsChat
+        _ = nsBodyMediumDefault
+        _ = nsMono
+        // NOTE: nsMonoBold and nsMonoItalic are intentionally excluded here.
+        // They use NSFontManager.shared.convert() which requires the main thread.
+        // See prewarmNSFontManagerTokens() instead.
+        #endif
+    }
+
+    #if os(macOS)
+    /// Prewarms font tokens that depend on `NSFontManager.shared`.
+    ///
+    /// **Must be called on the main thread** — `NSFontManager` is an AppKit class
+    /// without documented thread-safety guarantees.
+    /// Called by `FontWarmupCoordinator` on `MainActor` before marking ready.
+    @MainActor
+    public static func prewarmNSFontManagerTokens() {
+        _ = nsMonoBold
+        _ = nsMonoItalic
+    }
+    #endif
 }
