@@ -7,14 +7,14 @@ import VellumAssistantShared
 enum IntegrationIcon {
 
     private static let palette: [Color] = [
-        Color(hex: 0x18B07A),  // emerald
-        Color(hex: 0xDA491A),  // red/danger
-        Color(hex: 0xE8A020),  // gold
-        Color(hex: 0x6366F1),  // indigo
-        Color(hex: 0x8B5CF6),  // violet
-        Color(hex: 0x0EA5E9),  // sky blue
-        Color(hex: 0xEC4899),  // pink
-        Color(hex: 0x14B8A6),  // teal
+        VColor.primaryBase,
+        VColor.systemNegativeStrong,
+        VColor.systemMidStrong,
+        VColor.systemPositiveStrong,
+        VColor.primaryHover,
+        VColor.borderActive,
+        VColor.contentSecondary,
+        VColor.primaryActive,
     ]
 
     @ViewBuilder
