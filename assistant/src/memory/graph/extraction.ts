@@ -395,7 +395,7 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
-function parseExtractionResponse(
+export function parseExtractionResponse(
   input: Record<string, unknown>,
   conversationId: string,
   scopeId: string,
