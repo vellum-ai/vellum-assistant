@@ -449,7 +449,7 @@ struct ChatBubble: View, Equatable {
             Text("Failed to send")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.systemNegativeStrong)
-            VButton(label: "Retry", style: .ghost, size: .inline) {
+            ChatEquatableButton(textLabel: "Retry", style: .ghost, size: .inline) {
                 onRetryFailedMessage?(message.id)
             }
         }

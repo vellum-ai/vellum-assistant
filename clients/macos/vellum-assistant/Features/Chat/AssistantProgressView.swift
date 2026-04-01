@@ -1021,7 +1021,11 @@ private struct StepDetailRow: View {
                     .stroke(VColor.borderBase, lineWidth: 0.5)
             )
 
-            VButton(label: copyLabel, iconOnly: VIcon.copy.rawValue, style: .ghost, iconSize: 24, iconColor: VColor.contentTertiary) {
+            ChatEquatableButton(
+                label: copyLabel,
+                iconOnly: VIcon.copy.rawValue,
+                iconColorRole: .contentTertiary
+            ) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(copyText, forType: .string)
             }

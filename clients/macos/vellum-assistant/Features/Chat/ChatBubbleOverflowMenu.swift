@@ -99,6 +99,10 @@ struct ChatBubbleOverflowMenu: View {
 
     // MARK: - Body
 
+    // The opacity approach constructs buttons even when hidden, but the
+    // ChatEquatableButton firewall prevents body re-evaluation during
+    // unrelated parent cascades. This preserves the fade animation while
+    // eliminating the primary performance cost (repeated VButton body work).
     var body: some View {
         if hasOverflowActions {
             menuContent
@@ -114,12 +118,10 @@ struct ChatBubbleOverflowMenu: View {
                 .foregroundStyle(VColor.contentTertiary)
                 .help(detailedTimestamp)
             if hasCopyableText {
-                VButton(
+                ChatEquatableButton(
                     label: showCopyConfirmation ? "Copied" : "Copy message",
                     iconOnly: (showCopyConfirmation ? VIcon.check : VIcon.copy).rawValue,
-                    style: .ghost,
-                    iconSize: 24,
-                    iconColor: showCopyConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary
+                    iconColorRole: showCopyConfirmation ? .systemPositiveStrong : .contentTertiary
                 ) {
                     copyMessageText()
                 }
@@ -130,24 +132,18 @@ struct ChatBubbleOverflowMenu: View {
                 ttsButton
             }
             if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
-                VButton(
+                ChatEquatableButton(
                     label: "Fork from here",
-                    iconOnly: VIcon.gitBranch.rawValue,
-                    style: .ghost,
-                    iconSize: 24,
-                    iconColor: VColor.contentTertiary
+                    iconOnly: VIcon.gitBranch.rawValue
                 ) {
                     onForkFromMessage(daemonMessageId)
                 }
                 .vTooltip("Fork from here", edge: .bottom)
             }
             if showInspectButton, !isUser, let daemonMsgId = message.daemonMessageId {
-                VButton(
+                ChatEquatableButton(
                     label: "Inspect LLM context",
-                    iconOnly: VIcon.fileCode.rawValue,
-                    style: .ghost,
-                    iconSize: 24,
-                    iconColor: VColor.contentTertiary
+                    iconOnly: VIcon.fileCode.rawValue
                 ) {
                     onInspectMessage?(daemonMsgId)
                 }
@@ -179,12 +175,10 @@ struct ChatBubbleOverflowMenu: View {
                 .frame(width: 24, height: 24)
                 .tint(VColor.contentTertiary)
         } else if audioPlayer.isPlaying {
-            VButton(
+            ChatEquatableButton(
                 label: "Stop audio",
                 iconOnly: VIcon.square.rawValue,
-                style: .ghost,
-                iconSize: 24,
-                iconColor: VColor.systemPositiveStrong
+                iconColorRole: .systemPositiveStrong
             ) {
                 audioPlayer.stop()
             }
@@ -195,12 +189,10 @@ struct ChatBubbleOverflowMenu: View {
 
     @ViewBuilder
     private func ttsIdleButton(daemonMessageId: String) -> some View {
-        let button = VButton(
+        let button = ChatEquatableButton(
             label: "Play as audio",
             iconOnly: VIcon.volume2.rawValue,
-            style: .ghost,
-            iconSize: 24,
-            iconColor: audioPlayer.error != nil ? VColor.systemNegativeStrong : VColor.contentTertiary
+            iconColorRole: audioPlayer.error != nil ? .systemNegativeStrong : .contentTertiary
         ) {
             Task {
                 await audioPlayer.playMessage(
