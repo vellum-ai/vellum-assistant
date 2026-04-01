@@ -24,6 +24,7 @@ jobs:
       version: ${{ steps.finalize.outputs.version }}
       base_version: ${{ steps.extract.outputs.base_version }}
       is_staging: ${{ steps.detect-staging.outputs.is_staging }}
+      docker_environments: ${{ steps.finalize.outputs.docker_environments }}
     steps:
       - uses: actions/checkout@v6
 
@@ -72,14 +73,15 @@ jobs:
           if [ "$IS_STAGING" = "true" ]; then
             VERSION="${BASE_VERSION}-staging.${{ github.run_number }}"
             echo "Staging prerelease version: $VERSION"
+            echo 'docker_environments=["dev"]' >> "$GITHUB_OUTPUT"
           else
             VERSION="$BASE_VERSION"
+            echo 'docker_environments=["dev","production"]' >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
@@ -88,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
@@ -158,7 +160,7 @@ jobs:
 
   push-assistant-manifest:
     needs: [extract-version, push-assistant-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -167,7 +169,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Fail if image build failed
@@ -216,9 +218,12 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
           GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$IS_STAGING" != "true" ]; then
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -273,7 +278,6 @@ jobs:
 
   push-gateway-image:
     needs: [extract-version, ci-gateway]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -282,7 +286,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
@@ -351,7 +355,6 @@ jobs:
 
   push-credential-executor-image:
     needs: [extract-version, ci-credential-executor]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -360,7 +363,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
@@ -427,7 +430,7 @@ jobs:
 
   push-gateway-manifest:
     needs: [extract-version, push-gateway-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -436,7 +439,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Fail if image build failed
@@ -485,9 +488,12 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
           GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$IS_STAGING" != "true" ]; then
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -542,7 +548,7 @@ jobs:
 
   push-credential-executor-manifest:
     needs: [extract-version, push-credential-executor-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -551,7 +557,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Fail if image build failed
@@ -600,9 +606,12 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
           GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$IS_STAGING" != "true" ]; then
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -737,88 +746,14 @@ jobs:
           echo "**Version:** \`v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
-  # Staging-only: build Docker images and upload as GitHub artifacts (no registry push).
-  # Produces an OCI tarball per service that can later be pushed to a registry via
-  # `skopeo copy oci-archive:<file>.tar docker://<registry>/<image>:<tag>`.
-  build-staging-docker-images:
-    needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
-    if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
-    runs-on: ${{ matrix.runs_on }}
-    timeout-minutes: 45
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - service: assistant
-            runs_on: ubuntu-latest-8-cores
-            context: .
-            dockerfile: assistant/Dockerfile
-            feature_flag_path: assistant/src/config/feature-flag-registry.json
-          - service: gateway
-            runs_on: ubuntu-latest
-            context: gateway
-            dockerfile: gateway/Dockerfile
-            feature_flag_path: gateway/src/feature-flag-registry.json
-          - service: credential-executor
-            runs_on: ubuntu-latest
-            context: .
-            dockerfile: credential-executor/Dockerfile
-            feature_flag_path: ""
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          version: latest
-
-      - name: Sync feature flag registry for Docker context
-        if: matrix.feature_flag_path != ''
-        run: cp meta/feature-flags/feature-flag-registry.json ${{ matrix.feature_flag_path }}
-
-      - name: Build multi-platform image
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: false
-          provenance: false
-          tags: |
-            ${{ matrix.service }}:v${{ needs.extract-version.outputs.version }}
-            ${{ matrix.service }}:${{ github.sha }}
-          outputs: type=oci,dest=/tmp/${{ matrix.service }}.tar
-
-      - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image-${{ matrix.service }}
-          path: /tmp/${{ matrix.service }}.tar
-          retention-days: 7
-
-      - name: Summary
-        run: |
-          echo "## Staging Docker Image Built (${{ matrix.service }})" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Artifact:** \`docker-image-${{ matrix.service }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Tags:** \`${{ matrix.service }}:v${{ needs.extract-version.outputs.version }}\`, \`${{ matrix.service }}:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-
   register-release:
     needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
@@ -907,9 +842,17 @@ jobs:
           ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            IS_STABLE="false"
+          else
+            IS_STABLE="true"
+          fi
+
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \
             --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson is_stable "$IS_STABLE" \
             --argjson db_migration_version "${{ steps.migration-ceilings.outputs.db_version }}" \
             --arg last_workspace_migration_id "${{ steps.migration-ceilings.outputs.ws_id }}" \
             --arg assistant_repo "$ASSISTANT_REPO" \
@@ -927,7 +870,7 @@ jobs:
             '{
               version: $version,
               released_at: $released_at,
-              is_stable: true,
+              is_stable: $is_stable,
               db_migration_version: $db_migration_version,
               last_workspace_migration_id: $last_workspace_migration_id,
               assistant_image: {
@@ -2301,7 +2244,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-staging-docker-images, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2329,13 +2272,22 @@ jobs:
             RELEASE_FAILED="true"
           fi
 
-          # For staging releases, check that desktop app and Docker artifacts were successfully built
+          # For staging releases, check that desktop app and Docker images were successfully pushed
           STAGING_READY="true"
           if [ "$IS_STAGING" = "true" ]; then
             if [ "${{ needs.build-macos-arm64.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
-            if [ "${{ needs.build-staging-docker-images.result }}" != "success" ]; then
+            if [ "${{ needs.push-assistant-manifest.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.push-gateway-manifest.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.push-credential-executor-manifest.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.register-release.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
           fi
@@ -2372,7 +2324,6 @@ jobs:
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
           DH=$(ci_icon "${{ needs.push-dockerhub-image.result }}")
-          SD=$(ci_icon "${{ needs.build-staging-docker-images.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -2386,7 +2337,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s staging-docker\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$SD" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
@@ -2395,7 +2346,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images uploaded as artifacts._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered as unstable._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
