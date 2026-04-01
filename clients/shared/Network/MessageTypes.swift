@@ -899,23 +899,6 @@ public typealias AppDataResponseMessage = AppDataResponse
 /// Backed by generated `SkillsListResponseSkill`.
 public typealias SkillInfo = SkillsListResponseSkill
 
-/// Legacy provenance type — retained for backward compatibility until all call sites migrate.
-/// Will be removed once downstream views no longer reference `provenance`.
-@available(*, deprecated, message: "Use kind/origin/status instead of provenance")
-public struct SkillsListResponseSkillProvenance: Codable, Sendable {
-    public let kind: String
-    public let provider: String?
-    public let originId: String?
-    public let sourceUrl: String?
-
-    public init(kind: String, provider: String? = nil, originId: String? = nil, sourceUrl: String? = nil) {
-        self.kind = kind
-        self.provider = provider
-        self.originId = originId
-        self.sourceUrl = sourceUrl
-    }
-}
-
 extension SkillsListResponseSkill: Identifiable {}
 
 extension SkillsListResponseSkill {
@@ -939,47 +922,13 @@ extension SkillsListResponseSkill {
     /// Whether the skill is currently disabled.
     public var isDisabled: Bool { status == "disabled" }
 
-    // MARK: - Backward-compatibility shims (remove when all call sites migrate to new fields)
+    // MARK: - Convenience accessors
 
-    /// Legacy `emoji` accessor — reads from the `vellum` sub-object.
+    /// Reads emoji from the `vellum` sub-object for display.
     public var emoji: String? { vellum?.emoji }
 
-    /// Legacy `source` accessor — maps `origin` to the old source vocabulary.
-    public var source: String { origin }
-
-    /// Legacy `state` accessor — maps `status` to the old state vocabulary.
+    /// Alias for `status` — used by views that reference `state`.
     public var state: String { status }
-
-    /// Legacy `installStatus` accessor — derives from `kind`/`status`.
-    public var installStatus: String? {
-        switch kind {
-        case "bundled": return "bundled"
-        case "installed": return "installed"
-        case "catalog": return "available"
-        default: return nil
-        }
-    }
-
-    /// Legacy `homepage` accessor — no longer carried on slim responses.
-    public var homepage: String? { nil }
-
-    /// Legacy `installedVersion` accessor — no longer carried on slim responses.
-    public var installedVersion: String? { nil }
-
-    /// Legacy `latestVersion` accessor — no longer carried on slim responses.
-    public var latestVersion: String? { nil }
-
-    /// Legacy `updateAvailable` accessor — no longer carried on slim responses.
-    public var updateAvailable: Bool { false }
-
-    /// Legacy `provenance` accessor — no longer carried on slim responses.
-    @available(*, deprecated, message: "Use kind/origin/status instead of provenance")
-    public var provenance: SkillsListResponseSkillProvenance? { nil }
-
-    /// Returns a copy with a different `state` (legacy — delegates to withStatus).
-    public func withState(_ newState: String) -> Self {
-        withStatus(newState)
-    }
 }
 
 /// Response containing the list of available skills.
@@ -1093,9 +1042,6 @@ public struct ClawhubSearchItem: Decodable, Sendable, Identifiable, Equatable {
         case name, slug, description, author, stars, installs, version, createdAt, source
     }
 }
-
-/// Legacy type alias for backward compatibility with call sites using the old name.
-public typealias ClawhubSkillItem = ClawhubSearchItem
 
 /// Wrapper for ClaWHub search results embedded in `skills_operation_response.data`.
 public struct ClawhubSearchData: Decodable, Sendable {
