@@ -103,10 +103,7 @@ final class VoiceInputManager {
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private let audioEngine = AVAudioEngine()
-
-    /// Exposes the audio engine for amplitude tracking in voice mode.
-    var exposedAudioEngine: AVAudioEngine { audioEngine }
+    private lazy var audioEngine = AVAudioEngine()
 
     init(dictationClient: any DictationClientProtocol = DictationClient()) {
         self.dictationClient = dictationClient
