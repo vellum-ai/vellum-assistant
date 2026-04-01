@@ -102,6 +102,11 @@ export async function executeScheduleUpdate(
     updates.quiet = input.quiet;
   }
 
+  // Conversation reuse
+  if (input.reuse_conversation !== undefined) {
+    updates.reuseConversation = input.reuse_conversation as boolean;
+  }
+
   // Auto-detect syntax when expression changes without explicit syntax
   if (input.expression !== undefined || input.syntax !== undefined) {
     const resolved = normalizeScheduleSyntax({

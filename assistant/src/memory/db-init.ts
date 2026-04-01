@@ -127,6 +127,7 @@ import {
   migrateRenameVoiceToPhone,
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
+  migrateScheduleReuseConversation,
   migrateSchemaIndexesAndColumns,
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateUsageDashboardIndexes,
@@ -163,7 +164,7 @@ function getTemplateDbPath(): string {
   }
   return join(
     tmpdir(),
-    `vellum-test-db-template-${hash.digest("hex").slice(0, 12)}.db`
+    `vellum-test-db-template-${hash.digest("hex").slice(0, 12)}.db`,
   );
 }
 
@@ -575,6 +576,9 @@ export function initializeDb(): void {
 
   // 104. Add nullable image_refs TEXT column to memory_graph_nodes
   migrateMemoryGraphImageRefs(database);
+
+  // 105. Add reuse_conversation boolean column to cron_jobs
+  migrateScheduleReuseConversation(database);
 
   validateMigrationState(database);
 
