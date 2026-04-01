@@ -618,6 +618,7 @@ extension AppDelegate {
         SentryDeviceInfo.updateUserTag(nil)
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
         UserDefaults.standard.removeObject(forKey: "managedServiceModesInitialized")
+        AssistantFeatureFlagResolver.clearCachedFlags()
 
         connectionManager.disconnect()
         actorTokenBootstrapTask?.cancel()
