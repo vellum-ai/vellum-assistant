@@ -15,10 +15,10 @@ public final class SkillsStore: ObservableObject {
     @Published public var loadedBodies: [String: String] = [:]
     @Published public var isLoading = false
 
-    @Published public var searchResults: [ClawhubSkillItem] = []
+    @Published public var searchResults: [ClawhubSearchItem] = []
     @Published public var isSearching = false
 
-    @Published public var inspectedSkill: ClawhubInspectData?
+    @Published public var inspectedSkill: SkillsInspectResponseData?
     @Published public var isInspecting = false
     @Published public var inspectError: String?
 
@@ -88,7 +88,7 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Private State
 
     private let skillsClient: SkillsClientProtocol
-    private var inspectCache: [String: ClawhubInspectData] = [:]
+    private var inspectCache: [String: SkillsInspectResponseData] = [:]
     private var currentInspectSlug: String?
     private var lastSearchQuery: String?
     private var draftTask: Task<Void, Never>?

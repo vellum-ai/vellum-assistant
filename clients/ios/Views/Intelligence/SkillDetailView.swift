@@ -24,20 +24,17 @@ struct SkillDetailView: View {
             // Details section
             Section("Details") {
                 if let clawhub = skill.clawhub {
-                    detailRow(label: "Author", value: clawhub.author)
-                }
-                if let version = skill.installedVersion {
-                    detailRow(label: "Version", value: version)
-                }
-                detailRow(label: "Source", value: skill.source.capitalized)
-                detailRow(label: "State", value: skill.state.capitalized)
-
-                if let provenance = skill.provenance {
-                    detailRow(label: "Provenance", value: provenance.kind.capitalized)
-                    if let provider = provenance.provider {
-                        detailRow(label: "Provider", value: provider)
+                    if !clawhub.author.isEmpty {
+                        detailRow(label: "Author", value: clawhub.author)
                     }
+                    if clawhub.stars > 0 {
+                        detailRow(label: "Stars", value: "\(clawhub.stars)")
+                    }
+                } else if let skillssh = skill.skillssh, !skillssh.sourceRepo.isEmpty {
+                    detailRow(label: "Source Repo", value: skillssh.sourceRepo)
                 }
+                detailRow(label: "Origin", value: originLabel(skill.origin))
+                detailRow(label: "Status", value: skill.status.capitalized)
             }
 
             // Inspect data section (loaded from ClaWHub)
@@ -94,7 +91,7 @@ struct SkillDetailView: View {
                 if isInstalled {
                     // Enable/Disable toggle
                     Button {
-                        if skill.state == "enabled" {
+                        if skill.isEnabled {
                             skillsStore.disableSkill(name: skill.name)
                         } else {
                             skillsStore.enableSkill(name: skill.name)
@@ -102,7 +99,7 @@ struct SkillDetailView: View {
                     } label: {
                         HStack {
                             VIconView(.circlePlay, size: 16)
-                            Text(skill.state == "enabled" ? "Disable Skill" : "Enable Skill")
+                            Text(skill.isEnabled ? "Disable Skill" : "Enable Skill")
                         }
                     }
 
@@ -155,7 +152,7 @@ struct SkillDetailView: View {
         .navigationTitle(skill.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            // Inspect the skill if it has a clawhub source
+            // Inspect the skill if it has a clawhub origin
             if skill.clawhub != nil {
                 skillsStore.inspectSkill(slug: skill.id)
             }
@@ -181,7 +178,7 @@ struct SkillDetailView: View {
 
     private var headerSection: some View {
         VStack(spacing: VSpacing.sm) {
-            Text(skill.emoji ?? "")
+            Text(skill.vellum?.emoji ?? "")
                 .font(.system(size: 48))
                 .accessibilityHidden(true)
 
@@ -196,16 +193,7 @@ struct SkillDetailView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if skill.updateAvailable {
-                HStack(spacing: 4) {
-                    VIconView(.circleArrowUp, size: 12)
-                    Text("Update available")
-                        .font(VFont.labelDefault)
-                }
-                .foregroundStyle(VColor.primaryBase)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Update available for this skill")
-            }
+            VSkillTypePill(origin: skill.origin, status: skill.status)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.sm)
@@ -283,6 +271,18 @@ struct SkillDetailView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(file.path), \(formatFileSize(file.size))\(file.isBinary ? ", binary" : "")")
+    }
+
+    // MARK: - Origin Label
+
+    private func originLabel(_ origin: String) -> String {
+        switch origin {
+        case "vellum": return "Core"
+        case "clawhub": return "Community"
+        case "skillssh": return "Community"
+        case "custom": return "Created"
+        default: return origin.capitalized
+        }
     }
 
     // MARK: - File Helpers

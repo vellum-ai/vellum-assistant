@@ -253,12 +253,34 @@ public struct SkillsClient: SkillsClientProtocol {
                     error: extractErrorMessage(from: response.data), data: nil
                 )
             }
-            // REST returns { data: ... } with search results
+            // REST returns { skills: SlimSkillResponse[] } at top level.
+            // Decode the unified skill items and bridge into ClawhubSearchItem
+            // for backward compatibility until the store/UI layers migrate.
             var searchData: ClawhubSearchData?
             if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-               let dataObj = json["data"],
-               let dataBytes = try? JSONSerialization.data(withJSONObject: dataObj) {
-                searchData = try? JSONDecoder().decode(ClawhubSearchData.self, from: dataBytes)
+               let skillsArray = json["skills"] as? [[String: Any]] {
+                let bridged: [[String: Any]] = skillsArray.map { item in
+                    var mapped: [String: Any] = [:]
+                    mapped["slug"] = item["id"] ?? ""
+                    mapped["name"] = item["name"] ?? ""
+                    mapped["description"] = item["description"] ?? ""
+                    mapped["source"] = item["origin"] ?? "clawhub"
+                    // Pull detailed fields from the origin-specific sub-object
+                    if let clawhub = item["clawhub"] as? [String: Any] {
+                        mapped["slug"] = clawhub["slug"] ?? mapped["slug"]!
+                        mapped["author"] = clawhub["author"] ?? ""
+                        mapped["stars"] = clawhub["stars"] ?? 0
+                        mapped["installs"] = clawhub["installs"] ?? 0
+                    } else if let skillssh = item["skillssh"] as? [String: Any] {
+                        mapped["slug"] = skillssh["slug"] ?? mapped["slug"]!
+                        mapped["installs"] = skillssh["installs"] ?? 0
+                    }
+                    return mapped
+                }
+                let wrapper: [String: Any] = ["skills": bridged]
+                if let wrapperData = try? JSONSerialization.data(withJSONObject: wrapper) {
+                    searchData = try? JSONDecoder().decode(ClawhubSearchData.self, from: wrapperData)
+                }
             }
             return SkillsOperationResponseMessage(
                 operation: "search", success: true, error: nil, data: searchData
@@ -281,7 +303,8 @@ public struct SkillsClient: SkillsClientProtocol {
                 log.error("inspectSkill failed (HTTP \(response.statusCode))")
                 return nil
             }
-            // Inject type and slug if missing
+            // REST returns { slug, data?: ClawhubInspectData, error? } — inject the
+            // type discriminator so the generated SkillsInspectResponse can decode it.
             var json = (try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]) ?? [:]
             json["type"] = "skills_inspect_response"
             if json["slug"] == nil { json["slug"] = slug }
@@ -353,7 +376,14 @@ public struct SkillsClient: SkillsClientProtocol {
                 log.error("fetchSkillDetail failed (HTTP \(response.statusCode))")
                 return nil
             }
-            return try JSONDecoder().decode(SkillDetailHTTPResponse.self, from: response.data)
+            // REST returns { skill: SkillDetailHTTPResponse } — extract the inner object.
+            guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let skillObj = json["skill"],
+                  let skillData = try? JSONSerialization.data(withJSONObject: skillObj) else {
+                log.error("fetchSkillDetail: missing 'skill' key in response")
+                return nil
+            }
+            return try JSONDecoder().decode(SkillDetailHTTPResponse.self, from: skillData)
         } catch {
             log.error("fetchSkillDetail error: \(error.localizedDescription)")
             return nil

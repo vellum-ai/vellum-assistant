@@ -18,10 +18,10 @@ import Foundation
 // │                                 │ contract type is skipped (SKIP_TYPES)    │
 // │ GenerationCancelledMessage      │ Swift adds `conversationId` for conversation  │
 // │                                 │ filtering not present in the contract    │
-// │ ClawhubSkillItem                │ Decoded from nested `data` field of      │
+// │ ClawhubSearchItem               │ Decoded from nested `data` field of      │
 // │                                 │ skills_operation_response, not a direct  │
 // │                                 │ wire message                             │
-// │ ClawhubSearchData               │ Wrapper for ClawhubSkillItem array,      │
+// │ ClawhubSearchData               │ Wrapper for ClawhubSearchItem array,     │
 // │                                 │ not a direct wire message                │
 // │ SkillsOperationResponseMessage  │ Uses typed ClawhubSearchData? for `data` │
 // │                                 │ instead of generated AnyCodable?         │
@@ -895,14 +895,6 @@ extension ErrorMessage {
 /// Backed by generated `AppDataResponse`.
 public typealias AppDataResponseMessage = AppDataResponse
 
-/// ClaWHub metadata for a skill.
-/// Backed by generated `SkillsListResponseSkillClawhub`.
-public typealias ClawhubInfo = SkillsListResponseSkillClawhub
-
-/// Provenance metadata indicating whether a skill is first-party, third-party, or local.
-/// Backed by generated `SkillsListResponseSkillProvenance`.
-public typealias SkillProvenance = SkillsListResponseSkillProvenance
-
 /// Full skill info from the daemon's resolved skill list.
 /// Backed by generated `SkillsListResponseSkill`.
 public typealias SkillInfo = SkillsListResponseSkill
@@ -910,19 +902,33 @@ public typealias SkillInfo = SkillsListResponseSkill
 extension SkillsListResponseSkill: Identifiable {}
 
 extension SkillsListResponseSkill {
-    /// Returns a copy with a different `state`, preserving all other fields including `id`.
-    public func withState(_ newState: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, installStatus: installStatus, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, clawhub: clawhub, provenance: provenance)
+    /// Returns a copy with a different `status`, preserving all other fields including `id`.
+    public func withStatus(_ newStatus: String) -> Self {
+        Self(id: id, name: name, description: description, kind: kind, origin: origin, status: newStatus, vellum: vellum, clawhub: clawhub, skillssh: skillssh)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.
-    public var isAvailable: Bool { installStatus == "available" }
+    public var isAvailable: Bool { status == "available" }
 
     /// Whether the skill is a bundled (core) skill.
-    public var isBundled: Bool { installStatus == "bundled" }
+    public var isBundled: Bool { kind == "bundled" }
 
     /// Whether the skill is currently installed (explicitly installed or bundled).
-    public var isInstalled: Bool { installStatus == "installed" || installStatus == "bundled" }
+    public var isInstalled: Bool { kind == "installed" || kind == "bundled" }
+
+    /// Whether the skill is currently enabled.
+    public var isEnabled: Bool { status == "enabled" }
+
+    /// Whether the skill is currently disabled.
+    public var isDisabled: Bool { status == "disabled" }
+
+    // MARK: - Convenience accessors
+
+    /// Reads emoji from the `vellum` sub-object for display.
+    public var emoji: String? { vellum?.emoji }
+
+    /// Alias for `status` — used by views that reference `state`.
+    public var state: String { status }
 }
 
 /// Response containing the list of available skills.
@@ -1003,7 +1009,7 @@ public typealias SkillStateChangedMessage = SkillStateChanged
 /// A skill returned from a search or explore query.
 /// Kept hand-maintained — this type is decoded from the `data` field of
 /// `skills_operation_response` (which is `AnyCodable` in the contract).
-public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
+public struct ClawhubSearchItem: Decodable, Sendable, Identifiable, Equatable {
     public var id: String { slug }
     public let name: String
     public let slug: String
@@ -1039,7 +1045,7 @@ public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
 
 /// Wrapper for ClaWHub search results embedded in `skills_operation_response.data`.
 public struct ClawhubSearchData: Decodable, Sendable {
-    public let skills: [ClawhubSkillItem]
+    public let skills: [ClawhubSearchItem]
 }
 
 /// Generic operation response.

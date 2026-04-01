@@ -66,25 +66,31 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
               id: z.string(),
               name: z.string(),
               description: z.string(),
-              emoji: z.string().optional(),
-              homepage: z.string().optional(),
-              source: z.enum([
-                "bundled",
-                "managed",
-                "workspace",
-                "clawhub",
-                "extra",
-                "catalog",
-              ]),
-              state: z.enum(["enabled", "disabled"]),
-              installStatus: z.enum(["bundled", "installed", "available"]),
-              updateAvailable: z.boolean(),
-              provenance: z.object({
-                kind: z.enum(["first-party", "third-party", "local"]),
-                provider: z.string().optional(),
-                originId: z.string().optional(),
-                sourceUrl: z.string().optional(),
-              }),
+              kind: z.enum(["bundled", "installed", "catalog"]),
+              origin: z.enum(["vellum", "clawhub", "skillssh", "custom"]),
+              status: z.enum(["enabled", "disabled", "available"]),
+              vellum: z
+                .object({
+                  emoji: z.string().optional(),
+                })
+                .optional(),
+              clawhub: z
+                .object({
+                  slug: z.string(),
+                  author: z.string(),
+                  stars: z.number(),
+                  installs: z.number(),
+                  reports: z.number(),
+                  publishedAt: z.string().optional(),
+                })
+                .optional(),
+              skillssh: z
+                .object({
+                  slug: z.string(),
+                  sourceRepo: z.string(),
+                  installs: z.number(),
+                })
+                .optional(),
             }),
           )
           .describe("Skill objects"),
@@ -273,7 +279,40 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         },
       ],
       responseBody: z.object({
-        data: z.object({}).passthrough().describe("Search results"),
+        skills: z
+          .array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              description: z.string(),
+              kind: z.enum(["bundled", "installed", "catalog"]),
+              origin: z.enum(["vellum", "clawhub", "skillssh", "custom"]),
+              status: z.enum(["enabled", "disabled", "available"]),
+              vellum: z
+                .object({
+                  emoji: z.string().optional(),
+                })
+                .optional(),
+              clawhub: z
+                .object({
+                  slug: z.string(),
+                  author: z.string(),
+                  stars: z.number(),
+                  installs: z.number(),
+                  reports: z.number(),
+                  publishedAt: z.string().optional(),
+                })
+                .optional(),
+              skillssh: z
+                .object({
+                  slug: z.string(),
+                  sourceRepo: z.string(),
+                  installs: z.number(),
+                })
+                .optional(),
+            }),
+          )
+          .describe("Skill objects matching the search query"),
       }),
       handler: async ({ url }) => {
         const query = url.searchParams.get("q") ?? "";
@@ -284,7 +323,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         if (!result.success) {
           return httpError("INTERNAL_ERROR", result.error, 500);
         }
-        return Response.json({ data: result.data });
+        return Response.json({ skills: result.skills });
       },
     },
 
@@ -404,10 +443,10 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       method: "GET",
       policyKey: "skills",
       summary: "Get skill",
-      description: "Return a single skill by ID.",
+      description: "Return a single skill by ID with enriched detail fields.",
       tags: ["skills"],
-      handler: ({ params }) => {
-        const result = getSkill(params.id, ctx());
+      handler: async ({ params }) => {
+        const result = await getSkill(params.id, ctx());
         if ("error" in result) {
           if (result.status === 404) {
             return httpError("NOT_FOUND", result.error, 404);
