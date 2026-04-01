@@ -375,58 +375,10 @@ struct MarkdownSegmentView: View, Equatable {
             leading.backgroundColor = codeBackgroundColor
             result.insert(leading, at: range.lowerBound)
         }
-        // Apply synthetic italic/bold to emphasized runs.
-        // DM Sans doesn't ship an italic font face, so SwiftUI can't resolve
-        // the italic trait from .emphasized inlinePresentationIntent. We detect
-        // emphasized runs and apply a synthetic oblique via affine transform.
-        var emphOnlyRanges: [Range<AttributedString.Index>] = []
-        var boldOnlyRanges: [Range<AttributedString.Index>] = []
-        var boldEmphRanges: [Range<AttributedString.Index>] = []
-        for run in result.runs {
-            guard let intent = run.inlinePresentationIntent, !intent.contains(.code) else { continue }
-            // Skip runs that already have an explicit font (e.g., headings) —
-            // their font was set with the correct size and weight upstream.
-            guard result[run.range].font == nil else { continue }
-            let isEmph = intent.contains(.emphasized)
-            let isBold = intent.contains(.stronglyEmphasized)
-            if isEmph && isBold {
-                boldEmphRanges.append(run.range)
-            } else if isEmph {
-                emphOnlyRanges.append(run.range)
-            } else if isBold {
-                boldOnlyRanges.append(run.range)
-            }
-        }
-        if !emphOnlyRanges.isEmpty || !boldOnlyRanges.isEmpty || !boldEmphRanges.isEmpty {
-            let sz: CGFloat = 16 // matches VFont.chat size
-            let wght = 0x77676874
-            var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
-            if !emphOnlyRanges.isEmpty {
-                let italicCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique)
-                let italicFont = Font(italicCT as NSFont)
-                for range in emphOnlyRanges { result[range].font = italicFont }
-            }
-            if !boldOnlyRanges.isEmpty {
-                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
-                let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
-                let boldCT = CTFontCreateCopyWithAttributes(
-                    baseCT, sz, nil,
-                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
-                )
-                let boldFont = Font(boldCT as NSFont)
-                for range in boldOnlyRanges { result[range].font = boldFont }
-            }
-            if !boldEmphRanges.isEmpty {
-                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
-                let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
-                let boldItalicCT = CTFontCreateCopyWithAttributes(
-                    baseCT, sz, &oblique,
-                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
-                )
-                let boldItalicFont = Font(boldItalicCT as NSFont)
-                for range in boldEmphRanges { result[range].font = boldItalicFont }
-            }
-        }
+        // Synthetic italic/bold is applied later in convertToNSAttributedString
+        // where we work directly with NSFont, avoiding the SwiftUI Font→NSFont
+        // round-trip that loses the oblique transform during AttributedString→
+        // NSAttributedString conversion.
 
         // Underline links so they are visually distinct from plain text
         for run in result.runs where result[run.range].link != nil {
@@ -450,6 +402,45 @@ struct MarkdownSegmentView: View, Equatable {
     ) -> NSAttributedString {
         let ns = NSMutableAttributedString(source)
         let fullRange = NSRange(location: 0, length: ns.length)
+
+        // Apply synthetic italic/bold to emphasized runs.
+        // DM Sans doesn't ship an italic font face, so we apply a synthetic
+        // oblique via affine transform. This is done on the NSMutableAttributedString
+        // (not the SwiftUI AttributedString) because SwiftUI Font attributes set via
+        // Font(nsFont) don't reliably survive the AttributedString→NSAttributedString
+        // conversion — the oblique transform is lost, leaving plain text.
+        let sz = font.pointSize
+        let wght = 0x77676874 // 'wght' variation axis tag
+        var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
+        let italicNS = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique) as NSFont
+        let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
+        let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
+        let boldNS = CTFontCreateCopyWithAttributes(
+            baseCT, sz, nil,
+            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+        ) as NSFont
+        let boldItalicNS = CTFontCreateCopyWithAttributes(
+            baseCT, sz, &oblique,
+            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+        ) as NSFont
+
+        ns.enumerateAttribute(.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
+            guard let rawValue = (value as? NSNumber)?.uintValue else { return }
+            let intent = InlinePresentationIntent(rawValue: rawValue)
+            guard !intent.contains(.code) else { return }
+            // Skip runs that already have an explicit font (e.g. headings)
+            if ns.attribute(.font, at: range.location, effectiveRange: nil) != nil { return }
+
+            let isEmph = intent.contains(.emphasized)
+            let isBold = intent.contains(.stronglyEmphasized)
+            if isEmph && isBold {
+                ns.addAttribute(.font, value: boldItalicNS, range: range)
+            } else if isEmph {
+                ns.addAttribute(.font, value: italicNS, range: range)
+            } else if isBold {
+                ns.addAttribute(.font, value: boldNS, range: range)
+            }
+        }
 
         // Apply base font where no explicit font attribute exists
         ns.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
