@@ -3,7 +3,11 @@ import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
-import { computeSkillHash } from "./install-meta.js";
+import {
+  computeSkillHash,
+  readInstallMeta,
+  writeInstallMeta,
+} from "./install-meta.js";
 
 const log = getLogger("clawhub");
 
@@ -61,6 +65,10 @@ function saveIntegrityManifest(manifest: IntegrityManifest): void {
  * Record or verify the content hash of an installed skill.
  * On first install: stores the hash (trust-on-first-use).
  * On subsequent installs: compares with stored hash and warns on mismatch.
+ *
+ * Reads/writes `contentHash` from `install-meta.json` when available,
+ * falling back to the legacy `.integrity.json` manifest for skills that
+ * haven't been migrated yet.
  */
 export function verifyAndRecordSkillHash(slug: string): void {
   const skillDir = join(getManagedSkillsDir(), slug);
@@ -70,17 +78,28 @@ export function verifyAndRecordSkillHash(slug: string): void {
     return;
   }
 
-  const manifest = loadIntegrityManifest();
-  const existing = manifest[slug];
+  // Try install-meta.json first for stored hash
+  const installMeta = readInstallMeta(skillDir);
+  let storedHash: string | undefined;
 
-  if (existing) {
-    const storedHash = existing.sha256;
+  if (installMeta?.contentHash) {
+    storedHash = installMeta.contentHash;
+  } else {
+    // Fall back to legacy .integrity.json manifest
+    const manifest = loadIntegrityManifest();
+    const existing = manifest[slug];
+    if (existing) {
+      storedHash =
+        typeof existing.sha256 === "string" ? existing.sha256 : undefined;
+    }
+  }
 
-    // Guard against corrupted manifest entries where sha256 is not a string
+  if (storedHash) {
+    // Guard against corrupted entries where hash is not a string
     if (typeof storedHash !== "string") {
       log.warn(
         { slug },
-        "Integrity manifest entry has non-string sha256 — re-recording hash",
+        "Stored hash has non-string value — re-recording hash",
       );
     } else if (!storedHash.startsWith("v2:")) {
       // Unknown format (not v2: prefix) — warn about integrity mismatch
@@ -107,9 +126,14 @@ export function verifyAndRecordSkillHash(slug: string): void {
     );
   }
 
-  // Always store the latest hash
-  manifest[slug] = { sha256: hash, installedAt: new Date().toISOString() };
-  saveIntegrityManifest(manifest);
+  // Write to install-meta.json if it exists (preferred), otherwise legacy manifest
+  if (installMeta) {
+    writeInstallMeta(skillDir, { ...installMeta, contentHash: hash });
+  } else {
+    const manifest = loadIntegrityManifest();
+    manifest[slug] = { sha256: hash, installedAt: new Date().toISOString() };
+    saveIntegrityManifest(manifest);
+  }
 }
 
 interface ClawhubInstallResult {
@@ -200,7 +224,7 @@ async function runClawhub(
 
 export async function clawhubInstall(
   slug: string,
-  opts?: { version?: string },
+  opts?: { version?: string; contactId?: string },
 ): Promise<ClawhubInstallResult> {
   if (!validateSlug(slug)) {
     return { success: false, error: `Invalid skill slug: ${slug}` };
@@ -216,6 +240,17 @@ export async function clawhubInstall(
         result.stderr.trim() || result.stdout.trim() || "Unknown error";
       return { success: false, error };
     }
+
+    // Write install-meta.json for the installed skill
+    const skillDir = join(getManagedSkillsDir(), slug);
+    writeInstallMeta(skillDir, {
+      origin: "clawhub",
+      slug,
+      installedAt: new Date().toISOString(),
+      ...(opts?.contactId ? { installedBy: opts.contactId } : {}),
+      contentHash: computeSkillHash(skillDir) ?? undefined,
+    });
+
     verifyAndRecordSkillHash(slug);
     return { success: true, skillName: slug };
   } catch (err) {

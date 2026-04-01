@@ -211,7 +211,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       responseBody: z.object({
         ok: z.boolean(),
       }),
-      handler: async ({ req }) => {
+      handler: async ({ req, authContext }) => {
         const body = (await req.json()) as {
           slug?: string;
           url?: string;
@@ -227,8 +227,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
             400,
           );
         }
+        const contactId = authContext.actorPrincipalId ?? undefined;
         const result = await installSkill(
-          { slug, version: body.version, origin: body.origin },
+          { slug, version: body.version, origin: body.origin, contactId },
           ctx(),
         );
         if (!result.success) {
@@ -330,7 +331,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       responseBody: z.object({
         ok: z.boolean(),
       }),
-      handler: async ({ req }) => {
+      handler: async ({ req, authContext }) => {
         const body = (await req.json()) as CreateSkillParams;
         if (
           !body.skillId ||
@@ -344,7 +345,8 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
             400,
           );
         }
-        const result = await createSkill(body, ctx());
+        const contactId = authContext.actorPrincipalId ?? undefined;
+        const result = await createSkill({ ...body, contactId }, ctx());
         if (!result.success) {
           return httpError("INTERNAL_ERROR", result.error, 500);
         }
