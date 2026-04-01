@@ -276,29 +276,43 @@ public enum VIcon: String, CaseIterable, Sendable {
     public var image: Image { image() }
 
     #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-    /// Cache for loaded NSImage instances, keyed on "rawValue-base" or "rawValue-{size}".
-    private static let nsImageCache = NSCache<NSString, NSImage>()
+    /// Non-evicting store for loaded NSImage instances, keyed on "rawValue-base" or "rawValue-{size}".
+    /// Unlike NSCache, a plain dictionary is never evicted under memory pressure, preserving
+    /// the identity stability that SwiftUI relies on for diffing.
+    private static var nsImageStore: [String: NSImage] = [:]
+    private static let nsImageLock = NSLock()
 
     /// Loads (or returns cached) NSImage from the vendored PDF.
     /// Pass `nil` for the unsized base image, or a size for a sized variant.
     private func cachedNSImage(size: CGFloat? = nil) -> NSImage? {
-        let cacheKey: NSString
+        let cacheKey: String
         if let size {
-            cacheKey = NSString(string: "\(rawValue)-\(size)")
+            cacheKey = "\(rawValue)-\(size)"
         } else {
-            cacheKey = NSString(string: "\(rawValue)-base")
+            cacheKey = "\(rawValue)-base"
         }
 
-        if let cached = Self.nsImageCache.object(forKey: cacheKey) {
+        Self.nsImageLock.lock()
+        if let cached = Self.nsImageStore[cacheKey] {
+            Self.nsImageLock.unlock()
             return cached
         }
+        Self.nsImageLock.unlock()
 
         guard let url = pdfURL, let img = NSImage(contentsOf: url) else { return nil }
         img.isTemplate = true
         if let size {
             img.size = NSSize(width: size, height: size)
         }
-        Self.nsImageCache.setObject(img, forKey: cacheKey)
+
+        Self.nsImageLock.lock()
+        // Double-check in case another thread populated it while we were loading.
+        if let existing = Self.nsImageStore[cacheKey] {
+            Self.nsImageLock.unlock()
+            return existing
+        }
+        Self.nsImageStore[cacheKey] = img
+        Self.nsImageLock.unlock()
         return img
     }
 
