@@ -11,7 +11,7 @@ import { and, desc, eq, ne } from "drizzle-orm";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import type { Message } from "../../providers/types.js";
+import type { ContentBlock, ImageContent, Message } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb } from "../db.js";
 import { memorySummaries } from "../schema.js";
@@ -20,6 +20,11 @@ import {
   assembleContextBlock,
   assembleInjectionBlock,
   InContextTracker,
+  MAX_CONTEXT_LOAD_IMAGES,
+  MAX_PER_TURN_IMAGES,
+  MAX_REFRESH_IMAGES,
+  resolveInjectionImages,
+  type ResolvedImage,
 } from "./injection.js";
 import {
   loadContextMemory,
@@ -29,6 +34,8 @@ import {
 } from "./retriever.js";
 
 const log = getLogger("graph-conversation-memory");
+
+const ESTIMATED_IMAGE_TOKENS = 1000;
 
 // ---------------------------------------------------------------------------
 // Per-conversation state
@@ -48,6 +55,7 @@ export class ConversationGraphMemory {
   private conversationId: string;
   private lastInjectedBlock: string | null = null;
   private lastInjectedNodeIds: string[] = [];
+  private lastInjectedImages: Map<string, ResolvedImage> = new Map();
 
   constructor(scopeId: string, conversationId: string) {
     this.scopeId = scopeId;
@@ -147,9 +155,25 @@ export class ConversationGraphMemory {
     // Strip any existing <memory __injected> blocks from the last user message
     // before re-injecting, so compaction sites don't end up with duplicates.
     const cleaned = stripExistingMemoryInjections(messages);
+
+    const injectedTokens =
+      estimateTextTokens(this.lastInjectedBlock) +
+      this.lastInjectedImages.size * ESTIMATED_IMAGE_TOKENS;
+
+    if (this.lastInjectedImages.size > 0) {
+      return {
+        runMessages: injectMemoryBlock(
+          cleaned,
+          this.lastInjectedBlock,
+          this.lastInjectedImages,
+        ),
+        injectedTokens,
+      };
+    }
+
     return {
       runMessages: injectTextBlock(cleaned, this.lastInjectedBlock),
-      injectedTokens: estimateTextTokens(this.lastInjectedBlock),
+      injectedTokens,
     };
   }
 
@@ -254,6 +278,7 @@ export class ConversationGraphMemory {
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
+      this.lastInjectedImages = new Map();
       return {
         runMessages: messages,
         injectedTokens: 0,
@@ -279,7 +304,15 @@ export class ConversationGraphMemory {
       };
     }
 
-    const injectedTokens = estimateTextTokens(contextBlock);
+    // Resolve images from scored nodes
+    const images = await resolveInjectionImages(
+      [...result.nodes, ...result.serendipityNodes],
+      MAX_CONTEXT_LOAD_IMAGES,
+    );
+
+    const injectedTokens =
+      estimateTextTokens(contextBlock) +
+      images.size * ESTIMATED_IMAGE_TOKENS;
 
     onEvent({
       type: "memory_status",
@@ -292,9 +325,10 @@ export class ConversationGraphMemory {
       ...result.nodes.map((n) => n.node.id),
       ...result.serendipityNodes.map((n) => n.node.id),
     ];
+    this.lastInjectedImages = images;
 
     return {
-      runMessages: injectTextBlock(messages, contextBlock),
+      runMessages: injectMemoryBlock(messages, contextBlock, images),
       injectedTokens,
       latencyMs: result.latencyMs,
       mode: "context-load" as const,
@@ -330,6 +364,7 @@ export class ConversationGraphMemory {
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
+      this.lastInjectedImages = new Map();
       return {
         runMessages: messages,
         injectedTokens: 0,
@@ -351,12 +386,21 @@ export class ConversationGraphMemory {
       };
     }
 
+    // Resolve images from scored nodes
+    const images = await resolveInjectionImages(
+      result.nodes,
+      MAX_REFRESH_IMAGES,
+    );
+
     this.lastInjectedBlock = injectionBlock;
     this.lastInjectedNodeIds = result.nodes.map((n) => n.node.id);
+    this.lastInjectedImages = images;
 
     return {
-      runMessages: injectTextBlock(messages, injectionBlock),
-      injectedTokens: estimateTextTokens(injectionBlock),
+      runMessages: injectMemoryBlock(messages, injectionBlock, images),
+      injectedTokens:
+        estimateTextTokens(injectionBlock) +
+        images.size * ESTIMATED_IMAGE_TOKENS,
       latencyMs: result.latencyMs,
       mode: "refresh" as const,
     };
@@ -400,6 +444,7 @@ export class ConversationGraphMemory {
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
+      this.lastInjectedImages = new Map();
       return {
         runMessages: messages,
         injectedTokens: 0,
@@ -421,12 +466,21 @@ export class ConversationGraphMemory {
       };
     }
 
+    // Resolve images from scored nodes
+    const images = await resolveInjectionImages(
+      result.nodes,
+      MAX_PER_TURN_IMAGES,
+    );
+
     this.lastInjectedBlock = injectionBlock;
     this.lastInjectedNodeIds = result.nodes.map((n) => n.node.id);
+    this.lastInjectedImages = images;
 
     return {
-      runMessages: injectTextBlock(messages, injectionBlock),
-      injectedTokens: estimateTextTokens(injectionBlock),
+      runMessages: injectMemoryBlock(messages, injectionBlock, images),
+      injectedTokens:
+        estimateTextTokens(injectionBlock) +
+        images.size * ESTIMATED_IMAGE_TOKENS,
       latencyMs: result.latencyMs,
       mode: "per-turn" as const,
     };
@@ -481,6 +535,41 @@ function injectTextBlock(messages: Message[], text: string): Message[] {
         ...userTail.content,
       ],
     },
+  ];
+}
+
+function injectMemoryBlock(
+  messages: Message[],
+  text: string,
+  images: Map<string, ResolvedImage>,
+): Message[] {
+  if (text.trim().length === 0 && images.size === 0) return messages;
+  if (messages.length === 0) return messages;
+  const userTail = messages[messages.length - 1];
+  if (!userTail || userTail.role !== "user") return messages;
+
+  const blocks: ContentBlock[] = [
+    { type: "text" as const, text: `<memory __injected>\n${text}\n</memory>` },
+  ];
+
+  for (const [_nodeId, img] of images) {
+    blocks.push({
+      type: "text" as const,
+      text: `<memory_image>${img.description}</memory_image>`,
+    });
+    blocks.push({
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: img.mediaType,
+        data: img.base64Data,
+      },
+    } as ImageContent);
+  }
+
+  return [
+    ...messages.slice(0, -1),
+    { ...userTail, content: [...blocks, ...userTail.content] },
   ];
 }
 
