@@ -71,6 +71,9 @@ mock.module("../skills/skillssh-registry.js", () => ({
   searchSkillsRegistry: mock(async () => []),
 }));
 
+mock.module("../skills/install-meta.js", () => ({
+  readInstallMeta: () => null,
+}));
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));

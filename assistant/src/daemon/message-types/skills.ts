@@ -76,33 +76,40 @@ export interface SkillsCreateRequest {
 
 // === Server → Client ===
 
+export interface VellumSkillMeta {
+  emoji?: string;
+}
+
+export interface ClawhubSkillMeta {
+  slug: string;
+  author: string;
+  stars: number;
+  installs: number;
+  reports: number;
+  publishedAt?: string;
+}
+
+export interface SkillsshSkillMeta {
+  slug: string;
+  sourceRepo: string;
+  installs: number;
+}
+
+export interface SlimSkillResponse {
+  id: string;
+  name: string;
+  description: string;
+  kind: "bundled" | "installed" | "catalog";
+  origin: "vellum" | "clawhub" | "skillssh" | "custom";
+  status: "enabled" | "disabled" | "available";
+  vellum?: VellumSkillMeta;
+  clawhub?: ClawhubSkillMeta;
+  skillssh?: SkillsshSkillMeta;
+}
+
 export interface SkillsListResponse {
   type: "skills_list_response";
-  skills: Array<{
-    id: string;
-    name: string;
-    description: string;
-    emoji?: string;
-    homepage?: string;
-    source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
-    state: "enabled" | "disabled";
-    installedVersion?: string;
-    latestVersion?: string;
-    updateAvailable: boolean;
-    clawhub?: {
-      author: string;
-      stars: number;
-      installs: number;
-      reports: number;
-      publishedAt: string;
-    };
-    provenance?: {
-      kind: "first-party" | "third-party" | "local";
-      provider?: string;
-      originId?: string;
-      sourceUrl?: string;
-    };
-  }>;
+  skills: SlimSkillResponse[];
 }
 
 export interface SkillStateChanged {
