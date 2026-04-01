@@ -17,7 +17,10 @@
  */
 
 import type { ContextWindowConfig } from "../config/types.js";
-import { estimatePromptTokens } from "../context/token-estimator.js";
+import {
+  estimateContentBlockTokens,
+  estimatePromptTokens,
+} from "../context/token-estimator.js";
 import { truncateToolResultsAcrossHistory } from "../context/tool-result-truncation.js";
 import type {
   ContextWindowCompactOptions,
@@ -240,7 +243,39 @@ function applyMediaStubbing(
   let nextMessages = messages;
 
   if (mediaCount > 0) {
-    const stripped = stripMediaPayloadsForRetry(messages);
+    // Compute the token budget available for media content.
+    const totalTokens = estimatePromptTokens(messages, config.systemPrompt, {
+      providerName: config.providerName,
+      toolTokenBudget: config.toolTokenBudget,
+    });
+
+    // Sum tokens for all image and file blocks (top-level and nested in tool_result).
+    let mediaTokens = 0;
+    for (const msg of messages) {
+      for (const block of msg.content) {
+        if (block.type === "image" || block.type === "file") {
+          mediaTokens += estimateContentBlockTokens(block, {
+            providerName: config.providerName,
+          });
+        } else if (block.type === "tool_result" && block.contentBlocks) {
+          for (const cb of block.contentBlocks) {
+            if (cb.type === "image" || cb.type === "file") {
+              mediaTokens += estimateContentBlockTokens(cb, {
+                providerName: config.providerName,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const nonMediaTokens = totalTokens - mediaTokens;
+    const mediaTokenBudget = Math.max(0, config.targetTokens - nonMediaTokens);
+
+    const stripped = stripMediaPayloadsForRetry(messages, {
+      mediaTokenBudget,
+      providerName: config.providerName,
+    });
     if (stripped.modified) {
       nextMessages = stripped.messages;
     }

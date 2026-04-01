@@ -467,6 +467,92 @@ describe("context-overflow-reducer", () => {
     });
   });
 
+  describe("budget-aware media stubbing", () => {
+    test("media stubbing tier retains images within budget", async () => {
+      // Create messages with multiple image-only user messages (5 images in the
+      // latest user message). With budget-aware retention, the reducer should
+      // keep more than the old hardcoded limit of 3 when targetTokens is high.
+      const makeImageBlock = () => ({
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: "image/png" as const,
+          // Small base64 payload so each image doesn't cost many tokens
+          data: "A".repeat(1_000),
+        },
+      });
+
+      const messages: Message[] = [
+        msg("user", "Here are some old images"),
+        {
+          role: "user",
+          content: [makeImageBlock(), makeImageBlock()],
+        },
+        msg("assistant", "I see the old images."),
+        msg("user", "And some more old images"),
+        {
+          role: "user",
+          content: [makeImageBlock()],
+        },
+        msg("assistant", "Got those too."),
+        // Latest user message with 5 images — should retain more than 3
+        {
+          role: "user",
+          content: [
+            makeImageBlock(),
+            makeImageBlock(),
+            makeImageBlock(),
+            makeImageBlock(),
+            makeImageBlock(),
+          ],
+        },
+      ];
+
+      // Set targetTokens very high so all images in the latest message fit
+      const config = makeConfig({
+        targetTokens: 500_000,
+      });
+      const compactFn = makeNoOpCompactFn();
+
+      // Run through forced_compaction and tool_result_truncation first
+      const step1 = await reduceContextOverflow(
+        messages,
+        config,
+        undefined,
+        compactFn,
+      );
+      expect(step1.tier).toBe("forced_compaction");
+
+      const step2 = await reduceContextOverflow(
+        step1.messages,
+        config,
+        step1.state,
+        compactFn,
+      );
+      expect(step2.tier).toBe("tool_result_truncation");
+
+      // Now apply media stubbing
+      const step3 = await reduceContextOverflow(
+        step2.messages,
+        config,
+        step2.state,
+        compactFn,
+      );
+      expect(step3.tier).toBe("media_stubbing");
+
+      // Count remaining image blocks in the latest user message
+      const latestUserMsg = step3.messages[step3.messages.length - 1];
+      expect(latestUserMsg.role).toBe("user");
+      const remainingImages = latestUserMsg.content.filter(
+        (b) => b.type === "image",
+      );
+
+      // With budget-aware retention and a high target, all 5 images should be
+      // retained — more than the old hardcoded limit of 3.
+      expect(remainingImages.length).toBeGreaterThan(3);
+    });
+  });
+
   describe("createInitialReducerState", () => {
     test("returns a clean state with no applied tiers", () => {
       const state = createInitialReducerState();
