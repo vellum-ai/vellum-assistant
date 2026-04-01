@@ -78,7 +78,6 @@ jobs:
             # For release branches, count commits since the branch point from main.
             # For main dispatches, count all commits reachable from HEAD.
             if [[ "${GITHUB_REF_NAME}" == release/v* ]]; then
-              git fetch origin main --depth=1 2>/dev/null || true
               COMMIT_COUNT=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo "1")
             else
               COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
