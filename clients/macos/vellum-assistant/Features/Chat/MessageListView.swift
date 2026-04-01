@@ -125,10 +125,11 @@ struct MessageListView: View {
     /// With @Observable fine-grained tracking, reading only `activeSurfaceId`
     /// won't trigger re-renders on frequent `data` progress ticks.
     var taskProgressManager = TaskProgressOverlayManager.shared
-    /// Consolidates all scroll-related state with @Observable fine-grained tracking.
-    /// Only 1 property triggers view re-evaluations: `uiVersion`.
-    /// Snapshot values (showTailSpacer, scrollIndicatorsHidden, showScrollToLatest)
-    /// are @ObservationIgnored and synced via the uiVersion counter.
+    /// Consolidates all scroll-related state with `@Observable` fine-grained
+    /// per-property tracking. Each UI-facing property (`showTailSpacer`,
+    /// `showScrollToLatest`, `scrollIndicatorsHidden`) is individually tracked,
+    /// so SwiftUI only re-evaluates views that read the specific property that
+    /// changed. See `MessageListScrollState.swift` for details.
     @State private var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?

@@ -406,43 +406,39 @@ final class MessageListScrollStateTests: XCTestCase {
 
     // MARK: - Property-Level Tracking
 
-    /// Verifies that multiple mode changes coalesce into one debounced sync
-    /// and each UI property reflects the final state independently.
-    func testUIPropertiesCoalesceMultipleChanges() async throws {
-        // GIVEN initial state with no changes
-        let vBefore = state.uiVersion
-
-        // AND multiple mode transitions and scroll indicator change
+    /// Verifies that each UI property reflects the final mode state after
+    /// multiple transitions and a debounced sync.
+    func testUIPropertiesReflectFinalState() async throws {
+        // GIVEN multiple mode transitions ending in pushToTop
         state.transition(to: .freeBrowsing)
         state.enterPushToTop(messageId: UUID())
+
+        // AND a scroll indicator change that requires a debounced sync
         state.hideScrollIndicators = true
 
         // WHEN the debounced sync fires
         try await Task.sleep(nanoseconds: 50_000_000)
 
-        // THEN each property reflects the final state
-        XCTAssertTrue(state.showScrollToLatest)
-        XCTAssertTrue(state.showTailSpacer)
-        XCTAssertTrue(state.scrollIndicatorsHidden)
-
-        // AND only one internal counter bump occurred
-        XCTAssertEqual(state.uiVersion, vBefore + 1,
-                       "Multiple changes coalesce into one internal uiVersion bump")
+        // THEN each property reflects the final mode (.pushToTop)
+        XCTAssertFalse(state.showScrollToLatest,
+                       "pushToTop mode does not show scroll-to-latest")
+        XCTAssertTrue(state.showTailSpacer,
+                      "pushToTop mode shows tail spacer")
+        XCTAssertTrue(state.scrollIndicatorsHidden,
+                      "scroll indicators should be hidden")
     }
 
     /// Verifies that syncUIImmediately bypasses debounce and updates all
     /// properties immediately.
     func testSyncUIImmediately() {
-        // GIVEN freeBrowsing + pushToTop modes
-        state.transition(to: .freeBrowsing)
+        // GIVEN pushToTop mode (enterPushToTop already calls syncUIImmediately)
         state.enterPushToTop(messageId: UUID())
 
-        // WHEN syncing immediately
-        state.syncUIImmediately()
-
-        // THEN properties reflect the current mode
-        XCTAssertTrue(state.showScrollToLatest)
-        XCTAssertTrue(state.showTailSpacer)
+        // THEN properties reflect the current mode (.pushToTop)
+        XCTAssertFalse(state.showScrollToLatest,
+                       "pushToTop mode does not show scroll-to-latest")
+        XCTAssertTrue(state.showTailSpacer,
+                      "pushToTop mode shows tail spacer")
     }
 
     /// Verifies that consumePendingPushToTop fires a scroll when a pending
