@@ -260,17 +260,17 @@ export const backfillInstallMetaMigration: WorkspaceMigration = {
     const integrityManifest = loadIntegrityManifest(skillsDir);
 
     // Enumerate skill directories (each subdirectory containing a SKILL.md)
-    let entries: ReturnType<typeof readdirSync>;
+    let dirNames: string[];
     try {
-      entries = readdirSync(skillsDir, { withFileTypes: true });
+      dirNames = readdirSync(skillsDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
     } catch {
       return;
     }
 
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-
-      const skillDir = join(skillsDir, entry.name);
+    for (const name of dirNames) {
+      const skillDir = join(skillsDir, name);
       const skillMdPath = join(skillDir, SKILL_MD_FILENAME);
       const installMetaPath = join(skillDir, INSTALL_META_FILENAME);
 
@@ -280,7 +280,7 @@ export const backfillInstallMetaMigration: WorkspaceMigration = {
       // Skip if install-meta.json already exists (idempotency)
       if (existsSync(installMetaPath)) continue;
 
-      const meta = inferInstallMeta(skillDir, entry.name, integrityManifest);
+      const meta = inferInstallMeta(skillDir, name, integrityManifest);
 
       // installedBy is left undefined for all backfilled skills
       writeInstallMeta(skillDir, meta);
@@ -291,21 +291,17 @@ export const backfillInstallMetaMigration: WorkspaceMigration = {
     const skillsDir = join(workspaceDir, "skills");
     if (!existsSync(skillsDir)) return;
 
-    let entries: ReturnType<typeof readdirSync>;
+    let dirNames: string[];
     try {
-      entries = readdirSync(skillsDir, { withFileTypes: true });
+      dirNames = readdirSync(skillsDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
     } catch {
       return;
     }
 
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-
-      const installMetaPath = join(
-        skillsDir,
-        entry.name,
-        INSTALL_META_FILENAME,
-      );
+    for (const name of dirNames) {
+      const installMetaPath = join(skillsDir, name, INSTALL_META_FILENAME);
       if (existsSync(installMetaPath)) {
         try {
           const meta = JSON.parse(
