@@ -61,6 +61,9 @@ export const memoryGraphNodes = sqliteTable(
 
     /** Memory scope for multi-scope isolation. */
     scopeId: text("scope_id").notNull().default("default"),
+
+    /** JSON array of ImageRef objects — images attached to this memory. */
+    imageRefs: text("image_refs"),
   },
   (table) => [
     index("idx_graph_nodes_scope_id").on(table.scopeId),

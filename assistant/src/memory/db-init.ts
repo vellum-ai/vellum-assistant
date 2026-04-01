@@ -94,6 +94,7 @@ import {
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
+  migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
@@ -571,6 +572,9 @@ export function initializeDb(): void {
 
   // 103. Rename legacy memory graph node type values: style → behavioral, relationship → semantic
   migrateRenameMemoryGraphTypeValues(database);
+
+  // 104. Add nullable image_refs TEXT column to memory_graph_nodes
+  migrateMemoryGraphImageRefs(database);
 
   validateMigrationState(database);
 
