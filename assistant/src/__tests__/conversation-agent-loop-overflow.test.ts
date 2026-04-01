@@ -457,6 +457,11 @@ function makeCtx(
       assistantMessageChannel: "vellum" as const,
     }),
 
+    graphMemory: {
+      onCompacted: () => {},
+      prepareMemory: async () => ({ injections: [], tokenEstimate: 0 }),
+    } as unknown as AgentLoopConversationContext["graphMemory"],
+
     ...overrides,
   } as AgentLoopConversationContext;
 }
