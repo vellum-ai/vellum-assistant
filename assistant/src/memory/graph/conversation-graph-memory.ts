@@ -249,6 +249,8 @@ export class ConversationGraphMemory {
     this.needsReload = false;
 
     if (result.nodes.length === 0) {
+      this.lastInjectedBlock = null;
+      this.lastInjectedNodeIds = [];
       return {
         runMessages: messages,
         injectedTokens: 0,
@@ -323,6 +325,8 @@ export class ConversationGraphMemory {
     });
 
     if (result.nodes.length === 0) {
+      this.lastInjectedBlock = null;
+      this.lastInjectedNodeIds = [];
       return {
         runMessages: messages,
         injectedTokens: 0,
@@ -391,6 +395,8 @@ export class ConversationGraphMemory {
     });
 
     if (result.nodes.length === 0) {
+      this.lastInjectedBlock = null;
+      this.lastInjectedNodeIds = [];
       return {
         runMessages: messages,
         injectedTokens: 0,
