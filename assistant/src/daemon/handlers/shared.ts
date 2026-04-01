@@ -497,13 +497,66 @@ export function ensureSkillEntry(
   return entries[name] as Record<string, unknown>;
 }
 
-/** Compare two semver strings. Returns negative if a < b, 0 if equal, positive if a > b. */
-export function compareSemver(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
+/**
+ * Parse a version string into its core numeric parts and optional pre-release tag.
+ * Handles optional `v`/`V` prefix (e.g. "v0.6.0-staging.5").
+ */
+function parseSemverParts(v: string): {
+  nums: [number, number, number];
+  pre: string | null;
+} {
+  const stripped = v.replace(/^[vV]/, "");
+  const [core, ...rest] = stripped.split("-");
+  const pre = rest.length > 0 ? rest.join("-") : null;
+  const segs = (core ?? "").split(".").map(Number);
+  return {
+    nums: [segs[0] ?? 0, segs[1] ?? 0, segs[2] ?? 0],
+    pre,
+  };
+}
+
+/**
+ * Compare two pre-release strings.
+ * Each dot-separated identifier is compared numerically when both are numeric,
+ * lexically otherwise. A version with fewer identifiers sorts earlier when all
+ * preceding identifiers are equal (per semver §11).
+ */
+function comparePreRelease(a: string, b: string): number {
+  const pa = a.split(".");
+  const pb = b.split(".");
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    if (i >= pa.length) return -1; // a has fewer fields → a < b
+    if (i >= pb.length) return 1;
+    const na = Number(pa[i]);
+    const nb = Number(pb[i]);
+    if (!isNaN(na) && !isNaN(nb)) {
+      if (na !== nb) return na - nb;
+    } else {
+      const cmp = (pa[i] ?? "").localeCompare(pb[i] ?? "");
+      if (cmp !== 0) return cmp;
+    }
   }
   return 0;
+}
+
+/**
+ * Compare two semver strings. Returns negative if a < b, 0 if equal, positive if a > b.
+ *
+ * Handles pre-release suffixes per semver spec:
+ *   - `0.6.0-staging.1 < 0.6.0` (pre-release < release)
+ *   - `0.6.0-staging.1 < 0.6.0-staging.2` (numeric postfix comparison)
+ */
+export function compareSemver(a: string, b: string): number {
+  const pa = parseSemverParts(a);
+  const pb = parseSemverParts(b);
+  for (let i = 0; i < 3; i++) {
+    const diff = pa.nums[i] - pb.nums[i];
+    if (diff !== 0) return diff;
+  }
+  // Same major.minor.patch — compare pre-release
+  if (pa.pre === null && pb.pre === null) return 0;
+  if (pa.pre !== null && pb.pre === null) return -1; // pre-release < release
+  if (pa.pre === null && pb.pre !== null) return 1;
+  return comparePreRelease(pa.pre!, pb.pre!);
 }
