@@ -437,14 +437,15 @@ describe("reconcileTelegramWebhook", () => {
 
     expect(calls).toHaveLength(3);
     expect(calls[0].method).toBe("registerCallbackRoute");
-    // Should use credential cache values, not env vars
+    // platform_base_url and platform_assistant_id: credential cache takes precedence
     expect(calls[0].body).toEqual({
       assistant_id: "cache-assistant-id",
       callback_path: "webhooks/telegram",
       type: "telegram",
     });
-    // credential cache assistant_api_key uses Api-Key scheme
-    expect(calls[0].headers?.Authorization).toBe("Api-Key cache-api-key");
+    // PLATFORM_INTERNAL_API_KEY (env var, Bearer) takes precedence over
+    // assistant_api_key from credential cache, matching the daemon's behaviour.
+    expect(calls[0].headers?.Authorization).toBe("Bearer env-internal-key");
     // Registration URL should use cache platform URL
     expect((calls[2].body as any).url).toBe(
       "https://cache-platform.example.com/v1/gateway/callbacks/cache-assistant-id/webhooks/telegram/",
