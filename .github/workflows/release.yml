@@ -27,6 +27,8 @@ jobs:
       docker_environments: ${{ steps.finalize.outputs.docker_environments }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Extract version from branch name
         id: extract
@@ -71,7 +73,15 @@ jobs:
           BASE_VERSION="${{ steps.extract.outputs.base_version }}"
           IS_STAGING="${{ steps.detect-staging.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            VERSION="${BASE_VERSION}-staging.${{ github.run_number }}"
+            # Use the number of times this workflow has run on this branch
+            # as the prerelease suffix — monotonically increasing and scoped
+            # to the branch (e.g. v0.6.0-staging.3 for the 3rd run).
+            WORKFLOW_FILE="release.yml"
+            RUN_COUNT=$(gh api "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_FILE}/runs?branch=${GITHUB_REF_NAME}" --jq '.total_count' 2>/dev/null || echo "1")
+            if [ "$RUN_COUNT" -lt 1 ] 2>/dev/null; then
+              RUN_COUNT=1
+            fi
+            VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
             echo "Staging prerelease version: $VERSION"
             echo 'docker_environments=["dev"]' >> "$GITHUB_OUTPUT"
           else
@@ -842,12 +852,7 @@ jobs:
           ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
-          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
-          if [ "$IS_STAGING" = "true" ]; then
-            IS_STABLE="false"
-          else
-            IS_STABLE="true"
-          fi
+          IS_STABLE="true"
 
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \
@@ -1044,8 +1049,14 @@ jobs:
       - name: Set version
         id: version
         run: |
-          # Use base_version for DISPLAY_VERSION (Apple requires MAJOR.MINOR.PATCH for CFBundleShortVersionString)
-          DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
+          # For staging, use the full prerelease version as DISPLAY_VERSION so
+          # the About window shows e.g. "0.6.0-staging.3" instead of just "0.6.0".
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          else
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
+          fi
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -1074,6 +1085,10 @@ jobs:
 
       - name: Build release .app
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
+          fi
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -1388,8 +1403,12 @@ jobs:
       - name: Set version
         id: version
         run: |
-          # Use base_version for DISPLAY_VERSION (Apple requires MAJOR.MINOR.PATCH for CFBundleShortVersionString)
-          DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          else
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
+          fi
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -1467,6 +1486,10 @@ jobs:
 
       - name: Build release .app
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
+          fi
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -2082,8 +2105,12 @@ jobs:
       - name: Set version
         id: version
         run: |
-          # Use base_version for DISPLAY_VERSION (Apple requires MAJOR.MINOR.PATCH for CFBundleShortVersionString)
-          DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          else
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
+          fi
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -2346,7 +2373,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered as unstable._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
