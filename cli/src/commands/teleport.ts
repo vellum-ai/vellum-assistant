@@ -632,7 +632,7 @@ async function importToAssistant(
   cloud: string,
   bundleData: Uint8Array<ArrayBuffer>,
   dryRun: boolean,
-  preUploadedBundleKey?: string,
+  preUploadedBundleKey?: string | null,
 ): Promise<void> {
   if (cloud === "vellum") {
     // Platform target
@@ -654,9 +654,12 @@ async function importToAssistant(
       throw err;
     }
 
-    // Use pre-uploaded bundle key if provided, otherwise try signed-URL upload
-    let bundleKey: string | undefined = preUploadedBundleKey;
-    if (bundleKey === undefined) {
+    // Use pre-uploaded bundle key if provided (string), skip upload if null
+    // (signals signed URLs were already tried and unavailable), or try
+    // signed-URL upload if undefined (never attempted).
+    let bundleKey: string | undefined =
+      preUploadedBundleKey === null ? undefined : preUploadedBundleKey;
+    if (preUploadedBundleKey === undefined) {
       try {
         const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
           token,
@@ -1179,15 +1182,25 @@ export async function teleport(): Promise<void> {
       process.exit(1);
     }
 
-    // If targeting an existing platform assistant, use its runtimeUrl for all
-    // platform calls so upload, org ID fetch, and import hit the same instance.
-    // Only use the runtimeUrl if the existing target is actually a platform
-    // assistant — otherwise resolveOrHatchTarget will catch the cloud mismatch.
+    // If targeting an existing assistant, validate cloud match early — before
+    // uploading — so we don't waste a GCS upload on an invalid command.
     const existingTarget = targetName ? findAssistantByName(targetName) : null;
-    const targetPlatformUrl =
-      existingTarget && resolveCloud(existingTarget) === "vellum"
-        ? existingTarget.runtimeUrl
-        : undefined;
+    if (existingTarget) {
+      const existingCloud = resolveCloud(existingTarget);
+      if (existingCloud !== "vellum") {
+        const normalizedExisting =
+          existingCloud === "vellum" ? "platform" : existingCloud;
+        console.error(
+          `Error: Assistant '${targetName}' is a ${normalizedExisting} assistant, not platform. ` +
+            `Use --${normalizedExisting} to target it.`,
+        );
+        process.exit(1);
+      }
+    }
+
+    // Use the existing target's runtimeUrl for all platform calls so upload,
+    // org ID fetch, and import hit the same instance.
+    const targetPlatformUrl = existingTarget?.runtimeUrl;
 
     let orgId: string;
     try {
@@ -1202,7 +1215,9 @@ export async function teleport(): Promise<void> {
     }
 
     // Step C — Upload to GCS
-    let bundleKey: string | undefined;
+    // bundleKey: string = uploaded successfully, null = tried but unavailable,
+    // undefined would mean "never tried" (not used here).
+    let bundleKey: string | null = null;
     try {
       const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
         token,
@@ -1216,7 +1231,7 @@ export async function teleport(): Promise<void> {
       // If signed uploads unavailable (503), fall back to inline upload later
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("not available")) {
-        bundleKey = undefined;
+        bundleKey = null;
       } else {
         throw err;
       }
@@ -1227,6 +1242,7 @@ export async function teleport(): Promise<void> {
     const toCloud = resolveCloud(toEntry);
 
     // Step E — Import from GCS (or inline fallback)
+    // Pass bundleKey (string) or null to signal "already tried, use inline".
     console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
     await importToAssistant(toEntry, toCloud, bundleData, false, bundleKey);
 
