@@ -215,7 +215,7 @@ describe("searchSkills (unified)", () => {
     expect(data.skills[0]!.source).toBe("vellum");
     expect(data.skills[1]!.slug).toBe("deploy");
     expect(data.skills[1]!.source).toBe("clawhub");
-    expect(data.skills[2]!.slug).toBe("react-best");
+    expect(data.skills[2]!.slug).toBe("vercel-labs/skills/react-best");
     expect(data.skills[2]!.source).toBe("skillssh");
   });
 
@@ -243,6 +243,8 @@ describe("searchSkills (unified)", () => {
         },
       ],
     });
+    // skills.sh uses full id as slug, so it won't collide with catalog/clawhub
+    // short slugs. Dedup only removes the clawhub duplicate here.
     mockSkillsshSearch.mockResolvedValue([
       {
         id: "org/repo/shared-skill",
@@ -260,13 +262,16 @@ describe("searchSkills (unified)", () => {
     const data = result.data as {
       skills: Array<{ slug: string; source: string }>;
     };
-    // Only the catalog version should survive
-    expect(data.skills).toHaveLength(1);
+    // Catalog deduplicates clawhub (same slug "shared-skill"), but skills.sh
+    // now uses the full id "org/repo/shared-skill" so it's a distinct entry.
+    expect(data.skills).toHaveLength(2);
     expect(data.skills[0]!.slug).toBe("shared-skill");
     expect(data.skills[0]!.source).toBe("vellum");
+    expect(data.skills[1]!.slug).toBe("org/repo/shared-skill");
+    expect(data.skills[1]!.source).toBe("skillssh");
   });
 
-  test("deduplicates: clawhub takes precedence over skills.sh", async () => {
+  test("deduplicates: clawhub takes precedence over skills.sh with same slug", async () => {
     mockCatalogSkills.mockReturnValue([]);
     mockClawhubSearch.mockResolvedValue({
       skills: [
@@ -283,6 +288,8 @@ describe("searchSkills (unified)", () => {
         },
       ],
     });
+    // skills.sh now uses full id as slug, so it won't collide with clawhub
+    // short slugs — both entries survive dedup.
     mockSkillsshSearch.mockResolvedValue([
       {
         id: "org/repo/overlap-skill",
@@ -300,9 +307,12 @@ describe("searchSkills (unified)", () => {
     const data = result.data as {
       skills: Array<{ slug: string; source: string }>;
     };
-    expect(data.skills).toHaveLength(1);
+    // Full id slug means no collision — both entries survive
+    expect(data.skills).toHaveLength(2);
     expect(data.skills[0]!.slug).toBe("overlap-skill");
     expect(data.skills[0]!.source).toBe("clawhub");
+    expect(data.skills[1]!.slug).toBe("org/repo/overlap-skill");
+    expect(data.skills[1]!.source).toBe("skillssh");
   });
 
   test("returns clawhub results when skills.sh fails", async () => {
@@ -357,7 +367,7 @@ describe("searchSkills (unified)", () => {
       skills: Array<{ slug: string; source: string }>;
     };
     expect(data.skills).toHaveLength(1);
-    expect(data.skills[0]!.slug).toBe("skillssh-only");
+    expect(data.skills[0]!.slug).toBe("org/repo/skillssh-only");
     expect(data.skills[0]!.source).toBe("skillssh");
   });
 
@@ -419,7 +429,7 @@ describe("searchSkills (unified)", () => {
 
     const skill = data.skills[0]!;
     expect(skill.name).toBe("Test Skill");
-    expect(skill.slug).toBe("test-skill");
+    expect(skill.slug).toBe("org/repo/test-skill");
     expect(skill.description).toBe("");
     expect(skill.author).toBe("");
     expect(skill.stars).toBe(0);

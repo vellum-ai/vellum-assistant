@@ -823,7 +823,7 @@ export async function searchSkills(
     if (skillsshResult.status === "fulfilled") {
       skillsshSkills = skillsshResult.value.map((r) => ({
         name: r.name,
-        slug: r.skillId,
+        slug: r.id,
         description: "",
         author: "",
         stars: 0,
