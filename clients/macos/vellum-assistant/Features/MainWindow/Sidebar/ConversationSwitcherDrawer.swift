@@ -249,20 +249,11 @@ struct ConversationSwitcherDrawer: View {
             }
         } label: {
             HStack(spacing: VSpacing.xs) {
-                ZStack {
-                    VIconView(.chevronRight, size: 10)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
-                        .animation(VAnimation.fast, value: isSubGroupExpanded)
-                    if hasUnread {
-                        Circle()
-                            .fill(VColor.systemMidStrong)
-                            .frame(width: 6, height: 6)
-                            .offset(x: 7, y: -7)
-                            .transition(.opacity)
-                    }
-                }
-                .frame(width: 20, height: 20)
+                VIconView(.chevronRight, size: 10)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
+                    .animation(VAnimation.fast, value: isSubGroupExpanded)
+                    .frame(width: 20, height: 20)
 
                 Text(subGroup.label)
                     .font(VFont.menuCompact)
@@ -270,6 +261,10 @@ struct ConversationSwitcherDrawer: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer()
+                if hasUnread {
+                    VBadge(style: .dot, color: VColor.systemMidStrong)
+                        .transition(.opacity)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
