@@ -87,14 +87,20 @@ export interface HatchedAssistant {
   status: string;
 }
 
-export async function hatchAssistant(token: string): Promise<HatchedAssistant> {
-  const url = `${getPlatformUrl()}/v1/assistants/hatch/`;
+export async function hatchAssistant(
+  token: string,
+  orgId: string,
+  platformUrl?: string,
+): Promise<HatchedAssistant> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/hatch/`;
 
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders(token),
+      "Vellum-Organization-Id": orgId,
     },
     body: JSON.stringify({}),
   });
