@@ -9,14 +9,13 @@ import type { ToolDefinition } from "../../providers/types.js";
 /**
  * Explicit memory search across the living graph or raw archive.
  *
- * Auto-injected context handles most cases. This tool is for when
- * the assistant needs deeper recall — e.g. the user references a
- * past conversation, or the assistant needs to verify a memory.
+ * Auto-injected context covers common cases, but the assistant should
+ * proactively recall when uncertain — search first, ask second.
  */
 export const graphRecallDefinition: ToolDefinition = {
   name: "recall",
   description:
-    "Search your memory for specific information. Relevant memories are auto-injected each turn, so only call this when the auto-injected context doesn't contain what you need — e.g. the user references a past conversation, you need to verify a memory against the raw archive, or you want to search by a specific feeling, time period, or person. Be specific in your query for best results.",
+    "Search your memory for specific information. Use this proactively — if you're uncertain about something, look it up before asking. Auto-injected context covers common cases, but actively recall when: you're about to ask a question that memory might answer, the user references something you should already know, you need details about a past conversation or event, or you want to search by a specific feeling, time period, or person. When in doubt, search first, ask second. Be specific in your query for best results.",
   input_schema: {
     type: "object",
     properties: {
