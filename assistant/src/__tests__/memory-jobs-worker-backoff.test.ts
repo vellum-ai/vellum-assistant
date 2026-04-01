@@ -37,11 +37,6 @@ mock.module("../memory/jobs-store.js", () => ({
   enqueuePruneOldConversationsJob: () => null,
 }));
 
-// Mock db.js (rawRun used in sweepStaleItems)
-mock.module("../memory/db.js", () => ({
-  rawRun: () => 0,
-}));
-
 import {
   POLL_INTERVAL_MAX_MS,
   POLL_INTERVAL_MIN_MS,

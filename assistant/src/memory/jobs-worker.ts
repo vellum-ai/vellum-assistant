@@ -2,7 +2,6 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
-import { rawRun } from "./db.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
 import { graphExtractJob } from "./graph/extraction-job.js";
@@ -123,9 +122,6 @@ export async function runMemoryJobsOnce(
   const config = getConfig();
   if (!config.memory.enabled) return 0;
   const enableScheduledCleanup = options.enableScheduledCleanup === true;
-
-  // Periodic stale item sweep (throttled to at most once per hour)
-  sweepStaleItems(config);
 
   // Fail jobs that have been running longer than the configured timeout
   const timedOut = failStalledJobs(config.memory.jobs.stalledJobTimeoutMs);
@@ -534,61 +530,3 @@ function maybeEnqueueGraphMaintenanceJobs(nowMs = Date.now()): void {
   }
 }
 
-// ── Stale item sweep ───────────────────────────────────────────────
-
-const STALE_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-let lastStaleSweepMs = 0;
-
-/** Reset the sweep throttle so tests can call sweepStaleItems back-to-back. */
-export function resetStaleSweepThrottle(): void {
-  lastStaleSweepMs = 0;
-}
-
-/**
- * Mark deeply stale memory items as invalid. An item is considered deeply
- * stale when it has exceeded 2x its freshness window for its kind and has
- * not been recently accessed.
- *
- * This is non-destructive: items keep their data but get an `invalid_at`
- * timestamp that excludes them from retrieval queries.
- */
-export function sweepStaleItems(config: AssistantConfig): number {
-  const freshness = config.memory.retrieval.freshness;
-  if (!freshness.enabled) return 0;
-
-  const now = Date.now();
-  // Throttle: at most once per hour
-  if (now - lastStaleSweepMs < STALE_SWEEP_INTERVAL_MS) return 0;
-  lastStaleSweepMs = now;
-
-  let totalMarked = 0;
-  for (const [kind, maxAgeDays] of Object.entries(freshness.maxAgeDays)) {
-    if (maxAgeDays <= 0) continue;
-    // Mark invalid if: past 2x window, no access in the shield period, and not already invalid
-    const cutoffMs = now - maxAgeDays * 2 * 86_400_000;
-    const shieldCutoffMs = now - freshness.reinforcementShieldDays * 86_400_000;
-    const changes = rawRun(
-      `
-      UPDATE memory_items
-      SET invalid_at = ?
-      WHERE kind = ?
-        AND status = 'active'
-        AND invalid_at IS NULL
-        AND last_seen_at < ?
-        AND (access_count = 0 OR COALESCE(last_used_at, 0) < ?)
-    `,
-      now,
-      kind,
-      cutoffMs,
-      shieldCutoffMs,
-    );
-    if (changes > 0) {
-      log.info(
-        { kind, marked: changes, cutoffMs },
-        "Marked stale memory items as invalid",
-      );
-      totalMarked += changes;
-    }
-  }
-  return totalMarked;
-}
