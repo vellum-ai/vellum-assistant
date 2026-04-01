@@ -9,17 +9,17 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Skill
 /// updating, searching, inspecting, drafting, and creating skills.
 public protocol SkillsClientProtocol {
     func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage?
-    func enableSkill(name: String) async -> SkillsOperationResponseMessage?
-    func disableSkill(name: String) async -> SkillsOperationResponseMessage?
-    func configureSkill(name: String, env: [String: String]?, apiKey: String?, config: [String: AnyCodable]?) async -> SkillsOperationResponseMessage?
-    func installSkill(slug: String, version: String?) async -> SkillsOperationResponseMessage?
-    func uninstallSkill(name: String) async -> SkillsOperationResponseMessage?
-    func updateSkill(name: String) async -> SkillsOperationResponseMessage?
-    func checkSkillUpdates() async -> SkillsOperationResponseMessage?
+    func enableSkill(name: String) async -> SkillOperationResult?
+    func disableSkill(name: String) async -> SkillOperationResult?
+    func configureSkill(name: String, env: [String: String]?, apiKey: String?, config: [String: AnyCodable]?) async -> SkillOperationResult?
+    func installSkill(slug: String, version: String?) async -> SkillOperationResult?
+    func uninstallSkill(name: String) async -> SkillOperationResult?
+    func updateSkill(name: String) async -> SkillOperationResult?
+    func checkSkillUpdates() async -> SkillOperationResult?
     func searchSkills(query: String) async -> SkillSearchResult?
     func inspectSkill(slug: String) async -> SkillsInspectResponseMessage?
     func draftSkill(sourceText: String) async -> SkillsDraftResponseMessage?
-    func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, overwrite: Bool?) async -> SkillsOperationResponseMessage?
+    func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, overwrite: Bool?) async -> SkillOperationResult?
     func fetchSkillDetail(skillId: String) async -> SkillDetailHTTPResponse?
     func fetchSkillFiles(skillId: String) async -> SkillDetailFilesHTTPResponse?
 }
@@ -57,55 +57,45 @@ public struct SkillsClient: SkillsClientProtocol {
         }
     }
 
-    public func enableSkill(name: String) async -> SkillsOperationResponseMessage? {
+    public func enableSkill(name: String) async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.post(
                 path: "assistants/{assistantId}/skills/\(Self.encodePath(name))/enable", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("enableSkill failed (HTTP \(response.statusCode))")
-                return SkillsOperationResponseMessage(
-                    operation: "enable", success: false,
-                    error: extractErrorMessage(from: response.data), data: nil
+                return SkillOperationResult(
+                    success: false,
+                    error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillsOperationResponseMessage(
-                operation: "enable", success: true, error: nil, data: nil
-            )
+            return SkillOperationResult(success: true)
         } catch {
             log.error("enableSkill error: \(error.localizedDescription)")
-            return SkillsOperationResponseMessage(
-                operation: "enable", success: false,
-                error: error.localizedDescription, data: nil
-            )
+            return SkillOperationResult(success: false, error: error.localizedDescription)
         }
     }
 
-    public func disableSkill(name: String) async -> SkillsOperationResponseMessage? {
+    public func disableSkill(name: String) async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.post(
                 path: "assistants/{assistantId}/skills/\(Self.encodePath(name))/disable", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("disableSkill failed (HTTP \(response.statusCode))")
-                return SkillsOperationResponseMessage(
-                    operation: "disable", success: false,
-                    error: extractErrorMessage(from: response.data), data: nil
+                return SkillOperationResult(
+                    success: false,
+                    error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillsOperationResponseMessage(
-                operation: "disable", success: true, error: nil, data: nil
-            )
+            return SkillOperationResult(success: true)
         } catch {
             log.error("disableSkill error: \(error.localizedDescription)")
-            return SkillsOperationResponseMessage(
-                operation: "disable", success: false,
-                error: error.localizedDescription, data: nil
-            )
+            return SkillOperationResult(success: false, error: error.localizedDescription)
         }
     }
 
-    public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) async -> SkillsOperationResponseMessage? {
+    public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) async -> SkillOperationResult? {
         do {
             var body: [String: Any] = [:]
             if let env { body["env"] = env }
@@ -123,24 +113,19 @@ public struct SkillsClient: SkillsClientProtocol {
             )
             guard response.isSuccess else {
                 log.error("configureSkill failed (HTTP \(response.statusCode))")
-                return SkillsOperationResponseMessage(
-                    operation: "configure", success: false,
-                    error: extractErrorMessage(from: response.data), data: nil
+                return SkillOperationResult(
+                    success: false,
+                    error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillsOperationResponseMessage(
-                operation: "configure", success: true, error: nil, data: nil
-            )
+            return SkillOperationResult(success: true)
         } catch {
             log.error("configureSkill error: \(error.localizedDescription)")
-            return SkillsOperationResponseMessage(
-                operation: "configure", success: false,
-                error: error.localizedDescription, data: nil
-            )
+            return SkillOperationResult(success: false, error: error.localizedDescription)
         }
     }
 
-    public func installSkill(slug: String, version: String? = nil) async -> SkillsOperationResponseMessage? {
+    public func installSkill(slug: String, version: String? = nil) async -> SkillOperationResult? {
         do {
             var body: [String: Any] = ["slug": slug]
             if let version { body["version"] = version }
@@ -150,92 +135,72 @@ public struct SkillsClient: SkillsClientProtocol {
             )
             guard response.isSuccess else {
                 log.error("installSkill failed (HTTP \(response.statusCode))")
-                return SkillsOperationResponseMessage(
-                    operation: "install", success: false,
-                    error: extractErrorMessage(from: response.data), data: nil
+                return SkillOperationResult(
+                    success: false,
+                    error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillsOperationResponseMessage(
-                operation: "install", success: true, error: nil, data: nil
-            )
+            return SkillOperationResult(success: true)
         } catch {
             log.error("installSkill error: \(error.localizedDescription)")
-            return SkillsOperationResponseMessage(
-                operation: "install", success: false,
-                error: error.localizedDescription, data: nil
-            )
+            return SkillOperationResult(success: false, error: error.localizedDescription)
         }
     }
 
-    public func uninstallSkill(name: String) async -> SkillsOperationResponseMessage? {
+    public func uninstallSkill(name: String) async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.delete(
                 path: "assistants/{assistantId}/skills/\(Self.encodePath(name))", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("uninstallSkill failed (HTTP \(response.statusCode))")
-                return SkillsOperationResponseMessage(
-                    operation: "uninstall", success: false,
-                    error: extractErrorMessage(from: response.data), data: nil
+                return SkillOperationResult(
+                    success: false,
+                    error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillsOperationResponseMessage(
-                operation: "uninstall", success: true, error: nil, data: nil
-            )
+            return SkillOperationResult(success: true)
         } catch {
             log.error("uninstallSkill error: \(error.localizedDescription)")
-            return SkillsOperationResponseMessage(
-                operation: "uninstall", success: false,
-                error: error.localizedDescription, data: nil
-            )
+            return SkillOperationResult(success: false, error: error.localizedDescription)
         }
     }
 
-    public func updateSkill(name: String) async -> SkillsOperationResponseMessage? {
+    public func updateSkill(name: String) async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.post(
                 path: "assistants/{assistantId}/skills/\(Self.encodePath(name))/update", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("updateSkill failed (HTTP \(response.statusCode))")
-                return SkillsOperationResponseMessage(
-                    operation: "update", success: false,
-                    error: extractErrorMessage(from: response.data), data: nil
+                return SkillOperationResult(
+                    success: false,
+                    error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillsOperationResponseMessage(
-                operation: "update", success: true, error: nil, data: nil
-            )
+            return SkillOperationResult(success: true)
         } catch {
             log.error("updateSkill error: \(error.localizedDescription)")
-            return SkillsOperationResponseMessage(
-                operation: "update", success: false,
-                error: error.localizedDescription, data: nil
-            )
+            return SkillOperationResult(success: false, error: error.localizedDescription)
         }
     }
 
-    public func checkSkillUpdates() async -> SkillsOperationResponseMessage? {
+    public func checkSkillUpdates() async -> SkillOperationResult? {
         do {
             let response = try await GatewayHTTPClient.post(
                 path: "assistants/{assistantId}/skills/check-updates", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("checkSkillUpdates failed (HTTP \(response.statusCode))")
-                return SkillsOperationResponseMessage(
-                    operation: "check_updates", success: false,
-                    error: extractErrorMessage(from: response.data), data: nil
+                return SkillOperationResult(
+                    success: false,
+                    error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillsOperationResponseMessage(
-                operation: "check_updates", success: true, error: nil, data: nil
-            )
+            return SkillOperationResult(success: true)
         } catch {
             log.error("checkSkillUpdates error: \(error.localizedDescription)")
-            return SkillsOperationResponseMessage(
-                operation: "check_updates", success: false,
-                error: error.localizedDescription, data: nil
-            )
+            return SkillOperationResult(success: false, error: error.localizedDescription)
         }
     }
 
@@ -303,7 +268,7 @@ public struct SkillsClient: SkillsClientProtocol {
         }
     }
 
-    public func createSkill(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) async -> SkillsOperationResponseMessage? {
+    public func createSkill(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) async -> SkillOperationResult? {
         do {
             var body: [String: Any] = [
                 "skillId": skillId,
@@ -319,20 +284,15 @@ public struct SkillsClient: SkillsClientProtocol {
             )
             guard response.isSuccess else {
                 log.error("createSkill failed (HTTP \(response.statusCode))")
-                return SkillsOperationResponseMessage(
-                    operation: "create", success: false,
-                    error: extractErrorMessage(from: response.data), data: nil
+                return SkillOperationResult(
+                    success: false,
+                    error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillsOperationResponseMessage(
-                operation: "create", success: true, error: nil, data: nil
-            )
+            return SkillOperationResult(success: true)
         } catch {
             log.error("createSkill error: \(error.localizedDescription)")
-            return SkillsOperationResponseMessage(
-                operation: "create", success: false,
-                error: error.localizedDescription, data: nil
-            )
+            return SkillOperationResult(success: false, error: error.localizedDescription)
         }
     }
 
