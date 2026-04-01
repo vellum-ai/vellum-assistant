@@ -363,7 +363,7 @@ struct IntegrationDetailModal: View {
             } label: {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.plus, size: 14)
-                    Text("Add Another App")
+                    Text("Add Another Connection")
                         .font(VFont.bodyMediumDefault)
                 }
                 .foregroundStyle(VColor.primaryBase)
