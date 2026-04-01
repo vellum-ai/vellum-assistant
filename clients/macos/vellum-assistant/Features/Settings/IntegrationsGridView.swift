@@ -117,7 +117,6 @@ struct IntegrationsGridView: View {
                         providerKey: provider.provider_key,
                         displayName: provider.display_name ?? provider.provider_key,
                         description: provider.description,
-                        isEnabled: !(store.managedOAuthConnections[provider.provider_key] ?? []).isEmpty,
                         action: {
                             selectedProviderKey = provider.provider_key
                         }
