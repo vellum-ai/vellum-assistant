@@ -180,11 +180,18 @@ struct IntegrationDetailModal: View {
                     managedConnectionsList
                 }
 
-                if isConnecting {
-                    managedConnectingState
-                } else {
-                    managedConnectButton
-                }
+                managedConnectButton
+                    .opacity(isConnecting ? 0 : 1)
+                    .overlay {
+                        if isConnecting {
+                            HStack(spacing: VSpacing.sm) {
+                                VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                                Text("Waiting for authorization...")
+                                    .font(VFont.bodyMediumDefault)
+                                    .foregroundStyle(VColor.contentTertiary)
+                            }
+                        }
+                    }
             }
 
             if let error = store.managedError(for: providerKey) {
@@ -240,15 +247,6 @@ struct IntegrationDetailModal: View {
         }
         .buttonStyle(.plain)
         .onHover { isConnectButtonHovered = $0 }
-    }
-
-    private var managedConnectingState: some View {
-        HStack(spacing: VSpacing.sm) {
-            VBusyIndicator(size: 8, color: VColor.contentTertiary)
-            Text("Waiting for authorization...")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
-        }
     }
 
     private var managedConnectionsList: some View {
