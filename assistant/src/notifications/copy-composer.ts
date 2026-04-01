@@ -399,6 +399,89 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     };
   },
 
+  "ingress.trusted_contact.guardian_decision": (payload) => {
+    const decision = str(payload.decision, "decided on");
+    const sourceChannel =
+      typeof payload.sourceChannel === "string"
+        ? payload.sourceChannel
+        : undefined;
+
+    const requesterDisplayName =
+      typeof payload.requesterDisplayName === "string" &&
+      payload.requesterDisplayName.length > 0
+        ? payload.requesterDisplayName
+        : undefined;
+    const requesterExternalUserId =
+      typeof payload.requesterExternalUserId === "string" &&
+      payload.requesterExternalUserId.length > 0
+        ? payload.requesterExternalUserId
+        : undefined;
+    const requesterLabel =
+      requesterDisplayName ??
+      (sourceChannel === "slack" &&
+      requesterExternalUserId &&
+      /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
+        ? `<@${requesterExternalUserId}>`
+        : requesterExternalUserId) ??
+      "Someone";
+
+    const decidedByDisplayName =
+      typeof payload.decidedByDisplayName === "string" &&
+      payload.decidedByDisplayName.length > 0
+        ? payload.decidedByDisplayName
+        : undefined;
+    const decidedByExternalUserId =
+      typeof payload.decidedByExternalUserId === "string" &&
+      payload.decidedByExternalUserId.length > 0
+        ? payload.decidedByExternalUserId
+        : undefined;
+    const decidedByLabel =
+      decidedByDisplayName ??
+      (sourceChannel === "slack" &&
+      decidedByExternalUserId &&
+      /^U[A-Z0-9]+$/i.test(decidedByExternalUserId)
+        ? `<@${decidedByExternalUserId}>`
+        : decidedByExternalUserId) ??
+      "a guardian";
+
+    const verb = decision === "approved" ? "approved" : "denied";
+    return {
+      title: "Trusted Contact Decision",
+      body: `${requesterLabel}'s access request has been ${verb} by ${decidedByLabel}.`,
+    };
+  },
+
+  "ingress.trusted_contact.denied": (payload) => {
+    const sourceChannel =
+      typeof payload.sourceChannel === "string"
+        ? payload.sourceChannel
+        : undefined;
+
+    const requesterDisplayName =
+      typeof payload.requesterDisplayName === "string" &&
+      payload.requesterDisplayName.length > 0
+        ? payload.requesterDisplayName
+        : undefined;
+    const requesterExternalUserId =
+      typeof payload.requesterExternalUserId === "string" &&
+      payload.requesterExternalUserId.length > 0
+        ? payload.requesterExternalUserId
+        : undefined;
+    const requesterLabel =
+      requesterDisplayName ??
+      (sourceChannel === "slack" &&
+      requesterExternalUserId &&
+      /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
+        ? `<@${requesterExternalUserId}>`
+        : requesterExternalUserId) ??
+      "Someone";
+
+    return {
+      title: "Trusted Contact Denied",
+      body: `A trusted contact request from ${requesterLabel} has been denied.`,
+    };
+  },
+
   "ingress.escalation": (payload) => ({
     title: "Escalation",
     body:
