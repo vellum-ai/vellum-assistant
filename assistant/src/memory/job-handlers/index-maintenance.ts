@@ -1,4 +1,4 @@
-import { eq, like } from "drizzle-orm";
+import { eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
@@ -12,6 +12,8 @@ import { getQdrantClient } from "../qdrant-client.js";
 import {
   mediaAssets,
   memoryEmbeddings,
+  memoryGraphNodes,
+  memoryGraphTriggers,
   memorySegments,
   memorySummaries,
   messages,
@@ -66,6 +68,26 @@ export async function rebuildIndexJob(): Promise<void> {
         });
       }
     }
+  }
+
+  // Re-embed graph nodes stored in the memory graph.
+  const graphNodes = db
+    .select({ id: memoryGraphNodes.id })
+    .from(memoryGraphNodes)
+    .where(ne(memoryGraphNodes.fidelity, "gone"))
+    .all();
+  for (const node of graphNodes) {
+    enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+  }
+
+  // Re-embed semantic triggers that have condition text.
+  const triggers = db
+    .select({ id: memoryGraphTriggers.id })
+    .from(memoryGraphTriggers)
+    .where(isNotNull(memoryGraphTriggers.condition))
+    .all();
+  for (const trigger of triggers) {
+    enqueueMemoryJob("graph_trigger_embed", { triggerId: trigger.id });
   }
 }
 
