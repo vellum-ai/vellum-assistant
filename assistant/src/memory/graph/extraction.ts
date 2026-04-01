@@ -40,6 +40,7 @@ import type {
   DecayCurve,
   EmotionalCharge,
   Fidelity,
+  ImageRef,
   MemoryDiff,
   MemoryType,
   NewEdge,
@@ -613,6 +614,25 @@ export function parseExtractionResponse(
         },
       });
     }
+
+    // Parse image refs
+    if (Array.isArray(raw.image_refs)) {
+      const validRefs: ImageRef[] = [];
+      for (const ref of raw.image_refs) {
+        if (!ref.message_id || typeof ref.message_id !== "string") continue;
+        if (typeof ref.block_index !== "number" || ref.block_index < 0) continue;
+        if (!ref.description || typeof ref.description !== "string") continue;
+        const mimeType = resolveImageRefMimeType(ref.message_id, ref.block_index);
+        if (!mimeType) continue;
+        validRefs.push({
+          messageId: ref.message_id,
+          blockIndex: ref.block_index,
+          description: ref.description,
+          mimeType,
+        });
+      }
+      node.imageRefs = validRefs.length > 0 ? validRefs : null;
+    }
   }
 
   // Parse updates
@@ -931,6 +951,31 @@ function resolveConversationTimestamp(conversationId: string): number | null {
     .where(eq(conversations.id, conversationId))
     .get();
   return conv?.createdAt ?? null;
+}
+
+function resolveImageRefMimeType(
+  messageId: string,
+  blockIndex: number,
+): string | null {
+  const db = getDb();
+  const msg = db
+    .select({ content: messages.content })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (!msg) return null;
+
+  try {
+    const blocks = JSON.parse(msg.content) as Array<{
+      type?: string;
+      source?: { media_type?: string };
+    }>;
+    const block = blocks[blockIndex];
+    if (!block || block.type !== "image") return null;
+    return block.source?.media_type ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function loadTranscriptFromDisk(
