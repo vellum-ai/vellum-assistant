@@ -13,9 +13,11 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDe
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The canonical product name shown in menus and the About panel.
-    /// Use this instead of hardcoding "Vellum" so the name is defined
-    /// in one place.
-    public static let appName = "Vellum"
+    /// Reads the build-time `VellumBrandName` Info.plist key so staging
+    /// builds display "Vellum Staging" while production builds show "Vellum".
+    public static let appName: String = {
+        Bundle.main.object(forInfoDictionaryKey: "VellumBrandName") as? String ?? "Vellum"
+    }()
 
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
     /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps

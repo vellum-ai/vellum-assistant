@@ -99,7 +99,7 @@ extension AppDelegate {
             if isRecording {
                 self?.statusItem.button?.image = NSImage(
                     systemSymbolName: "mic.fill",
-                    accessibilityDescription: "Vellum"
+                    accessibilityDescription: AppDelegate.appName
                 )
                 let quickInputActive = self?.quickInputWindow?.isVisible ?? false
                 let isDictation = self?.voiceInput?.currentMode == .dictation

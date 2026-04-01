@@ -1114,6 +1114,7 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
+            export APP_BRAND_NAME="Vellum Staging"
           fi
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
@@ -1174,6 +1175,12 @@ jobs:
 
       - name: Create DMG
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            VOL_NAME="Vellum Staging"
+          else
+            VOL_NAME="Vellum"
+          fi
           APP_PATH="dist/Vellum.app"
 
           DMG_STAGING="build/dmg-staging"
@@ -1185,7 +1192,7 @@ jobs:
           du -sh "$DMG_STAGING"
 
           create-dmg \
-            --volname "Vellum" \
+            --volname "$VOL_NAME" \
             --background "dmg/dmg-background@2x.png" \
             --window-pos 200 120 \
             --window-size 660 400 \
@@ -1515,6 +1522,7 @@ jobs:
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
             export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
+            export APP_BRAND_NAME="Vellum Staging"
           fi
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
@@ -1576,6 +1584,12 @@ jobs:
 
       - name: Create DMG
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            VOL_NAME="Vellum Staging"
+          else
+            VOL_NAME="Vellum"
+          fi
           APP_PATH="dist/Vellum.app"
 
           DMG_STAGING="build/dmg-staging"
@@ -1587,7 +1601,7 @@ jobs:
           du -sh "$DMG_STAGING"
 
           create-dmg \
-            --volname "Vellum" \
+            --volname "$VOL_NAME" \
             --background "dmg/dmg-background@2x.png" \
             --window-pos 200 120 \
             --window-size 660 400 \

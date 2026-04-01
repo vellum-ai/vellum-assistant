@@ -63,7 +63,7 @@ struct AboutVellumView: View {
                 .frame(width: 80, height: 80)
 
             // App Name
-            Text("Vellum")
+            Text(AppDelegate.appName)
                 .font(VFont.titleMedium)
                 .foregroundStyle(VColor.contentEmphasized)
 
