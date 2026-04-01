@@ -503,6 +503,7 @@ export function disableSkill(
       name: skillId,
       state: "disabled",
     });
+    seedCatalogSkillMemories();
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
