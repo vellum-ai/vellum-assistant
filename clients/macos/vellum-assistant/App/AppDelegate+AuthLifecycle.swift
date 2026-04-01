@@ -566,6 +566,12 @@ extension AppDelegate {
             await vellumCli.stop(name: assistantName)
         }
 
+        // Clear the stale connectedAssistantId immediately after retire so
+        // subsequent flows (e.g. managed bootstrap) don't attempt a 404 lookup
+        // for the now-retired assistant on the platform. If another assistant is
+        // found below, performSwitchAssistant will set the new ID.
+        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+
         // Check if other assistants remain in the lockfile.
         // Prefer remote assistants (always reachable), then try waking local ones.
         let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName && $0.isCurrentEnvironment }
