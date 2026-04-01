@@ -1,7 +1,7 @@
 /**
- * Platform callback route registration for containerized deployments.
+ * Platform callback route registration for platform-managed deployments.
  *
- * When the assistant daemon runs inside a container (IS_CONTAINERIZED=true)
+ * When the assistant daemon runs as a platform-managed instance (IS_PLATFORM=true)
  * with a configured VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID, external
  * service callbacks (Twilio webhooks, OAuth redirects, Telegram webhooks, etc.)
  * must route through the platform's gateway proxy instead of hitting the
@@ -23,7 +23,7 @@ import {
   getPlatformBaseUrl,
   getPlatformInternalApiKey,
 } from "../config/env.js";
-import { getIsContainerized } from "../config/env-registry.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
@@ -49,14 +49,14 @@ export interface PlatformCallbackRegistrationContext {
  */
 export function shouldUsePlatformCallbacks(): boolean {
   return (
-    getIsContainerized() &&
+    getIsPlatform() &&
     !!getPlatformBaseUrl() &&
     !!getPlatformAssistantId()
   );
 }
 
 export async function resolvePlatformCallbackRegistrationContext(): Promise<PlatformCallbackRegistrationContext> {
-  const containerized = getIsContainerized();
+  const platform = getIsPlatform();
   const [storedBaseUrlRaw, storedAssistantIdRaw, storedAssistantApiKeyRaw] =
     await Promise.all([
       getSecureKeyAsync(credentialKey("vellum", "platform_base_url")),
@@ -80,14 +80,14 @@ export async function resolvePlatformCallbackRegistrationContext(): Promise<Plat
       : null;
 
   return {
-    containerized,
+    containerized: platform,
     platformBaseUrl,
     assistantId,
     hasInternalApiKey: internalApiKey.length > 0,
     hasAssistantApiKey: assistantApiKey.length > 0,
     authHeader,
     enabled:
-      containerized &&
+      platform &&
       platformBaseUrl.length > 0 &&
       assistantId.length > 0 &&
       authHeader !== null,
