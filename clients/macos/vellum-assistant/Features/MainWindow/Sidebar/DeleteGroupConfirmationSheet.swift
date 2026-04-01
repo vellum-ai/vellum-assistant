@@ -63,11 +63,11 @@ struct DeleteGroupConfirmationSheet: View {
     ) -> some View {
         Button(action: action) {
             HStack(alignment: .top, spacing: VSpacing.md) {
-                Image(systemName: selected ? "circle.fill" : "circle")
-                    .font(.system(size: 14))
-                    .foregroundStyle(selected ? VColor.primaryBase : VColor.contentTertiary)
-                    .frame(width: 18, height: 18)
-                    .padding(.top, 1)
+                Circle()
+                    .fill(selected ? VColor.primaryBase : Color.clear)
+                    .overlay(Circle().stroke(selected ? VColor.primaryBase : VColor.contentTertiary, lineWidth: 1.5))
+                    .frame(width: 14, height: 14)
+                    .padding(.top, 3)
 
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(label)
