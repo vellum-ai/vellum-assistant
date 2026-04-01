@@ -86,7 +86,7 @@ public struct VButton: View {
         }
         .pointerCursor()
         .disabled(isDisabled)
-        .accessibilityLabel(iconOnly != nil ? label : "")
+        .accessibilityLabel(label)
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
         .optionalAccessibilityIdentifier(accessibilityID)
         .modifier(OptionalHelpModifier(tooltip: tooltip))
