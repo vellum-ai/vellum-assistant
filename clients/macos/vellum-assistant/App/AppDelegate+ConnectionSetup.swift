@@ -30,6 +30,9 @@ extension AppDelegate {
 
         if let storedId, let found = LockfileAssistant.loadByName(storedId) {
             assistant = found
+        } else if let activeId = LockfileAssistant.loadActiveAssistantId(),
+                  let active = LockfileAssistant.loadByName(activeId) {
+            assistant = active
         } else {
             assistant = LockfileAssistant.loadLatest()
         }
