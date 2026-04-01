@@ -108,6 +108,21 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertNil(p.forkParentMessageId)
     }
 
+    // MARK: - Started via hasNonEmptyMessage (no conversationId)
+
+    func testConversationWithNonEmptyMessageIsStartedAndCanCopy() {
+        let conversation = ConversationModel(title: "Draft with messages")
+        let p = ConversationHeaderPresentation(
+            activeConversation: conversation,
+            activeViewModel: nil,
+            isConversationVisible: true,
+            hasNonEmptyMessage: true
+        )
+        XCTAssertTrue(p.isStarted)
+        XCTAssertTrue(p.showsActionsMenu)
+        XCTAssertTrue(p.canCopy)
+    }
+
     // MARK: - Not started (no conversationId, no messages)
 
     func testUnstartedConversationDoesNotShowActions() {
