@@ -94,4 +94,37 @@ export function migrateCreateMemoryGraphTables(database: DrizzleDb): void {
   raw.exec(
     `CREATE INDEX IF NOT EXISTS idx_graph_triggers_type ON memory_graph_triggers(type)`,
   );
+
+  // -- Add event_date column to nodes (idempotent) --
+  try {
+    raw.exec(
+      `ALTER TABLE memory_graph_nodes ADD COLUMN event_date INTEGER`,
+    );
+  } catch {
+    // Column already exists — safe to ignore.
+  }
+
+  raw.exec(
+    `CREATE INDEX IF NOT EXISTS idx_graph_nodes_event_date ON memory_graph_nodes(event_date)`,
+  );
+
+  // -- Backfill event_date from existing event triggers --
+  raw.exec(`
+    UPDATE memory_graph_nodes
+    SET event_date = (
+      SELECT t.event_date
+      FROM memory_graph_triggers t
+      WHERE t.node_id = memory_graph_nodes.id
+        AND t.type = 'event'
+        AND t.event_date IS NOT NULL
+      LIMIT 1
+    )
+    WHERE event_date IS NULL
+      AND id IN (
+        SELECT t2.node_id
+        FROM memory_graph_triggers t2
+        WHERE t2.type = 'event'
+          AND t2.event_date IS NOT NULL
+      )
+  `);
 }

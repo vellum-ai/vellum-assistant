@@ -282,6 +282,7 @@ function handleSave(
     created: now,
     lastAccessed: now,
     lastConsolidated: now,
+    eventDate: null,
     emotionalCharge,
     fidelity: "vivid" as Fidelity,
     confidence: 0.95, // Explicitly saved = high confidence

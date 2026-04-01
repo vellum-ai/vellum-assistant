@@ -22,6 +22,7 @@ function makeNode(overrides: Partial<MemoryNode> = {}): MemoryNode {
     created: Date.now() - 5 * DAY_MS,
     lastAccessed: Date.now(),
     lastConsolidated: Date.now(),
+    eventDate: null,
     emotionalCharge: {
       valence: 0,
       intensity: 0,

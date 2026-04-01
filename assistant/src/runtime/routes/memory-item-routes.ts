@@ -546,6 +546,7 @@ export async function handleCreateMemoryItem(
     created: now,
     lastAccessed: now,
     lastConsolidated: now,
+    eventDate: null,
     emotionalCharge: {
       valence: 0,
       intensity: 0.1,
@@ -732,6 +733,7 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     created: row.created,
     lastAccessed: row.lastAccessed,
     lastConsolidated: row.lastConsolidated,
+    eventDate: row.eventDate ?? null,
     emotionalCharge: JSON.parse(row.emotionalCharge),
     fidelity: row.fidelity as Fidelity,
     confidence: row.confidence,

@@ -468,6 +468,7 @@ export function parseExtractionResponse(
       created: now,
       lastAccessed: now,
       lastConsolidated: now,
+      eventDate: null,
       emotionalCharge,
       fidelity: "vivid" as Fidelity,
       confidence: clamp(Number(raw.confidence) || 0.5, 0, 1),

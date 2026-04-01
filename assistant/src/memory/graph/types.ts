@@ -62,6 +62,8 @@ export interface MemoryNode {
   lastAccessed: number;
   /** Epoch ms of last consolidation pass that touched this node. */
   lastConsolidated: number;
+  /** Epoch ms of the event this memory describes (null for non-event memories). */
+  eventDate: number | null;
 
   // -- Energy --
   emotionalCharge: EmotionalCharge;
