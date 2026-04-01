@@ -287,11 +287,11 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     }),
   );
 
-  // memory_recall is a read-only tool — always allow without prompting.
+  // recall is a read-only tool — always allow without prompting.
   const memoryRecallRule: DefaultRuleTemplate = {
-    id: "default:allow-memory_recall-global",
-    tool: "memory_recall",
-    pattern: "memory_recall:*",
+    id: "default:allow-recall-global",
+    tool: "recall",
+    pattern: "recall:*",
     scope: "everywhere",
     decision: "allow",
     priority: 100,

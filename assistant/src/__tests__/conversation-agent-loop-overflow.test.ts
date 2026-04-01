@@ -459,7 +459,7 @@ function makeCtx(
 
     graphMemory: {
       onCompacted: () => {},
-      prepareMemory: async () => ({ injections: [], tokenEstimate: 0 }),
+      prepareMemory: async () => ({ runMessages: [], injectedTokens: 0, latencyMs: 0, mode: "none" as const }),
     } as unknown as AgentLoopConversationContext["graphMemory"],
 
     ...overrides,
