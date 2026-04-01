@@ -39,6 +39,7 @@ import { migrateRenameThreadStartersCheckpointsDown } from "./181-rename-thread-
 import { migrateBackfillAudioAttachmentMimeTypesDown } from "./191-backfill-audio-attachment-mime-types.js";
 import { migrateAddSourceTypeColumnsDown } from "./193-add-source-type-columns.js";
 import { migrateStripIntegrationPrefixFromProviderKeysDown } from "./196-strip-integration-prefix-from-provider-keys.js";
+import { migrateRenameMemoryGraphTypeValuesDown } from "./204-rename-memory-graph-type-values.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -340,6 +341,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Strip integration: prefix from provider_key across oauth_providers, oauth_apps, and oauth_connections",
     down: migrateStripIntegrationPrefixFromProviderKeysDown,
+  },
+  {
+    key: "migration_rename_memory_graph_type_values_v1",
+    version: 39,
+    description:
+      "Rename legacy memory graph node type values: style → behavioral, relationship → semantic",
+    down: migrateRenameMemoryGraphTypeValuesDown,
   },
 ];
 

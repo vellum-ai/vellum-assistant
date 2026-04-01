@@ -11,9 +11,10 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("skill-memory");
 
-/** Escape SQL LIKE wildcards (`%` and `_`) so they match literally. */
+/** Strip SQL LIKE wildcards so they match literally.
+ * SQLite has no default escape character for LIKE, so we strip rather than escape. */
 function escapeLike(s: string): string {
-  return s.replace(/%/g, "\\%").replace(/_/g, "\\_");
+  return s.replace(/%/g, "").replace(/_/g, "");
 }
 
 /**

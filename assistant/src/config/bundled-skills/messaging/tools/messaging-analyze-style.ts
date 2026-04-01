@@ -46,6 +46,7 @@ function upsertMemoryItem(opts: {
     db.update(memoryGraphNodes)
       .set({
         content,
+        type: KIND_TO_MEMORY_TYPE[opts.kind] ?? opts.kind,
         fidelity: "vivid",
         significance: clampUnitInterval(
           Math.max(existing.significance ?? 0, opts.importance),
