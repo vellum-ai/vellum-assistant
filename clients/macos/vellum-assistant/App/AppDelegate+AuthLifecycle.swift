@@ -464,6 +464,11 @@ extension AppDelegate {
         //    UserDefaults so the assistant can initialize its LLM providers.
         syncApiKeysToAssistant(assistant)
 
+        // Clear the UserDefaults feature-flag cache before reloading so
+        // that stale cached values from the previous assistant do not
+        // override the new assistant's remote/persisted flags.
+        AssistantFeatureFlagResolver.clearCachedFlags()
+
         // Reload cached feature flags so SoundManager reads the new
         // assistant's resolved values instead of stale ones from the
         // previous assistant (the resolver reads instance-aware paths

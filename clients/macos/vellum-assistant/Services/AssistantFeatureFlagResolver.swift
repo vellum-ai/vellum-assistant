@@ -44,6 +44,17 @@ enum AssistantFeatureFlagResolver {
         UserDefaults.standard.set(enabled, forKey: "\(cachePrefix)\(key)")
     }
 
+    /// Removes all cached feature flags from UserDefaults.
+    ///
+    /// Call this when the connected assistant changes so that stale cached
+    /// values from the previous assistant do not leak into the new one.
+    static func clearCachedFlags() {
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(cachePrefix) {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     // MARK: - Protected feature-flags file path
 
     /// Resolves the path to the protected feature-flags file for the currently
