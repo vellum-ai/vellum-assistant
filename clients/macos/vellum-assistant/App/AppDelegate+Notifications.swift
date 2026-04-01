@@ -444,7 +444,7 @@ extension AppDelegate {
             }
             var error: Unmanaged<CFError>?
             if !CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
-                log.warning("Failed to register font \(name): \(error?.takeRetainedValue().localizedDescription ?? \"unknown\")")
+                log.warning("Failed to register font \(name): \(error?.takeRetainedValue().localizedDescription ?? "unknown")")
             }
         }
     }
