@@ -1181,8 +1181,13 @@ export async function teleport(): Promise<void> {
 
     // If targeting an existing platform assistant, use its runtimeUrl for all
     // platform calls so upload, org ID fetch, and import hit the same instance.
+    // Only use the runtimeUrl if the existing target is actually a platform
+    // assistant — otherwise resolveOrHatchTarget will catch the cloud mismatch.
     const existingTarget = targetName ? findAssistantByName(targetName) : null;
-    const targetPlatformUrl = existingTarget?.runtimeUrl;
+    const targetPlatformUrl =
+      existingTarget && resolveCloud(existingTarget) === "vellum"
+        ? existingTarget.runtimeUrl
+        : undefined;
 
     let orgId: string;
     try {
