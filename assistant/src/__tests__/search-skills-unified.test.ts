@@ -126,7 +126,7 @@ mock.module("../skills/skill-memory.js", () => ({
 mock.module("../util/platform.js", () => ({
   getWorkspaceSkillsDir: () => "/tmp/test-skills",
 }));
-mock.module("./shared.js", () => ({
+mock.module("../daemon/handlers/shared.js", () => ({
   CONFIG_RELOAD_DEBOUNCE_MS: 100,
   ensureSkillEntry: () => ({}),
   log: {
