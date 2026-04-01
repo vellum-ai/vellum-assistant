@@ -491,6 +491,12 @@ struct SettingsPanel: View {
                         providerKey: provider.provider_key
                     )
                 }
+            } else {
+                IntegrationsGridView(
+                    store: store,
+                    authManager: authManager,
+                    showToast: showToast
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
