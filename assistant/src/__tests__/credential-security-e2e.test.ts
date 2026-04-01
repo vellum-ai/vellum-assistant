@@ -70,6 +70,8 @@ mock.module("../security/secure-keys.js", () => {
       accounts: [...storedKeys.keys()],
       unreachable: false,
     }),
+    getProviderKeyAsync: async () => undefined,
+    getMaskedProviderKey: async () => null,
   };
 });
 
