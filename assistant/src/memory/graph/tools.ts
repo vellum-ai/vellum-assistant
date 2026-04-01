@@ -33,7 +33,7 @@ export const graphRecallDefinition: ToolDefinition = {
         type: "string",
         enum: ["memory", "archive"],
         description:
-          '"memory" searches the living memory graph (default). "archive" searches raw conversation transcripts for exact words and full context.',
+          '"memory" searches the living memory graph using semantic similarity (default). "archive" searches raw conversation transcripts using keyword matching — any matching keyword will surface results, not just exact phrases.',
       },
       filters: {
         type: "object",
