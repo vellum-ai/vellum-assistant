@@ -28,6 +28,8 @@ public struct VTextEditor: View {
             .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded { isFocused = true })
             .vInputChrome(isFocused: isFocused)
     }
 }
