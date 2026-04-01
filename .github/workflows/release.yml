@@ -21,7 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      version: ${{ steps.extract.outputs.version }}
+      version: ${{ steps.finalize.outputs.version }}
+      base_version: ${{ steps.extract.outputs.base_version }}
       is_staging: ${{ steps.detect-staging.outputs.is_staging }}
     steps:
       - uses: actions/checkout@v6
@@ -31,7 +32,7 @@ jobs:
         run: |
           BRANCH="${GITHUB_REF_NAME}"
           if [[ "$BRANCH" == release/v* ]]; then
-            VERSION="${BRANCH#release/v}"
+            BASE_VERSION="${BRANCH#release/v}"
           elif [ "$BRANCH" = "main" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             git fetch --tags
             LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
@@ -41,13 +42,13 @@ jobs:
             LATEST_VERSION=${LATEST_TAG#v}
             IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
             PATCH=$((PATCH + 1))
-            VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            echo "Computed next patch version from $LATEST_TAG: $VERSION"
+            BASE_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "Computed next patch version from $LATEST_TAG: $BASE_VERSION"
           else
             echo "::error::Workflow must run on a release/v* branch or be manually dispatched from main, got '$BRANCH'"
             exit 1
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Detect staging release
         id: detect-staging
@@ -62,6 +63,19 @@ jobs:
             echo "is_staging=true" >> "$GITHUB_OUTPUT"
             echo "Commit-triggered release — staging only"
           fi
+
+      - name: Compute final version
+        id: finalize
+        run: |
+          BASE_VERSION="${{ steps.extract.outputs.base_version }}"
+          IS_STAGING="${{ steps.detect-staging.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            VERSION="${BASE_VERSION}-staging.${{ github.run_number }}"
+            echo "Staging prerelease version: $VERSION"
+          else
+            VERSION="$BASE_VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
@@ -723,6 +737,79 @@ jobs:
           echo "**Version:** \`v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
+  # Staging-only: build Docker images and upload as GitHub artifacts (no registry push).
+  # Produces a tarball per service that can later be loaded and pushed via
+  # `docker load` + `docker tag` + `docker push`.
+  build-staging-docker-images:
+    needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
+    if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: assistant
+            runs_on: ubuntu-latest-8-cores
+            context: .
+            dockerfile: assistant/Dockerfile
+            feature_flag_path: assistant/src/config/feature-flag-registry.json
+          - service: gateway
+            runs_on: ubuntu-latest
+            context: gateway
+            dockerfile: gateway/Dockerfile
+            feature_flag_path: gateway/src/feature-flag-registry.json
+          - service: credential-executor
+            runs_on: ubuntu-latest
+            context: .
+            dockerfile: credential-executor/Dockerfile
+            feature_flag_path: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+
+      - name: Sync feature flag registry for Docker context
+        if: matrix.feature_flag_path != ''
+        run: cp meta/feature-flags/feature-flag-registry.json ${{ matrix.feature_flag_path }}
+
+      - name: Build multi-platform image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          tags: |
+            ${{ matrix.service }}:v${{ needs.extract-version.outputs.version }}
+            ${{ matrix.service }}:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/${{ matrix.service }}.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-${{ matrix.service }}
+          path: /tmp/${{ matrix.service }}.tar
+          retention-days: 7
+
+      - name: Summary
+        run: |
+          echo "## Staging Docker Image Built (${{ matrix.service }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifact:** \`docker-image-${{ matrix.service }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** \`${{ matrix.service }}:v${{ needs.extract-version.outputs.version }}\`, \`${{ matrix.service }}:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+
   register-release:
     needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
@@ -966,7 +1053,7 @@ jobs:
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
   # This is the primary/default build.
   build-macos-arm64:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -1014,8 +1101,7 @@ jobs:
       - name: Set version
         id: version
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          DISPLAY_VERSION="${BRANCH#release/v}"
+          DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -1308,7 +1394,7 @@ jobs:
   # produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -1357,8 +1443,7 @@ jobs:
       - name: Set version
         id: version
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          DISPLAY_VERSION="${BRANCH#release/v}"
+          DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -1958,7 +2043,7 @@ jobs:
         working-directory: credential-executor
 
   build-ios:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -2050,8 +2135,7 @@ jobs:
       - name: Set version
         id: version
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          DISPLAY_VERSION="${BRANCH#release/v}"
+          DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -2211,7 +2295,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-staging-docker-images, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2239,10 +2323,13 @@ jobs:
             RELEASE_FAILED="true"
           fi
 
-          # For staging releases, check that desktop app artifacts were successfully built
+          # For staging releases, check that desktop app and Docker artifacts were successfully built
           STAGING_READY="true"
           if [ "$IS_STAGING" = "true" ]; then
             if [ "${{ needs.build-macos-arm64.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.build-staging-docker-images.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
           fi
@@ -2279,6 +2366,7 @@ jobs:
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
           DH=$(ci_icon "${{ needs.push-dockerhub-image.result }}")
+          SD=$(ci_icon "${{ needs.build-staging-docker-images.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -2292,7 +2380,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s staging-docker\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$SD" "$RR")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
@@ -2301,7 +2389,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images uploaded as artifacts._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
@@ -2363,7 +2451,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ] && [ "$STAGING_READY" = "true" ] && [ "$IS_RELEASE_BRANCH" = "true" ] && [ -n "$RELEASE_TRIGGER_SECRET" ]; then
-            RELEASE_BRANCH="release/${VERSION_TAG}"
+            RELEASE_BRANCH="release/v${{ needs.extract-version.outputs.base_version }}"
             GO_LIVE_TS=$(date +%s)
             GO_LIVE_SIG=$(echo -n "${RELEASE_BRANCH}:${GO_LIVE_TS}" | openssl dgst -sha256 -hmac "$RELEASE_TRIGGER_SECRET" -hex | awk '{print $NF}')
             GO_LIVE_URL="https://qa.vellum.ai/api/slack/go-live?branch=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RELEASE_BRANCH}', safe=''))")&ts=${GO_LIVE_TS}&sig=${GO_LIVE_SIG}"
