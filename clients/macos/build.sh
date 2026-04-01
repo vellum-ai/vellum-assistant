@@ -765,6 +765,16 @@ EOF
 )
 fi
 
+FULL_VERSION_PLIST=""
+if [ -n "${VELLUM_FULL_VERSION:-}" ]; then
+    echo "Embedding VellumFullVersion: $VELLUM_FULL_VERSION"
+    FULL_VERSION_PLIST=$(cat <<EOF
+    <key>VellumFullVersion</key>
+    <string>$VELLUM_FULL_VERSION</string>
+EOF
+)
+fi
+
 LSE_ENVIRONMENT_PLIST=""
 _LSE_ENTRIES=""
 if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
@@ -830,6 +840,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>en</string>
     $LSE_ENVIRONMENT_PLIST
     $COMMIT_SHA_PLIST
+    $FULL_VERSION_PLIST
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSApplicationCategoryType</key>

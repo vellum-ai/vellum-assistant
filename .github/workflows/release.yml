@@ -857,12 +857,7 @@ jobs:
           ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
-          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
-          if [ "$IS_STAGING" = "true" ]; then
-            IS_STABLE="false"
-          else
-            IS_STABLE="true"
-          fi
+          IS_STABLE="true"
 
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \
@@ -1089,6 +1084,11 @@ jobs:
 
       - name: Build release .app
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
+            export VELLUM_FULL_VERSION="${{ needs.extract-version.outputs.version }}"
+          fi
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -1482,6 +1482,11 @@ jobs:
 
       - name: Build release .app
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
+            export VELLUM_FULL_VERSION="${{ needs.extract-version.outputs.version }}"
+          fi
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -2361,7 +2366,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered as unstable._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
