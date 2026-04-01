@@ -77,6 +77,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let debugStateWriter = DebugStateWriter()
     private let telemetryClient: any TelemetryClientProtocol = TelemetryClient()
     private var metricKitManager: MetricKitManager?
+    var lockfileWatcherSource: DispatchSourceFileSystemObject?
+    var lockfileWatcherFd: Int32 = -1
 
     // Forwarding accessors — ownership lives in `services`.
     var connectionManager: GatewayConnectionManager { services.connectionManager }
