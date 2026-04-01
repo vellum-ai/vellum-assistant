@@ -452,6 +452,7 @@ struct ChatBubble: View, Equatable {
             ChatEquatableButton(textLabel: "Retry", style: .ghost, size: .inline) {
                 onRetryFailedMessage?(message.id)
             }
+            .equatable()
         }
         .textSelection(.disabled)
     }

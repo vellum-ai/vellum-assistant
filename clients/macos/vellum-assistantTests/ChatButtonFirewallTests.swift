@@ -315,4 +315,57 @@ struct OutputCopyConfigTests {
         )
         #expect(a == b)
     }
+
+    @Test func differentClosureIdentityForcesReevaluation() {
+        let a = ChatButtonConfig(
+            label: "Copy live output",
+            iconOnly: VIcon.copy.rawValue,
+            style: .ghost,
+            size: .regular,
+            iconSize: 24,
+            iconColorRole: .contentTertiary,
+            tooltip: nil,
+            isDisabled: false,
+            closureIdentity: "partial output".hashValue
+        )
+        let b = ChatButtonConfig(
+            label: "Copy live output",
+            iconOnly: VIcon.copy.rawValue,
+            style: .ghost,
+            size: .regular,
+            iconSize: 24,
+            iconColorRole: .contentTertiary,
+            tooltip: nil,
+            isDisabled: false,
+            closureIdentity: "partial output extended".hashValue
+        )
+        #expect(a != b)
+    }
+
+    @Test func sameClosureIdentityStaysEqual() {
+        let text = "some output"
+        let a = ChatButtonConfig(
+            label: "Copy live output",
+            iconOnly: VIcon.copy.rawValue,
+            style: .ghost,
+            size: .regular,
+            iconSize: 24,
+            iconColorRole: .contentTertiary,
+            tooltip: nil,
+            isDisabled: false,
+            closureIdentity: text.hashValue
+        )
+        let b = ChatButtonConfig(
+            label: "Copy live output",
+            iconOnly: VIcon.copy.rawValue,
+            style: .ghost,
+            size: .regular,
+            iconSize: 24,
+            iconColorRole: .contentTertiary,
+            tooltip: nil,
+            isDisabled: false,
+            closureIdentity: text.hashValue
+        )
+        #expect(a == b)
+    }
 }

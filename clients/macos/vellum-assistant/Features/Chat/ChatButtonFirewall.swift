@@ -26,6 +26,10 @@ enum ChatButtonColorRole: Equatable, Hashable {
 /// Captures every VButton property that affects visual output in the chat
 /// message-list path. Closures are intentionally excluded so that SwiftUI
 /// can skip body re-evaluation when only the closure reference changes.
+///
+/// When a closure captures mutable state (e.g. streaming `copyText`),
+/// set `closureIdentity` to a value that changes alongside the captured
+/// state so the firewall re-evaluates and picks up the fresh closure.
 struct ChatButtonConfig: Equatable {
     let label: String
     let iconOnly: String?
@@ -35,6 +39,10 @@ struct ChatButtonConfig: Equatable {
     let iconColorRole: ChatButtonColorRole?
     let tooltip: String?
     let isDisabled: Bool
+    /// Opaque identity for the closure's captured state. When this changes,
+    /// the firewall treats the button as different, forcing a body re-evaluation
+    /// that picks up the new closure. Defaults to 0 (stable).
+    var closureIdentity: Int = 0
 }
 
 // MARK: - Equatable Button

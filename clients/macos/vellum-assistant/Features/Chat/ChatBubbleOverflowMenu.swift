@@ -125,6 +125,7 @@ struct ChatBubbleOverflowMenu: View {
                 ) {
                     copyMessageText()
                 }
+                .equatable()
                 .vTooltip(showCopyConfirmation ? "Copied" : "Copy", edge: .bottom)
                 .animation(VAnimation.fast, value: showCopyConfirmation)
             }
@@ -138,6 +139,7 @@ struct ChatBubbleOverflowMenu: View {
                 ) {
                     onForkFromMessage(daemonMessageId)
                 }
+                .equatable()
                 .vTooltip("Fork from here", edge: .bottom)
             }
             if showInspectButton, !isUser, let daemonMsgId = message.daemonMessageId {
@@ -147,6 +149,7 @@ struct ChatBubbleOverflowMenu: View {
                 ) {
                     onInspectMessage?(daemonMsgId)
                 }
+                .equatable()
                 .vTooltip("Inspect", edge: .bottom)
             }
         }
@@ -182,6 +185,7 @@ struct ChatBubbleOverflowMenu: View {
             ) {
                 audioPlayer.stop()
             }
+            .equatable()
         } else if let daemonMessageId = message.daemonMessageId {
             ttsIdleButton(daemonMessageId: daemonMessageId)
         }
@@ -207,14 +211,17 @@ struct ChatBubbleOverflowMenu: View {
 
         if audioPlayer.isNotConfigured {
             button
+                .equatable()
                 .popover(isPresented: $showTTSSetupPopover, arrowEdge: .bottom) {
                     ttsSetupPopoverContent
                 }
         } else if audioPlayer.isFeatureDisabled {
             button
+                .equatable()
                 .vTooltip("Text-to-speech is not enabled", edge: .bottom)
         } else {
             button
+                .equatable()
                 .vTooltip("Read aloud", edge: .bottom)
         }
     }

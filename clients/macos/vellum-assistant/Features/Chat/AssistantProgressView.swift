@@ -1022,13 +1022,22 @@ private struct StepDetailRow: View {
             )
 
             ChatEquatableButton(
-                label: copyLabel,
-                iconOnly: VIcon.copy.rawValue,
-                iconColorRole: .contentTertiary
+                config: ChatButtonConfig(
+                    label: copyLabel,
+                    iconOnly: VIcon.copy.rawValue,
+                    style: .ghost,
+                    size: .regular,
+                    iconSize: 24,
+                    iconColorRole: .contentTertiary,
+                    tooltip: nil,
+                    isDisabled: false,
+                    closureIdentity: copyText.hashValue
+                )
             ) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(copyText, forType: .string)
             }
+            .equatable()
             .padding(VSpacing.xs)
         }
     }
