@@ -933,7 +933,7 @@ describe("updateNode event trigger sync", () => {
     const originalDate = 1712534400000;
     const newDate = 1712620800000;
     const node = createNode(makeNewNode({ eventDate: originalDate }));
-    const trigger = createTrigger({
+    createTrigger({
       nodeId: node.id,
       type: "event",
       schedule: null,
