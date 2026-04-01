@@ -157,6 +157,7 @@ struct SidebarConversationItem: View, Equatable {
                     } else {
                         Color.clear
                             .frame(width: 20, height: 20)
+                            .accessibilityLabel(conversation.isPinned ? "Pinned" : "")
                     }
                 }
             }
