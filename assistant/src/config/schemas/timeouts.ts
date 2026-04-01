@@ -36,7 +36,7 @@ export const TimeoutConfigSchema = z
       .number({ error: "timeouts.providerStreamTimeoutSec must be a number" })
       .finite("timeouts.providerStreamTimeoutSec must be finite")
       .positive("timeouts.providerStreamTimeoutSec must be a positive number")
-      .default(300)
+      .default(1800)
       .describe(
         "Timeout for waiting on the LLM provider's streaming response (seconds)",
       ),
