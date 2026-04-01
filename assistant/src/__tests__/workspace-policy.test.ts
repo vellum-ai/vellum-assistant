@@ -257,7 +257,7 @@ describe("isWorkspaceScopedInvocation", () => {
   describe("always-scoped tools", () => {
     const safeTools = [
       "skill_load",
-      "memory_recall",
+      "recall",
       "ui_update",
       "ui_dismiss",
     ];
