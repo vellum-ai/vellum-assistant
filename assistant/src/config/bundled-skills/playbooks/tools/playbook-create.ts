@@ -55,7 +55,8 @@ export async function executePlaybookCreate(
     priority,
   };
   const statement = JSON.stringify(playbook);
-  const subject = `Playbook: ${trigger}`.slice(0, 80);
+  const sanitizedTrigger = trigger.replace(/[\r\n]+/g, " ");
+  const subject = `Playbook: ${sanitizedTrigger}`.slice(0, 80);
   const content = `${subject}\n${statement}`;
   const scopeId = context.memoryScopeId ?? "default";
 

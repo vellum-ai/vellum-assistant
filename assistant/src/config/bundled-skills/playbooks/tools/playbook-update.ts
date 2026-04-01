@@ -91,7 +91,8 @@ export async function executePlaybookUpdate(
     };
 
     const statement = JSON.stringify(updated);
-    const subject = `Playbook: ${updated.trigger}`.slice(0, 80);
+    const sanitizedTrigger = updated.trigger.replace(/[\r\n]+/g, " ");
+    const subject = `Playbook: ${sanitizedTrigger}`.slice(0, 80);
     const content = `${subject}\n${statement}`;
 
     // Check for duplicate content among other playbook nodes
