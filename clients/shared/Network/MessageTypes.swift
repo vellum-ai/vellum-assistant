@@ -1243,6 +1243,7 @@ public struct TraceEventsHistoryResponse: Decodable, Sendable {
 public enum ConversationErrorCode: String, CaseIterable, Codable, Sendable {
     case providerNetwork = "PROVIDER_NETWORK"
     case providerRateLimit = "PROVIDER_RATE_LIMIT"
+    case providerOverloaded = "PROVIDER_OVERLOADED"
     case providerApi = "PROVIDER_API"
     case providerBilling = "PROVIDER_BILLING"
     case providerOrdering = "PROVIDER_ORDERING"

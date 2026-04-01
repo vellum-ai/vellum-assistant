@@ -90,7 +90,6 @@ describe("classifyConversationError", () => {
       "rate limit exceeded",
       "Rate-limit hit",
       "too many requests",
-      "overloaded",
     ];
 
     for (const msg of cases) {
@@ -98,10 +97,42 @@ describe("classifyConversationError", () => {
         const result = classifyConversationError(new Error(msg), baseCtx);
         expect(result.code).toBe("PROVIDER_RATE_LIMIT");
         expect(result.retryable).toBe(true);
-        expect(result.userMessage).toContain("busy");
+        expect(result.userMessage).toContain("rate limited");
         expect(result.errorCategory).toBe("rate_limit");
       });
     }
+  });
+
+  describe("provider overloaded errors", () => {
+    it('classifies "overloaded" as PROVIDER_OVERLOADED', () => {
+      const result = classifyConversationError(
+        new Error("overloaded"),
+        baseCtx,
+      );
+      expect(result.code).toBe("PROVIDER_OVERLOADED");
+      expect(result.retryable).toBe(true);
+      expect(result.userMessage).toContain("overloaded");
+      expect(result.errorCategory).toBe("provider_overloaded");
+    });
+
+    it("classifies Anthropic overloaded_error (no statusCode) as PROVIDER_OVERLOADED", () => {
+      const err = new ProviderError(
+        'Anthropic API error (undefined): {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+        "anthropic",
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_OVERLOADED");
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("provider_overloaded");
+    });
+
+    it("classifies ProviderError with 529 as PROVIDER_OVERLOADED", () => {
+      const err = new ProviderError("Overloaded", "anthropic", 529);
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_OVERLOADED");
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("provider_overloaded");
+    });
   });
 
   describe("provider API errors", () => {

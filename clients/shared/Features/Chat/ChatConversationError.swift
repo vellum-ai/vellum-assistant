@@ -4,6 +4,7 @@ import Foundation
 public enum ConversationErrorCategory: Equatable, Sendable {
     case providerNetwork
     case rateLimit
+    case providerOverloaded
     case providerApi
     case providerBilling
     case providerOrdering
@@ -23,6 +24,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             self = .providerNetwork
         case .providerRateLimit:
             self = .rateLimit
+        case .providerOverloaded:
+            self = .providerOverloaded
         case .providerApi:
             self = .providerApi
         case .providerBilling:
@@ -57,6 +60,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             return "Check your internet connection, then click Retry."
         case .rateLimit:
             return "Wait 30–60 seconds, then click Retry."
+        case .providerOverloaded:
+            return "This is usually temporary — click Retry in a moment."
         case .providerApi:
             return "This is usually temporary — click Retry, or check your API key in Settings if it persists."
         case .providerBilling:
