@@ -27,6 +27,8 @@ jobs:
       docker_environments: ${{ steps.finalize.outputs.docker_environments }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Extract version from branch name
         id: extract
@@ -71,7 +73,21 @@ jobs:
           BASE_VERSION="${{ steps.extract.outputs.base_version }}"
           IS_STAGING="${{ steps.detect-staging.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            VERSION="${BASE_VERSION}-staging.${{ github.run_number }}"
+            # Count commits on the current branch to produce a low, meaningful
+            # prerelease suffix (e.g. v0.6.0-staging.3 for the 3rd commit).
+            # For release branches, count commits since the branch point from main.
+            # For main dispatches, count all commits reachable from HEAD.
+            if [[ "${GITHUB_REF_NAME}" == release/v* ]]; then
+              git fetch origin main --depth=1 2>/dev/null || true
+              COMMIT_COUNT=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo "1")
+            else
+              COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")
+            fi
+            # Ensure at least 1 so the suffix is never empty
+            if [ "$COMMIT_COUNT" -lt 1 ] 2>/dev/null; then
+              COMMIT_COUNT=1
+            fi
+            VERSION="${BASE_VERSION}-staging.${COMMIT_COUNT}"
             echo "Staging prerelease version: $VERSION"
             echo 'docker_environments=["dev"]' >> "$GITHUB_OUTPUT"
           else
