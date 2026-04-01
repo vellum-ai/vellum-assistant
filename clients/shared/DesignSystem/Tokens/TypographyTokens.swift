@@ -177,4 +177,41 @@ public enum VFont {
         NSFontManager.shared.convert(nsMono, toHaveTrait: .italicFontMask)
     }()
     #endif
+
+    // MARK: - Prewarm
+
+    /// Eagerly accesses every static font token, forcing CoreText to resolve and cache them.
+    ///
+    /// Safe to call from any thread — Swift static lets are thread-safe.
+    /// Called by `FontWarmupCoordinator` during off-main warmup.
+    public static func prewarmForAppLaunch() {
+        // SwiftUI Font tokens
+        _ = brandMedium
+        _ = brandSmall
+        _ = displayLarge
+        _ = titleLarge
+        _ = titleMedium
+        _ = titleSmall
+        _ = bodyLargeLighter
+        _ = bodyLargeDefault
+        _ = bodyLargeEmphasised
+        _ = bodyMediumLighter
+        _ = bodyMediumDefault
+        _ = bodyMediumEmphasised
+        _ = bodySmallDefault
+        _ = bodySmallEmphasised
+        _ = labelDefault
+        _ = labelSmall
+        _ = menuCompact
+        _ = chat
+
+        // NSFont tokens (macOS only)
+        #if os(macOS)
+        _ = nsChat
+        _ = nsBodyMediumDefault
+        _ = nsMono
+        _ = nsMonoBold
+        _ = nsMonoItalic
+        #endif
+    }
 }
