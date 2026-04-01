@@ -141,7 +141,7 @@ struct SidebarSectionView: View {
                 conversationManager: conversationManager
             ))
 
-            if isExpanded {
+            if isExpanded && !conversations.isEmpty {
                 VStack(spacing: 0) {
                     sectionContent
                 }
