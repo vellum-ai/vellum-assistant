@@ -42,6 +42,10 @@ import Foundation
 // │                                 │ code generator cannot express it        │
 // │ HostCuResultPayload             │ Posted back to daemon; hand-maintained  │
 // │                                 │ alongside HostCuRequest                 │
+// │ SkillSearchResult               │ Client-only result wrapper for search;  │
+// │                                 │ not a wire type                         │
+// │ SkillOperationResult            │ Client-only result wrapper for skill    │
+// │                                 │ operations; not a wire type             │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
