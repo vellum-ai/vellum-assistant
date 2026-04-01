@@ -782,6 +782,11 @@ describe("web_search_tool_result structural guard", () => {
     // Extracts tool results from persisted message content for work-item
     // display. web_search_tool_result blocks are not relevant here.
     "runtime/routes/work-items-routes.ts",
+
+    // Media token counting iterates tool_result.contentBlocks for nested
+    // image/file blocks. web_search_tool_result has opaque content with no
+    // contentBlocks property, so it cannot contain nested media.
+    "daemon/context-overflow-reducer.ts",
   ]);
 
   /**
