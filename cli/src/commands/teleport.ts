@@ -1146,11 +1146,6 @@ export async function teleport(): Promise<void> {
       console.log(`  Would export data from: ${from} (${fromCloud})`);
       if (targetEnv === "platform") {
         // For platform targets, reflect the reordered flow
-        const token = readPlatformToken();
-        if (!token) {
-          console.error("Not logged in. Run 'vellum login' first.");
-          process.exit(1);
-        }
         console.log(`  Would upload bundle via signed URL (if available)`);
         console.log(
           `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
@@ -1188,11 +1183,9 @@ export async function teleport(): Promise<void> {
     if (existingTarget) {
       const existingCloud = resolveCloud(existingTarget);
       if (existingCloud !== "vellum") {
-        const normalizedExisting =
-          existingCloud === "vellum" ? "platform" : existingCloud;
         console.error(
-          `Error: Assistant '${targetName}' is a ${normalizedExisting} assistant, not platform. ` +
-            `Use --${normalizedExisting} to target it.`,
+          `Error: Assistant '${targetName}' is a ${existingCloud} assistant, not platform. ` +
+            `Use --${existingCloud} to target it.`,
         );
         process.exit(1);
       }
