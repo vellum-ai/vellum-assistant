@@ -258,11 +258,9 @@ public enum VIcon: String, CaseIterable, Sendable {
     /// On iOS, pass the display size so the PDF is rasterized at the correct resolution.
     public func image(size: CGFloat = 24) -> Image {
         #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-        guard let url = pdfURL, let ns = NSImage(contentsOf: url) else {
+        guard let ns = cachedNSImage(size: size) else {
             return Image(systemName: "questionmark.square")
         }
-        ns.isTemplate = true
-        ns.size = NSSize(width: size, height: size)
         return Image(nsImage: ns)
         #elseif canImport(UIKit)
         guard let url = pdfURL, let ui = Self.rasterizePDF(at: url, size: size, cacheKey: "\(rawValue)-\(size)") else {
@@ -278,18 +276,57 @@ public enum VIcon: String, CaseIterable, Sendable {
     public var image: Image { image() }
 
     #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-    /// AppKit `NSImage` resolved from the vendored PDF.
-    public var nsImage: NSImage? {
+    /// Non-evicting store for loaded NSImage instances, keyed on "rawValue-base" or "rawValue-{size}".
+    /// Unlike NSCache, a plain dictionary is never evicted under memory pressure, preserving
+    /// the identity stability that SwiftUI relies on for diffing.
+    private static var nsImageStore: [String: NSImage] = [:]
+    private static let nsImageLock = NSLock()
+
+    /// Loads (or returns cached) NSImage from the vendored PDF.
+    /// Pass `nil` for the unsized base image, or a size for a sized variant.
+    private func cachedNSImage(size: CGFloat? = nil) -> NSImage? {
+        let cacheKey: String
+        let roundedSize: CGFloat?
+        if let size {
+            roundedSize = CGFloat(Int(size.rounded()))
+            cacheKey = "\(rawValue)-\(Int(size.rounded()))"
+        } else {
+            roundedSize = nil
+            cacheKey = "\(rawValue)-base"
+        }
+
+        Self.nsImageLock.lock()
+        if let cached = Self.nsImageStore[cacheKey] {
+            Self.nsImageLock.unlock()
+            return cached
+        }
+        Self.nsImageLock.unlock()
+
         guard let url = pdfURL, let img = NSImage(contentsOf: url) else { return nil }
         img.isTemplate = true
+        if let roundedSize {
+            img.size = NSSize(width: roundedSize, height: roundedSize)
+        }
+
+        Self.nsImageLock.lock()
+        // Double-check in case another thread populated it while we were loading.
+        if let existing = Self.nsImageStore[cacheKey] {
+            Self.nsImageLock.unlock()
+            return existing
+        }
+        Self.nsImageStore[cacheKey] = img
+        Self.nsImageLock.unlock()
         return img
+    }
+
+    /// AppKit `NSImage` resolved from the vendored PDF.
+    public var nsImage: NSImage? {
+        cachedNSImage()
     }
 
     /// Convenience returning a sized `NSImage`.
     public func nsImage(size: CGFloat) -> NSImage? {
-        guard let img = nsImage else { return nil }
-        img.size = NSSize(width: size, height: size)
-        return img
+        cachedNSImage(size: size)
     }
     #endif
 
