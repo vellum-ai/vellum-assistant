@@ -104,7 +104,7 @@ public struct SettingsClient: SettingsClientProtocol {
     public func fetchModelInfo() async -> ModelInfoMessage? {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "model", timeout: 10
+                path: "assistants/{assistantId}/model", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchModelInfo failed (HTTP \(response.statusCode))")
@@ -123,7 +123,7 @@ public struct SettingsClient: SettingsClientProtocol {
             var body: [String: Any] = ["modelId": model]
             if let provider { body["provider"] = provider }
             let response = try await GatewayHTTPClient.put(
-                path: "model", json: body, timeout: 10
+                path: "assistants/{assistantId}/model", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("setModel failed (HTTP \(response.statusCode))")
