@@ -103,6 +103,13 @@ struct SidebarSectionHeader: View {
                     EmptyView()
                 }
             }
+        }
+        .padding(.leading, VSpacing.xs)
+        .padding(.trailing, SidebarLayoutMetrics.trailingIconPadding)
+        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+        .contentShape(Rectangle())
+        .overlay(alignment: .trailing) {
             if conversationCount > 0 {
                 Text("\(conversationCount)")
                     .font(VFont.labelSmall)
@@ -113,13 +120,9 @@ struct SidebarSectionHeader: View {
                         Capsule()
                             .fill(VColor.contentTertiary.opacity(0.12))
                     )
+                    .padding(.trailing, VSpacing.xs)
             }
         }
-        .padding(.leading, VSpacing.xs)
-        .padding(.trailing, VSpacing.sm)
-        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
-        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
-        .contentShape(Rectangle())
         .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
