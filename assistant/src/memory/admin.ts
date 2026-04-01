@@ -6,6 +6,7 @@ import { deleteMemoryCheckpoint } from "./checkpoints.js";
 import { getConversationMemoryScopeId } from "./conversation-crud.js";
 import { getDb, rawGet } from "./db.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
+import { handleRecall, type RecallResult } from "./graph/tool-handlers.js";
 import { enqueueBackfillJob, enqueueRebuildIndexJob, MIN_SEGMENT_CHARS } from "./indexer.js";
 import {
   enqueueCleanupStaleSupersededItemsJob,
@@ -14,7 +15,6 @@ import {
 } from "./jobs-store.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
-import { handleRecall, type RecallResult } from "./graph/tool-handlers.js";
 import { conversations, memorySegments, memorySummaries, messages } from "./schema.js";
 
 const log = getLogger("memory-admin");

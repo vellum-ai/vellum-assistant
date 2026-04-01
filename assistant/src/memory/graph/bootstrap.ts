@@ -9,8 +9,10 @@
 // Checkpointed and resumable. Progress tracked via memory_checkpoints.
 // ---------------------------------------------------------------------------
 
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { existsSync,readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { and, asc, ne, sql } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
@@ -20,7 +22,6 @@ import { getDb, rawAll } from "../db.js";
 import { enqueueMemoryJob, hasActiveJobOfType } from "../jobs-store.js";
 import { initQdrantClient } from "../qdrant-client.js";
 import { conversations, memoryGraphNodes, memorySegments } from "../schema.js";
-import { and, asc, ne, sql } from "drizzle-orm";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes, createNode } from "./store.js";
 import type { NewNode } from "./types.js";

@@ -1,17 +1,17 @@
 import { getConfig } from "../../config/loader.js";
-import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
-import {
-  graphRecallDefinition,
-  graphRememberDefinition,
-} from "../../memory/graph/tools.js";
 import {
   handleRecall,
   handleRemember,
   type RecallInput,
   type RememberInput,
 } from "../../memory/graph/tool-handlers.js";
+import {
+  graphRecallDefinition,
+  graphRememberDefinition,
+} from "../../memory/graph/tools.js";
+import { RiskLevel } from "../../permissions/types.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 // ── remember ────────────────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ import {
   getTriggersForNode,
   queryNodes,
 } from "./store.js";
-import type { MemoryNode, ScoredNode } from "./types.js";
+import type { ScoredNode } from "./types.js";
 
 // Initialize DB and Qdrant before anything else
 initializeDb();
@@ -489,6 +489,7 @@ async function runNarrative() {
 }
 
 function runDecay() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { runDecayTick } = require("./decay.js") as typeof import("./decay.js");
   console.log("\n  Running decay tick...\n");
   const result = runDecayTick("default");

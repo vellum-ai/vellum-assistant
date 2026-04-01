@@ -53,6 +53,7 @@ import {
   queueRegenerateConversationTitle,
   UNTITLED_FALLBACK,
 } from "../memory/conversation-title-service.js";
+import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -91,7 +92,6 @@ import {
 } from "./conversation-error.js";
 import { consolidateAssistantMessages } from "./conversation-history.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {

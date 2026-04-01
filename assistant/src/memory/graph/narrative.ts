@@ -133,7 +133,7 @@ export interface NarrativeResult {
 
 export async function runNarrativeRefinement(
   scopeId: string = "default",
-  config: AssistantConfig,
+  _config: AssistantConfig,
 ): Promise<NarrativeResult> {
   const start = Date.now();
   const result: NarrativeResult = {

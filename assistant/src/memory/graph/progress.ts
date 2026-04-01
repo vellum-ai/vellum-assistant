@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
-import { initializeDb } from "../db-init.js";
+import { asc } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+
 import { getMemoryCheckpoint } from "../checkpoints.js";
 import { getDb } from "../db.js";
+import { initializeDb } from "../db-init.js";
 import { conversations } from "../schema.js";
-import { asc } from "drizzle-orm";
-import { countNodes } from "./store.js";
 import { memoryGraphEdges, memoryGraphTriggers } from "../schema.js";
-import { sql } from "drizzle-orm";
+import { countNodes } from "./store.js";
 
 initializeDb();
 const db = getDb();

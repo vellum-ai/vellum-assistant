@@ -19,12 +19,11 @@ import type {
   MemoryEdge,
   MemoryNode,
   MemoryTrigger,
+  MemoryType,
   NewEdge,
   NewNode,
   NewTrigger,
-  NodeUpdate,
   SourceType,
-  MemoryType,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
