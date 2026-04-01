@@ -463,17 +463,23 @@ struct MessageListView: View {
         }
     }
 
-    /// Configures scroll action closures on the scroll state so it can
-    /// perform programmatic scrolls via the view-owned ScrollPosition.
-    private func configureScrollCallbacks() {
-        let binding = $scrollPosition
+    /// Configures scroll action closures on the scroll state.
+    /// Uses `ScrollViewReader`'s proxy for `scrollTo` — the newer
+    /// `ScrollPosition.scrollTo(id:anchor:)` has known reliability
+    /// issues with `LazyVStack` on macOS 15 where programmatic
+    /// scrolls silently fail. `ScrollViewProxy.scrollTo` (available
+    /// since macOS 11) is the battle-tested alternative.
+    /// Ref: https://developer.apple.com/documentation/swiftui/scrollviewproxy
+    private func configureScrollCallbacks(proxy: ScrollViewProxy) {
         scrollState.scrollTo = { id, anchor in
+            log.debug("[scroll] proxy.scrollTo(\(String(describing: id)), anchor=\(String(describing: anchor)))")
             if let stringId = id as? String {
-                binding.wrappedValue.scrollTo(id: stringId, anchor: anchor)
+                proxy.scrollTo(stringId, anchor: anchor)
             } else if let uuidId = id as? UUID {
-                binding.wrappedValue.scrollTo(id: uuidId, anchor: anchor)
+                proxy.scrollTo(uuidId, anchor: anchor)
             }
         }
+        let binding = $scrollPosition
         scrollState.scrollToEdge = { edge in
             binding.wrappedValue.scrollTo(edge: edge)
         }
@@ -891,7 +897,8 @@ struct MessageListView: View {
     // MARK: - Lifecycle handlers
 
     private func handleAppear() {
-        configureScrollCallbacks()
+        // configureScrollCallbacks is now called from the ScrollViewReader's
+        // onAppear inside the ScrollView body, where the proxy is available.
         // Seed the confirmation marker on initial mount — conversationSwitched
         // doesn't fire for the initial value, so a conversation already paused
         // in awaiting_confirmation at launch or reconnect needs the marker set here.
@@ -903,7 +910,7 @@ struct MessageListView: View {
             // scroll to it immediately instead of falling through to bottom.
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
-            $scrollPosition.wrappedValue.scrollTo(id: id, anchor: .center)
+            scrollState.performScrollTo(id, anchor: .center)
             flashHighlight(messageId: id)
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
@@ -991,6 +998,7 @@ struct MessageListView: View {
         guard let targetId = scrollState.pendingPushToTopTarget,
               scrollState.mode.pushToTopMessageId != nil else { return }
         scrollState.pendingPushToTopTarget = nil
+        log.debug("[push-to-top] handleUIVersionChanged: scrolling to \(targetId) anchor=.top, scrollTo closure set=\(scrollState.scrollTo != nil)")
         withAnimation(VAnimation.fast) {
             scrollState.performScrollTo(targetId, anchor: .top)
         }
@@ -1139,7 +1147,12 @@ struct MessageListView: View {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
         #endif
             ScrollView {
-                scrollViewContent
+                ScrollViewReader { proxy in
+                    scrollViewContent
+                        .onAppear {
+                            configureScrollCallbacks(proxy: proxy)
+                        }
+                }
             }
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")

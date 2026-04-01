@@ -3,6 +3,8 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListScrollState")
+
 // MARK: - ScrollMode
 
 /// Explicit scroll behavior mode. Every scroll decision flows through the
@@ -250,8 +252,10 @@ final class MessageListScrollState {
     // MARK: - Scroll Action Closures
 
     /// Closure that performs a programmatic scroll to the given item ID and
-    /// anchor point. Set once during view configuration and captures the
-    /// view-owned `ScrollPosition` binding.
+    /// anchor point. Set once during view configuration. Uses
+    /// `ScrollViewReader`'s proxy for reliable scrolling in `LazyVStack`
+    /// (the newer `ScrollPosition.scrollTo` has known issues with lazy
+    /// content on macOS 15).
     @ObservationIgnored var scrollTo: ((_ id: any Hashable, _ anchor: UnitPoint?) -> Void)?
 
     /// Closure that scrolls to a given edge (e.g. `.bottom`).
@@ -389,6 +393,7 @@ final class MessageListScrollState {
     /// deferred scroll target that will fire after the next uiVersion bump
     /// (guaranteeing the tail spacer is rendered).
     func enterPushToTop(messageId: UUID) {
+        log.debug("[push-to-top] enterPushToTop: messageId=\(messageId), showTailSpacer will be=\(ScrollMode.pushToTop(messageId: messageId).showsTailSpacer), scrollTo closure set=\(scrollTo != nil)")
         transition(to: .pushToTop(messageId: messageId))
         pendingPushToTopTarget = messageId
         syncUIImmediately()
