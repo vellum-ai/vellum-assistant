@@ -507,8 +507,16 @@ final class MessageListScrollState {
     /// Handles the user arriving at the bottom of the scroll view.
     func handleReachedBottom() {
         switch mode {
-        case .freeBrowsing, .pushToTop, .initialLoad, .programmaticScroll:
+        case .freeBrowsing, .initialLoad, .programmaticScroll:
             transition(to: .followingBottom)
+        case .pushToTop:
+            // Push-to-top exits only via exitPushToTop (streaming ends
+            // or user manually scrolls to bottom). The effective-content
+            // bottom detection fires during push-to-top because the tail
+            // spacer is excluded from effectiveContentHeight, making the
+            // user's message appear near the bottom — but that's expected,
+            // not a reason to leave push-to-top mode.
+            break
         case .stabilizing:
             break
         case .followingBottom:
