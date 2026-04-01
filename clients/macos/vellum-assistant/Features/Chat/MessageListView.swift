@@ -1013,13 +1013,16 @@ struct MessageListView: View {
         withAnimation(VAnimation.fast) {
             scrollState.performScrollTo(targetId, anchor: .top)
         }
-        // Sync the ScrollPosition binding so SwiftUI anchors to this
-        // message during content changes. Without this, the binding
-        // remains ScrollPosition(edge: .bottom) from the last
+        // Clear the stale ScrollPosition binding. Without this, the
+        // binding remains ScrollPosition(edge: .bottom) from the last
         // conversation switch/load, causing SwiftUI to keep the bottom
         // in view as the assistant's response streams — pushing the
         // user's message out of the viewport.
-        scrollPosition = ScrollPosition(id: targetId, anchor: .top)
+        // We use ScrollPosition() (empty) rather than
+        // ScrollPosition(id:anchor:) because the latter would attempt
+        // its own scroll-to-item which silently fails with LazyVStack,
+        // competing with the proxy scroll that already positioned us.
+        scrollPosition = ScrollPosition()
     }
 
     private func handleMessagesCountChanged() {
