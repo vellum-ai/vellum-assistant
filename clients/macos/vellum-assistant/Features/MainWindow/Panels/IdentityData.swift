@@ -127,6 +127,35 @@ struct IdentityInfo {
     let emoji: String
     let home: AssistantHome?
 
+    // MARK: - In-memory cache
+
+    /// Most-recently loaded identity, cached in memory so that
+    /// hot paths (menu bar, command palette, session overlay) never
+    /// perform synchronous file I/O on the main thread.
+    private static var cached: IdentityInfo?
+
+    /// Returns the cached identity if available, otherwise falls back
+    /// to a synchronous load (for first-access before the cache is warm).
+    static var current: IdentityInfo? {
+        cached ?? load()
+    }
+
+    /// Populate (or refresh) the in-memory cache from disk, off the
+    /// main thread. Call this at app launch, on workspace switch, and
+    /// whenever IDENTITY.md is known to have changed.
+    @discardableResult
+    static func refreshCache() async -> IdentityInfo? {
+        let info = await loadAsync()
+        cached = info
+        return info
+    }
+
+    /// Synchronously seeds the cache from the current default path.
+    /// Intended for use when an async context is not available.
+    static func warmCache() {
+        cached = load()
+    }
+
     static func load() -> IdentityInfo? {
         load(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
     }
