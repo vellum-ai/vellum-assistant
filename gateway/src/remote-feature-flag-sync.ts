@@ -104,23 +104,24 @@ export class RemoteFeatureFlagSync {
       "https://platform.vellum.ai"
     ).replace(/\/+$/, "");
 
-    const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
-    const platformInternalApiKey = !assistantApiKey
-      ? process.env.PLATFORM_INTERNAL_API_KEY?.trim()
+    const platformInternalApiKey =
+      process.env.PLATFORM_INTERNAL_API_KEY?.trim() || undefined;
+    const assistantApiKey = !platformInternalApiKey
+      ? assistantApiKeyRaw?.trim() || undefined
       : undefined;
-    const apiKey = assistantApiKey || platformInternalApiKey;
-    const authScheme = assistantApiKey ? "Api-Key" : "Bearer";
+    const authToken = platformInternalApiKey || assistantApiKey;
+    const authScheme = platformInternalApiKey ? "Bearer" : "Api-Key";
 
     const assistantId =
       assistantIdRaw?.trim() ||
       process.env.PLATFORM_ASSISTANT_ID?.trim() ||
       undefined;
 
-    if (!apiKey || !assistantId) {
+    if (!authToken || !assistantId) {
       log.debug(
         {
           hasPlatformUrl: !!platformUrl,
-          hasApiKey: !!apiKey,
+          hasApiKey: !!authToken,
           hasAssistantId: !!assistantId,
         },
         "Remote feature flag sync skipped: missing credentials",
@@ -134,7 +135,7 @@ export class RemoteFeatureFlagSync {
     const response = await fetchImpl(url, {
       method: "GET",
       headers: {
-        Authorization: `${authScheme} ${apiKey}`,
+        Authorization: `${authScheme} ${authToken}`,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(10_000),
