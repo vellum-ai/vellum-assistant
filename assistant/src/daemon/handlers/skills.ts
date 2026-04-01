@@ -46,7 +46,11 @@ import {
   deleteSkillCapabilityMemory,
   seedCatalogSkillMemories,
 } from "../../skills/skill-memory.js";
-import { searchSkillsRegistry } from "../../skills/skillssh-registry.js";
+import {
+  installExternalSkill,
+  resolveSkillSource,
+  searchSkillsRegistry,
+} from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
@@ -537,8 +541,16 @@ export function configureSkill(
   }
 }
 
+/**
+ * Check whether a slug looks like a skills.sh multi-segment format
+ * (e.g. `owner/repo/skill-name` — three or more `/`-separated segments).
+ */
+function looksLikeSkillsShSlug(slug: string): boolean {
+  return slug.split("/").length >= 3;
+}
+
 export async function installSkill(
-  spec: { slug: string; version?: string },
+  spec: { slug: string; version?: string; origin?: "clawhub" | "skillssh" },
   ctx: SkillOperationContext,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
@@ -613,11 +625,50 @@ export async function installSkill(
         return { success: true };
       }
     } catch (err) {
-      // If catalog lookup/install fails, fall through to clawhub
+      // If catalog lookup/install fails, fall through to community registries
       log.warn(
         { err, skillId: spec.slug },
         "Vellum catalog install failed, falling back to community registry",
       );
+    }
+
+    // skills.sh install path: route here when origin is explicitly "skillssh"
+    // or when the slug looks like a skills.sh multi-segment format (owner/repo/skill)
+    if (
+      spec.origin === "skillssh" ||
+      (spec.origin !== "clawhub" && looksLikeSkillsShSlug(spec.slug))
+    ) {
+      const resolved = resolveSkillSource(spec.slug);
+      await installExternalSkill(
+        resolved.owner,
+        resolved.repo,
+        resolved.skillSlug,
+        true /* overwrite */,
+        resolved.ref,
+      );
+
+      // Reload skill catalog so the newly installed skill is picked up
+      loadSkillCatalog();
+
+      // Auto-enable the newly installed skill
+      try {
+        const raw = loadRawConfig();
+        ensureSkillEntry(raw, resolved.skillSlug).enabled = true;
+        saveConfigWithSuppression(raw, ctx);
+        ctx.broadcast({
+          type: "skills_state_changed",
+          name: resolved.skillSlug,
+          state: "enabled",
+        });
+      } catch (err) {
+        log.warn(
+          { err, skillId: resolved.skillSlug },
+          "Failed to auto-enable installed skills.sh skill",
+        );
+      }
+
+      seedCatalogSkillMemories();
+      return { success: true };
     }
 
     // Install from clawhub (community)
