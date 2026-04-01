@@ -516,10 +516,12 @@ function parseSemverParts(v: string): {
 }
 
 /**
- * Compare two pre-release strings.
- * Each dot-separated identifier is compared numerically when both are numeric,
- * lexically otherwise. A version with fewer identifiers sorts earlier when all
- * preceding identifiers are equal (per semver §11).
+ * Compare two pre-release strings per semver §11:
+ *   - Dot-separated identifiers compared left to right.
+ *   - Both numeric → compare as integers.
+ *   - Both non-numeric → compare lexically.
+ *   - Numeric vs non-numeric → numeric sorts lower (§11.4.4).
+ *   - Fewer identifiers sorts earlier when all preceding are equal.
  */
 function comparePreRelease(a: string, b: string): number {
   const pa = a.split(".");
@@ -528,10 +530,13 @@ function comparePreRelease(a: string, b: string): number {
   for (let i = 0; i < len; i++) {
     if (i >= pa.length) return -1; // a has fewer fields → a < b
     if (i >= pb.length) return 1;
-    const na = Number(pa[i]);
-    const nb = Number(pb[i]);
-    if (!isNaN(na) && !isNaN(nb)) {
-      if (na !== nb) return na - nb;
+    const aIsNum = /^\d+$/.test(pa[i]);
+    const bIsNum = /^\d+$/.test(pb[i]);
+    if (aIsNum && bIsNum) {
+      const diff = Number(pa[i]) - Number(pb[i]);
+      if (diff !== 0) return diff;
+    } else if (aIsNum !== bIsNum) {
+      return aIsNum ? -1 : 1; // numeric < non-numeric per §11.4.4
     } else {
       const cmp = (pa[i] ?? "").localeCompare(pb[i] ?? "");
       if (cmp !== 0) return cmp;
