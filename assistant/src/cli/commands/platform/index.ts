@@ -21,9 +21,9 @@ export function registerPlatformCommand(program: Command): void {
     "after",
     `
 The platform subsystem manages the connection to Vellum Platform, callback
-routing, containerized deployment context, and webhook forwarding for
+routing, platform deployment context, and webhook forwarding for
 assistants. Use 'connect', 'status', and 'disconnect' to manage platform
-credentials. When IS_CONTAINERIZED=true with a configured VELLUM_PLATFORM_URL
+credentials. When IS_PLATFORM=true with a configured VELLUM_PLATFORM_URL
 and PLATFORM_ASSISTANT_ID, external service callbacks (Telegram webhooks,
 Twilio webhooks, OAuth redirects) route through the platform's gateway proxy
 instead of hitting the assistant directly.
@@ -54,11 +54,11 @@ Examples:
       "after",
       `
 Reads platform-related environment variables and stored credentials to report
-the current containerized deployment context and connection state. Does not
+the current platform deployment context and connection state. Does not
 require the assistant to be running.
 
 Fields:
-  containerized       Whether IS_CONTAINERIZED is set (boolean)
+  isPlatform          Whether IS_PLATFORM is set (boolean)
   baseUrl             VELLUM_PLATFORM_URL — the platform gateway base URL
   assistantId         PLATFORM_ASSISTANT_ID — this assistant's platform UUID
   hasInternalApiKey   Whether PLATFORM_INTERNAL_API_KEY is set (boolean,
@@ -210,7 +210,7 @@ Known callback path/type combinations:
   --path webhooks/twilio/status     --type twilio_status
   --path oauth/callback             --type oauth
 
-Requires a containerized environment (IS_CONTAINERIZED=true) with
+Requires a platform-managed environment (IS_PLATFORM=true) with
 VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID configured. Returns the
 platform-provided stable callback URL that external services should use.
 
@@ -225,7 +225,7 @@ Examples:
           writeOutput(cmd, {
             ok: false,
             error:
-              "Platform callbacks not available — missing containerized platform registration context",
+              "Platform callbacks not available — missing platform registration context",
           });
           process.exitCode = 1;
           return;
