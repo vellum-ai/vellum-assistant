@@ -793,7 +793,7 @@ jobs:
           tags: |
             ${{ matrix.service }}:v${{ needs.extract-version.outputs.version }}
             ${{ matrix.service }}:${{ github.sha }}
-          outputs: type=docker,dest=/tmp/${{ matrix.service }}.tar
+          outputs: type=oci,dest=/tmp/${{ matrix.service }}.tar
 
       - name: Upload Docker image artifact
         uses: actions/upload-artifact@v4
@@ -1101,11 +1101,13 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          # Use base_version for DISPLAY_VERSION (Apple requires MAJOR.MINOR.PATCH for CFBundleShortVersionString)
+          DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION / Full version: ${{ needs.extract-version.outputs.version }}"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -1443,10 +1445,12 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          # Use base_version for DISPLAY_VERSION (Apple requires MAJOR.MINOR.PATCH for CFBundleShortVersionString)
+          DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -2135,11 +2139,13 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          # Use base_version for DISPLAY_VERSION (Apple requires MAJOR.MINOR.PATCH for CFBundleShortVersionString)
+          DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION / Full version: ${{ needs.extract-version.outputs.version }}"
 
       - name: Cache Homebrew XcodeGen
         id: cache-xcodegen-release
