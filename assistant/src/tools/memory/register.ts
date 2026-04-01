@@ -70,16 +70,29 @@ class RecallTool implements Tool {
 
     const formatted = result.results
       .map((r) => {
+        const ts = formatTimestamp(r.created);
         const meta =
           result.mode === "memory"
-            ? `[${r.type}] (confidence: ${r.confidence.toFixed(2)}, score: ${r.score.toFixed(3)})`
-            : `[archive]`;
+            ? `[${r.type}] ${ts} (confidence: ${r.confidence.toFixed(2)}, score: ${r.score.toFixed(3)})`
+            : `[archive] ${ts}`;
         return `${meta}\n${r.content}`;
       })
       .join("\n\n---\n\n");
 
     return { content: formatted, isError: false };
   }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function formatTimestamp(epochMs: number): string {
+  const d = new Date(epochMs);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}/${dd}/${yy} ${hh}:${min}`;
 }
 
 // ── Exported tool instances ──────────────────────────────────────────
