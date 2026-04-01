@@ -142,8 +142,8 @@ import {
 // ---------------------------------------------------------------------------
 
 function getTemplateDbPath(): string {
-  // Hash this file + all migration files so the template auto-invalidates
-  // when any migration changes.
+  // Hash this file + all migration files + bootstrap migration so the template
+  // auto-invalidates when any migration changes.
   const thisFile = new URL(import.meta.url).pathname;
   const hash = createHash("md5");
   hash.update(readFileSync(thisFile, "utf-8"));
@@ -152,6 +152,12 @@ function getTemplateDbPath(): string {
     if (name.endsWith(".ts")) {
       hash.update(readFileSync(join(migrationsDir, name), "utf-8"));
     }
+  }
+  // Include the bootstrap migration (migrateToolCreatedItems) which also runs
+  // during initializeDb but lives outside the migrations/ directory.
+  const bootstrapFile = join(dirname(thisFile), "graph", "bootstrap.ts");
+  if (existsSync(bootstrapFile)) {
+    hash.update(readFileSync(bootstrapFile, "utf-8"));
   }
   return join(
     tmpdir(),
