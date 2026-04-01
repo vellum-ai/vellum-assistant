@@ -82,7 +82,10 @@ import {
   setCesClient,
   setCesReconnect,
 } from "../security/secure-keys.js";
-import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
+import {
+  seedCatalogSkillMemories,
+  seedUninstalledCatalogSkillMemories,
+} from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
@@ -650,6 +653,15 @@ export async function runDaemon(): Promise<void> {
         log.warn({ err }, "Catalog skill memory seeding failed — continuing");
       }
 
+      // Seed memories for catalog skills not yet installed so they're
+      // discoverable via memory injection and can be auto-installed.
+      void seedUninstalledCatalogSkillMemories().catch((err) =>
+        log.warn(
+          { err },
+          "Uninstalled catalog skill memory seeding failed — continuing",
+        ),
+      );
+
       try {
         seedCliCommandMemories();
       } catch (err) {
@@ -658,10 +670,20 @@ export async function runDaemon(): Promise<void> {
 
       // Seed capability graph nodes (new memory graph system)
       try {
-        const { seedSkillGraphNodes, seedCliGraphNodes } =
-          await import("../memory/graph/capability-seed.js");
+        const {
+          seedSkillGraphNodes,
+          seedCliGraphNodes,
+          seedUninstalledSkillGraphNodes,
+        } = await import("../memory/graph/capability-seed.js");
         seedSkillGraphNodes();
         seedCliGraphNodes();
+
+        void seedUninstalledSkillGraphNodes().catch((err) =>
+          log.warn(
+            { err },
+            "Uninstalled skill graph node seeding failed — continuing",
+          ),
+        );
       } catch (err) {
         log.warn({ err }, "Graph capability seeding failed — continuing");
       }
