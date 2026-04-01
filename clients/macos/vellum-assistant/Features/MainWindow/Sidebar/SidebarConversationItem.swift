@@ -154,17 +154,10 @@ struct SidebarConversationItem: View, Equatable {
                             .frame(width: 20, height: 20)
                             .nativeTooltip("Unread")
                             .transition(.opacity)
-                    } else if conversation.isPinned {
-                        VIconView(.pin, size: 13)
-                            .foregroundStyle(VColor.contentTertiary)
-                            .rotationEffect(.degrees(-45))
-                            .frame(width: 20, height: 20)
-                            .nativeTooltip("Pinned")
-                            .accessibilityLabel("Pinned")
-                            .transition(.opacity)
                     } else {
                         Color.clear
                             .frame(width: 20, height: 20)
+                            .accessibilityLabel(conversation.isPinned ? "Pinned" : "")
                     }
                 }
             }
@@ -260,14 +253,7 @@ struct SidebarConversationItem: View, Equatable {
             return NSItemProvider(object: conversation.id.uuidString as NSString)
         } preview: {
             HStack(spacing: VSpacing.xs) {
-                if conversation.isPinned {
-                    VIconView(.pin, size: 13)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .rotationEffect(.degrees(-45))
-                        .frame(width: 20, height: 20)
-                } else {
-                    Color.clear.frame(width: 20, height: 20)
-                }
+                Color.clear.frame(width: 20, height: 20)
                 Text(conversation.title)
                     .font(VFont.menuCompact)
                     .foregroundStyle(VColor.contentDefault)
