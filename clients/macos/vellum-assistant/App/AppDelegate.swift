@@ -13,10 +13,12 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDe
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The canonical product name shown in menus and the About panel.
-    /// Reads the build-time `VellumBrandName` Info.plist key so staging
-    /// builds display "Vellum Staging" while production builds show "Vellum".
+    /// Reads `CFBundleDisplayName` from Info.plist so staging builds
+    /// (where `BUNDLE_DISPLAY_NAME="Vellum Staging"`) display the correct brand.
     public static let appName: String = {
-        Bundle.main.object(forInfoDictionaryKey: "VellumBrandName") as? String ?? "Vellum"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "Vellum"
     }()
 
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
