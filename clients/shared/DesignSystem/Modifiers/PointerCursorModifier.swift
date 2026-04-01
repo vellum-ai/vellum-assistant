@@ -11,12 +11,13 @@ import SwiftUI
 /// into a single `.onHover` handler, avoiding competing hover registrations.
 struct PointerCursorModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
+    var enabled: Bool = true
     var onHover: ((Bool) -> Void)?
 
     func body(content: Content) -> some View {
         #if os(macOS)
         content
-            .pointerStyle(isEnabled ? .link : nil)
+            .pointerStyle(enabled && isEnabled ? .link : nil)
             .onHover { hovering in
                 onHover?(hovering)
             }
@@ -38,6 +39,11 @@ public extension View {
     /// Applies a pointing-hand cursor and calls `onHover` in a single hover handler.
     func pointerCursor(onHover: @escaping (Bool) -> Void) -> some View {
         modifier(PointerCursorModifier(onHover: onHover))
+    }
+
+    /// Applies a pointing-hand cursor with an enabled flag and optional hover callback.
+    func pointerCursor(enabled: Bool, onHover: @escaping (Bool) -> Void) -> some View {
+        modifier(PointerCursorModifier(enabled: enabled, onHover: onHover))
     }
 }
 
