@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   assembleContextBlock,
   assembleInjectionBlock,
+  formatEventDate,
   InContextTracker,
 } from "./injection.js";
 import type { MemoryNode, ScoredNode } from "./types.js";
@@ -315,5 +316,145 @@ describe("assembleInjectionBlock", () => {
     ]);
     const lines = result.split("\n");
     expect(lines).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Upcoming section
+// ---------------------------------------------------------------------------
+
+describe("assembleContextBlock — Upcoming section", () => {
+  test("node with future eventDate appears in Upcoming, not On My Mind", () => {
+    const futureDate = Date.now() + 3 * DAY_MS;
+    const result = assembleContextBlock([
+      makeScored({
+        content: "Doctor appointment.",
+        eventDate: futureDate,
+        created: Date.now() - 2 * DAY_MS,
+      }),
+    ]);
+    expect(result).toContain("### Upcoming");
+    expect(result).toContain("Doctor appointment.");
+    expect(result).not.toContain("### On My Mind");
+  });
+
+  test("upcoming nodes are sorted by eventDate ascending (soonest first)", () => {
+    const result = assembleContextBlock([
+      makeScored({
+        id: "far",
+        content: "Far event.",
+        eventDate: Date.now() + 10 * DAY_MS,
+        created: Date.now() - DAY_MS,
+      }),
+      makeScored({
+        id: "near",
+        content: "Near event.",
+        eventDate: Date.now() + 2 * DAY_MS,
+        created: Date.now() - DAY_MS,
+      }),
+      makeScored({
+        id: "mid",
+        content: "Mid event.",
+        eventDate: Date.now() + 5 * DAY_MS,
+        created: Date.now() - DAY_MS,
+      }),
+    ]);
+    const upcomingSection = result.split("### Upcoming")[1]?.split("###")[0];
+    expect(upcomingSection).toBeDefined();
+    const nearIdx = upcomingSection!.indexOf("Near event.");
+    const midIdx = upcomingSection!.indexOf("Mid event.");
+    const farIdx = upcomingSection!.indexOf("Far event.");
+    expect(nearIdx).toBeLessThan(midIdx);
+    expect(midIdx).toBeLessThan(farIdx);
+  });
+
+  test("node with future eventDate AND triggerBoost > 0 goes to What Today Means, not Upcoming", () => {
+    const futureDate = Date.now() + DAY_MS;
+    const result = assembleContextBlock([
+      makeScored(
+        {
+          content: "Birthday party tomorrow.",
+          eventDate: futureDate,
+          created: Date.now() - 5 * DAY_MS,
+        },
+        { triggerBoost: 0.5 },
+      ),
+    ]);
+    expect(result).toContain("### What Today Means");
+    expect(result).toContain("Birthday party tomorrow.");
+    expect(result).not.toContain("### Upcoming");
+  });
+
+  test("node with past eventDate goes to On My Mind, not Upcoming", () => {
+    const pastDate = Date.now() - 2 * DAY_MS;
+    const result = assembleContextBlock([
+      makeScored({
+        content: "Concert last week.",
+        eventDate: pastDate,
+        created: Date.now() - 10 * DAY_MS,
+      }),
+    ]);
+    expect(result).toContain("### On My Mind");
+    expect(result).toContain("Concert last week.");
+    expect(result).not.toContain("### Upcoming");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatEventDate
+// ---------------------------------------------------------------------------
+
+describe("formatEventDate", () => {
+  test("formats a date happening today with (today) relative", () => {
+    // Use noon today to have a time component
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const result = formatEventDate(today.getTime());
+    expect(result).toContain("(today)");
+    expect(result).toContain("12:00 PM");
+  });
+
+  test("formats a date happening tomorrow with (tomorrow) relative", () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    const result = formatEventDate(tomorrow.getTime());
+    expect(result).toContain("(tomorrow)");
+    expect(result).toContain("9:00 AM");
+  });
+
+  test("formats a date several days out with (in Xd) relative", () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 5);
+    future.setHours(0, 0, 0, 0); // midnight = date-only
+    const result = formatEventDate(future.getTime());
+    expect(result).toContain("(in 5d)");
+    // Midnight should not include a time part
+    expect(result).not.toMatch(/\d+:\d+ [AP]M/);
+  });
+
+  test("formats a date with non-zero minutes correctly", () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 3);
+    future.setHours(14, 30, 0, 0);
+    const result = formatEventDate(future.getTime());
+    expect(result).toContain("2:30 PM");
+    expect(result).toContain("(in 3d)");
+  });
+
+  test("formats weeks-out dates with (in Xw) relative", () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 21);
+    future.setHours(0, 0, 0, 0);
+    const result = formatEventDate(future.getTime());
+    expect(result).toContain("(in 3w)");
+  });
+
+  test("formats months-out dates with (in Xmo) relative", () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 90);
+    future.setHours(0, 0, 0, 0);
+    const result = formatEventDate(future.getTime());
+    expect(result).toContain("(in 3mo)");
   });
 });
