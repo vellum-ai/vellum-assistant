@@ -132,8 +132,8 @@ struct MessageListView: View {
     @State private var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
-    /// Native SwiftUI scroll position struct (macOS 15+). Replaces
-    /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
+    /// Native SwiftUI scroll position struct (macOS 15+). Used alongside
+    /// `ScrollViewReader` for the hybrid scroll approach (see AGENTS.md).
     @State private var scrollPosition = ScrollPosition()
 
     /// The subset of messages actually shown, honoring the pagination window.
