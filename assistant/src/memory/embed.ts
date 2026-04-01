@@ -9,7 +9,7 @@ import {
   computeRetryDelay,
   isRetryableNetworkError,
 } from "../util/retry.js";
-import { embedWithBackend, type EmbeddingInput } from "./embedding-backend.js";
+import { type EmbeddingInput, embedWithBackend } from "./embedding-backend.js";
 
 const log = getLogger("memory-embed");
 
