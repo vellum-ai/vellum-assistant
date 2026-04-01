@@ -622,9 +622,12 @@ export async function installSkill(
       (s) => s.id === spec.slug && s.source === "bundled",
     );
     if (bundled) {
-      // Bundled skills are already on disk — they don't need SKILLS.md
-      // indexing or dependency installation. Just auto-enable, broadcast,
-      // and seed memories.
+      // Intentional divergence from postInstallSkill(): bundled skills are
+      // shipped with the assistant binary and are already on disk. They skip
+      // SKILLS.md indexing (they're discovered via the bundled catalog, not
+      // the workspace index), dependency installation (deps are pre-bundled),
+      // and catalog reload (the catalog already includes them). Only
+      // auto-enable, broadcast, and seed memories are needed.
       try {
         const raw = loadRawConfig();
         ensureSkillEntry(raw, spec.slug).enabled = true;

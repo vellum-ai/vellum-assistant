@@ -15,7 +15,8 @@ import { dirname, join } from "node:path";
 export interface SkillInstallMeta {
   origin: "vellum" | "clawhub" | "skillssh" | "custom";
   installedAt: string; // ISO 8601
-  installedBy?: string; // contact.id from SQLite contacts table
+  installedBy?: string; // actorPrincipalId from auth context (identifies who initiated the install)
+  backfilledBy?: string; // set by migration that backfilled this file (e.g. "migration-026")
   version?: string; // semver if known
   slug?: string; // registry slug
   sourceRepo?: string; // GitHub repo (e.g. "vercel-labs/agent-skills")

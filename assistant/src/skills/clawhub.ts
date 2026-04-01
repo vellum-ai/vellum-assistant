@@ -241,7 +241,9 @@ export async function clawhubInstall(
       return { success: false, error };
     }
 
-    // Write install-meta.json for the installed skill
+    // Write install-meta.json for the installed skill.
+    // contentHash is included here, so there's no need to call
+    // verifyAndRecordSkillHash() — it would just rewrite the same data.
     const skillDir = join(getManagedSkillsDir(), slug);
     writeInstallMeta(skillDir, {
       origin: "clawhub",
@@ -251,7 +253,6 @@ export async function clawhubInstall(
       contentHash: computeSkillHash(skillDir) ?? undefined,
     });
 
-    verifyAndRecordSkillHash(slug);
     return { success: true, skillName: slug };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
