@@ -318,14 +318,24 @@ function expandCollapsedAssistantTurns(
     if (nextIsUser) {
       const remainingResults = Array.from(toolResultMap.values());
       const rebuiltUserContent = [...remainingResults, ...nonToolResultContent];
-      // Replace the original user message with the rebuilt one
-      result.push({
-        role: "user" as const,
-        content:
-          rebuiltUserContent.length > 0
-            ? rebuiltUserContent
-            : [{ type: "text" as const, text: SYNTHETIC_CONTINUATION_TEXT }],
-      });
+      // Replace the original user message with the rebuilt one. When all
+      // tool_results were distributed to intermediate segments (empty rebuilt
+      // content), skip the synthetic placeholder if the next message is already
+      // a user turn — ensureToolPairing will pair the last assistant segment
+      // with that next user message naturally.
+      if (rebuiltUserContent.length > 0) {
+        result.push({ role: "user" as const, content: rebuiltUserContent });
+      } else {
+        const nextAfterUser = messages[mi + 2];
+        if (!nextAfterUser || nextAfterUser.role !== "user") {
+          result.push({
+            role: "user" as const,
+            content: [
+              { type: "text" as const, text: SYNTHETIC_CONTINUATION_TEXT },
+            ],
+          });
+        }
+      }
       mi++; // skip the original user message
     }
   }
@@ -582,16 +592,26 @@ function ensureToolPairing(
           role: "assistant" as const,
           content: carryoverContent,
         });
-        // Always emit a trailing user message to maintain alternation, even if the
-        // original user turn had only tool_result blocks. Use a synthetic placeholder
-        // when remainingContent is empty.
-        result.push({
-          role: "user" as const,
-          content:
-            normalized.remainingContent.length > 0
-              ? normalized.remainingContent
-              : [{ type: "text" as const, text: SYNTHETIC_CONTINUATION_TEXT }],
-        });
+        // Emit a trailing user message when there is remaining content, or when
+        // alternation requires it (next message is assistant or end of array).
+        // Skip the synthetic placeholder if the next message is already a user
+        // turn — it will naturally maintain alternation.
+        if (normalized.remainingContent.length > 0) {
+          result.push({
+            role: "user" as const,
+            content: normalized.remainingContent,
+          });
+        } else {
+          const nextAfterPair = messages[i + 2];
+          if (!nextAfterPair || nextAfterPair.role !== "user") {
+            result.push({
+              role: "user" as const,
+              content: [
+                { type: "text" as const, text: SYNTHETIC_CONTINUATION_TEXT },
+              ],
+            });
+          }
+        }
       } else {
         // No carryover assistant text to restore, so preserve existing behavior
         // and keep additional user blocks in the same message.

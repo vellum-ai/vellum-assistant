@@ -1278,6 +1278,58 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[5].content[0].text).toBe("Next response");
   });
 
+  test("carryover with tool_result-only user turn skips synthetic when next message is user", async () => {
+    // When the user turn after the consumed pair is already a user message,
+    // the synthetic continuation is unnecessary — the next user message
+    // naturally maintains alternation after the carryover assistant message.
+    const messages: Message[] = [
+      userMsg("Read file"),
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_1", name: "file_read", input: {} },
+          { type: "text", text: "Checking the file now." }, // carryover content
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          // ONLY tool_result, no other content
+          {
+            type: "tool_result",
+            tool_use_id: "tu_1",
+            content: "file contents",
+            is_error: false,
+          },
+        ],
+      },
+      userMsg("Follow-up question"), // next message is user — no synthetic needed
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string; tool_use_id?: string }>;
+    }>;
+
+    // Expected structure:
+    // 1. user(Read file)
+    // 2. assistant(tool_use)
+    // 3. user(tool_result)
+    // 4. assistant(Checking the file now.)
+    // 5. user(Follow-up question)  <-- real user message, NO synthetic continuation
+    expect(sent).toHaveLength(5);
+    expect(sent[0].role).toBe("user");
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content[0].type).toBe("tool_use");
+    expect(sent[2].role).toBe("user");
+    expect(sent[2].content[0].type).toBe("tool_result");
+    expect(sent[3].role).toBe("assistant");
+    expect(sent[3].content[0].text).toBe("Checking the file now.");
+    expect(sent[4].role).toBe("user");
+    expect(sent[4].content[0].text).toBe("Follow-up question");
+  });
+
   test("multi-turn with workspace injection: cache on second-to-last user turn only", async () => {
     const messages: Message[] = [
       // Turn 1: workspace + user text (no cache - 3rd-to-last)
