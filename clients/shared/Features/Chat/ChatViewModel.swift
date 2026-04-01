@@ -1621,13 +1621,36 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
         dismissConversationError()
 
-        // Use regenerate instead of resending: the daemon already persisted
-        // the user message and the error assistant message. Regenerate deletes
-        // the error message and re-runs the agent loop with the existing user
-        // message, avoiding duplicate user messages in history.
-        // Client-side send failures (HTTP 429 from runtime rate limiter, etc.)
-        // use the per-message send failure path and never reach this method.
-        regenerateLastMessage()
+        // When the last message is from the user (i.e. the assistant never
+        // responded — e.g. because the send was rate-limited with 429), resend
+        // the original message instead of regenerating. A /regenerate request
+        // would fail because the daemon has no assistant response to regenerate.
+        if let lastMsg = messages.last, lastMsg.role == .user {
+            lastFailedMessageText = lastMsg.text
+            lastFailedMessageDisplayText = nil
+            lastFailedMessageAutomated = lastMsg.isHidden
+            lastFailedMessageBypassSecretCheck = false
+            // Preserve attachments so they are resent with the retry.
+            lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
+                guard !att.data.isEmpty || att.filePath != nil else { return nil }
+                return UserMessageAttachment(
+                    id: att.id,
+                    filename: att.filename,
+                    mimeType: att.mimeType,
+                    data: att.data,
+                    extractedText: nil,
+                    sizeBytes: att.sizeBytes,
+                    thumbnailData: att.thumbnailData?.base64EncodedString(),
+                    filePath: att.filePath
+                )
+            }
+            retryLastMessage()
+        } else {
+            // The daemon already persisted both the user message and the error
+            // assistant message. Regenerate deletes the error message and re-runs
+            // the agent loop with the existing user message, avoiding duplicates.
+            regenerateLastMessage()
+        }
     }
 
     /// Whether the current error has a failed user message that can be retried.
