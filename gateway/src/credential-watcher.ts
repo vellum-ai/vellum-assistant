@@ -30,6 +30,7 @@ const log = getLogger("credential-watcher");
 const DEBOUNCE_MS = 500;
 const MANAGED_BOOTSTRAP_POLL_MS = 1_000;
 const MANAGED_BOOTSTRAP_TIMEOUT_MS = 1_000;
+const MANAGED_BOOTSTRAP_STEADY_POLL_MS = 30_000;
 
 export type CredentialChangeEvent = {
   /** Map from service name to resolved credentials (null if unavailable) */
@@ -173,9 +174,20 @@ export class CredentialWatcher {
 
       await this.pollOnce();
 
-      if (this.allConfiguredServicesReady() && this.managedBootstrapTimer) {
-        clearInterval(this.managedBootstrapTimer);
-        this.managedBootstrapTimer = null;
+      if (
+        this.lastConfiguredServices.size > 0 &&
+        this.allConfiguredServicesReady()
+      ) {
+        // All configured channel services have their credentials loaded.
+        // Switch to a slower steady-state poll as a resilient fallback for
+        // environments where fs.watch() doesn't propagate across containers.
+        if (this.managedBootstrapTimer) {
+          clearInterval(this.managedBootstrapTimer);
+          this.managedBootstrapTimer = setInterval(() => {
+            void this.pollManagedBootstrap(baseUrl, serviceToken);
+          }, MANAGED_BOOTSTRAP_STEADY_POLL_MS);
+          this.managedBootstrapTimer.unref?.();
+        }
       }
     } catch {
       // CES isn't reachable yet. Keep retrying until the sidecar is ready.
