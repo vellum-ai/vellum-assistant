@@ -25,10 +25,8 @@ struct ConversationHeaderPresentation {
     ///   - activeConversation: The currently active conversation model.
     ///   - activeViewModel: The chat view model for the active conversation.
     ///   - isConversationVisible: Whether the conversation panel is visible.
-    ///   - hasNonEmptyMessage: Pre-computed O(1) cached boolean from
-    ///     `ChatViewModel.hasNonEmptyMessage`. Avoids an O(n) `messages.contains(where:)`
-    ///     scan that would create an @Observable dependency on `messages`, causing
-    ///     this presentation model to be recomputed on every streaming token.
+    ///   - hasNonEmptyMessage: O(1) cached boolean from
+    ///     `ChatViewModel.hasNonEmptyMessage`, avoiding an O(n) message scan.
     init(activeConversation: ConversationModel?, activeViewModel: ChatViewModel?, isConversationVisible: Bool, hasNonEmptyMessage: Bool = false) {
         guard isConversationVisible, let conversation = activeConversation else {
             self.displayTitle = "New conversation"

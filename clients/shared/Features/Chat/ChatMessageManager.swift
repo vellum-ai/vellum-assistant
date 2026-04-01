@@ -32,8 +32,7 @@ public final class ChatMessageManager {
     /// Whether any message in the conversation has non-whitespace text, derived
     /// from `messages` via a Combine pipeline with `.removeDuplicates()`. Views
     /// read this O(1) cached boolean instead of scanning the full message array
-    /// on every body evaluation — critical for `topBarView` which otherwise
-    /// re-evaluates on every streaming token due to @Observable tracking.
+    /// on every body evaluation.
     ///
     /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     public private(set) var hasNonEmptyMessage: Bool = false

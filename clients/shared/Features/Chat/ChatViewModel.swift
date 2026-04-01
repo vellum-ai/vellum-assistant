@@ -335,9 +335,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public var activePendingRequestId: String? {
         messageManager.activePendingRequestId
     }
-    /// Cached O(1) boolean derived from `messages` via a Combine pipeline with
-    /// `.removeDuplicates()`. Avoids the O(n) `messages.contains(where:)` scan
-    /// that previously ran on every `topBarView` body evaluation during streaming.
+    /// O(1) cached boolean from `ChatMessageManager.hasNonEmptyMessage`.
     public var hasNonEmptyMessage: Bool {
         messageManager.hasNonEmptyMessage
     }
