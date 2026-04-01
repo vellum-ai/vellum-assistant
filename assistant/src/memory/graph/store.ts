@@ -591,6 +591,35 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
           .run();
         result.nodesUpdated++;
       }
+
+      // Sync event triggers when eventDate changes
+      if (c.eventDate !== undefined) {
+        const triggers = tx
+          .select()
+          .from(memoryGraphTriggers)
+          .where(
+            and(
+              eq(memoryGraphTriggers.nodeId, update.id),
+              eq(memoryGraphTriggers.type, "event"),
+            ),
+          )
+          .all();
+
+        for (const trigger of triggers) {
+          if (c.eventDate == null) {
+            // eventDate cleared — delete orphaned event trigger
+            tx.delete(memoryGraphTriggers)
+              .where(eq(memoryGraphTriggers.id, trigger.id))
+              .run();
+          } else {
+            // eventDate changed — sync trigger
+            tx.update(memoryGraphTriggers)
+              .set({ eventDate: c.eventDate })
+              .where(eq(memoryGraphTriggers.id, trigger.id))
+              .run();
+          }
+        }
+      }
     }
 
     // Reinforce nodes
