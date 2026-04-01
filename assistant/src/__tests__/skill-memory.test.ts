@@ -28,6 +28,12 @@ mock.module("../config/skills.js", () => ({
   loadSkillCatalog: (..._args: unknown[]) => mockLoadSkillCatalog(),
 }));
 
+// Mock catalog-cache so the prune guard sees the cache as populated
+mock.module("../skills/catalog-cache.js", () => ({
+  getCachedCatalogSync: () => [],
+  isCatalogCachePopulated: () => true,
+}));
+
 // Controllable mock for isAssistantFeatureFlagEnabled used by resolveSkillStates
 let mockIsFeatureFlagEnabled: (key: string) => boolean = () => true;
 

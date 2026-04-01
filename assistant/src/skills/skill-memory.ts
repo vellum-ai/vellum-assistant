@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { resolveSkillStates } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
@@ -9,6 +10,11 @@ import { computeMemoryFingerprint } from "../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { memoryItems } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
+import {
+  getCachedCatalogSync,
+  isCatalogCachePopulated,
+} from "./catalog-cache.js";
+import type { CatalogSkill } from "./catalog-install.js";
 
 const log = getLogger("skill-memory");
 
@@ -36,6 +42,20 @@ export function fromSkillSummary(entry: SkillSummary): SkillCapabilityInput {
     description: entry.description,
     activationHints: entry.activationHints,
     avoidWhen: entry.avoidWhen,
+  };
+}
+
+/**
+ * Convert a CatalogSkill to a SkillCapabilityInput.
+ * CatalogSkill stores display-name and hints inside nested metadata.
+ */
+export function fromCatalogSkill(entry: CatalogSkill): SkillCapabilityInput {
+  return {
+    id: entry.id,
+    displayName: entry.metadata?.vellum?.["display-name"] ?? entry.name,
+    description: entry.description,
+    activationHints: entry.metadata?.vellum?.["activation-hints"],
+    avoidWhen: entry.metadata?.vellum?.["avoid-when"],
   };
 }
 
@@ -244,11 +264,23 @@ export function seedCatalogSkillMemories(): void {
       )
       .all();
 
+    const cachedCatalogIds = new Set(
+      getCachedCatalogSync().map((s) => s.id),
+    );
+    // When the catalog cache hasn't been populated yet, skip pruning
+    // uninstalled catalog skill memories to avoid a wasteful
+    // soft-delete → re-create → re-embed cycle on every startup.
+    const cachePopulated = isCatalogCachePopulated();
+
     const now = Date.now();
     for (const item of allCapabilities) {
       if (!item.subject.startsWith("skill:")) continue;
       const itemSkillId = item.subject.replace("skill:", "");
-      if (!catalogIds.has(itemSkillId)) {
+      if (
+        !catalogIds.has(itemSkillId) &&
+        cachePopulated &&
+        !cachedCatalogIds.has(itemSkillId)
+      ) {
         db.update(memoryItems)
           .set({ status: "deleted", lastSeenAt: now })
           .where(eq(memoryItems.id, item.id))
@@ -257,5 +289,35 @@ export function seedCatalogSkillMemories(): void {
     }
   } catch (err) {
     log.warn({ err }, "Failed to seed catalog skill memories");
+  }
+}
+
+/**
+ * Seed capability memories for catalog skills that are not yet installed.
+ * This makes uninstalled skills discoverable via memory injection so the LLM
+ * can auto-install them via skill_load when relevant.
+ * Best-effort: errors are logged but never thrown.
+ */
+export async function seedUninstalledCatalogSkillMemories(): Promise<void> {
+  try {
+    const { getCatalog } = await import("./catalog-cache.js");
+    const fullCatalog = await getCatalog();
+    if (fullCatalog.length === 0) return;
+
+    const installedCatalog = loadSkillCatalog();
+    const installedIds = new Set(installedCatalog.map((s) => s.id));
+
+    const config = getConfig();
+    for (const entry of fullCatalog) {
+      if (installedIds.has(entry.id)) continue;
+
+      const flagKey = entry.metadata?.vellum?.["feature-flag"];
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
+
+      const input = fromCatalogSkill(entry);
+      upsertSkillCapabilityMemory(entry.id, input);
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to seed uninstalled catalog skill memories");
   }
 }
