@@ -7,8 +7,6 @@
  * (health check, JWT minting, HTTP call).
  */
 
-import { providerEnvVarsRegistry } from "@vellumai/provider-env-vars";
-
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
 import { API_KEY_PROVIDERS } from "../../config/loader.js";
 import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
@@ -26,13 +24,13 @@ import {
   getSecureKeyResultAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
+import { PROVIDER_ENV_VAR_NAMES } from "../../shared/provider-env-vars.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("daemon-credential-client");
 const CREDENTIAL_KEY_PREFIX = "credential/";
 
-const PROVIDER_ENV_VARS: Record<string, string> =
-  providerEnvVarsRegistry.providers;
+const PROVIDER_ENV_VARS: Record<string, string> = PROVIDER_ENV_VAR_NAMES;
 
 // ---------------------------------------------------------------------------
 // Private daemon fetch helper
