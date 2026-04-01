@@ -19,13 +19,13 @@ import {
 } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { parseEpochMs } from "./extraction.js";
 import {
   deleteNode,
   getEdgesForNode,
   queryNodes,
   updateNode,
 } from "./store.js";
-import { parseEpochMs } from "./extraction.js";
 import type { MemoryNode } from "./types.js";
 
 const log = getLogger("graph-consolidation");
@@ -494,7 +494,8 @@ async function consolidateChunk(
       changes.narrativeRole = update.narrativeRole || null;
     if (update.partOfStory !== undefined)
       changes.partOfStory = update.partOfStory || null;
-    if (update.event_date !== undefined) changes.eventDate = parseEpochMs(update.event_date);
+    if (update.event_date !== undefined)
+      changes.eventDate = parseEpochMs(update.event_date);
     changes.lastConsolidated = Date.now();
 
     if (Object.keys(changes).length > 1) {
