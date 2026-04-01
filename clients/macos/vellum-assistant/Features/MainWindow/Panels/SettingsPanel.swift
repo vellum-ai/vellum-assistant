@@ -114,6 +114,7 @@ struct SettingsPanel: View {
     @State private var isDeveloperEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
     @State private var isEmbeddingProviderEnabled: Bool = false
+    @State private var isIntegrationsGridEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
@@ -124,6 +125,7 @@ struct SettingsPanel: View {
     private static let developerFeatureFlagKey = "settings-developer-nav"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let soundsFeatureFlagKey = "sounds"
+    private static let integrationsGridFeatureFlagKey = "settings-integrations-grid"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -476,17 +478,19 @@ struct SettingsPanel: View {
             }
 
             // OAUTH PROVIDERS (dynamic from API)
-            ForEach(store.managedOAuthProviders, id: \.provider_key) { provider in
-                Divider()
-                    .background(VColor.borderBase)
-                    .padding(.vertical, VSpacing.sm)
+            if !isIntegrationsGridEnabled {
+                ForEach(store.managedOAuthProviders, id: \.provider_key) { provider in
+                    Divider()
+                        .background(VColor.borderBase)
+                        .padding(.vertical, VSpacing.sm)
 
-                OAuthProviderServiceCard(
-                    store: store,
-                    authManager: authManager,
-                    showToast: showToast,
-                    providerKey: provider.provider_key
-                )
+                    OAuthProviderServiceCard(
+                        store: store,
+                        authManager: authManager,
+                        showToast: showToast,
+                        providerKey: provider.provider_key
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -639,6 +643,9 @@ struct SettingsPanel: View {
                 if let schedulesFlag = flags.first(where: { $0.key == Self.schedulesFeatureFlagKey }) {
                     isSchedulesEnabled = schedulesFlag.enabled
                 }
+                if let integrationsGridFlag = flags.first(where: { $0.key == Self.integrationsGridFeatureFlagKey }) {
+                    isIntegrationsGridEnabled = integrationsGridFlag.enabled
+                }
                 consumeDeferredDeepLinkIfVisible()
                 return
             } catch {
@@ -662,6 +669,7 @@ struct SettingsPanel: View {
         if let schedulesEnabled = resolved[Self.schedulesFeatureFlagKey] {
             isSchedulesEnabled = schedulesEnabled
         }
+        isIntegrationsGridEnabled = resolved[Self.integrationsGridFeatureFlagKey] ?? false
 
         consumeDeferredDeepLinkIfVisible()
     }
