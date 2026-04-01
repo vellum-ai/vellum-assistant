@@ -120,7 +120,7 @@ export function verifyAndRecordSkillHash(slug: string): void {
   }
 
   // Write to install-meta.json (preferred). If no install-meta exists yet,
-  // create one with minimal metadata rather than falling back to .integrity.json.
+  // create one with minimal metadata.
   if (installMeta) {
     writeInstallMeta(skillDir, { ...installMeta, contentHash: hash });
   } else {
