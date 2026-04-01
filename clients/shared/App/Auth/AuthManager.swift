@@ -65,6 +65,8 @@ public final class AuthManager {
                     state = .unauthenticated
                     return
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 lastError = error
                 log.warning("Session check attempt \(attempt)/3 failed: \(error.localizedDescription, privacy: .public)")
