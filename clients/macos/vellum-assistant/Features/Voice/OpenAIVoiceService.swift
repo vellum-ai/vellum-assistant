@@ -38,7 +38,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
     // MARK: - Recording State
 
-    @ObservationIgnored private let audioEngine = AVAudioEngine()
+    @ObservationIgnored private lazy var audioEngine = AVAudioEngine()
     @ObservationIgnored private var isRecording = false
 
     /// Fires once when silence is detected after speech.
@@ -128,8 +128,15 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
     // MARK: - Recording
 
     /// Pre-initialize the audio engine so the first recording starts instantly.
+    /// Skips pre-warming when microphone permission hasn't been granted yet — accessing
+    /// `audioEngine.inputNode` triggers the system permission dialog, which we want to
+    /// avoid on dev rebuilds (where TCC resets to `.notDetermined` after re-signing).
     func prewarmEngine() {
         guard !enginePrewarmed else { return }
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            log.info("Skipping audio engine pre-warm — microphone not yet authorized")
+            return
+        }
         let _ = audioEngine.inputNode
         enginePrewarmed = true
         log.info("Audio engine pre-warmed")
