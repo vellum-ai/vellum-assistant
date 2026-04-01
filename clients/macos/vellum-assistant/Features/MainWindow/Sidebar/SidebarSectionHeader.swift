@@ -163,7 +163,7 @@ private struct ConditionalGroupContextMenu: ViewModifier {
                     VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") { onRename() }
                 }
                 if let onDelete {
-                    VMenuItem(icon: VIcon.trash.rawValue, label: "Delete") { onDelete() }
+                    VMenuItem(icon: VIcon.trash.rawValue, label: "Delete group\u{2026}") { onDelete() }
                 }
             }
         } else {
