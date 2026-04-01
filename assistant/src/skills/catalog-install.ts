@@ -305,7 +305,9 @@ export async function installSkillLocally(
     contentHash: computeSkillHash(skillDir) ?? undefined,
   });
 
-  // Install npm dependencies if the skill has a package.json
+  // Post-install: install dependencies first, then index the skill.
+  // Running bun install before upsertSkillsIndex ensures we don't index a
+  // skill whose dependencies failed to install.
   if (existsSync(join(skillDir, "package.json"))) {
     const bunPath = `${homedir()}/.bun/bin`;
     execSync("bun install", {
@@ -314,8 +316,6 @@ export async function installSkillLocally(
       env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
     });
   }
-
-  // Register in SKILLS.md only after all steps succeed
   upsertSkillsIndex(skillId);
 }
 
@@ -392,6 +392,8 @@ export async function autoInstallFromCatalog(
     return false;
   }
 
+  // installSkillLocally handles dependency installation and SKILLS.md indexing.
   await installSkillLocally(skillId, entry, false);
+
   return true;
 }

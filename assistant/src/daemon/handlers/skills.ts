@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -7,6 +8,7 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { join, relative } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
@@ -26,7 +28,10 @@ import {
 } from "../../providers/provider-send-message.js";
 import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
-import { installSkillLocally } from "../../skills/catalog-install.js";
+import {
+  installSkillLocally,
+  upsertSkillsIndex,
+} from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import {
   clawhubCheckUpdates,
@@ -235,6 +240,44 @@ function saveConfigWithSuppression(
   );
 
   ctx.updateConfigFingerprint();
+}
+
+/**
+ * Shared post-install logic for catalog, skillssh, and clawhub install paths
+ * in the daemon. Handles catalog reload, auto-enable, broadcast, and memory
+ * seeding.
+ *
+ * SKILLS.md indexing and dependency installation are handled by the install
+ * functions themselves (`installSkillLocally`, `installExternalSkill`,
+ * `clawhubInstall`) so that both CLI and daemon callers get correct behavior.
+ *
+ * NOT used for bundled skills — those have a simpler inline path in
+ * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
+ */
+export function postInstallSkill(
+  skillId: string,
+  _skillDir: string,
+  ctx: SkillOperationContext,
+): void {
+  // Reload skill catalog so the newly installed skill is picked up
+  loadSkillCatalog();
+
+  // Auto-enable the skill in config
+  try {
+    const raw = loadRawConfig();
+    ensureSkillEntry(raw, skillId).enabled = true;
+    saveConfigWithSuppression(raw, ctx);
+    ctx.broadcast({
+      type: "skills_state_changed",
+      name: skillId,
+      state: "enabled",
+    });
+  } catch (err) {
+    log.warn({ err, skillId }, "Failed to auto-enable installed skill");
+  }
+
+  // Seed skill memories
+  seedCatalogSkillMemories();
 }
 
 export interface SkillListItem {
@@ -579,7 +622,9 @@ export async function installSkill(
       (s) => s.id === spec.slug && s.source === "bundled",
     );
     if (bundled) {
-      // Auto-enable the bundled skill so it's immediately usable
+      // Bundled skills are already on disk — they don't need SKILLS.md
+      // indexing or dependency installation. Just auto-enable, broadcast,
+      // and seed memories.
       try {
         const raw = loadRawConfig();
         ensureSkillEntry(raw, spec.slug).enabled = true;
@@ -611,27 +656,8 @@ export async function installSkill(
           spec.contactId,
         );
 
-        // Reload skill catalog so the newly installed skill is picked up
-        loadSkillCatalog();
-
-        // Auto-enable the newly installed catalog skill
-        try {
-          const raw = loadRawConfig();
-          ensureSkillEntry(raw, spec.slug).enabled = true;
-          saveConfigWithSuppression(raw, ctx);
-          ctx.broadcast({
-            type: "skills_state_changed",
-            name: spec.slug,
-            state: "enabled",
-          });
-        } catch (err) {
-          log.warn(
-            { err, skillId: spec.slug },
-            "Failed to auto-enable installed catalog skill",
-          );
-        }
-
-        seedCatalogSkillMemories();
+        const skillDir = join(getWorkspaceSkillsDir(), spec.slug);
+        postInstallSkill(spec.slug, skillDir, ctx);
         return { success: true };
       }
     } catch (err) {
@@ -658,27 +684,8 @@ export async function installSkill(
         spec.contactId,
       );
 
-      // Reload skill catalog so the newly installed skill is picked up
-      loadSkillCatalog();
-
-      // Auto-enable the newly installed skill
-      try {
-        const raw = loadRawConfig();
-        ensureSkillEntry(raw, resolved.skillSlug).enabled = true;
-        saveConfigWithSuppression(raw, ctx);
-        ctx.broadcast({
-          type: "skills_state_changed",
-          name: resolved.skillSlug,
-          state: "enabled",
-        });
-      } catch (err) {
-        log.warn(
-          { err, skillId: resolved.skillSlug },
-          "Failed to auto-enable installed skills.sh skill",
-        );
-      }
-
-      seedCatalogSkillMemories();
+      const skillDir = join(getWorkspaceSkillsDir(), resolved.skillSlug);
+      postInstallSkill(resolved.skillSlug, skillDir, ctx);
       return { success: true };
     }
 
@@ -693,24 +700,20 @@ export async function installSkill(
     const rawId = result.skillName ?? spec.slug;
     const skillId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
 
-    // Reload skill catalog so the newly installed skill is picked up
-    loadSkillCatalog();
-
-    // Auto-enable the newly installed skill
-    try {
-      const raw = loadRawConfig();
-      ensureSkillEntry(raw, skillId).enabled = true;
-      saveConfigWithSuppression(raw, ctx);
-      ctx.broadcast({
-        type: "skills_state_changed",
-        name: skillId,
-        state: "enabled",
+    // clawhubInstall uses the clawhub CLI which doesn't handle bun install
+    // or SKILLS.md indexing, so we do those here before post-install.
+    const skillDir = join(getWorkspaceSkillsDir(), skillId);
+    if (existsSync(join(skillDir, "package.json"))) {
+      const bunPath = `${homedir()}/.bun/bin`;
+      execSync("bun install", {
+        cwd: skillDir,
+        stdio: "inherit",
+        env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
       });
-    } catch (err) {
-      log.warn({ err, skillId }, "Failed to auto-enable installed skill");
     }
+    upsertSkillsIndex(skillId);
 
-    seedCatalogSkillMemories();
+    postInstallSkill(skillId, skillDir, ctx);
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
