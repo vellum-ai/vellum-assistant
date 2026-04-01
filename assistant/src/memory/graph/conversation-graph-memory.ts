@@ -435,9 +435,13 @@ export class ConversationGraphMemory {
         .map((b) => b.text)
         .join(" ");
 
-      if (msg.role === "user" && !userLast) {
-        userLast = text;
-        userLastBlocks = msg.content;
+      if (msg.role === "user") {
+        if (userLastBlocks.length === 0) {
+          userLastBlocks = msg.content;
+        }
+        if (!userLast) {
+          userLast = text;
+        }
       } else if (msg.role === "assistant" && !assistantLast) {
         assistantLast = text;
       }

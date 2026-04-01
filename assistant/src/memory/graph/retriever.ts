@@ -606,68 +606,13 @@ export async function retrieveForTurn(
     .filter((m) => m.length > 0)
     .join("\n\n");
 
-  if (queryText.trim().length === 0) {
-    return { nodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
-  }
-
-  // Chunk if too large (8k token ≈ 32k chars conservative estimate)
-  const maxQueryChars = 32_000;
-  const chunks: string[] = [];
-  if (queryText.length <= maxQueryChars) {
-    chunks.push(queryText);
-  } else {
-    // Split at message boundary
-    if (opts.assistantLastMessage.length <= maxQueryChars) {
-      chunks.push(opts.assistantLastMessage);
-    }
-    if (opts.userLastMessage.length <= maxQueryChars) {
-      chunks.push(opts.userLastMessage);
-    } else {
-      // Split large message at paragraph boundaries
-      const paragraphs = opts.userLastMessage.split(/\n\n+/);
-      let current = "";
-      for (const p of paragraphs) {
-        if (current.length + p.length > maxQueryChars) {
-          if (current.length > 0) chunks.push(current);
-          current = p;
-        } else {
-          current += (current ? "\n\n" : "") + p;
-        }
-      }
-      if (current.length > 0) chunks.push(current);
-    }
-  }
-
-  // 2. Embed chunks and search (parallel)
-  const allCandidateIds = new Map<string, number>(); // nodeId → best score
-  let queryEmbeddings: number[][] = [];
-
-  try {
-    const embedResults = await embedWithRetry(opts.config, chunks, {
-      signal: opts.signal,
-    });
-    queryEmbeddings = embedResults.vectors;
-
-    const searchPromises = queryEmbeddings.map((vec) =>
-      searchGraphNodes(vec, 40, [opts.scopeId]),
-    );
-    const searchResults = await Promise.all(searchPromises);
-
-    for (const results of searchResults) {
-      for (const r of results) {
-        const current = allCandidateIds.get(r.nodeId) ?? 0;
-        allCandidateIds.set(r.nodeId, Math.max(current, r.score));
-      }
-    }
-  } catch (err) {
-    log.warn({ err }, "Embedding/search failed for turn retrieval");
-    return { nodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
-  }
-
   // Image-to-image search: embed incoming user images as queries
+  // Runs before the text-empty early return so image-only turns are handled
   const imageBlocks = (opts.userLastMessageBlocks ?? []).filter(
     (b): b is ImageContent => b.type === "image",
   );
+  const allCandidateIds = new Map<string, number>(); // nodeId → best score
+
   if (imageBlocks.length > 0) {
     try {
       const isMultimodal = await selectedBackendSupportsMultimodal(opts.config);
@@ -701,6 +646,69 @@ export async function retrieveForTurn(
       }
     } catch (err) {
       log.warn({ err }, "Image-to-image search failed (non-fatal)");
+    }
+  }
+
+  if (queryText.trim().length === 0 && allCandidateIds.size === 0) {
+    return { nodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
+  }
+
+  // Chunk if too large (8k token ≈ 32k chars conservative estimate)
+  const maxQueryChars = 32_000;
+  const chunks: string[] = [];
+  if (queryText.trim().length === 0) {
+    // No text to embed — skip chunking (image results may still exist)
+  } else if (queryText.length <= maxQueryChars) {
+    chunks.push(queryText);
+  } else {
+    // Split at message boundary
+    if (opts.assistantLastMessage.length <= maxQueryChars) {
+      chunks.push(opts.assistantLastMessage);
+    }
+    if (opts.userLastMessage.length <= maxQueryChars) {
+      chunks.push(opts.userLastMessage);
+    } else {
+      // Split large message at paragraph boundaries
+      const paragraphs = opts.userLastMessage.split(/\n\n+/);
+      let current = "";
+      for (const p of paragraphs) {
+        if (current.length + p.length > maxQueryChars) {
+          if (current.length > 0) chunks.push(current);
+          current = p;
+        } else {
+          current += (current ? "\n\n" : "") + p;
+        }
+      }
+      if (current.length > 0) chunks.push(current);
+    }
+  }
+
+  // 2. Embed chunks and search (parallel)
+  let queryEmbeddings: number[][] = [];
+
+  if (chunks.length > 0) {
+    try {
+      const embedResults = await embedWithRetry(opts.config, chunks, {
+        signal: opts.signal,
+      });
+      queryEmbeddings = embedResults.vectors;
+
+      const searchPromises = queryEmbeddings.map((vec) =>
+        searchGraphNodes(vec, 40, [opts.scopeId]),
+      );
+      const searchResults = await Promise.all(searchPromises);
+
+      for (const results of searchResults) {
+        for (const r of results) {
+          const current = allCandidateIds.get(r.nodeId) ?? 0;
+          allCandidateIds.set(r.nodeId, Math.max(current, r.score));
+        }
+      }
+    } catch (err) {
+      log.warn({ err }, "Embedding/search failed for turn retrieval");
+      if (allCandidateIds.size === 0) {
+        return { nodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
+      }
     }
   }
 
