@@ -235,11 +235,23 @@ public struct VTextField: View {
         .frame(maxWidth: maxWidth)
     }
 
+    /// Binding that strips newline characters for SecureField compatibility.
+    /// SecureField is single-line by design (Apple docs) and renders blank
+    /// when the bound string contains newline characters. Sanitizing on both
+    /// read and write ensures pasted multi-line credentials (PEM keys, JSON
+    /// tokens) display correctly as masked dots.
+    private var secureTextBinding: Binding<String> {
+        Binding(
+            get: { text.filter { !$0.isNewline } },
+            set: { text = $0.filter { !$0.isNewline } }
+        )
+    }
+
     @ViewBuilder
     private var inputField: some View {
         let field = Group {
             if isSecure {
-                SecureField(placeholder, text: $text)
+                SecureField(placeholder, text: secureTextBinding)
                     .textFieldStyle(.plain)
                     .font(font)
                     .foregroundStyle(VColor.contentDefault)
