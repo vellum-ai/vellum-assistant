@@ -144,8 +144,11 @@ export class ConversationGraphMemory {
     }
     // Re-track node IDs since onCompacted evicted them
     this.tracker.add(this.lastInjectedNodeIds);
+    // Strip any existing <memory __injected> blocks from the last user message
+    // before re-injecting, so compaction sites don't end up with duplicates.
+    const cleaned = stripExistingMemoryInjections(messages);
     return {
-      runMessages: injectTextBlock(messages, this.lastInjectedBlock),
+      runMessages: injectTextBlock(cleaned, this.lastInjectedBlock),
       injectedTokens: estimateTextTokens(this.lastInjectedBlock),
     };
   }
@@ -433,6 +436,33 @@ export class ConversationGraphMemory {
 // ---------------------------------------------------------------------------
 // Injection helper — same pattern as old injectMemoryRecallAsUserBlock
 // ---------------------------------------------------------------------------
+
+/**
+ * Remove any existing `<memory __injected>` text blocks from the last user
+ * message. This makes reinjectCachedMemory idempotent — callers don't need
+ * to worry about whether a prior injection survived compaction.
+ */
+function stripExistingMemoryInjections(messages: Message[]): Message[] {
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") return messages;
+
+  const filtered = last.content.filter(
+    (block) =>
+      !(
+        block.type === "text" &&
+        block.text.startsWith("<memory __injected>\n")
+      ),
+  );
+
+  // Nothing to strip
+  if (filtered.length === last.content.length) return messages;
+
+  return [
+    ...messages.slice(0, -1),
+    { ...last, content: filtered },
+  ];
+}
 
 function injectTextBlock(messages: Message[], text: string): Message[] {
   if (text.trim().length === 0) return messages;
