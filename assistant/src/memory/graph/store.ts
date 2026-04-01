@@ -510,6 +510,7 @@ export function supersedeNode(
     ),
     significance: Math.max(newNode.significance, oldNode.significance),
     eventDate: newNode.eventDate ?? oldNode.eventDate,
+    imageRefs: newNode.imageRefs ?? oldNode.imageRefs,
   };
 
   const created = createNode(inherited);
