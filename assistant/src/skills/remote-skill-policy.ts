@@ -26,7 +26,7 @@ export interface RemoteSkillPolicy {
   maxSkillsShRisk: SkillsShRiskThreshold;
 }
 
-export interface ClawhubModerationState {
+export interface SkillsshModerationState {
   isSuspicious?: boolean;
   isMalwareBlocked?: boolean;
 }
@@ -40,9 +40,9 @@ interface RemoteSkillCandidateBase {
   slug: string;
 }
 
-export interface ClawhubRemoteSkillCandidate extends RemoteSkillCandidateBase {
+export interface SkillsshModerationCandidate extends RemoteSkillCandidateBase {
   provider: "clawhub";
-  moderation?: ClawhubModerationState | null;
+  moderation?: SkillsshModerationState | null;
 }
 
 export interface SkillsShRemoteSkillCandidate extends RemoteSkillCandidateBase {
@@ -51,7 +51,7 @@ export interface SkillsShRemoteSkillCandidate extends RemoteSkillCandidateBase {
 }
 
 export type RemoteSkillCandidate =
-  | ClawhubRemoteSkillCandidate
+  | SkillsshModerationCandidate
   | SkillsShRemoteSkillCandidate;
 
 export type RemoteSkillDenyReason =
@@ -104,7 +104,7 @@ export function evaluateRemoteSkillInstall(
   policy: RemoteSkillPolicy = DEFAULT_REMOTE_SKILL_POLICY,
 ): RemoteSkillInstallDecision {
   if (candidate.provider === "clawhub") {
-    // Fail closed: block Clawhub skills when moderation data is missing.
+    // Fail closed: block skills when moderation data is missing.
     if (candidate.moderation == null) {
       return { ok: false, reason: "clawhub_moderation_missing" };
     }

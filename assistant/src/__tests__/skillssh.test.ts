@@ -13,9 +13,9 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import {
-  clawhubInspect,
-  clawhubInstall,
   loadIntegrityManifest,
+  skillsshInspect,
+  skillsshInstall,
   verifyAndRecordSkillHash,
 } from "../skills/skillssh.js";
 
@@ -23,70 +23,70 @@ import {
 // Slug validation (exercised through public API)
 // ---------------------------------------------------------------------------
 
-describe("clawhubInstall slug validation", () => {
+describe("skillsshInstall slug validation", () => {
   test("rejects empty slug", async () => {
-    const result = await clawhubInstall("");
+    const result = await skillsshInstall("");
     expect(result.success).toBe(false);
     expect(result.error).toContain("Invalid skill slug");
   });
 
   test("rejects slug starting with a dot", async () => {
-    const result = await clawhubInstall(".hidden");
+    const result = await skillsshInstall(".hidden");
     expect(result.success).toBe(false);
     expect(result.error).toContain("Invalid skill slug");
   });
 
   test("rejects slug starting with a hyphen", async () => {
-    const result = await clawhubInstall("-dashed");
+    const result = await skillsshInstall("-dashed");
     expect(result.success).toBe(false);
     expect(result.error).toContain("Invalid skill slug");
   });
 
   test("rejects slug with path traversal", async () => {
-    const result = await clawhubInstall("../escape");
+    const result = await skillsshInstall("../escape");
     expect(result.success).toBe(false);
     expect(result.error).toContain("Invalid skill slug");
   });
 
   test("rejects slug with spaces", async () => {
-    const result = await clawhubInstall("my skill");
+    const result = await skillsshInstall("my skill");
     expect(result.success).toBe(false);
     expect(result.error).toContain("Invalid skill slug");
   });
 
   test("rejects slug with double slash", async () => {
-    const result = await clawhubInstall("ns//skill");
+    const result = await skillsshInstall("ns//skill");
     expect(result.success).toBe(false);
     expect(result.error).toContain("Invalid skill slug");
   });
 
   test("rejects slug ending with slash", async () => {
-    const result = await clawhubInstall("skill/");
+    const result = await skillsshInstall("skill/");
     expect(result.success).toBe(false);
     expect(result.error).toContain("Invalid skill slug");
   });
 
   test("rejects slug with special characters", async () => {
-    const result = await clawhubInstall("skill@latest");
+    const result = await skillsshInstall("skill@latest");
     expect(result.success).toBe(false);
     expect(result.error).toContain("Invalid skill slug");
   });
 });
 
-describe("clawhubInspect slug validation", () => {
+describe("skillsshInspect slug validation", () => {
   test("rejects empty slug", async () => {
-    const result = await clawhubInspect("");
+    const result = await skillsshInspect("");
     expect(result.error).toContain("Invalid skill slug");
     expect(result.data).toBeUndefined();
   });
 
   test("rejects slug with path traversal", async () => {
-    const result = await clawhubInspect("../../etc/passwd");
+    const result = await skillsshInspect("../../etc/passwd");
     expect(result.error).toContain("Invalid skill slug");
   });
 
   test("rejects slug with spaces", async () => {
-    const result = await clawhubInspect("bad slug");
+    const result = await skillsshInspect("bad slug");
     expect(result.error).toContain("Invalid skill slug");
   });
 });

@@ -39,12 +39,12 @@ import {
   seedCatalogSkillMemories,
 } from "../../skills/skill-memory.js";
 import {
-  clawhubCheckUpdates,
-  clawhubInspect,
-  type ClawhubInspectResult,
-  clawhubInstall,
-  clawhubSearch,
-  clawhubUpdate,
+  skillsshCheckUpdates,
+  skillsshInspect,
+  type SkillsshInspectResult,
+  skillsshInstall,
+  skillsshSearch,
+  skillsshUpdate,
 } from "../../skills/skillssh.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import {
@@ -81,7 +81,7 @@ interface SkillProvenance {
   sourceUrl?: string;
 }
 
-const CLAWHUB_BASE_URL = "https://skills.sh";
+const SKILLSSH_BASE_URL = "https://skills.sh";
 
 function resolveProvenance(summary: SkillSummary): SkillProvenance {
   // Bundled skills are always first-party (shipped with Vellum)
@@ -89,7 +89,7 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
     return { kind: "first-party", provider: "Vellum" };
   }
 
-  // Managed skills are third-party (installed from clawhub). The homepage field
+  // Managed skills are third-party (installed from skills.sh). The homepage field
   // confirms provenance.
   if (summary.source === "managed") {
     if (
@@ -102,10 +102,10 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
         originId: summary.id,
         sourceUrl:
           summary.homepage ??
-          `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
+          `${SKILLSSH_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
       };
     }
-    // No positive evidence of clawhub origin -- likely user-authored.
+    // No positive evidence of skills.sh origin -- likely user-authored.
     // Default to "local" to avoid mislabeling.
     return { kind: "local" };
   }
@@ -238,7 +238,13 @@ export interface SkillListItem {
   description: string;
   emoji?: string;
   homepage?: string;
-  source: "bundled" | "managed" | "workspace" | "clawhub" | "extra" | "catalog";
+  source:
+    | "bundled"
+    | "managed"
+    | "workspace"
+    | "skillssh"
+    | "extra"
+    | "catalog";
   state: "enabled" | "disabled";
   installStatus: "bundled" | "installed" | "available";
   updateAvailable: boolean;
@@ -612,15 +618,15 @@ export async function installSkill(
         return { success: true };
       }
     } catch (err) {
-      // If catalog lookup/install fails, fall through to clawhub
+      // If catalog lookup/install fails, fall through to skillssh
       log.warn(
         { err, skillId: spec.slug },
         "Vellum catalog install failed, falling back to community registry",
       );
     }
 
-    // Install from clawhub (community)
-    const result = await clawhubInstall(spec.slug, { version: spec.version });
+    // Install from skillssh (community)
+    const result = await skillsshInstall(spec.slug, { version: spec.version });
     if (!result.success) {
       return { success: false, error: result.error ?? "Unknown error" };
     }
@@ -732,7 +738,7 @@ export async function updateSkill(
   _ctx: SkillOperationContext,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const result = await clawhubUpdate(skillId);
+    const result = await skillsshUpdate(skillId);
     if (!result.success) {
       return { success: false, error: result.error ?? "Unknown error" };
     }
@@ -752,7 +758,7 @@ export async function checkSkillUpdates(
   { success: true; data: unknown } | { success: false; error: string }
 > {
   try {
-    const updates = await clawhubCheckUpdates();
+    const updates = await skillsshCheckUpdates();
     return { success: true, data: updates };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -776,8 +782,8 @@ export async function searchSkills(
       (s) => s.description,
     ]);
 
-    // Shape that matches ClawhubSearchResultItem so the client
-    // (Swift ClawhubSkillItem) can decode results uniformly.
+    // Shape that matches SkillsshSearchResultItem so the client
+    // can decode results uniformly.
     interface SearchItem {
       name: string;
       slug: string;
@@ -787,7 +793,7 @@ export async function searchSkills(
       installs: number;
       version: string;
       createdAt: number;
-      source: "vellum" | "clawhub";
+      source: "vellum" | "skillssh";
     }
 
     const catalogItems: SearchItem[] = catalogMatches.map((s) => ({
@@ -805,12 +811,12 @@ export async function searchSkills(
     // Search the community registry (non-fatal on failure)
     let communitySkills: SearchItem[] = [];
     try {
-      const communityResult = await clawhubSearch(query);
+      const communityResult = await skillsshSearch(query);
       communitySkills = communityResult.skills;
     } catch (err) {
       log.warn(
         { err },
-        "clawhub search failed, returning catalog-only results",
+        "skillssh search failed, returning catalog-only results",
       );
     }
 
@@ -832,9 +838,9 @@ export async function searchSkills(
 export async function inspectSkill(
   skillId: string,
   _ctx: SkillOperationContext,
-): Promise<{ slug: string; data?: ClawhubInspectResult; error?: string }> {
+): Promise<{ slug: string; data?: SkillsshInspectResult; error?: string }> {
   try {
-    const result = await clawhubInspect(skillId);
+    const result = await skillsshInspect(skillId);
     return {
       slug: skillId,
       ...(result.data ? { data: result.data } : {}),

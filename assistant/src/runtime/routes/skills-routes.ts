@@ -72,7 +72,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
                 "bundled",
                 "managed",
                 "workspace",
-                "clawhub",
+                "skillssh",
                 "extra",
                 "catalog",
               ]),

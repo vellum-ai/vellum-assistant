@@ -84,12 +84,12 @@ export interface SkillsListResponse {
     description: string;
     emoji?: string;
     homepage?: string;
-    source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
+    source: "bundled" | "managed" | "workspace" | "skillssh" | "extra";
     state: "enabled" | "disabled";
     installedVersion?: string;
     latestVersion?: string;
     updateAvailable: boolean;
-    clawhub?: {
+    skillssh?: {
       author: string;
       stars: number;
       installs: number;

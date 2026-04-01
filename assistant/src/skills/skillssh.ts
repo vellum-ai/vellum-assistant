@@ -17,9 +17,9 @@ function getManagedSkillsDir(): string {
   return getWorkspaceSkillsDir();
 }
 
-// ClaWHub project root — clawhub creates a `skills/` subdir inside its cwd,
+// Skills.sh project root — skillssh creates a `skills/` subdir inside its cwd,
 // so we use the parent of the managed skills dir as the project root.
-function getClawhubProjectRoot(): string {
+function getSkillsshProjectRoot(): string {
   return dirname(getWorkspaceSkillsDir());
 }
 
@@ -160,14 +160,14 @@ export function verifyAndRecordSkillHash(slug: string): void {
   saveIntegrityManifest(manifest);
 }
 
-interface ClawhubInstallResult {
+interface SkillsshInstallResult {
   success: boolean;
   skillName?: string;
   version?: string;
   error?: string;
 }
 
-interface ClawhubSearchResultItem {
+interface SkillsshSearchResultItem {
   name: string;
   slug: string;
   description: string;
@@ -176,43 +176,43 @@ interface ClawhubSearchResultItem {
   installs: number;
   version: string;
   createdAt: number;
-  /** Where this skill comes from: "vellum" (first-party) or "clawhub" (community). */
-  source: "vellum" | "clawhub";
+  /** Where this skill comes from: "vellum" (first-party) or "skillssh" (community). */
+  source: "vellum" | "skillssh";
 }
 
-interface ClawhubSearchResult {
-  skills: ClawhubSearchResultItem[];
+interface SkillsshSearchResult {
+  skills: SkillsshSearchResultItem[];
 }
 
-interface ClawhubUpdateResult {
+interface SkillsshUpdateResult {
   success: boolean;
   updatedVersion?: string;
   error?: string;
 }
 
-interface ClawhubUpdateCheckItem {
+interface SkillsshUpdateCheckItem {
   name: string;
   installedVersion: string;
   latestVersion: string;
 }
 
-// Helper to run clawhub commands
-async function runClawhub(
+// Helper to run skillssh commands
+async function runSkillssh(
   args: string[],
   opts?: { cwd?: string; timeout?: number },
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const cwd = opts?.cwd ?? getClawhubProjectRoot();
+  const cwd = opts?.cwd ?? getSkillsshProjectRoot();
   const timeout = opts?.timeout ?? 60000;
 
   // Ensure managed skills dir exists
   const { mkdirSync } = await import("node:fs");
   mkdirSync(cwd, { recursive: true });
 
-  log.info({ args, cwd }, "Running clawhub command");
+  log.info({ args, cwd }, "Running skillssh command");
 
-  const proc = Bun.spawn(["npx", "clawhub", ...args], {
+  const proc = Bun.spawn(["npx", "skillssh", ...args], {
     cwd,
-    env: { ...process.env, CLAWHUB_DISABLE_TELEMETRY: "1" },
+    env: { ...process.env, SKILLSSH_DISABLE_TELEMETRY: "1" },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -221,7 +221,7 @@ async function runClawhub(
   const timeoutPromise = new Promise<[string, string]>((_, reject) => {
     timer = setTimeout(() => {
       proc.kill();
-      reject(new Error(`clawhub command timed out after ${timeout}ms`));
+      reject(new Error(`skillssh command timed out after ${timeout}ms`));
     }, timeout);
   });
 
@@ -240,16 +240,16 @@ async function runClawhub(
 
   log.info(
     { exitCode, stdoutLen: stdout.length, stderrLen: stderr.length },
-    "clawhub command completed",
+    "skillssh command completed",
   );
 
   return { stdout, stderr, exitCode };
 }
 
-export async function clawhubInstall(
+export async function skillsshInstall(
   slug: string,
   opts?: { version?: string },
-): Promise<ClawhubInstallResult> {
+): Promise<SkillsshInstallResult> {
   if (!validateSlug(slug)) {
     return { success: false, error: `Invalid skill slug: ${slug}` };
   }
@@ -258,7 +258,7 @@ export async function clawhubInstall(
   const args = ["install", installSlug, "--force"]; // non-interactive
 
   try {
-    const result = await runClawhub(args);
+    const result = await runSkillssh(args);
     if (result.exitCode !== 0) {
       const error =
         result.stderr.trim() || result.stdout.trim() || "Unknown error";
@@ -272,11 +272,11 @@ export async function clawhubInstall(
   }
 }
 
-export async function clawhubUpdate(
+export async function skillsshUpdate(
   name: string,
-): Promise<ClawhubUpdateResult> {
+): Promise<SkillsshUpdateResult> {
   try {
-    const result = await runClawhub(["update", name, "--force"]);
+    const result = await runSkillssh(["update", name, "--force"]);
     if (result.exitCode !== 0) {
       const error =
         result.stderr.trim() || result.stdout.trim() || "Unknown error";
@@ -290,16 +290,16 @@ export async function clawhubUpdate(
   }
 }
 
-export async function clawhubSearch(
+export async function skillsshSearch(
   query: string,
-): Promise<ClawhubSearchResult> {
+): Promise<SkillsshSearchResult> {
   // Empty query: use explore (browse trending) instead of search
   if (!query.trim()) {
-    return clawhubExplore();
+    return skillsshExplore();
   }
 
   try {
-    const result = await runClawhub(["search", query, "--limit", "25"]);
+    const result = await runSkillssh(["search", query, "--limit", "25"]);
     if (result.exitCode !== 0) {
       return { skills: [] };
     }
@@ -308,17 +308,17 @@ export async function clawhubSearch(
       const parsed = JSON.parse(result.stdout);
       if (Array.isArray(parsed)) {
         return {
-          skills: parsed.map((s: ClawhubSearchResultItem) => ({
+          skills: parsed.map((s: SkillsshSearchResultItem) => ({
             ...s,
-            source: s.source ?? ("clawhub" as const),
+            source: s.source ?? ("skillssh" as const),
           })),
         };
       }
       if (parsed.skills && Array.isArray(parsed.skills)) {
         return {
-          skills: parsed.skills.map((s: ClawhubSearchResultItem) => ({
+          skills: parsed.skills.map((s: SkillsshSearchResultItem) => ({
             ...s,
-            source: s.source ?? ("clawhub" as const),
+            source: s.source ?? ("skillssh" as const),
           })),
         };
       }
@@ -327,7 +327,7 @@ export async function clawhubSearch(
     }
 
     // Parse text output lines: "slug vVersion  Display Name  (score)"
-    const skills: ClawhubSearchResultItem[] = [];
+    const skills: SkillsshSearchResultItem[] = [];
     for (const line of result.stdout.split("\n")) {
       const match = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
       if (match) {
@@ -340,26 +340,26 @@ export async function clawhubSearch(
           stars: 0,
           installs: 0,
           createdAt: 0,
-          source: "clawhub",
+          source: "skillssh",
         });
       }
     }
     return { skills };
   } catch (err) {
-    log.warn({ err }, "clawhub search failed");
+    log.warn({ err }, "skillssh search failed");
     return { skills: [] };
   }
 }
 
-export async function clawhubExplore(opts?: {
+export async function skillsshExplore(opts?: {
   limit?: number;
   sort?: string;
-}): Promise<ClawhubSearchResult> {
+}): Promise<SkillsshSearchResult> {
   const limit = String(opts?.limit ?? 25);
   const sort = opts?.sort ?? "installsAllTime";
 
   try {
-    const result = await runClawhub([
+    const result = await runSkillssh([
       "explore",
       "--json",
       "--limit",
@@ -375,8 +375,8 @@ export async function clawhubExplore(opts?: {
       const items = parsed.items ?? parsed;
       if (!Array.isArray(items)) return { skills: [] };
 
-      // Normalize explore response to ClawhubSearchResultItem shape
-      const skills: ClawhubSearchResultItem[] = items.map(
+      // Normalize explore response to SkillsshSearchResultItem shape
+      const skills: SkillsshSearchResultItem[] = items.map(
         (item: Record<string, unknown>) => ({
           name: (item.displayName as string) ?? (item.slug as string) ?? "",
           slug: (item.slug as string) ?? "",
@@ -387,7 +387,7 @@ export async function clawhubExplore(opts?: {
             (item.stats as Record<string, number>)?.installsAllTime ?? 0,
           version: (item.tags as Record<string, string>)?.latest ?? "",
           createdAt: (item.createdAt as number) ?? 0,
-          source: "clawhub",
+          source: "skillssh",
         }),
       );
       return { skills };
@@ -396,12 +396,12 @@ export async function clawhubExplore(opts?: {
     }
     return { skills: [] };
   } catch (err) {
-    log.warn({ err }, "clawhub explore failed");
+    log.warn({ err }, "skillssh explore failed");
     return { skills: [] };
   }
 }
 
-export interface ClawhubInspectResult {
+export interface SkillsshInspectResult {
   skill: { slug: string; displayName: string; summary: string };
   owner: { handle: string; displayName: string; image?: string } | null;
   stats: {
@@ -417,15 +417,15 @@ export interface ClawhubInspectResult {
   skillMdContent: string | null;
 }
 
-export async function clawhubInspect(
+export async function skillsshInspect(
   slug: string,
-): Promise<{ data?: ClawhubInspectResult; error?: string }> {
+): Promise<{ data?: SkillsshInspectResult; error?: string }> {
   if (!validateSlug(slug)) {
     return { error: `Invalid skill slug: ${slug}` };
   }
 
   try {
-    const result = await runClawhub([
+    const result = await runSkillssh([
       "inspect",
       slug,
       "--json",
@@ -441,7 +441,7 @@ export async function clawhubInspect(
     try {
       const parsed = JSON.parse(result.stdout);
       // Normalize the raw inspect response to our interface
-      const data: ClawhubInspectResult = {
+      const data: SkillsshInspectResult = {
         skill: {
           slug: parsed.slug ?? slug,
           displayName: parsed.displayName ?? parsed.name ?? slug,
@@ -495,8 +495,10 @@ export async function clawhubInspect(
   }
 }
 
-export async function clawhubCheckUpdates(): Promise<ClawhubUpdateCheckItem[]> {
-  // This is a placeholder -- clawhub doesn't have a dedicated check-updates command
+export async function skillsshCheckUpdates(): Promise<
+  SkillsshUpdateCheckItem[]
+> {
+  // This is a placeholder -- skillssh doesn't have a dedicated check-updates command
   // For now return empty; will be implemented when the CLI supports it
   return [];
 }

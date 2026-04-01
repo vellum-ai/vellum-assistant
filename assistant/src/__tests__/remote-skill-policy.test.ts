@@ -6,7 +6,7 @@ import {
   type RemoteSkillPolicy,
 } from "../skills/remote-skill-policy.js";
 
-describe("remote skill policy — clawhub", () => {
+describe("remote skill policy — skillssh moderation", () => {
   const policy: RemoteSkillPolicy = {
     blockSuspicious: true,
     blockMalware: true,
@@ -59,7 +59,7 @@ describe("remote skill policy — clawhub", () => {
     expect(decision).toEqual({ ok: false, reason: "clawhub_malware_blocked" });
   });
 
-  test("clawhub skill with undefined moderation is blocked (fail-closed)", () => {
+  test("skill with undefined moderation is blocked (fail-closed)", () => {
     const decision = evaluateRemoteSkillInstall(
       {
         provider: "clawhub",
@@ -75,7 +75,7 @@ describe("remote skill policy — clawhub", () => {
     });
   });
 
-  test("clawhub skill with null moderation is blocked (fail-closed)", () => {
+  test("skill with null moderation is blocked (fail-closed)", () => {
     const decision = evaluateRemoteSkillInstall(
       {
         provider: "clawhub",
@@ -91,7 +91,7 @@ describe("remote skill policy — clawhub", () => {
     });
   });
 
-  test("clawhub skill without moderation property is blocked (fail-closed)", () => {
+  test("skill without moderation property is blocked (fail-closed)", () => {
     const decision = evaluateRemoteSkillInstall(
       {
         provider: "clawhub",
@@ -106,7 +106,7 @@ describe("remote skill policy — clawhub", () => {
     });
   });
 
-  test("clawhub skills with missing moderation are excluded from installable list", () => {
+  test("skills with missing moderation are excluded from installable list", () => {
     const candidates = [
       {
         provider: "clawhub" as const,
