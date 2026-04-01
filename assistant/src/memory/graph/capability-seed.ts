@@ -205,6 +205,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     created: now,
     lastAccessed: now,
     lastConsolidated: 0,
+    eventDate: null,
     emotionalCharge: {
       valence: 0,
       intensity: 0,

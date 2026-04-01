@@ -438,6 +438,7 @@ export function migrateToolCreatedItems(): void {
       created: row.first_seen_at || now,
       lastAccessed: now,
       lastConsolidated: now,
+      eventDate: null,
       emotionalCharge: {
         valence: 0,
         intensity: 0.1,

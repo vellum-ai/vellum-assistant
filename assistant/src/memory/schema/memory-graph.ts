@@ -28,6 +28,8 @@ export const memoryGraphNodes = sqliteTable(
     lastAccessed: integer("last_accessed").notNull(),
     /** Epoch ms of last consolidation pass. */
     lastConsolidated: integer("last_consolidated").notNull(),
+    /** Epoch ms of the event this memory describes (null for non-event memories). */
+    eventDate: integer("event_date"),
 
     // -- Energy --
     /** JSON-serialized EmotionalCharge object. Read/written atomically. */
@@ -66,6 +68,7 @@ export const memoryGraphNodes = sqliteTable(
     index("idx_graph_nodes_fidelity").on(table.fidelity),
     index("idx_graph_nodes_created").on(table.created),
     index("idx_graph_nodes_significance").on(table.significance),
+    index("idx_graph_nodes_event_date").on(table.eventDate),
   ],
 );
 

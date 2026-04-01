@@ -38,6 +38,7 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     created: row.created,
     lastAccessed: row.lastAccessed,
     lastConsolidated: row.lastConsolidated,
+    eventDate: row.eventDate ?? null,
     emotionalCharge: JSON.parse(row.emotionalCharge) as EmotionalCharge,
     fidelity: row.fidelity as Fidelity,
     confidence: row.confidence,

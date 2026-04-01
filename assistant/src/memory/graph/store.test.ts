@@ -34,6 +34,7 @@ function makeNewNode(overrides: Partial<NewNode> = {}): NewNode {
     created: now,
     lastAccessed: now,
     lastConsolidated: now,
+    eventDate: null,
     emotionalCharge: {
       valence: 0,
       intensity: 0.3,
