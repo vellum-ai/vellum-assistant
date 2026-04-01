@@ -9,7 +9,7 @@ import {
   computeRetryDelay,
   isRetryableNetworkError,
 } from "../util/retry.js";
-import { embedWithBackend } from "./embedding-backend.js";
+import { embedWithBackend, type EmbeddingInput } from "./embedding-backend.js";
 
 const log = getLogger("memory-embed");
 
@@ -22,7 +22,7 @@ const EMBED_BASE_DELAY_MS = 500;
  */
 export async function embedWithRetry(
   config: AssistantConfig,
-  texts: string[],
+  texts: EmbeddingInput[],
   opts?: { signal?: AbortSignal },
 ): ReturnType<typeof embedWithBackend> {
   let lastError: unknown;

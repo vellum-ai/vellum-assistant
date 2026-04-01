@@ -12,8 +12,10 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
+import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
 import {
@@ -568,6 +570,8 @@ export interface TurnRetrievalOpts {
   assistantLastMessage: string;
   /** The user's last message content. */
   userLastMessage: string;
+  /** Raw content blocks from the user's last message (for image extraction). */
+  userLastMessageBlocks?: ContentBlock[];
   scopeId: string;
   config: AssistantConfig;
   tracker: InContextTracker;
@@ -658,6 +662,46 @@ export async function retrieveForTurn(
   } catch (err) {
     log.warn({ err }, "Embedding/search failed for turn retrieval");
     return { nodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
+  }
+
+  // Image-to-image search: embed incoming user images as queries
+  const imageBlocks = (opts.userLastMessageBlocks ?? []).filter(
+    (b): b is ImageContent => b.type === "image",
+  );
+  if (imageBlocks.length > 0) {
+    try {
+      const isMultimodal = await selectedBackendSupportsMultimodal(opts.config);
+      if (isMultimodal) {
+        const maxImageQueries = 2;
+        for (
+          let i = 0;
+          i < Math.min(imageBlocks.length, maxImageQueries);
+          i++
+        ) {
+          const img = imageBlocks[i];
+          const imageInput = {
+            type: "image" as const,
+            data: Buffer.from(img.source.data, "base64"),
+            mimeType: img.source.media_type,
+          };
+          const imgResult = await embedWithRetry(opts.config, [imageInput], {
+            signal: opts.signal,
+          });
+          const imgVector = imgResult.vectors[0];
+          if (imgVector) {
+            const imgResults = await searchGraphNodes(imgVector, 40, [
+              opts.scopeId,
+            ]);
+            for (const r of imgResults) {
+              const current = allCandidateIds.get(r.nodeId) ?? 0;
+              allCandidateIds.set(r.nodeId, Math.max(current, r.score));
+            }
+          }
+        }
+      }
+    } catch (err) {
+      log.warn({ err }, "Image-to-image search failed (non-fatal)");
+    }
   }
 
   // 3. Evaluate semantic triggers

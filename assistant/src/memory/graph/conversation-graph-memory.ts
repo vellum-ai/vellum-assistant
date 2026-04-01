@@ -11,7 +11,7 @@ import { and, desc, eq, ne } from "drizzle-orm";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import type { Message } from "../../providers/types.js";
+import type { ContentBlock, Message } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb } from "../db.js";
 import { memorySummaries } from "../schema.js";
@@ -370,6 +370,7 @@ export class ConversationGraphMemory {
     // Extract last assistant and user messages as text
     let assistantLast = "";
     let userLast = "";
+    let userLastBlocks: ContentBlock[] = [];
 
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
@@ -382,6 +383,7 @@ export class ConversationGraphMemory {
 
       if (msg.role === "user" && !userLast) {
         userLast = text;
+        userLastBlocks = msg.content;
       } else if (msg.role === "assistant" && !assistantLast) {
         assistantLast = text;
       }
@@ -391,6 +393,7 @@ export class ConversationGraphMemory {
     const result = await retrieveForTurn({
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
+      userLastMessageBlocks: userLastBlocks,
       scopeId: this.scopeId,
       config,
       tracker: this.tracker,
