@@ -31,24 +31,44 @@ interface PlatformCallbackRouteResponse {
 async function registerManagedTelegramCallbackRoute(
   caches?: WebhookManagerCaches,
 ): Promise<string | undefined> {
-  if (!caches?.credentials) return undefined;
-
+  // Read from credential cache when available
   const [platformBaseUrlRaw, assistantApiKeyRaw, assistantIdRaw] =
-    await Promise.all([
-      caches.credentials.get(credentialKey("vellum", "platform_base_url")),
-      caches.credentials.get(credentialKey("vellum", "assistant_api_key")),
-      caches.credentials.get(credentialKey("vellum", "platform_assistant_id")),
-    ]);
+    caches?.credentials
+      ? await Promise.all([
+          caches.credentials.get(credentialKey("vellum", "platform_base_url")),
+          caches.credentials.get(credentialKey("vellum", "assistant_api_key")),
+          caches.credentials.get(
+            credentialKey("vellum", "platform_assistant_id"),
+          ),
+        ])
+      : [undefined, undefined, undefined];
 
-  const platformBaseUrl = platformBaseUrlRaw?.trim().replace(/\/+$/, "");
-  const assistantApiKey = assistantApiKeyRaw?.trim();
-  const assistantId = assistantIdRaw?.trim();
+  // Fall back to env vars when credential cache values are missing, matching
+  // the daemon's resolvePlatformCallbackRegistrationContext() behaviour.
+  const platformBaseUrl = (
+    platformBaseUrlRaw?.trim() ||
+    process.env.VELLUM_PLATFORM_URL?.trim() ||
+    ""
+  ).replace(/\/+$/, "");
 
-  if (!platformBaseUrl || !assistantApiKey || !assistantId) {
+  const platformInternalApiKey =
+    process.env.PLATFORM_INTERNAL_API_KEY?.trim() || undefined;
+  const assistantApiKey = !platformInternalApiKey
+    ? assistantApiKeyRaw?.trim() || undefined
+    : undefined;
+  const authToken = platformInternalApiKey || assistantApiKey;
+  const authScheme = platformInternalApiKey ? "Bearer" : "Api-Key";
+
+  const assistantId =
+    process.env.PLATFORM_ASSISTANT_ID?.trim() ||
+    assistantIdRaw?.trim() ||
+    undefined;
+
+  if (!platformBaseUrl || !authToken || !assistantId) {
     log.debug(
       {
         hasPlatformBaseUrl: !!platformBaseUrl,
-        hasAssistantApiKey: !!assistantApiKey,
+        hasApiKey: !!authToken,
         hasAssistantId: !!assistantId,
       },
       "Managed Telegram callback route registration unavailable",
@@ -61,7 +81,7 @@ async function registerManagedTelegramCallbackRoute(
     {
       method: "POST",
       headers: {
-        Authorization: `Api-Key ${assistantApiKey}`,
+        Authorization: `${authScheme} ${authToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
