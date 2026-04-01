@@ -1292,8 +1292,14 @@ jobs:
 
       - name: Build ZIP for Sparkle auto-update
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            BUNDLE_DISPLAY_NAME="Vellum Staging"
+          else
+            BUNDLE_DISPLAY_NAME="Vellum"
+          fi
           cd dist
-          ditto -c -k --keepParent Vellum.app vellum-assistant.zip
+          ditto -c -k --keepParent "$BUNDLE_DISPLAY_NAME.app" vellum-assistant.zip
           echo "Sparkle ZIP created:"
           ls -lh vellum-assistant.zip
 
