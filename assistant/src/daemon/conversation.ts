@@ -58,6 +58,7 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
+import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { runAgentLoopImpl } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
@@ -118,6 +119,8 @@ import type {
   ConfirmationStateChanged,
 } from "./message-types/messages.js";
 import { TraceEmitter } from "./trace-emitter.js";
+
+const log = getLogger("conversation");
 
 export interface ConversationMemoryPolicy {
   scopeId: string;
@@ -253,6 +256,8 @@ export class Conversation {
   /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null =
     null;
   /** @internal */ activityVersion = 0;
+  /** Last emitted activity state message, retained for replay on SSE reconnection. */
+  /** @internal */ lastActivityStateMsg: ServerMessage | null = null;
   /** Set by the agent loop to track confirmation outcomes for persistence. */
   onConfirmationOutcome?: (
     requestId: string,
@@ -282,7 +287,10 @@ export class Conversation {
     this.memoryPolicy = memoryPolicy
       ? { ...memoryPolicy }
       : { ...DEFAULT_MEMORY_POLICY };
-    this.graphMemory = new ConversationGraphMemory(this.memoryPolicy.scopeId, conversationId);
+    this.graphMemory = new ConversationGraphMemory(
+      this.memoryPolicy.scopeId,
+      conversationId,
+    );
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
@@ -488,6 +496,19 @@ export class Conversation {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
+    }
+
+    // Replay last activity state so a reconnecting client sees the current phase
+    // instead of being stuck on the last state it received before disconnection.
+    if (!hasNoClient && this.lastActivityStateMsg) {
+      try {
+        sendToClient(this.lastActivityStateMsg);
+      } catch (err) {
+        log.warn(
+          { err, conversationId: this.conversationId },
+          "Failed to replay activity state on client reconnection",
+        );
+      }
     }
   }
 
@@ -865,7 +886,14 @@ export class Conversation {
       type: "confirmation_state_changed",
       ...params,
     } as ServerMessage;
-    this.sendToClient(msg);
+    try {
+      this.sendToClient(msg);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "sendToClient threw in emitConfirmationStateChanged",
+      );
+    }
   }
 
   emitActivityState(
@@ -886,7 +914,15 @@ export class Conversation {
       reason,
       ...(statusText ? { statusText } : {}),
     } as ServerMessage;
-    this.sendToClient(msg);
+    this.lastActivityStateMsg = msg;
+    try {
+      this.sendToClient(msg);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "sendToClient threw in emitActivityState",
+      );
+    }
   }
 
   async forceCompact(): Promise<ContextWindowResult> {

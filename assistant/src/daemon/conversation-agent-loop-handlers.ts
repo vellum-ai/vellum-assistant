@@ -27,6 +27,7 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
+import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
   cleanAssistantContent,
@@ -40,6 +41,8 @@ import {
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import type { ServerMessage } from "./message-protocol.js";
+
+const log = getLogger("agent-loop-handlers");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -273,7 +276,11 @@ export function handleThinkingDelta(
   }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
-  deps.onEvent({ type: "assistant_thinking_delta", thinking: event.thinking, conversationId: deps.ctx.conversationId });
+  deps.onEvent({
+    type: "assistant_thinking_delta",
+    thinking: event.thinking,
+    conversationId: deps.ctx.conversationId,
+  });
 }
 
 export function handleToolUse(
@@ -841,75 +848,81 @@ export async function dispatchAgentEvent(
   deps: EventHandlerDeps,
   event: AgentEvent,
 ): Promise<void> {
-  switch (event.type) {
-    case "text_delta":
-      handleTextDelta(state, deps, event);
-      break;
-    case "thinking_delta":
-      handleThinkingDelta(state, deps, event);
-      break;
-    case "tool_use":
-      handleToolUse(state, deps, event);
-      break;
-    case "tool_use_preview_start":
-      handleToolUsePreviewStart(state, deps, event);
-      break;
-    case "tool_output_chunk":
-      handleToolOutputChunk(state, deps, event);
-      break;
-    case "input_json_delta":
-      handleInputJsonDelta(state, deps, event);
-      break;
-    case "tool_result":
-      handleToolResult(state, deps, event);
-      break;
-    case "server_tool_start": {
-      const friendlyNames: Record<string, string> = {
-        web_search: "Searching the web",
-      };
-      const statusText = friendlyNames[event.name] ?? `Running ${event.name}`;
-      deps.ctx.emitActivityState(
-        "tool_running",
-        "tool_use_start",
-        "assistant_turn",
-        deps.reqId,
-        statusText,
-      );
-      // Emit tool_use_start so the client renders a tool chip (like other tools)
-      deps.onEvent({
-        type: "tool_use_start",
-        toolName: event.name,
-        input: event.input,
-        conversationId: deps.ctx.conversationId,
-        toolUseId: event.toolUseId,
-      });
-      break;
+  try {
+    switch (event.type) {
+      case "text_delta":
+        handleTextDelta(state, deps, event);
+        break;
+      case "thinking_delta":
+        handleThinkingDelta(state, deps, event);
+        break;
+      case "tool_use":
+        handleToolUse(state, deps, event);
+        break;
+      case "tool_use_preview_start":
+        handleToolUsePreviewStart(state, deps, event);
+        break;
+      case "tool_output_chunk":
+        handleToolOutputChunk(state, deps, event);
+        break;
+      case "input_json_delta":
+        handleInputJsonDelta(state, deps, event);
+        break;
+      case "tool_result":
+        handleToolResult(state, deps, event);
+        break;
+      case "server_tool_start": {
+        const friendlyNames: Record<string, string> = {
+          web_search: "Searching the web",
+        };
+        const statusText = friendlyNames[event.name] ?? `Running ${event.name}`;
+        deps.ctx.emitActivityState(
+          "tool_running",
+          "tool_use_start",
+          "assistant_turn",
+          deps.reqId,
+          statusText,
+        );
+        deps.onEvent({
+          type: "tool_use_start",
+          toolName: event.name,
+          input: event.input,
+          conversationId: deps.ctx.conversationId,
+          toolUseId: event.toolUseId,
+        });
+        break;
+      }
+      case "server_tool_complete": {
+        deps.ctx.emitActivityState(
+          "streaming",
+          "tool_result_received",
+          "assistant_turn",
+          deps.reqId,
+        );
+        deps.onEvent({
+          type: "tool_result",
+          toolName: "",
+          result: "",
+          isError: event.isError,
+          conversationId: deps.ctx.conversationId,
+          toolUseId: event.toolUseId,
+        });
+        break;
+      }
+      case "error":
+        handleError(state, deps, event);
+        break;
+      case "message_complete":
+        await handleMessageComplete(state, deps, event);
+        break;
+      case "usage":
+        handleUsage(state, deps, event);
+        break;
     }
-    case "server_tool_complete": {
-      deps.ctx.emitActivityState(
-        "streaming",
-        "tool_result_received",
-        "assistant_turn",
-        deps.reqId,
-      );
-      deps.onEvent({
-        type: "tool_result",
-        toolName: "",
-        result: "",
-        isError: event.isError,
-        conversationId: deps.ctx.conversationId,
-        toolUseId: event.toolUseId,
-      });
-      break;
-    }
-    case "error":
-      handleError(state, deps, event);
-      break;
-    case "message_complete":
-      await handleMessageComplete(state, deps, event);
-      break;
-    case "usage":
-      handleUsage(state, deps, event);
-      break;
+  } catch (err) {
+    log.error(
+      { err, eventType: event.type, conversationId: deps.ctx.conversationId },
+      "Event dispatch failed; suppressing to keep agent loop alive",
+    );
   }
 }
