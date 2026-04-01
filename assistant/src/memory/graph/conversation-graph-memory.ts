@@ -46,6 +46,8 @@ export class ConversationGraphMemory {
   private needsReload = false;
   private scopeId: string;
   private conversationId: string;
+  private lastInjectedBlock: string | null = null;
+  private lastInjectedNodeIds: string[] = [];
 
   constructor(scopeId: string, conversationId: string) {
     this.scopeId = scopeId;
@@ -126,6 +128,26 @@ export class ConversationGraphMemory {
       { compactedMessageCount },
       "Compaction detected — will reload context on next turn",
     );
+  }
+
+  /**
+   * Re-inject the most recent memory block after context compaction.
+   * Synchronous — reuses the cached block from the last successful retrieval.
+   * Does NOT advance turn count or run new retrieval.
+   */
+  reinjectCachedMemory(messages: Message[]): {
+    runMessages: Message[];
+    injectedTokens: number;
+  } {
+    if (!this.lastInjectedBlock) {
+      return { runMessages: messages, injectedTokens: 0 };
+    }
+    // Re-track node IDs since onCompacted evicted them
+    this.tracker.add(this.lastInjectedNodeIds);
+    return {
+      runMessages: injectTextBlock(messages, this.lastInjectedBlock),
+      injectedTokens: estimateTextTokens(this.lastInjectedBlock),
+    };
   }
 
   /**
@@ -258,6 +280,12 @@ export class ConversationGraphMemory {
       degraded: false,
     } as ServerMessage);
 
+    this.lastInjectedBlock = contextBlock;
+    this.lastInjectedNodeIds = [
+      ...result.nodes.map((n) => n.node.id),
+      ...result.serendipityNodes.map((n) => n.node.id),
+    ];
+
     return {
       runMessages: injectTextBlock(messages, contextBlock),
       injectedTokens,
@@ -313,6 +341,9 @@ export class ConversationGraphMemory {
         mode: "refresh" as const,
       };
     }
+
+    this.lastInjectedBlock = injectionBlock;
+    this.lastInjectedNodeIds = result.nodes.map((n) => n.node.id);
 
     return {
       runMessages: injectTextBlock(messages, injectionBlock),
@@ -378,6 +409,9 @@ export class ConversationGraphMemory {
         mode: "per-turn" as const,
       };
     }
+
+    this.lastInjectedBlock = injectionBlock;
+    this.lastInjectedNodeIds = result.nodes.map((n) => n.node.id);
 
     return {
       runMessages: injectTextBlock(messages, injectionBlock),
