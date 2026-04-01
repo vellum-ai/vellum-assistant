@@ -45,6 +45,14 @@ RUN groupadd --system --gid 1001 ces && \
 # Copy built app from builder
 COPY --from=builder --chown=ces:ces /app /app
 
+# Stamp release version into package.json so the service reports the full
+# semver (including pre-release suffixes like 0.6.0-staging.1) at runtime.
+# Placed after COPY to preserve the dependency-install layer cache.
+ARG RELEASE_VERSION
+RUN if [ -n "$RELEASE_VERSION" ]; then \
+      sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$RELEASE_VERSION\"/" /app/credential-executor/package.json; \
+    fi
+
 # Pre-create /ces-data so the non-root ces user can write to it
 # when no PVC volume is mounted (e.g., direct docker run)
 RUN mkdir -p /ces-data && chown ces:ces /ces-data
