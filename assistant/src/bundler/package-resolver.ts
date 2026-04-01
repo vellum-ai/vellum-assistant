@@ -188,18 +188,17 @@ async function installPackage(
       `npm metadata fetch timed out for ${pkg}`,
     );
 
-    // Download tarball
-    const res = await withTimeout(
-      fetch(tarballUrl),
+    // Download tarball (timeout covers headers + full body read)
+    const tarball = await withTimeout(
+      fetch(tarballUrl).then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`npm tarball download failed (${res.status})`);
+        }
+        return new Uint8Array(await res.arrayBuffer());
+      }),
       INSTALL_TIMEOUT_MS,
       `npm tarball download timed out for ${pkg}`,
     );
-    if (!res.ok) {
-      log.warn({ pkg, status: res.status }, "npm tarball download failed");
-      return null;
-    }
-
-    const tarball = new Uint8Array(await res.arrayBuffer());
     verifyIntegrity(tarball, integrity, pkg);
 
     // Extract into node_modules/<pkg>/
