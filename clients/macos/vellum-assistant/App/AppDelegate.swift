@@ -708,6 +708,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Application Lifecycle
 
+    /// Defers termination so `cli.stop()` can run asynchronously without
+    /// blocking the main thread.  macOS calls this before
+    /// `applicationWillTerminate`; returning `.terminateLater` keeps the
+    /// run loop alive until `reply(toApplicationShouldTerminate:)` is
+    /// called.
+    ///
+    /// Reference: https://developer.apple.com/documentation/appkit/nsapplicationdelegate/applicationshouldterminate(_:)
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let cli = vellumCli
+        Task.detached {
+            await cli.stop()
+            await MainActor.run {
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
         // If Sparkle has a deferred update ready, install it now during
         // the quit sequence so the new version launches after termination.
@@ -752,17 +770,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()
-        // Blocking is intentional here — the process exits immediately after
-        // this callback returns, so we must wait synchronously for the CLI to
-        // finish stopping the daemon/gateway.  stop() is nonisolated so
-        // Task.detached avoids a deadlock with the main-thread semaphore.
-        let cli = vellumCli
-        let sem = DispatchSemaphore(value: 0)
-        Task.detached {
-            await cli.stop()
-            sem.signal()
-        }
-        _ = sem.wait(timeout: .now() + 16)
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)
