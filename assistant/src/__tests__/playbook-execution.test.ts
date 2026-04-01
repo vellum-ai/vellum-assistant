@@ -27,8 +27,7 @@ import { executePlaybookDelete } from "../config/bundled-skills/playbooks/tools/
 import { executePlaybookList } from "../config/bundled-skills/playbooks/tools/playbook-list.js";
 import { executePlaybookUpdate } from "../config/bundled-skills/playbooks/tools/playbook-update.js";
 import { getDb, initializeDb } from "../memory/db.js";
-import { computeMemoryFingerprint } from "../memory/fingerprint.js";
-import { memoryItems } from "../memory/schema.js";
+import { getNode } from "../memory/graph/store.js";
 import { compilePlaybooks } from "../playbooks/playbook-compiler.js";
 import { parsePlaybookStatement } from "../playbooks/types.js";
 import type { ToolContext } from "../tools/types.js";
@@ -40,7 +39,9 @@ function getRawDb(): Database {
 }
 
 function clearPlaybooks(): void {
-  getRawDb().run("DELETE FROM memory_items WHERE kind = 'playbook'");
+  getRawDb().run(
+    "DELETE FROM memory_graph_nodes WHERE source_conversations LIKE '%playbook:%'",
+  );
 }
 
 const ctx: ToolContext = {
@@ -49,7 +50,15 @@ const ctx: ToolContext = {
   trustClass: "guardian",
 };
 
-function insertPlaybookRow(
+/**
+ * Insert a playbook as a memory_graph_node — the format the production
+ * playbook tools and compiler now use.
+ *
+ * Content format: "Playbook: <trigger>\n<json statement>"
+ * sourceConversations contains ["playbook:<nodeId>"] to identify playbook nodes.
+ * fidelity = "gone" serves as soft-delete; "vivid" means active.
+ */
+function insertPlaybookGraphNode(
   overrides: Partial<{
     id: string;
     trigger: string;
@@ -58,14 +67,12 @@ function insertPlaybookRow(
     category: string;
     autonomyLevel: string;
     priority: number;
-    status: string;
-    importance: number;
+    fidelity: string;
+    significance: number;
     scopeId: string;
-    invalidAt: number | null;
     statement: string;
   }> = {},
 ): string {
-  const db = getDb();
   const id = overrides.id ?? uuid();
   const trigger = overrides.trigger ?? "test trigger";
   const action = overrides.action ?? "test action";
@@ -73,10 +80,9 @@ function insertPlaybookRow(
   const category = overrides.category ?? "general";
   const autonomyLevel = overrides.autonomyLevel ?? "draft";
   const priority = overrides.priority ?? 0;
-  const status = overrides.status ?? "active";
-  const importance = overrides.importance ?? 0.8;
+  const fidelity = overrides.fidelity ?? "vivid";
+  const significance = overrides.significance ?? 0.8;
   const scopeId = overrides.scopeId ?? "default";
-  const invalidAt = overrides.invalidAt ?? null;
 
   const statement =
     overrides.statement ??
@@ -89,32 +95,38 @@ function insertPlaybookRow(
       priority,
     });
   const subject = `Playbook: ${trigger}`;
-  const fingerprint = computeMemoryFingerprint(
-    scopeId,
-    "playbook",
-    subject,
-    statement,
-  );
+  const content = `${subject}\n${statement}`;
   const now = Date.now();
+  const sourceConversations = JSON.stringify([`playbook:${id}`]);
+  const emotionalCharge = JSON.stringify({
+    valence: 0,
+    intensity: 0.1,
+    decayCurve: "linear",
+    decayRate: 0.05,
+    originalIntensity: 0.1,
+  });
 
-  db.insert(memoryItems)
-    .values({
+  getRawDb().run(
+    `INSERT INTO memory_graph_nodes (
+      id, content, type, created, last_accessed, last_consolidated,
+      emotional_charge, fidelity, confidence, significance,
+      stability, reinforcement_count, last_reinforced,
+      source_conversations, source_type, scope_id
+    ) VALUES (?, ?, 'semantic', ?, ?, ?, ?, ?, 0.95, ?, 14, 0, ?, ?, 'direct', ?)`,
+    [
       id,
-      kind: "playbook",
-      subject,
-      statement,
-      status,
-      confidence: 0.95,
-      importance,
-      fingerprint,
-      verificationState: "user_confirmed",
+      content,
+      now,
+      now,
+      now,
+      emotionalCharge,
+      fidelity,
+      significance,
+      now,
+      sourceConversations,
       scopeId,
-      firstSeenAt: now,
-      lastSeenAt: now,
-      lastUsedAt: null,
-      invalidAt,
-    })
-    .run();
+    ],
+  );
 
   return id;
 }
@@ -249,7 +261,7 @@ describe("compilePlaybooks", () => {
   });
 
   test("compiles a single playbook into action-playbooks block", () => {
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "meeting request",
       action: "check calendar",
       channel: "*",
@@ -269,17 +281,17 @@ describe("compilePlaybooks", () => {
   });
 
   test("sorts playbooks by priority descending", () => {
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "low priority",
       action: "act-low",
       priority: 1,
     });
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "high priority",
       action: "act-high",
       priority: 10,
     });
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "medium priority",
       action: "act-med",
       priority: 5,
@@ -294,41 +306,31 @@ describe("compilePlaybooks", () => {
     expect(lines[2]).toContain("low priority");
   });
 
-  test("excludes inactive playbooks", () => {
-    insertPlaybookRow({ trigger: "active", action: "yes", status: "active" });
-    insertPlaybookRow({
-      trigger: "superseded",
+  test("excludes soft-deleted playbooks (fidelity=gone)", () => {
+    insertPlaybookGraphNode({
+      trigger: "active",
+      action: "yes",
+      fidelity: "vivid",
+    });
+    insertPlaybookGraphNode({
+      trigger: "deleted",
       action: "no",
-      status: "superseded",
+      fidelity: "gone",
     });
 
     const result = compilePlaybooks();
     expect(result.includedCount).toBe(1);
     expect(result.text).toContain("active");
-    expect(result.text).not.toContain("superseded");
-  });
-
-  test("excludes invalidated playbooks", () => {
-    insertPlaybookRow({ trigger: "valid", action: "yes", invalidAt: null });
-    insertPlaybookRow({
-      trigger: "invalid",
-      action: "no",
-      invalidAt: Date.now(),
-    });
-
-    const result = compilePlaybooks();
-    expect(result.includedCount).toBe(1);
-    expect(result.text).toContain("valid");
-    expect(result.text).not.toContain("invalid");
+    expect(result.text).not.toContain("deleted");
   });
 
   test("scopes playbooks by scopeId", () => {
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "default scope",
       action: "yes",
       scopeId: "default",
     });
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "other scope",
       action: "no",
       scopeId: "workspace-2",
@@ -344,9 +346,9 @@ describe("compilePlaybooks", () => {
   });
 
   test("skips rows with unparseable statements", () => {
-    insertPlaybookRow({ trigger: "good", action: "ok" });
+    insertPlaybookGraphNode({ trigger: "good", action: "ok" });
     // Insert a row with corrupted statement
-    insertPlaybookRow({ statement: "not valid json", trigger: "bad" });
+    insertPlaybookGraphNode({ statement: "not valid json", trigger: "bad" });
 
     const result = compilePlaybooks();
     expect(result.totalCount).toBe(2);
@@ -355,19 +357,19 @@ describe("compilePlaybooks", () => {
   });
 
   test("renders correct autonomy labels", () => {
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "auto-trigger",
       action: "auto-act",
       autonomyLevel: "auto",
       priority: 3,
     });
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "draft-trigger",
       action: "draft-act",
       autonomyLevel: "draft",
       priority: 2,
     });
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "notify-trigger",
       action: "notify-act",
       autonomyLevel: "notify",
@@ -381,7 +383,7 @@ describe("compilePlaybooks", () => {
   });
 
   test("renders channel name for non-wildcard channels", () => {
-    insertPlaybookRow({
+    insertPlaybookGraphNode({
       trigger: "email rule",
       action: "handle",
       channel: "email",
@@ -393,8 +395,8 @@ describe("compilePlaybooks", () => {
   });
 
   test("returns empty text when all rows have unparseable statements", () => {
-    insertPlaybookRow({ statement: "garbage1", trigger: "a" });
-    insertPlaybookRow({ statement: "garbage2", trigger: "b" });
+    insertPlaybookGraphNode({ statement: "garbage1", trigger: "a" });
+    insertPlaybookGraphNode({ statement: "garbage2", trigger: "b" });
 
     const result = compilePlaybooks();
     expect(result.text).toBe("");
@@ -456,7 +458,7 @@ describe("playbook tool edge cases", () => {
     expect(updateResult.content).toContain("already exists");
   });
 
-  test("delete soft-deletes by setting status to superseded", async () => {
+  test("delete soft-deletes by setting fidelity to gone", async () => {
     const createResult = await executePlaybookCreate(
       {
         trigger: "to delete",
@@ -468,12 +470,10 @@ describe("playbook tool edge cases", () => {
 
     await executePlaybookDelete({ playbook_id: id }, ctx);
 
-    // Row still exists in DB but with superseded status
-    const row = getRawDb()
-      .query("SELECT status, invalid_at FROM memory_items WHERE id = ?")
-      .get(id) as { status: string; invalid_at: number | null };
-    expect(row.status).toBe("superseded");
-    expect(row.invalid_at).not.toBeNull();
+    // Node still exists in DB but with fidelity = 'gone'
+    const node = getNode(id);
+    expect(node).not.toBeNull();
+    expect(node!.fidelity).toBe("gone");
   });
 
   test("list returns filtered empty message with filter description", async () => {
