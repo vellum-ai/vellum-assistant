@@ -121,11 +121,11 @@ extension AppDelegate {
                 && msg.conversationId == cuConversationId
             if cuAutoApprove, confirmationMatchesCuSession,
                (msg.riskLevel == "low" || msg.riskLevel == "medium") {
-                let success = await InteractionClient().sendConfirmationResponse(
+                let result = await InteractionClient().sendConfirmationResponse(
                     requestId: msg.requestId,
                     decision: "allow"
                 )
-                if success {
+                if result == .success {
                     self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                         requestId: msg.requestId,
                         decision: "allow"
@@ -152,11 +152,11 @@ extension AppDelegate {
             guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
                 return
             }
-            let success = await InteractionClient().sendConfirmationResponse(
+            let result = await InteractionClient().sendConfirmationResponse(
                 requestId: msg.requestId,
                 decision: decision
             )
-            if success {
+            if result == .success {
                 self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                     requestId: msg.requestId,
                     decision: decision
