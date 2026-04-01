@@ -1359,7 +1359,7 @@ if [ "$RELEASE_APP_MODE" = true ]; then
         done
     fi
 
-    MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify | tail -1 | awk '{print $NF}')
+    MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify | tail -1 | awk -F'\t' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $NF); print $NF}')
     if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT/$BUNDLE_DISPLAY_NAME.app" ]; then
         echo "ERROR: Failed to mount DMG or find app inside"
         [ -n "$MOUNT_POINT" ] && hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
