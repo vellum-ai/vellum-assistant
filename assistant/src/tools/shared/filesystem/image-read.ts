@@ -99,14 +99,6 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
     return { content: `Error reading file: ${msg}`, isError: true };
   }
 
-  if (buffer.length > MAX_SIZE_BYTES) {
-    const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
-    return {
-      content: `Error: image too large (${sizeMB} MB). Maximum is 20 MB.`,
-      isError: true,
-    };
-  }
-
   // Detect actual format from magic bytes - never trust the file extension
   // alone, since sips converts to JPEG and files can be misnamed.
   const detectedType = detectMediaType(buffer);
@@ -117,10 +109,22 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
     };
   }
 
+  // Optimize before size-checking — oversized images may compress under the limit.
   const rawBase64 = buffer.toString("base64");
   const { data: base64Data, mediaType: finalType } =
     optimizeImageForTransport(rawBase64, detectedType);
   const optimized = base64Data !== rawBase64;
+
+  const optimizedBytes = optimized
+    ? Math.ceil((base64Data.length * 3) / 4)
+    : buffer.length;
+  if (optimizedBytes > MAX_SIZE_BYTES) {
+    const sizeMB = (optimizedBytes / (1024 * 1024)).toFixed(1);
+    return {
+      content: `Error: image too large (${sizeMB} MB). Maximum is 20 MB even after optimization.`,
+      isError: true,
+    };
+  }
 
   const imageBlock: ImageContent = {
     type: "image" as const,
@@ -131,9 +135,6 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
     },
   };
 
-  const optimizedBytes = optimized
-    ? Math.ceil((base64Data.length * 3) / 4)
-    : buffer.length;
   const sizeSuffix = optimized
     ? ` (optimized from ${(stat.size / 1024).toFixed(0)} KB to ${(
         optimizedBytes / 1024
