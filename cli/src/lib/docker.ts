@@ -13,7 +13,8 @@ import {
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { writeInitialConfig } from "./config-utils";
-import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
+import { DEFAULT_GATEWAY_PORT } from "./constants";
+import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";

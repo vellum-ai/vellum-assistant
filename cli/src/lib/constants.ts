@@ -1,5 +1,3 @@
-import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
-
 /**
  * Canonical internal assistant ID used as the default/fallback across the CLI
  * and daemon. Mirrors `DAEMON_INTERNAL_ASSISTANT_ID` from
@@ -27,8 +25,6 @@ export const LOCKFILE_NAMES = [
   ".vellum.lock.json",
   ".vellum.lockfile.json",
 ] as const;
-
-export { PROVIDER_ENV_VAR_NAMES };
 
 export const VALID_REMOTE_HOSTS = [
   "local",
