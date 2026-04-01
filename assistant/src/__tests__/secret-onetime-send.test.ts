@@ -67,6 +67,8 @@ mock.module("../security/secure-keys.js", () => {
       syncSet(key, value),
     deleteSecureKeyAsync: async (key: string) => syncDelete(key),
     listSecureKeysAsync: async () => ({ accounts: [], unreachable: false }),
+    getProviderKeyAsync: async () => undefined,
+    getMaskedProviderKey: async () => null,
   };
 });
 
