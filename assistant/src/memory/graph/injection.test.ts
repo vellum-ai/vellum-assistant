@@ -458,4 +458,56 @@ describe("formatEventDate", () => {
     const result = formatEventDate(future.getTime());
     expect(result).toContain("(in 3mo)");
   });
+
+  // --- Past date handling ---
+
+  test("yesterday (diffDays === -1) shows (today)", () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(0, 0, 0, 0);
+    const result = formatEventDate(yesterday.getTime());
+    expect(result).toContain("(today)");
+  });
+
+  test("2 days ago shows (2d ago)", () => {
+    const past = new Date();
+    past.setDate(past.getDate() - 2);
+    past.setHours(0, 0, 0, 0);
+    const result = formatEventDate(past.getTime());
+    expect(result).toContain("(2d ago)");
+  });
+
+  test("10 days ago shows (10d ago)", () => {
+    const past = new Date();
+    past.setDate(past.getDate() - 10);
+    past.setHours(0, 0, 0, 0);
+    const result = formatEventDate(past.getTime());
+    expect(result).toContain("(10d ago)");
+  });
+
+  test("3 weeks ago shows (3w ago)", () => {
+    const past = new Date();
+    past.setDate(past.getDate() - 21);
+    past.setHours(0, 0, 0, 0);
+    const result = formatEventDate(past.getTime());
+    expect(result).toContain("(3w ago)");
+  });
+
+  test("3 months ago shows (3mo ago)", () => {
+    const past = new Date();
+    past.setDate(past.getDate() - 90);
+    past.setHours(0, 0, 0, 0);
+    const result = formatEventDate(past.getTime());
+    expect(result).toContain("(3mo ago)");
+  });
+
+  test("never produces 'in -' for any past date", () => {
+    for (let d = -1; d >= -365; d -= 7) {
+      const past = new Date();
+      past.setDate(past.getDate() + d);
+      past.setHours(0, 0, 0, 0);
+      const result = formatEventDate(past.getTime());
+      expect(result).not.toContain("in -");
+    }
+  });
 });

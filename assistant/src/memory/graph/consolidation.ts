@@ -19,7 +19,12 @@ import {
 } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { deleteNode, getEdgesForNode, queryNodes, updateNode } from "./store.js";
+import {
+  deleteNode,
+  getEdgesForNode,
+  queryNodes,
+  updateNode,
+} from "./store.js";
 import type { MemoryNode } from "./types.js";
 
 const log = getLogger("graph-consolidation");
@@ -38,13 +43,18 @@ function buildConsolidationPrompt(
     fidelity: string;
     reinforcementCount: number;
     created: number;
+    eventDate: number | null;
   }>,
   edges: Array<{ sourceId: string; targetId: string; relationship: string }>,
 ): string {
   const nodeList = nodes
     .map((n) => {
       const age = Math.floor((Date.now() - n.created) / (1000 * 60 * 60 * 24));
-      return `  [${n.id}] type=${n.type} sig=${n.significance.toFixed(2)} fidelity=${n.fidelity} reinforced=${n.reinforcementCount}x age=${age}d\n    ${n.content}`;
+      const eventStr =
+        n.eventDate != null
+          ? ` eventDate=${new Date(n.eventDate).toISOString().split("T")[0]}`
+          : "";
+      return `  [${n.id}] type=${n.type} sig=${n.significance.toFixed(2)} fidelity=${n.fidelity} reinforced=${n.reinforcementCount}x age=${age}d${eventStr}\n    ${n.content}`;
     })
     .join("\n\n");
 
@@ -125,6 +135,11 @@ const CONSOLIDATE_TOOL_SCHEMA = {
             },
             narrativeRole: { type: "string" as const },
             partOfStory: { type: "string" as const },
+            event_date: {
+              type: "number" as const,
+              description:
+                "Epoch ms of the event this memory describes. Preserve from merged duplicates when the survivor lacks one.",
+            },
           },
           required: ["id"] as const,
         },
@@ -423,6 +438,7 @@ async function consolidateChunk(
       fidelity: n.fidelity,
       reinforcementCount: n.reinforcementCount,
       created: n.created,
+      eventDate: n.eventDate,
     })),
     dedupedEdges,
   );
@@ -456,6 +472,7 @@ async function consolidateChunk(
       fidelity?: string;
       narrativeRole?: string;
       partOfStory?: string;
+      event_date?: number;
     }>;
     delete_ids?: string[];
     merge_edges?: Array<{ survivor_id: string; deleted_id: string }>;
@@ -473,6 +490,7 @@ async function consolidateChunk(
       changes.narrativeRole = update.narrativeRole || null;
     if (update.partOfStory !== undefined)
       changes.partOfStory = update.partOfStory || null;
+    if (update.event_date != null) changes.eventDate = update.event_date;
     changes.lastConsolidated = Date.now();
 
     if (Object.keys(changes).length > 1) {
@@ -483,6 +501,7 @@ async function consolidateChunk(
   }
 
   // Apply merge edges (before deletion so the edge can reference the node)
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   const { createEdge } = await import("./store.js");
   for (const merge of input.merge_edges ?? []) {
     if (!nodeIds.has(merge.survivor_id) || !nodeIds.has(merge.deleted_id))
@@ -496,6 +515,17 @@ async function consolidateChunk(
         created: Date.now(),
       });
       result.mergeEdgesCreated++;
+
+      // Preserve eventDate from deleted node if survivor doesn't have one
+      const survivor = nodeMap.get(merge.survivor_id);
+      const deleted = nodeMap.get(merge.deleted_id);
+      if (
+        survivor &&
+        deleted?.eventDate != null &&
+        survivor.eventDate == null
+      ) {
+        updateNode(merge.survivor_id, { eventDate: deleted.eventDate });
+      }
     } catch (err) {
       log.warn({ err }, "Failed to create merge edge");
     }
