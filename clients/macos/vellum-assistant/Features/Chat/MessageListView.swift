@@ -63,7 +63,7 @@ struct MessageListView: View {
     let dismissedDocumentSurfaceIds: Set<String>
     var onConfirmationAllow: ((String) -> Void)?
     var onConfirmationDeny: ((String) -> Void)?
-    let onAlwaysAllow: (String, String, String, String) -> Void
+    var onAlwaysAllow: ((String, String, String, String) -> Void)?
     /// Called when a temporary approval option is selected: (requestId, decision).
     var onTemporaryAllow: ((String, String) -> Void)?
     var onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
@@ -1261,7 +1261,7 @@ private struct MessageCellView: View, Equatable {
     let mediaEmbedSettings: MediaEmbedResolverSettings?
     var onConfirmationAllow: ((String) -> Void)?
     var onConfirmationDeny: ((String) -> Void)?
-    let onAlwaysAllow: (String, String, String, String) -> Void
+    var onAlwaysAllow: ((String, String, String, String) -> Void)?
     var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
     var onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
@@ -1367,7 +1367,7 @@ private struct MessageCellView: View, Equatable {
                         isKeyboardActive: confirmation.requestId == activePendingRequestId,
                         onAllow: { onConfirmationAllow?(confirmation.requestId) },
                         onDeny: { onConfirmationDeny?(confirmation.requestId) },
-                        onAlwaysAllow: onAlwaysAllow,
+                        onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
                         onTemporaryAllow: onTemporaryAllow
                     )
                     .id(message.id)
@@ -1378,7 +1378,7 @@ private struct MessageCellView: View, Equatable {
                         confirmation: confirmation,
                         onAllow: { onConfirmationAllow?(confirmation.requestId) },
                         onDeny: { onConfirmationDeny?(confirmation.requestId) },
-                        onAlwaysAllow: onAlwaysAllow,
+                        onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
                         onTemporaryAllow: onTemporaryAllow
                     )
                     .id(message.id)
