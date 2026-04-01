@@ -962,8 +962,9 @@ function isEscapingSymlink(filePath: string, rootDir: string): boolean {
 /**
  * Check for a `references/` subdirectory within a skill directory and return
  * a formatted listing of available `.md` reference files with full absolute
- * paths. Returns `null` if no references exist. Files are listed in
- * alphabetical order. Non-`.md` files are ignored. Symlinks that resolve
+ * paths. Returns `null` if no references exist. Files are discovered
+ * recursively through subdirectories and listed alphabetically within each
+ * directory level. Non-`.md` files are ignored. Symlinks that resolve
  * outside the skill directory are skipped.
  */
 export function listReferenceFiles(directoryPath: string): string | null {
@@ -977,7 +978,7 @@ export function listReferenceFiles(directoryPath: string): string | null {
       return null;
     }
 
-    const entries = readdirSync(refsDir);
+    const entries = readdirSync(refsDir, { recursive: true }) as string[];
     const mdFiles = entries
       .filter((f) => f.toLowerCase().endsWith(".md"))
       .filter((f) => !isEscapingSymlink(join(refsDir, f), directoryPath))
@@ -991,8 +992,8 @@ export function listReferenceFiles(directoryPath: string): string | null {
       "The following reference files are available in this skill's directory. Use `file_read` to load any that are relevant to the current task:",
       "",
     ];
-    for (const filename of mdFiles) {
-      lines.push(`- \`${join(refsDir, filename)}\``);
+    for (const filepath of mdFiles) {
+      lines.push(`- \`${join(refsDir, filepath)}\` (references/${filepath})`);
     }
 
     return lines.join("\n");
