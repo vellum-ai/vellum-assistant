@@ -9,7 +9,8 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
-import { enqueueGraphNodeEmbed,searchGraphNodes } from "./graph-search.js";
+import { generateSparseEmbedding } from "../embedding-backend.js";
+import { enqueueGraphNodeEmbed, searchGraphNodes } from "./graph-search.js";
 import {
   createNode,
   deleteNode,
@@ -90,8 +91,16 @@ async function handleMemoryRecall(
     return { results: [], mode: "memory", query: input.query };
   }
 
+  // Generate sparse embedding for hybrid search (dense + sparse with RRF fusion)
+  const sparseVector = generateSparseEmbedding(input.query);
+
   // Search graph nodes
-  const searchResults = await searchGraphNodes(queryVector, 20, [scopeId]);
+  const searchResults = await searchGraphNodes(
+    queryVector,
+    20,
+    [scopeId],
+    sparseVector,
+  );
   if (searchResults.length === 0) {
     return { results: [], mode: "memory", query: input.query };
   }

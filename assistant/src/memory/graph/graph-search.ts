@@ -11,7 +11,11 @@ import { asString } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { isQdrantBreakerOpen } from "../qdrant-circuit-breaker.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
-import { getQdrantClient, type QdrantSearchResult } from "../qdrant-client.js";
+import {
+  getQdrantClient,
+  type QdrantSearchResult,
+  type QdrantSparseVector,
+} from "../qdrant-client.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import { getNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
@@ -38,6 +42,7 @@ export async function searchGraphNodes(
   queryVector: number[],
   limit: number,
   scopeIds?: string[],
+  sparseVector?: QdrantSparseVector,
 ): Promise<GraphSearchResult[]> {
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping graph search");
@@ -46,6 +51,44 @@ export async function searchGraphNodes(
 
   const client = getQdrantClient();
 
+  // Use hybrid search (dense + sparse with RRF fusion) when a non-empty
+  // sparse vector is available; otherwise fall back to dense-only search.
+  if (sparseVector && sparseVector.indices.length > 0) {
+    const filter = {
+      must: [
+        { key: "target_type", match: { value: "graph_node" } },
+        ...(scopeIds && scopeIds.length > 0
+          ? [
+              {
+                should: [
+                  { key: "memory_scope_id", match: { any: scopeIds } },
+                  { is_empty: { key: "memory_scope_id" } },
+                ],
+              },
+            ]
+          : []),
+      ],
+      must_not: [{ key: "_meta", match: { value: true } }],
+    };
+
+    const results: QdrantSearchResult[] = await withQdrantBreaker(() =>
+      client.hybridSearch({
+        denseVector: queryVector,
+        sparseVector,
+        filter,
+        limit,
+        prefetchLimit: limit,
+      }),
+    );
+
+    return results.map((r) => ({
+      nodeId: r.payload.target_id,
+      score: r.score,
+      text: r.payload.text,
+    }));
+  }
+
+  // Dense-only fallback
   const filter: Record<string, unknown> = {
     must: [
       {
@@ -121,8 +164,7 @@ export async function embedGraphNodeDirect(
   };
 
   if (node.imageRefs && node.imageRefs.length > 0) {
-    const multimodalAvailable =
-      await selectedBackendSupportsMultimodal(config);
+    const multimodalAvailable = await selectedBackendSupportsMultimodal(config);
     if (multimodalAvailable) {
       const imageData = await loadImageRefData(node.imageRefs[0]);
       if (imageData) {
@@ -148,9 +190,7 @@ export async function embedGraphNodeDirect(
     }
 
     // Fallback: text embedding with image description suffix
-    const descSuffix = node.imageRefs
-      .map((r) => r.description)
-      .join("; ");
+    const descSuffix = node.imageRefs.map((r) => r.description).join("; ");
     const textWithImages = `${text}\n[images: ${descSuffix}]`;
     await embedAndUpsert(
       config,
