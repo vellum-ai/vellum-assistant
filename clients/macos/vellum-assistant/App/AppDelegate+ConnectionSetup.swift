@@ -601,7 +601,7 @@ extension AppDelegate {
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
-            eventMask: [.write, .rename],
+            eventMask: [.write, .delete, .rename],
             queue: DispatchQueue.global(qos: .utility)
         )
 
@@ -609,6 +609,8 @@ extension AppDelegate {
         var debounceWorkItem: DispatchWorkItem?
 
         source.setEventHandler { [weak self] in
+            let flags = source.data
+
             debounceWorkItem?.cancel()
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self else { return }
@@ -635,6 +637,16 @@ extension AppDelegate {
                 deadline: .now() + 0.5,
                 execute: workItem
             )
+
+            // Atomic writes replace the file inode (.rename/.delete), so the
+            // current fd is stale. Re-establish the watcher on the new inode.
+            if flags.contains(.delete) || flags.contains(.rename) {
+                log.info("Lockfile watcher: inode replaced (atomic write), re-establishing watcher")
+                Task { @MainActor [weak self] in
+                    self?.stopLockfileWatcher()
+                    self?.startLockfileWatcher()
+                }
+            }
         }
 
         source.setCancelHandler { [weak self] in
