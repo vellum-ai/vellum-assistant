@@ -670,20 +670,10 @@ export async function runDaemon(): Promise<void> {
 
       // Seed capability graph nodes (new memory graph system)
       try {
-        const {
-          seedSkillGraphNodes,
-          seedCliGraphNodes,
-          seedUninstalledSkillGraphNodes,
-        } = await import("../memory/graph/capability-seed.js");
+        const { seedSkillGraphNodes, seedCliGraphNodes } =
+          await import("../memory/graph/capability-seed.js");
         seedSkillGraphNodes();
         seedCliGraphNodes();
-
-        void seedUninstalledSkillGraphNodes().catch((err) =>
-          log.warn(
-            { err },
-            "Uninstalled skill graph node seeding failed — continuing",
-          ),
-        );
       } catch (err) {
         log.warn({ err }, "Graph capability seeding failed — continuing");
       }
