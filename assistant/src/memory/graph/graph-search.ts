@@ -126,16 +126,24 @@ export async function embedGraphNodeDirect(
     if (multimodalAvailable) {
       const imageData = await loadImageRefData(node.imageRefs[0]);
       if (imageData) {
-        const input: EmbeddingInput = {
-          type: "image",
-          data: imageData.data,
-          mimeType: imageData.mimeType,
-        };
-        await embedAndUpsert(config, "graph_node", node.id, input, {
-          ...extraPayload,
-          has_image: true,
-        });
-        return;
+        try {
+          const input: EmbeddingInput = {
+            type: "image",
+            data: imageData.data,
+            mimeType: imageData.mimeType,
+          };
+          await embedAndUpsert(config, "graph_node", node.id, input, {
+            ...extraPayload,
+            has_image: true,
+          });
+          return;
+        } catch (err) {
+          log.warn(
+            "Multimodal embed failed for node %s, falling back to text: %s",
+            node.id,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       }
     }
 
