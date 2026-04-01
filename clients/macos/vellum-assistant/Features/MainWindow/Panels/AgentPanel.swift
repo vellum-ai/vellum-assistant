@@ -240,13 +240,13 @@ struct SkillItemRow: View {
     let onDelete: () -> Void
 
     private var isRemovable: Bool {
-        skill.source == "managed" || skill.source == "clawhub"
+        skill.kind == "installed"
     }
 
     var body: some View {
         VCard(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
-                if let emoji = skill.emoji, !emoji.isEmpty {
+                if let emoji = skill.vellum?.emoji, !emoji.isEmpty {
                     Text(emoji)
                         .font(.system(size: 32))
                 }
@@ -259,7 +259,7 @@ struct SkillItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        skillTag(for: skill.source)
+                        skillTag(for: skill.origin)
 
                         Spacer()
                     }
@@ -298,7 +298,7 @@ struct AvailableSkillItemRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: VSpacing.lg) {
-            if let emoji = skill.emoji, !emoji.isEmpty {
+            if let emoji = skill.vellum?.emoji, !emoji.isEmpty {
                 Text(emoji)
                     .font(.system(size: 32))
                     .opacity(0.5)
@@ -310,7 +310,7 @@ struct AvailableSkillItemRow: View {
                         .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    skillTag(for: skill.source)
+                    skillTag(for: skill.origin)
                     Spacer()
                 }
                 Text(skill.description)
@@ -343,19 +343,17 @@ struct AvailableSkillItemRow: View {
 
 // MARK: - Skill Tag Helper
 
-private func skillTag(for source: String) -> VTag {
-    switch source {
-    case "bundled":
+private func skillTag(for origin: String) -> VTag {
+    switch origin {
+    case "vellum":
         return VTag("Core", color: VColor.contentDefault, icon: .package)
-    case "managed", "clawhub":
-        return VTag("Installed", color: VColor.systemPositiveStrong, icon: .circleCheck)
-    case "workspace":
+    case "clawhub":
+        return VTag("Community", color: VColor.funPurple, icon: .globe)
+    case "skillssh":
+        return VTag("Community", color: VColor.funTeal, icon: .globe)
+    case "custom":
         return VTag("Created", color: VColor.contentSecondary, icon: .sparkles)
-    case "extra":
-        return VTag("Extra", color: VColor.contentTertiary, icon: .puzzle)
-    case "catalog":
-        return VTag("Available", color: VColor.funTeal, icon: .arrowDownToLine)
     default:
-        return VTag(source.capitalized, color: VColor.contentTertiary, icon: .puzzle)
+        return VTag(origin.capitalized, color: VColor.contentTertiary, icon: .puzzle)
     }
 }

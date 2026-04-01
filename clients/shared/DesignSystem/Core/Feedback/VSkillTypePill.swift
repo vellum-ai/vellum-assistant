@@ -1,56 +1,56 @@
 import SwiftUI
 
-/// A pill badge indicating the type/source of a skill (Core, Installed, Created).
+/// A pill badge indicating the type/source of a skill based on its origin.
 public struct VSkillTypePill: View {
     public enum SkillType {
-        case core
-        case installed
-        case created
-        case extra
+        case vellum
+        case clawhub
+        case skillssh
+        case custom
         case available
-        case custom(label: String, icon: String, foreground: Color, background: Color)
+        case other(label: String, icon: String, foreground: Color, background: Color)
 
         var label: String {
             switch self {
-            case .core: return "Core"
-            case .installed: return "Installed"
-            case .created: return "Created"
-            case .extra: return "Extra"
+            case .vellum: return "Core"
+            case .clawhub: return "Community"
+            case .skillssh: return "Community"
+            case .custom: return "Created"
             case .available: return "Available"
-            case .custom(let label, _, _, _): return label
+            case .other(let label, _, _, _): return label
             }
         }
 
         var vIcon: VIcon {
             switch self {
-            case .core: return .package
-            case .installed: return .circleCheck
-            case .created: return .sparkles
-            case .extra: return .puzzle
+            case .vellum: return .package
+            case .clawhub: return .globe
+            case .skillssh: return .globe
+            case .custom: return .sparkles
             case .available: return .arrowDownToLine
-            case .custom(_, let icon, _, _): return .resolve(icon)
+            case .other(_, let icon, _, _): return .resolve(icon)
             }
         }
 
         var foregroundColor: Color {
             switch self {
-            case .core: return VColor.contentDefault
-            case .installed: return VColor.systemPositiveStrong
-            case .created: return VColor.contentSecondary
-            case .extra: return VColor.contentTertiary
+            case .vellum: return VColor.contentDefault
+            case .clawhub: return VColor.funPurple
+            case .skillssh: return VColor.funTeal
+            case .custom: return VColor.contentSecondary
             case .available: return VColor.funTeal
-            case .custom(_, _, let fg, _): return fg
+            case .other(_, _, let fg, _): return fg
             }
         }
 
         var backgroundColor: Color {
             switch self {
-            case .core: return VColor.surfaceBase
-            case .installed: return VColor.systemPositiveWeak
-            case .created: return VColor.surfaceBase
-            case .extra: return VColor.surfaceOverlay
+            case .vellum: return VColor.surfaceBase
+            case .clawhub: return VColor.funPurple.opacity(0.12)
+            case .skillssh: return VColor.funTeal.opacity(0.12)
+            case .custom: return VColor.surfaceBase
             case .available: return VColor.funTeal.opacity(0.12)
-            case .custom(_, _, _, let bg): return bg
+            case .other(_, _, _, let bg): return bg
             }
         }
     }
@@ -61,26 +61,28 @@ public struct VSkillTypePill: View {
         self.type = type
     }
 
-    /// Convenience initializer from a skill source string.
-    public init(source: String) {
-        switch source {
-        case "bundled":
-            self.type = .core
-        case "managed", "clawhub":
-            self.type = .installed
-        case "workspace":
-            self.type = .created
-        case "extra":
-            self.type = .extra
-        case "catalog":
+    /// Convenience initializer from a skill origin string and optional kind/status.
+    public init(origin: String, status: String? = nil) {
+        if status == "available" {
             self.type = .available
-        default:
-            self.type = .custom(
-                label: source.replacingOccurrences(of: "-", with: " ").capitalized,
-                icon: VIcon.puzzle.rawValue,
-                foreground: VColor.contentTertiary,
-                background: VColor.surfaceOverlay
-            )
+        } else {
+            switch origin {
+            case "vellum":
+                self.type = .vellum
+            case "clawhub":
+                self.type = .clawhub
+            case "skillssh":
+                self.type = .skillssh
+            case "custom":
+                self.type = .custom
+            default:
+                self.type = .other(
+                    label: origin.replacingOccurrences(of: "-", with: " ").capitalized,
+                    icon: VIcon.puzzle.rawValue,
+                    foreground: VColor.contentTertiary,
+                    background: VColor.surfaceOverlay
+                )
+            }
         }
     }
 
