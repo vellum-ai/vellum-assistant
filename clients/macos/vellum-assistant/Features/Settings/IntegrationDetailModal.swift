@@ -402,7 +402,7 @@ struct IntegrationDetailModal: View {
                 }
             }
             VButton(
-                label: createAppIsSubmitting ? "Saving..." : "Save",
+                label: createAppIsSubmitting ? "Connecting..." : "Connect",
                 style: .primary,
                 isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
             ) {
