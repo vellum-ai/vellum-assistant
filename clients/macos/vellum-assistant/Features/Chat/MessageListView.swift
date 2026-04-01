@@ -898,8 +898,8 @@ struct MessageListView: View {
     // MARK: - Lifecycle handlers
 
     private func handleAppear() {
-        // configureScrollCallbacks is now called from the ScrollViewReader's
-        // onAppear inside the ScrollView body, where the proxy is available.
+        // Scroll callbacks are configured by the ScrollViewReader's
+        // onAppear closure inside the ScrollView body (see configureScrollCallbacks).
         // Seed the confirmation marker on initial mount — conversationSwitched
         // doesn't fire for the initial value, so a conversation already paused
         // in awaiting_confirmation at launch or reconnect needs the marker set here.
