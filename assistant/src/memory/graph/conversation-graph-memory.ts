@@ -168,8 +168,6 @@ export class ConversationGraphMemory {
     );
     if (!hasUserContent) return noopResult;
 
-    const _start = Date.now();
-
     try {
       // Decide which retrieval mode to use
       if (!this.initialized || this.needsReload) {
