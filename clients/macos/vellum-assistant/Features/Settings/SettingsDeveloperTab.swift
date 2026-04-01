@@ -911,6 +911,9 @@ struct SettingsDeveloperTab: View {
         assistantFlagsError = nil
         do {
             assistantFlags = try await featureFlagClient.getFeatureFlags()
+            // Cache the fetched flag state for persistence across restarts
+            let cacheValues = Dictionary(uniqueKeysWithValues: assistantFlags.map { ($0.key, $0.enabled) })
+            AssistantFeatureFlagResolver.writeCachedFlags(cacheValues)
         } catch {
             // Fall back to the bundled registry + local persisted overrides
             if let registry = loadFeatureFlagRegistry() {
@@ -954,7 +957,11 @@ struct SettingsDeveloperTab: View {
                 scope: .macos
             )
         }
-        return (fromAssistant + fromMacOS).sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+        // Deduplicate: if a flag key exists in both macOS and assistant scopes,
+        // keep the macOS entry and drop the assistant duplicate.
+        let macOSKeys = Set(fromMacOS.map { $0.key })
+        let dedupedAssistant = fromAssistant.filter { !macOSKeys.contains($0.key) }
+        return (dedupedAssistant + fromMacOS).sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
     }
 
     private var filteredUnifiedFlags: [UnifiedFeatureFlag] {
@@ -1058,6 +1065,7 @@ struct SettingsDeveloperTab: View {
                         object: nil,
                         userInfo: ["key": flag.key, "enabled": newValue]
                     )
+                    AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: newValue)
                     Task {
                         do {
                             try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)
@@ -1071,6 +1079,7 @@ struct SettingsDeveloperTab: View {
                                     label: flag.label
                                 )
                             }
+                            AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: !newValue)
                             NotificationCenter.default.post(
                                 name: .assistantFeatureFlagDidChange,
                                 object: nil,

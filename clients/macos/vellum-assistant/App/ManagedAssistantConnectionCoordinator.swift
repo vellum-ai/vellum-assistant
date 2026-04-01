@@ -121,6 +121,10 @@ final class ManagedAssistantConnectionCoordinator {
         }
         userDefaults.set(true, forKey: "tosAccepted")
 
+        // Clear stale cached feature flags from any previous assistant so the
+        // new managed assistant resolves flags from its own configuration.
+        AssistantFeatureFlagResolver.clearCachedFlags()
+
         updateAssistantTag(assistant.id)
 
         return ManagedAssistantConnectionResult(
