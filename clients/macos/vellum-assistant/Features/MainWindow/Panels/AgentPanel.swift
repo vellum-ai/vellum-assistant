@@ -259,7 +259,7 @@ struct SkillItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        skillTag(for: skill.origin)
+                        skillTag(for: skill.origin, status: skill.status)
 
                         Spacer()
                     }
@@ -310,7 +310,7 @@ struct AvailableSkillItemRow: View {
                         .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    skillTag(for: skill.origin)
+                    skillTag(for: skill.origin, status: skill.status)
                     Spacer()
                 }
                 Text(skill.description)
@@ -343,7 +343,10 @@ struct AvailableSkillItemRow: View {
 
 // MARK: - Skill Tag Helper
 
-private func skillTag(for origin: String) -> VTag {
+private func skillTag(for origin: String, status: String? = nil) -> VTag {
+    if status == "available" {
+        return VTag("Available", color: VColor.funTeal, icon: .arrowDownToLine)
+    }
     switch origin {
     case "vellum":
         return VTag("Core", color: VColor.contentDefault, icon: .package)
