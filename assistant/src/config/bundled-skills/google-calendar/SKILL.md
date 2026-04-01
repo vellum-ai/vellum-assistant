@@ -15,15 +15,7 @@ You are a Google Calendar assistant with full access to the user's calendar. Use
 Before using any Calendar tool, verify that Google Calendar is connected by attempting a lightweight call (e.g., `calendar_list_events` with a narrow date range). If the call fails with a token/authorization error:
 
 1. **Try connecting directly first.** Run `assistant oauth status google`. This will show whether or not the user had previously connected their google account. If so, they are ready to go.
-2. **If no connections are found:** The user needs to either use Vellum's managed google integration or set up their own google oauth app. 
-   - Call `skill_load` with `skill: "vellum-oauth-integrations"` with `provider-key: google` throughout.
-   - To use `your-own` mode, you will need to call `skill_load` with `skill: google-oauth-app-setup`. In this case:
-      - Tell the user Google account isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
-      - **message:** "Ready to set up Google Calendar?"
-      - **detail:** "I'll open a few pages in your browser and walk you through setting up Google Cloud credentials - creating a project, enabling APIs, and connecting your account. Takes about 5 minutes.\n\n**Your emails stay under your control** — I only ever create drafts. Nothing gets sent without your explicit say-so."
-      - **confirmLabel:** "Get Started"
-      - **cancelLabel:** "Not Now"
-      - If the user confirms, briefly acknowledge (e.g., "Setting up Google Calendar now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.
+2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
 
 ## Capabilities
 
