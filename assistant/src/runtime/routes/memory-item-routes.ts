@@ -127,6 +127,7 @@ function nodeToPayload(
     status: node.fidelity === "gone" ? "superseded" : "active",
     confidence: node.confidence,
     importance: node.significance,
+    eventDate: node.eventDate,
     firstSeenAt: node.created,
     lastSeenAt: node.lastAccessed,
 
