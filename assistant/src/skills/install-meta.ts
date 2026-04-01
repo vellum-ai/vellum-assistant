@@ -163,8 +163,11 @@ export function collectFileContents(
 
   const entries = readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
-    // Exclude metadata files at the root level (prefix === "")
-    if (!prefix && METADATA_FILENAMES.has(entry.name)) continue;
+    // Exclude metadata files at the root level (prefix === "").
+    // Only exclude actual files — a directory with a metadata name should
+    // still be traversed so nested content contributes to the hash.
+    if (!prefix && entry.isFile() && METADATA_FILENAMES.has(entry.name))
+      continue;
 
     const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
     const fullPath = join(dir, entry.name);

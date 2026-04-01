@@ -247,9 +247,11 @@ function saveConfigWithSuppression(
  * in the daemon. Handles catalog reload, auto-enable, broadcast, and memory
  * seeding.
  *
- * SKILLS.md indexing and dependency installation are handled by the install
- * functions themselves (`installSkillLocally`, `installExternalSkill`,
- * `clawhubInstall`) so that both CLI and daemon callers get correct behavior.
+ * SKILLS.md indexing and dependency installation are handled separately:
+ * `installSkillLocally` and `installExternalSkill` handle them internally
+ * (so both CLI and daemon callers get correct behavior), while the clawhub
+ * path handles them inline in `installSkill()` since `clawhubInstall` only
+ * runs the clawhub CLI and writes metadata.
  *
  * NOT used for bundled skills — those have a simpler inline path in
  * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
@@ -647,29 +649,33 @@ export async function installSkill(
       return { success: true };
     }
 
-    // Check the Vellum catalog (first-party skills hosted on the platform)
-    try {
-      const vellumCatalog = await getCatalog();
-      const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
-      if (catalogEntry) {
-        await installSkillLocally(
-          spec.slug,
-          catalogEntry,
-          true,
-          spec.contactId,
-        );
+    // Check the Vellum catalog (first-party skills hosted on the platform).
+    // Skip when the caller explicitly specified an origin — this prevents
+    // slug collisions where a catalog skill shadows a community skill the
+    // user selected from search results.
+    if (!spec.origin)
+      try {
+        const vellumCatalog = await getCatalog();
+        const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
+        if (catalogEntry) {
+          await installSkillLocally(
+            spec.slug,
+            catalogEntry,
+            true,
+            spec.contactId,
+          );
 
-        const skillDir = join(getWorkspaceSkillsDir(), spec.slug);
-        postInstallSkill(spec.slug, skillDir, ctx);
-        return { success: true };
+          const skillDir = join(getWorkspaceSkillsDir(), spec.slug);
+          postInstallSkill(spec.slug, skillDir, ctx);
+          return { success: true };
+        }
+      } catch (err) {
+        // If catalog lookup/install fails, fall through to community registries
+        log.warn(
+          { err, skillId: spec.slug },
+          "Vellum catalog install failed, falling back to community registry",
+        );
       }
-    } catch (err) {
-      // If catalog lookup/install fails, fall through to community registries
-      log.warn(
-        { err, skillId: spec.slug },
-        "Vellum catalog install failed, falling back to community registry",
-      );
-    }
 
     // skills.sh install path: route here when origin is explicitly "skillssh"
     // or when the slug looks like a skills.sh multi-segment format (owner/repo/skill)
