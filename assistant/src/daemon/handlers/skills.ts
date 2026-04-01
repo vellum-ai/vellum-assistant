@@ -265,8 +265,10 @@ function deriveOrigin(
 ): SlimSkillResponse["origin"] {
   if (kind === "bundled") return "vellum";
   if (kind === "catalog") return "vellum";
-  // For installed skills, use provided install-meta or read from disk
-  const meta = installMeta ?? readInstallMeta(directoryPath);
+  // For installed skills, use provided install-meta or read from disk.
+  // null means "already read, nothing found" — don't re-read.
+  const meta =
+    installMeta !== undefined ? installMeta : readInstallMeta(directoryPath);
   return meta?.origin ?? "custom";
 }
 
@@ -284,7 +286,10 @@ function buildOriginMeta(
       return vellumMeta ? { vellum: vellumMeta } : {};
     }
     case "clawhub": {
-      const meta = installMeta ?? readInstallMeta(summary.directoryPath);
+      const meta =
+        installMeta !== undefined
+          ? installMeta
+          : readInstallMeta(summary.directoryPath);
       const clawhubMeta: ClawhubSkillMeta = {
         slug: meta?.slug ?? summary.id,
         author: "",
@@ -302,7 +307,10 @@ function buildOriginMeta(
       };
     }
     case "skillssh": {
-      const meta = installMeta ?? readInstallMeta(summary.directoryPath);
+      const meta =
+        installMeta !== undefined
+          ? installMeta
+          : readInstallMeta(summary.directoryPath);
       const skillsshMeta: SkillsshSkillMeta = {
         slug: meta?.slug ?? summary.id,
         sourceRepo: meta?.sourceRepo ?? "",
@@ -340,9 +348,10 @@ function toSlimSkillResponse(
   state: "enabled" | "disabled",
 ): SlimSkillResponse {
   const kind = deriveKind(summary.source);
-  // Read install-meta once and pass it through to avoid redundant file I/O
+  // Read install-meta once and pass it through to avoid redundant file I/O.
+  // Use undefined to mean "not yet read"; null means "read but no metadata found".
   const installMeta =
-    kind === "installed" ? readInstallMeta(summary.directoryPath) : null;
+    kind === "installed" ? readInstallMeta(summary.directoryPath) : undefined;
   const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
   const status: SlimSkillResponse["status"] = state;
   return {
