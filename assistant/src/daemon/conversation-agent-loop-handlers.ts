@@ -504,7 +504,14 @@ export function handleToolResult(
     return ts && ts.completedAt != null;
   });
   if (allToolsDone && state.currentTurnToolUseIds.length > 0) {
-    annotatePersistedAssistantMessage(state, deps);
+    try {
+      annotatePersistedAssistantMessage(state, deps);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: deps.ctx.conversationId },
+        "Failed to annotate persisted assistant message (non-fatal)",
+      );
+    }
   }
 
   // Send to client last so state is consistent even if onEvent throws.
