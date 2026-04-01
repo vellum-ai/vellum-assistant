@@ -625,9 +625,18 @@ export class DaemonServer {
       if (conversation.isProcessing()) {
         // Hydrate file data now — the queue path won't re-read from
         // the attachment store, so base64 content must be inline.
-        for (const att of resolvedAttachments) {
+        for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
+          const att = resolvedAttachments[i];
           if (att.filePath && !att.data) {
-            att.data = readFileSync(att.filePath).toString("base64");
+            try {
+              att.data = readFileSync(att.filePath).toString("base64");
+            } catch (err) {
+              log.warn(
+                { err, path: att.filePath },
+                "Failed to read queued signal attachment, skipping",
+              );
+              resolvedAttachments.splice(i, 1);
+            }
           }
         }
         const requestId = crypto.randomUUID();
