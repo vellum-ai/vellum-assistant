@@ -6,7 +6,6 @@ struct ConversationSwitcherDrawer: View {
     @ObservedObject var windowState: MainWindowState
     var sidebar: SidebarInteractionState
     var customGroupsEnabled: Bool = false
-    var backgroundEnabled: Bool = false
     let selectConversation: (ConversationModel) -> Void
     let onDismiss: () -> Void
 
@@ -26,9 +25,7 @@ struct ConversationSwitcherDrawer: View {
         var extraUngrouped: [ConversationModel] = []
         for entry in raw {
             if let group = entry.group {
-                if group.id == ConversationGroup.background.id && !backgroundEnabled {
-                    extraUngrouped.append(contentsOf: entry.conversations)
-                } else if !group.isSystemGroup && !customGroupsEnabled {
+                if !group.isSystemGroup && !customGroupsEnabled {
                     extraUngrouped.append(contentsOf: entry.conversations)
                 } else {
                     entries.append(entry)
