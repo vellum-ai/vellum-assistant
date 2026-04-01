@@ -55,6 +55,7 @@ extension AppDelegate {
                 ActorTokenManager.deleteToken()
             }
             AssistantFeatureFlagResolver.clearCachedFlags()
+            featureFlagStore.reloadFromDisk()
         }
 
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
