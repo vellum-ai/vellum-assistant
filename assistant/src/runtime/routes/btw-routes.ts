@@ -16,6 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
+import { getConfig } from "../../config/loader.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import {
   resolveChannelPersona,
@@ -34,6 +35,9 @@ const log = getLogger("btw-routes");
 
 /** Conversation key used by the client for identity intro generation. */
 const IDENTITY_INTRO_KEY = "identity-intro";
+
+/** Conversation key used by the client for empty-state greeting generation. */
+const GREETING_KEY = "greeting";
 
 /**
  * Parse the `## Identity Intro` section from SOUL.md.
@@ -150,6 +154,7 @@ async function handleBtw(
       (async () => {
         try {
           const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
+          const isGreeting = conversationKey === GREETING_KEY;
           const userPersona = resolveGuardianPersona();
           const channelPersona = resolveChannelPersona(undefined);
           const result = await runBtwSidechain({
@@ -158,6 +163,9 @@ async function handleBtw(
             signal: req.signal,
             userPersona,
             channelPersona,
+            ...(isGreeting
+              ? { modelIntent: getConfig().ui.greetingModelIntent }
+              : {}),
             onEvent: (event) => {
               if (event.type === "text_delta") {
                 controller.enqueue(
