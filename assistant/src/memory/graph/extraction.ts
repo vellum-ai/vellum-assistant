@@ -231,7 +231,7 @@ const EXTRACT_TOOL_SCHEMA = {
               enum: ["direct", "inferred", "observed", "told-by-other"],
             },
             event_date: {
-              type: "number",
+              type: ["number", "null"],
               description:
                 "Epoch ms of the event date for calendar-anchored events (flights, appointments, birthdays, deadlines). Null for non-event memories.",
             },
@@ -601,7 +601,9 @@ export function parseExtractionResponse(
     if (
       node.eventDate != null &&
       (!Array.isArray(raw.triggers) ||
-        !raw.triggers.some((t) => t.type === "event"))
+        !raw.triggers.some(
+          (t) => t.type === "event" && t.event_date != null,
+        ))
     ) {
       deferredTriggers.push({
         newNodeIndex: nodeIndex,
