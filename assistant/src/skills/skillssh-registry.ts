@@ -1,7 +1,10 @@
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
 import { getWorkspaceSkillsDir } from "../util/platform.js";
+import { upsertSkillsIndex } from "./catalog-install.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -433,9 +436,11 @@ export function validateSkillSlug(slug: string): void {
  * 2. Fetches all files from `skills/<skillSlug>/` in the source repo
  * 3. Writes them to `<workspace>/skills/<skillSlug>/` with path traversal protection
  * 4. Writes `install-meta.json` with origin metadata
+ * 5. Installs npm dependencies (if package.json exists)
+ * 6. Updates SKILLS.md index
  *
- * SKILLS.md indexing, dependency installation, and auto-enable are handled by
- * the caller via `postInstallSkill()`.
+ * Auto-enable and memory seeding are handled by the caller (e.g.
+ * `postInstallSkill()` in the daemon, or left to the user for CLI installs).
  */
 export async function installExternalSkill(
   owner: string,
@@ -489,4 +494,17 @@ export async function installExternalSkill(
     ...(contactId ? { installedBy: contactId } : {}),
     contentHash: computeSkillHash(skillDir) ?? undefined,
   });
+
+  // Post-install: install dependencies first, then index the skill.
+  // Running bun install before upsertSkillsIndex ensures we don't index a
+  // skill whose dependencies failed to install.
+  if (existsSync(join(skillDir, "package.json"))) {
+    const bunPath = `${homedir()}/.bun/bin`;
+    execSync("bun install", {
+      cwd: skillDir,
+      stdio: "inherit",
+      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    });
+  }
+  upsertSkillsIndex(skillSlug);
 }

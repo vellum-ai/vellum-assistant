@@ -304,6 +304,19 @@ export async function installSkillLocally(
     ...(contactId ? { installedBy: contactId } : {}),
     contentHash: computeSkillHash(skillDir) ?? undefined,
   });
+
+  // Post-install: install dependencies first, then index the skill.
+  // Running bun install before upsertSkillsIndex ensures we don't index a
+  // skill whose dependencies failed to install.
+  if (existsSync(join(skillDir, "package.json"))) {
+    const bunPath = `${homedir()}/.bun/bin`;
+    execSync("bun install", {
+      cwd: skillDir,
+      stdio: "inherit",
+      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    });
+  }
+  upsertSkillsIndex(skillId);
 }
 
 // ─── Auto-install (for skill_load) ──────────────────────────────────────────
@@ -379,22 +392,8 @@ export async function autoInstallFromCatalog(
     return false;
   }
 
+  // installSkillLocally handles dependency installation and SKILLS.md indexing.
   await installSkillLocally(skillId, entry, false);
-
-  // Post-install steps: SKILLS.md indexing and dependency installation.
-  // These are handled by postInstallSkill() for the daemon orchestrator path,
-  // but autoInstallFromCatalog runs outside the daemon context so we handle
-  // them directly here.
-  const skillDir = join(getWorkspaceSkillsDir(), skillId);
-  upsertSkillsIndex(skillId);
-  if (existsSync(join(skillDir, "package.json"))) {
-    const bunPath = `${homedir()}/.bun/bin`;
-    execSync("bun install", {
-      cwd: skillDir,
-      stdio: "inherit",
-      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
-    });
-  }
 
   return true;
 }
