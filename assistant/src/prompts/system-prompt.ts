@@ -128,8 +128,7 @@ export function ensurePromptFiles(): void {
     }
   }
 
-  // NOW.md scratchpad removed — replaced by the `remember` tool which
-  // writes immediately to the memory graph.
+  // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
   // Seed users/default.md persona template
   try {
@@ -275,8 +274,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const integrationSection = buildIntegrationSection();
   if (integrationSection) dynamicParts.push(integrationSection);
 
-  // Journal context removed — memories are now managed by the memory graph.
-  // Journal files remain writable and are extracted into graph nodes.
+  // Journal entries are extracted into graph nodes by the memory pipeline.
+  // Journal files remain writable on disk.
 
   const dynamic = dynamicParts.join("\n\n");
 

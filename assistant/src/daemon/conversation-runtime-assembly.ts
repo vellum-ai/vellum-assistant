@@ -1051,6 +1051,9 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
   // NOTE: <memory __injected> is intentionally NOT stripped — memory
   // injections persist in history so the assistant can reference them.
+  // Context compaction handles these blocks during history reduction, and
+  // the InContextTracker deduplicates nodes across turns, so accumulation
+  // does not cause unbounded context growth.
   "<voice_call_control>",
   "<workspace_top_level>",
   TEMPORAL_INJECTED_PREFIX,

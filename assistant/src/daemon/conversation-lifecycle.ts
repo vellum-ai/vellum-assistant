@@ -150,6 +150,7 @@ export interface DisposeContext extends AbortContext {
   currentTurnSurfaces: Array<unknown>;
   lastSurfaceAction: Map<string, unknown>;
   workspaceTopLevelContext: string | null;
+  trustContext?: { trustClass: TrustClass };
   abort(): void;
 }
 
@@ -282,13 +283,17 @@ export function disposeConversation(ctx: DisposeContext): void {
     // Best-effort — don't block conversation disposal
   }
 
-  // Trigger graph extraction for end-of-conversation sweep
-  try {
-    enqueueMemoryJob("graph_extract", {
-      conversationId: ctx.conversationId,
-    });
-  } catch {
-    // Best-effort — don't block conversation disposal
+  // Trigger graph extraction for end-of-conversation sweep.
+  // Only extract from guardian conversations to preserve the memory trust
+  // boundary — untrusted content must not influence future memory retrieval.
+  if (!isUntrustedTrustClass(ctx.trustContext?.trustClass)) {
+    try {
+      enqueueMemoryJob("graph_extract", {
+        conversationId: ctx.conversationId,
+      });
+    } catch {
+      // Best-effort — don't block conversation disposal
+    }
   }
 
   ctx.abort();

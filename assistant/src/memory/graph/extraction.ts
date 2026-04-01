@@ -586,6 +586,8 @@ export interface ExtractionResult {
   nodesReinforced: number;
   edgesCreated: number;
   triggersCreated: number;
+  /** Epoch ms of the newest message included in extraction. Used for checkpointing. */
+  lastProcessedTimestamp?: number;
 }
 
 /**
@@ -819,6 +821,7 @@ export async function runGraphExtraction(
     nodesReinforced: result.nodesReinforced,
     edgesCreated,
     triggersCreated,
+    lastProcessedTimestamp: conversationTimestamp,
   };
 }
 

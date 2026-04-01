@@ -45,8 +45,11 @@ export async function graphExtractJob(
       afterTimestamp,
     });
 
-    // Update checkpoint to now — next extraction picks up from here
-    setMemoryCheckpoint(checkpointKey, String(Date.now()));
+    // Update checkpoint to the newest message actually processed — using
+    // Date.now() could skip messages that arrived during extraction.
+    if (result.lastProcessedTimestamp) {
+      setMemoryCheckpoint(checkpointKey, String(result.lastProcessedTimestamp));
+    }
 
     log.info(
       {

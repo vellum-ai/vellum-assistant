@@ -144,23 +144,25 @@ async function handleMemoryRecall(
 
 async function handleArchiveRecall(
   input: RecallInput,
-  _scopeId: string,
+  scopeId: string,
 ): Promise<RecallResult> {
   // Archive mode: search raw conversation transcripts via messages FTS
   // This is a simple text search — no embedding needed
   const { rawAll } = await import("../db.js");
 
   try {
-    // Use SQLite FTS on messages table
+    // Use SQLite FTS on messages table, scoped to the active memory scope
     const rows = rawAll(
       `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
        FROM messages_fts fts
        JOIN messages m ON m.rowid = fts.rowid
        JOIN conversations c ON c.id = m.conversation_id
        WHERE messages_fts MATCH ?
+         AND c.memory_scope_id = ?
        ORDER BY rank
        LIMIT 20`,
       input.query,
+      scopeId,
     ) as Array<{
       id: string;
       content: string;

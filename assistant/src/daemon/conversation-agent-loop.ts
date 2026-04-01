@@ -712,7 +712,7 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // NOW.md scratchpad removed — replaced by the memory graph `remember` tool.
+    // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
