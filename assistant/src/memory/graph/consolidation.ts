@@ -90,7 +90,7 @@ Today is ${today}.
 
 4. **Mark gone**: If a node is at "gist" fidelity and has very low significance (< 0.2), mark it for deletion — it's faded beyond usefulness.
 
-5. **Resolve stale prospective nodes**: If a prospective node (type=prospective) is older than 7 days and has no "resolved-by" edge, it's likely a stale commitment. Downgrade its fidelity to "gist" and rewrite it as a past observation (e.g. "Had planned to X" instead of "Need to X"). If it's already at gist with significance < 0.2, mark it for deletion.
+5. **Resolve stale prospective nodes**: If a prospective node (type=prospective) is older than 7 days and has no "resolved-by" edge, it's likely a stale commitment. Downgrade its fidelity to "gist" and rewrite it as a past observation (e.g. "Had planned to X" instead of "Need to X"). If it's already at gist with significance < 0.2, mark it for deletion. If the node has an event_date in the past, clear it by setting event_date to null.
 
 ## Constraints
 
@@ -136,9 +136,9 @@ const CONSOLIDATE_TOOL_SCHEMA = {
             narrativeRole: { type: "string" as const },
             partOfStory: { type: "string" as const },
             event_date: {
-              type: "number" as const,
+              type: ["number", "null"] as const,
               description:
-                "Epoch ms of the event this memory describes. Preserve from merged duplicates when the survivor lacks one.",
+                "Epoch ms of the event this memory describes. Preserve from merged duplicates when the survivor lacks one. Set to null to clear a stale event date.",
             },
           },
           required: ["id"] as const,
@@ -472,7 +472,7 @@ async function consolidateChunk(
       fidelity?: string;
       narrativeRole?: string;
       partOfStory?: string;
-      event_date?: number;
+      event_date?: number | null;
     }>;
     delete_ids?: string[];
     merge_edges?: Array<{ survivor_id: string; deleted_id: string }>;
@@ -490,7 +490,7 @@ async function consolidateChunk(
       changes.narrativeRole = update.narrativeRole || null;
     if (update.partOfStory !== undefined)
       changes.partOfStory = update.partOfStory || null;
-    if (update.event_date != null) changes.eventDate = update.event_date;
+    if (update.event_date !== undefined) changes.eventDate = update.event_date;
     changes.lastConsolidated = Date.now();
 
     if (Object.keys(changes).length > 1) {
