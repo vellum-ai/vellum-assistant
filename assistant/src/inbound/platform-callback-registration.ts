@@ -9,7 +9,7 @@
  *
  * This module registers callback routes with the platform's internal
  * gateway endpoint so the platform knows how to forward inbound provider
- * webhooks to the correct containerized assistant instance.
+ * webhooks to the correct platform-managed assistant instance.
  *
  * The platform endpoint is:
  *   POST {VELLUM_PLATFORM_URL}/v1/internal/gateway/callback-routes/register/
@@ -166,7 +166,7 @@ export async function registerCallbackRoute(
 }
 
 /**
- * Resolve a callback URL, registering with the platform when containerized.
+ * Resolve a callback URL, registering with the platform when platform-managed.
  *
  * When platform callbacks are enabled, registers the route and returns the
  * platform's stable callback URL (optionally with query parameters appended).
@@ -176,7 +176,7 @@ export async function registerCallbackRoute(
  * string) rather than an eagerly-evaluated string. This is critical because
  * the direct URL builders (e.g. `getTwilioVoiceWebhookUrl`) call
  * `getPublicBaseUrl()` which throws when no public ingress URL is configured.
- * In containerized environments that rely solely on platform callbacks, the
+ * In platform-managed environments that rely solely on platform callbacks, the
  * direct URL is never needed — deferring evaluation avoids the throw.
  *
  * @param directUrl - Lazy supplier for the direct callback URL.
@@ -204,7 +204,7 @@ export async function resolveCallbackUrl(
     }
     return url;
   } catch (err) {
-    // In managed/containerized mode there is no local-ingress fallback and
+    // In platform-managed mode there is no local-ingress fallback and
     // ngrok is not applicable. Surface a clear error so callers (and the
     // user) understand this is a platform-side issue, not a tunnel problem.
     const detail = err instanceof Error ? err.message : String(err);
