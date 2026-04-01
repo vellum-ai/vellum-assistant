@@ -1621,37 +1621,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
         dismissConversationError()
 
-        // When the last message is from the user (i.e. the assistant never
-        // responded — e.g. because the send was rate-limited with 429), resend
-        // the original message instead of regenerating. A /regenerate request
-        // would fail with 404 because the daemon never received the message.
-        if let lastMsg = messages.last, lastMsg.role == .user {
-            lastFailedMessageText = lastMsg.text
-            lastFailedMessageDisplayText = nil
-            lastFailedMessageAutomated = lastMsg.isHidden
-            lastFailedMessageBypassSecretCheck = false
-            // Preserve attachments so they are resent with the retry.
-            // ChatAttachment.data may already be cleared for older messages,
-            // but for a just-sent 429'd message it is still populated.
-            // Also keep file-path-based attachments even when data is empty,
-            // since the daemon can read the file from disk.
-            lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
-                guard !att.data.isEmpty || att.filePath != nil else { return nil }
-                return UserMessageAttachment(
-                    id: att.id,
-                    filename: att.filename,
-                    mimeType: att.mimeType,
-                    data: att.data,
-                    extractedText: nil,
-                    sizeBytes: att.sizeBytes,
-                    thumbnailData: att.thumbnailData?.base64EncodedString(),
-                    filePath: att.filePath
-                )
-            }
-            retryLastMessage()
-        } else {
-            regenerateLastMessage()
-        }
+        // Use regenerate instead of resending: the daemon already persisted
+        // the user message and the error assistant message. Regenerate deletes
+        // the error message and re-runs the agent loop with the existing user
+        // message, avoiding duplicate user messages in history.
+        // Client-side send failures (HTTP 429 from runtime rate limiter, etc.)
+        // use the per-message send failure path and never reach this method.
+        regenerateLastMessage()
     }
 
     /// Whether the current error has a failed user message that can be retried.
