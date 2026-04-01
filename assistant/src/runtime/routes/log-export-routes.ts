@@ -582,33 +582,42 @@ function collectWorkspaceFiles(): Record<string, string> {
 }
 
 /**
- * Build a lightweight text manifest for a skipped workspace directory.
- * Lists each entry with its type and size so diagnostics show what was
- * excluded without shipping the actual (potentially large) files.
+ * Build a redacted summary manifest for a skipped workspace directory.
+ * Reports entry counts and shallow size totals without disclosing
+ * individual filenames (which may contain user-sensitive data).
+ * Only uses stat.size on direct children — no recursive walks.
  */
 function buildSkippedDirManifest(dirPath: string): string | undefined {
   const entries = readdirSync(dirPath);
   if (entries.length === 0) return undefined;
 
-  const lines: string[] = [];
+  let fileCount = 0;
+  let dirCount = 0;
+  let totalFileBytes = 0;
+
   for (const entry of entries) {
-    const fullPath = join(dirPath, entry);
     try {
-      const stat = lstatSync(fullPath);
+      const stat = lstatSync(join(dirPath, entry));
       if (stat.isDirectory()) {
-        const size = directorySize(fullPath);
-        lines.push(`${entry}/  ${formatBytes(size)}`);
+        dirCount++;
       } else if (stat.isFile()) {
-        lines.push(`${entry}  ${formatBytes(stat.size)}`);
-      } else if (stat.isSymbolicLink()) {
-        lines.push(`${entry}  (symlink)`);
+        fileCount++;
+        totalFileBytes += stat.size;
       }
     } catch {
-      lines.push(`${entry}  (unreadable)`);
+      // Skip unreadable entries
     }
   }
 
-  return lines.join("\n") + "\n";
+  const lines: string[] = [];
+  if (fileCount > 0) {
+    lines.push(`${fileCount} file(s), ${formatBytes(totalFileBytes)}`);
+  }
+  if (dirCount > 0) {
+    lines.push(`${dirCount} subdirectory(ies)`);
+  }
+
+  return lines.length > 0 ? lines.join("\n") + "\n" : undefined;
 }
 
 /**
