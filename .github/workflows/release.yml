@@ -26,6 +26,13 @@ jobs:
       is_staging: ${{ steps.detect-staging.outputs.is_staging }}
       docker_environments: ${{ steps.finalize.outputs.docker_environments }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -70,7 +77,7 @@ jobs:
       - name: Compute final version
         id: finalize
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           BASE_VERSION="${{ steps.extract.outputs.base_version }}"
           IS_STAGING="${{ steps.detect-staging.outputs.is_staging }}"
