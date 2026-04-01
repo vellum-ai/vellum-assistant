@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { optimizeImageForTransport } from "../../agent/image-optimize.js";
+import { getLogger } from "../../util/logger.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import type { MemoryNode, ScoredNode } from "./types.js";
 
@@ -371,25 +372,32 @@ export async function resolveInjectionImages(
   nodes: ScoredNode[],
   maxImages: number,
 ): Promise<Map<string, ResolvedImage>> {
+  const log = getLogger("memory-graph");
   const result = new Map<string, ResolvedImage>();
   for (const scored of nodes) {
     if (result.size >= maxImages) break;
     const refs = scored.node.imageRefs;
     if (!refs || refs.length === 0) continue;
 
-    const data = await loadImageRefData(refs[0]!);
-    if (!data) continue;
+    try {
+      const data = await loadImageRefData(refs[0]!);
+      if (!data) continue;
 
-    const optimized = optimizeImageForTransport(
-      data.data.toString("base64"),
-      data.mimeType,
-    );
+      const optimized = optimizeImageForTransport(
+        data.data.toString("base64"),
+        data.mimeType,
+      );
 
-    result.set(scored.node.id, {
-      base64Data: optimized.data,
-      mediaType: optimized.mediaType,
-      description: refs[0]!.description,
-    });
+      result.set(scored.node.id, {
+        base64Data: optimized.data,
+        mediaType: optimized.mediaType,
+        description: refs[0]!.description,
+      });
+    } catch (err) {
+      log.warn(
+        `Skipping image for node ${scored.node.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
   return result;
 }
