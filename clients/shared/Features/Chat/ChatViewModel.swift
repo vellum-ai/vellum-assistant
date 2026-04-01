@@ -335,6 +335,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public var activePendingRequestId: String? {
         messageManager.activePendingRequestId
     }
+    /// O(1) cached boolean from `ChatMessageManager.hasNonEmptyMessage`.
+    public var hasNonEmptyMessage: Bool {
+        messageManager.hasNonEmptyMessage
+    }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
     }

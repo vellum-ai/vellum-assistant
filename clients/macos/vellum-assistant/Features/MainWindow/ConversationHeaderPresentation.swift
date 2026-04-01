@@ -21,7 +21,13 @@ struct ConversationHeaderPresentation {
         forkParentConversationId != nil
     }
 
-    init(activeConversation: ConversationModel?, activeViewModel: ChatViewModel?, isConversationVisible: Bool) {
+    /// - Parameters:
+    ///   - activeConversation: The currently active conversation model.
+    ///   - activeViewModel: The chat view model for the active conversation.
+    ///   - isConversationVisible: Whether the conversation panel is visible.
+    ///   - hasNonEmptyMessage: O(1) cached boolean from
+    ///     `ChatViewModel.hasNonEmptyMessage`, avoiding an O(n) message scan.
+    init(activeConversation: ConversationModel?, activeViewModel: ChatViewModel?, isConversationVisible: Bool, hasNonEmptyMessage: Bool = false) {
         guard isConversationVisible, let conversation = activeConversation else {
             self.displayTitle = "New conversation"
             self.isStarted = false
@@ -42,17 +48,14 @@ struct ConversationHeaderPresentation {
         self.isPrivateConversation = conversation.kind == .private
         self.isChannelConversation = conversation.isChannelConversation
 
-        // "Started" = has a conversationId OR has at least one non-empty user message
-        let hasUserMessage = activeViewModel?.messages.contains(where: {
-            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) ?? false
-        self.isStarted = conversation.conversationId != nil || hasUserMessage
+        // "Started" = has a conversationId OR has at least one non-empty message
+        self.isStarted = conversation.conversationId != nil || hasNonEmptyMessage
 
         // Private conversations don't show the full actions menu
         self.showsActionsMenu = isStarted && !isPrivateConversation
 
         // Can copy when there's non-empty content
-        self.canCopy = hasUserMessage
+        self.canCopy = hasNonEmptyMessage
         let latestPersistedTipDaemonMessageId = activeViewModel?.messages.last(where: {
             $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden
         })?.daemonMessageId
