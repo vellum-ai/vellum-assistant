@@ -32,6 +32,9 @@ const BUN_VERSION = "1.2.0";
 /** Module-level cache so we only resolve/download once per process. */
 let cachedBunPath: string | undefined;
 
+/** In-flight download promise to deduplicate concurrent callers. */
+let inflightDownload: Promise<string> | undefined;
+
 /**
  * Return a path to a usable `bun` binary, downloading one if necessary.
  *
@@ -53,10 +56,16 @@ export async function ensureBun(): Promise<string> {
     return found;
   }
 
-  // No bun found anywhere — download it
-  log.info("No bun binary found, downloading…");
-  const binDir = getBinDir();
-  const downloaded = await downloadBun(binDir);
+  // No bun found anywhere — download it.
+  // Use an in-flight promise to deduplicate concurrent callers.
+  if (!inflightDownload) {
+    log.info("No bun binary found, downloading…");
+    const binDir = getBinDir();
+    inflightDownload = downloadBun(binDir).finally(() => {
+      inflightDownload = undefined;
+    });
+  }
+  const downloaded = await inflightDownload;
   cachedBunPath = downloaded;
   return downloaded;
 }

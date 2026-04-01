@@ -373,6 +373,10 @@ async function startDaemonLocked(): Promise<{
     }
   }
 
+  // Resolve bun before opening stderrFd to avoid leaking the file
+  // descriptor if ensureBun() throws (same pattern as loadOrCreateSigningKey).
+  const bunPath = await ensureBun();
+
   // Redirect the child's stderr to a file instead of piping it back to the
   // parent. A pipe's read end is destroyed when the parent exits, leaving
   // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
@@ -380,7 +384,6 @@ async function startDaemonLocked(): Promise<{
   const stderrPath = getDaemonStderrLogPath();
   const stderrFd = openSync(stderrPath, "w");
 
-  const bunPath = await ensureBun();
   const child = spawn(bunPath, ["run", mainPath], {
     detached: true,
     stdio: ["ignore", "ignore", stderrFd],

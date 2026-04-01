@@ -394,7 +394,7 @@ export class EmbeddingRuntimeManager {
       );
 
       // Step 6: Atomic swap — remove old install and rename temp to final
-      // Preserve model-cache/, bin/ (downloaded bun), and .gitignore
+      // Preserve model-cache/ and .gitignore
       const hadModelCache = existsSync(modelCacheDir);
       if (hadModelCache) {
         tmpModelCache = join(
