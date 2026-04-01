@@ -343,7 +343,6 @@ struct AssistantProgressView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .textSelection(.disabled)
         .onChange(of: toolCalls) { _, newToolCalls in
             handleToolCallsChange(newToolCalls)
         }
@@ -976,6 +975,7 @@ private struct StepDetailRow: View {
             }
         }
         .padding(.bottom, VSpacing.sm)
+        .textSelection(.enabled)
     }
 
     // MARK: - Output Block
