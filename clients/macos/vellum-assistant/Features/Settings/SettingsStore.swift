@@ -728,7 +728,11 @@ public final class SettingsStore: ObservableObject {
     private func applyLockfileState(_ state: LockfileState) {
         localGatewayTarget = state.gatewayUrl
         isCurrentAssistantRemote = state.isRemote
+        let urlChanged = workspaceConfigURL != state.workspaceConfigURL
         workspaceConfigURL = state.workspaceConfigURL
+        if urlChanged {
+            watchConfigFile()
+        }
     }
 
     /// In-flight lockfile refresh task. Cancelled when a new refresh is
