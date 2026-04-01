@@ -52,7 +52,7 @@ First check whether managed platform callback routes are available:
 assistant platform status --json
 ```
 
-If `containerized` is `true` and both `baseUrl` and `assistantId` are present:
+If `isPlatform` is `true` and both `baseUrl` and `assistantId` are present:
 
 - Register the managed callback route:
 

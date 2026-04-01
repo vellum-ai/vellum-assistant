@@ -208,7 +208,7 @@
             "ngrok tunnel setup for a non-managed assistant"
           ],
           "avoid-when": [
-            "Running in a managed/containerized assistant with platform callback routing available"
+            "Running in a platform-managed assistant with platform callback routing available"
           ]
         }
       },

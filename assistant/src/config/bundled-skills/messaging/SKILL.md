@@ -44,7 +44,7 @@ Before using any messaging tool, verify that the platform is connected by callin
 
 ### Public Ingress (required for Telegram)
 
-Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `containerized: true` with a non-empty `assistantId` and `available: true`, use the platform callback route flow and do not prompt for ngrok. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail/Outlook on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the vellum-oauth-integrations skill) handles public ingress internally when needed.
+Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `isPlatform: true` with a non-empty `assistantId` and `available: true`, use the platform callback route flow and do not prompt for ngrok. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail/Outlook on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the vellum-oauth-integrations skill) handles public ingress internally when needed.
 
 ### Email Connection Flow
 

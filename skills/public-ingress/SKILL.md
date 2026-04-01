@@ -10,12 +10,12 @@ metadata:
       - "Local assistant needs a public webhook or OAuth callback URL"
       - "ngrok tunnel setup for a non-managed assistant"
     avoid-when:
-      - "Running in a managed/containerized assistant with platform callback routing available"
+      - "Running in a platform-managed assistant with platform callback routing available"
 ---
 
 You are setting up and managing a public ingress tunnel so that external services (Telegram webhooks, OAuth callbacks, etc.) can reach the local Vellum gateway. This skill uses ngrok to create a secure tunnel and persists the public URL as `ingress.publicBaseUrl`.
 
-If managed platform callback routing is available, stop and do not continue with ngrok. In managed/containerized deployments, Telegram/Twilio/OAuth callback routing should use the platform callback route flow instead of local public ingress.
+If managed platform callback routing is available, stop and do not continue with ngrok. In platform-managed deployments, Telegram/Twilio/OAuth callback routing should use the platform callback route flow instead of local public ingress.
 
 ## Overview
 
@@ -35,7 +35,7 @@ Check whether managed platform callback routing is available:
 assistant platform status --json
 ```
 
-If the result shows `containerized: true` and `available: true`, stop here. Tell the user that this assistant should use the platform callback route flow instead of ngrok, and do not install or start ngrok.
+If the result shows `isPlatform: true` and `available: true`, stop here. Tell the user that this assistant should use the platform callback route flow instead of ngrok, and do not install or start ngrok.
 
 ## Step 1: Check Current Ingress Status
 
