@@ -107,6 +107,7 @@ export async function executePlaybookCreate(
       sourceType: "direct",
       narrativeRole: null,
       partOfStory: null,
+      imageRefs: null,
       scopeId,
     };
 

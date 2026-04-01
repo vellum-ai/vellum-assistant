@@ -564,6 +564,7 @@ export async function handleCreateMemoryItem(
     sourceType: "direct",
     narrativeRole: null,
     partOfStory: null,
+    imageRefs: null,
     scopeId: "default",
   };
 
@@ -749,6 +750,7 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
       | "told-by-other",
     narrativeRole: row.narrativeRole,
     partOfStory: row.partOfStory,
+    imageRefs: null, // Column added in a later migration; default to null until then.
     scopeId: row.scopeId,
   };
 }

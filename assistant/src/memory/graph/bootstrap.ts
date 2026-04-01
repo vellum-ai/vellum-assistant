@@ -456,6 +456,7 @@ export function migrateToolCreatedItems(): void {
       sourceType: "direct",
       narrativeRole: null,
       partOfStory: null,
+      imageRefs: null,
       scopeId: row.scope_id || "default",
     };
 

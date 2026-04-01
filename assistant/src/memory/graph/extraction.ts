@@ -495,6 +495,7 @@ export function parseExtractionResponse(
         : "inferred") as SourceType,
       narrativeRole: null,
       partOfStory: null,
+      imageRefs: null,
       scopeId,
     };
 
