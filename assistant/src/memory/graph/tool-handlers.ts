@@ -51,6 +51,7 @@ export interface RecallResult {
     confidence: number;
     significance: number;
     score: number;
+    created: number;
   }>;
   mode: "memory" | "archive";
   query: string;
@@ -135,6 +136,7 @@ async function handleMemoryRecall(
         confidence: node.confidence,
         significance: node.significance,
         score: r.score,
+        created: node.created,
       },
     ];
   });
@@ -182,6 +184,7 @@ async function handleArchiveRecall(
         confidence: 1.0,
         significance: 0,
         score: 1.0,
+        created: r.created_at,
       })),
       mode: "archive",
       query: input.query,
