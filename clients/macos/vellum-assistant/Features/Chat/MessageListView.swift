@@ -862,13 +862,16 @@ struct MessageListView: View {
         }
 
         // --- Push-to-top overflow detection ---
-        // Only clear push-to-top if the pin request succeeds.
-        // When the user has detached from bottom, pinToBottom returns
-        // false. Clearing pushToTopMessageId without a successful pin
-        // removes the tail spacer without the accompanying scroll
-        // adjustment, causing a content-height discontinuity that
-        // makes the scroll position jump.
-        if scrollState.mode.pushToTopMessageId != nil && distanceFromBottom > 50 {
+        // Exit push-to-top when the user manually scrolls down past
+        // the push-to-top zone. Gated on user-initiated scroll phases
+        // (.interacting / .decelerating) so the programmatic animation
+        // that positions the message at .top doesn't immediately
+        // trigger overflow (distanceFromBottom is large during that
+        // animation, which would undo the push-to-top instantly).
+        // The onScrollPhaseChange handler separately covers the case
+        // where the user scrolls to the bottom and the phase settles.
+        if scrollState.mode.pushToTopMessageId != nil && distanceFromBottom > 50
+            && (scrollState.scrollPhase == .interacting || scrollState.scrollPhase == .decelerating) {
             scrollState.handlePushToTopOverflow()
         }
 
