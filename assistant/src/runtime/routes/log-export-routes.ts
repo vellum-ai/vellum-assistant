@@ -564,7 +564,7 @@ function collectWorkspaceFiles(): Record<string, string> {
   walk(wsDir);
 
   // For each skipped directory that exists, emit a lightweight manifest
-  // listing filenames and sizes so diagnostics show what was excluded.
+  // showing entry counts and sizes so diagnostics show what was excluded.
   for (const prefix of WORKSPACE_SKIP_DIRS) {
     const dirPath = join(wsDir, prefix);
     if (!existsSync(dirPath)) continue;
