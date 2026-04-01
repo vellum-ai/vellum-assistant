@@ -103,26 +103,21 @@ export class RemoteFeatureFlagSync {
       ""
     ).replace(/\/+$/, "");
 
-    // Feature flag sync hits the public platform API (/v1/assistants/…), not
-    // an internal gateway endpoint, so prefer Api-Key auth (assistant_api_key)
-    // over Bearer auth (PLATFORM_INTERNAL_API_KEY).
+    // Feature flag sync hits the public platform API (/v1/assistants/…),
+    // which requires Api-Key auth. PLATFORM_INTERNAL_API_KEY is only valid
+    // for internal gateway endpoints and would produce 401s here.
     const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
-    const platformInternalApiKey = !assistantApiKey
-      ? process.env.PLATFORM_INTERNAL_API_KEY?.trim() || undefined
-      : undefined;
-    const authToken = assistantApiKey || platformInternalApiKey;
-    const authScheme = assistantApiKey ? "Api-Key" : "Bearer";
 
     const assistantId =
       process.env.PLATFORM_ASSISTANT_ID?.trim() ||
       assistantIdRaw?.trim() ||
       undefined;
 
-    if (!platformUrl || !authToken || !assistantId) {
+    if (!platformUrl || !assistantApiKey || !assistantId) {
       log.debug(
         {
           hasPlatformUrl: !!platformUrl,
-          hasApiKey: !!authToken,
+          hasApiKey: !!assistantApiKey,
           hasAssistantId: !!assistantId,
         },
         "Remote feature flag sync skipped: missing credentials",
@@ -136,7 +131,7 @@ export class RemoteFeatureFlagSync {
     const response = await fetchImpl(url, {
       method: "GET",
       headers: {
-        Authorization: `${authScheme} ${authToken}`,
+        Authorization: `Api-Key ${assistantApiKey}`,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(10_000),
