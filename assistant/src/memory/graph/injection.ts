@@ -2,7 +2,27 @@
 // Memory Graph — Context assembly and injection tracking
 // ---------------------------------------------------------------------------
 
+import { optimizeImageForTransport } from "../../agent/image-optimize.js";
+import { loadImageRefData } from "./image-ref-utils.js";
 import type { MemoryNode, ScoredNode } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Image injection budgets
+// ---------------------------------------------------------------------------
+
+export const MAX_CONTEXT_LOAD_IMAGES = 3;
+export const MAX_PER_TURN_IMAGES = 1;
+export const MAX_REFRESH_IMAGES = 2;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface ResolvedImage {
+  base64Data: string;
+  mediaType: string;
+  description: string;
+}
 
 // ---------------------------------------------------------------------------
 // InContextTracker — tracks which node IDs are visible to the LLM
@@ -203,7 +223,12 @@ function formatUpcomingEntry(scored: ScoredNode): string {
 function formatNodeEntry(scored: ScoredNode): string {
   const node = scored.node;
   const age = relativeAge(node.created);
-  return `- (${age}) ${node.content}`;
+  let entry = `- (${age}) ${node.content}`;
+  if (node.imageRefs && node.imageRefs.length > 0) {
+    const desc = node.imageRefs[0]!.description;
+    entry += ` [image: ${desc}]`;
+  }
+  return entry;
 }
 
 /**
@@ -317,6 +342,42 @@ function buildSection(nodes: ScoredNode[], maxItems: number): string[] {
 export function assembleInjectionBlock(nodes: ScoredNode[]): string {
   if (nodes.length === 0) return "";
   return nodes.map(formatNodeEntry).join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Image resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Load and optimize images for memory injection.
+ * Iterates scored nodes (already sorted by score), resolves the first
+ * image ref for each image-bearing node, and returns up to maxImages.
+ */
+export async function resolveInjectionImages(
+  nodes: ScoredNode[],
+  maxImages: number,
+): Promise<Map<string, ResolvedImage>> {
+  const result = new Map<string, ResolvedImage>();
+  for (const scored of nodes) {
+    if (result.size >= maxImages) break;
+    const refs = scored.node.imageRefs;
+    if (!refs || refs.length === 0) continue;
+
+    const data = await loadImageRefData(refs[0]!);
+    if (!data) continue;
+
+    const optimized = optimizeImageForTransport(
+      data.data.toString("base64"),
+      data.mimeType,
+    );
+
+    result.set(scored.node.id, {
+      base64Data: optimized.data,
+      mediaType: optimized.mediaType,
+      description: refs[0]!.description,
+    });
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
