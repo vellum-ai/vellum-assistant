@@ -611,6 +611,7 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
             tx.delete(memoryGraphTriggers)
               .where(eq(memoryGraphTriggers.id, trigger.id))
               .run();
+            result.triggersDeleted++;
           } else {
             // eventDate changed — sync trigger
             tx.update(memoryGraphTriggers)
