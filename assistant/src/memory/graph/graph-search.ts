@@ -4,12 +4,15 @@
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
+import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
+import type { EmbeddingInput } from "../embedding-types.js";
 import { embedAndUpsert } from "../job-utils.js";
 import { asString } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { isQdrantBreakerOpen } from "../qdrant-circuit-breaker.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import { getQdrantClient, type QdrantSearchResult } from "../qdrant-client.js";
+import { loadImageRefData } from "./image-ref-utils.js";
 import { getNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
 
@@ -96,6 +99,11 @@ function formatNodeForEmbedding(node: MemoryNode): string {
 /**
  * Embed a graph node and upsert to Qdrant. Can be called directly
  * (synchronous embedding during bootstrap) or via the job handler.
+ *
+ * When the node has image references and the Gemini embedding backend is
+ * available, embeds the image content directly for cross-modal retrieval
+ * (text queries match image memories in the same vector space). Falls back
+ * to text embedding with image description suffixes otherwise.
  */
 export async function embedGraphNodeDirect(
   node: MemoryNode,
@@ -104,14 +112,49 @@ export async function embedGraphNodeDirect(
   if (node.fidelity === "gone") return;
 
   const text = formatNodeForEmbedding(node);
-
-  await embedAndUpsert(config, "graph_node", node.id, text, {
+  const extraPayload: Record<string, unknown> = {
     created_at: node.created,
     memory_scope_id: node.scopeId,
     confidence: node.confidence,
     importance: node.significance,
     kind: node.type,
-  });
+  };
+
+  if (node.imageRefs && node.imageRefs.length > 0) {
+    const multimodalAvailable =
+      await selectedBackendSupportsMultimodal(config);
+    if (multimodalAvailable) {
+      const imageData = await loadImageRefData(node.imageRefs[0]);
+      if (imageData) {
+        const input: EmbeddingInput = {
+          type: "image",
+          data: imageData.data,
+          mimeType: imageData.mimeType,
+        };
+        await embedAndUpsert(config, "graph_node", node.id, input, {
+          ...extraPayload,
+          has_image: true,
+        });
+        return;
+      }
+    }
+
+    // Fallback: text embedding with image description suffix
+    const descSuffix = node.imageRefs
+      .map((r) => r.description)
+      .join("; ");
+    const textWithImages = `${text}\n[images: ${descSuffix}]`;
+    await embedAndUpsert(
+      config,
+      "graph_node",
+      node.id,
+      textWithImages,
+      extraPayload,
+    );
+    return;
+  }
+
+  await embedAndUpsert(config, "graph_node", node.id, text, extraPayload);
 }
 
 /**
