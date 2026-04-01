@@ -496,26 +496,50 @@ export class ConversationGraphMemory {
 // ---------------------------------------------------------------------------
 
 /**
- * Remove any existing `<memory __injected>` text blocks from the last user
- * message. This makes reinjectCachedMemory idempotent — callers don't need
- * to worry about whether a prior injection survived compaction.
+ * Remove all memory-injected blocks from the last user message.
+ *
+ * `injectMemoryBlock` always prepends blocks in this order:
+ *   1. `<memory __injected>…</memory>` text block
+ *   2. For each image: `<memory_image>…</memory_image>` text + `image` block
+ *
+ * We strip all leading blocks that match this pattern so that
+ * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
  */
 function stripExistingMemoryInjections(messages: Message[]): Message[] {
   if (messages.length === 0) return messages;
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") return messages;
 
-  const filtered = last.content.filter(
-    (block) =>
-      !(
-        block.type === "text" && block.text.startsWith("<memory __injected>\n")
-      ),
-  );
+  // Walk from the front and skip all memory-injected blocks.
+  // The injection prefix is always contiguous at the start of content.
+  let firstNonMemory = 0;
+  const content = last.content;
+  while (firstNonMemory < content.length) {
+    const block = content[firstNonMemory];
+    if (
+      block.type === "text" &&
+      block.text.startsWith("<memory __injected>\n")
+    ) {
+      firstNonMemory++;
+    } else if (
+      block.type === "text" &&
+      block.text.startsWith("<memory_image>")
+    ) {
+      firstNonMemory++;
+    } else if (block.type === "image") {
+      firstNonMemory++;
+    } else {
+      break;
+    }
+  }
 
   // Nothing to strip
-  if (filtered.length === last.content.length) return messages;
+  if (firstNonMemory === 0) return messages;
 
-  return [...messages.slice(0, -1), { ...last, content: filtered }];
+  return [
+    ...messages.slice(0, -1),
+    { ...last, content: content.slice(firstNonMemory) },
+  ];
 }
 
 function injectTextBlock(messages: Message[], text: string): Message[] {
