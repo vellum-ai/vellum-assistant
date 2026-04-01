@@ -69,7 +69,7 @@ describe("token estimator", () => {
           data: "a".repeat(100),
         },
       }),
-    ).toBeGreaterThan(500);
+    ).toBeGreaterThan(0);
   });
 
   test("estimates message and prompt totals", () => {
@@ -323,10 +323,7 @@ describe("token estimator", () => {
     );
 
     // Should fall back to ANTHROPIC_IMAGE_MAX_TOKENS (1,600)
-    // The total will include IMAGE_BLOCK_OVERHEAD_TOKENS + media_type overhead,
-    // but the max is applied at the outer Math.max(IMAGE_BLOCK_TOKENS, ...) level
-    // ANTHROPIC_IMAGE_MAX_TOKENS = 1600
-    // Total = max(1024, 16 + ceil(9/4) + 1600) = max(1024, 1619) = 1619
+    // Total = 16 (block overhead) + ceil(9/4) (media_type) + 1600 = 1619
     expect(tokens).toBeGreaterThanOrEqual(1_600);
     expect(tokens).toBeLessThan(2_000);
   });
@@ -420,6 +417,66 @@ describe("token estimator", () => {
     // tokens = ceil(1096 * 1096 / 750) = ceil(1601.6) ≈ 1602
     // Without megapixel cap would have been ceil(1568 * 1568 / 750) ≈ 3277
     expect(tokens).toBeLessThanOrEqual(1_700);
+  });
+
+  test("small Anthropic images are not inflated to 1024 tokens", () => {
+    // 200x200 image: ceil(200*200/750) = ceil(53.33) = 54 tokens
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: makePngBase64(200, 200),
+        },
+      },
+      { providerName: "anthropic" },
+    );
+
+    // 54 (dimension-based) + 16 (block overhead) + 3 (media type) = 73
+    expect(tokens).toBeLessThan(100);
+    expect(tokens).toBeGreaterThan(50);
+  });
+
+  test("thumbnail Anthropic images estimate accurately", () => {
+    // 150x150 image: ceil(150*150/750) = ceil(30) = 30 tokens
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: makePngBase64(150, 150),
+        },
+      },
+      { providerName: "anthropic" },
+    );
+
+    // 30 + 16 + 3 = 49
+    expect(tokens).toBeLessThan(70);
+    expect(tokens).toBeGreaterThan(30);
+  });
+
+  test("many small Anthropic images do not trigger phantom token inflation", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: Array.from({ length: 100 }, () => ({
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: "image/png",
+            data: makePngBase64(200, 200),
+          },
+        })),
+      },
+    ];
+
+    const total = estimateMessagesTokens(messages, { providerName: "anthropic" });
+
+    // Each image: ~73 tokens. 100 images + message overhead ≈ 7,304
+    // Old behavior: 100 * ~1,043 = ~104,300 (14x overestimate)
+    expect(total).toBeLessThan(10_000);
   });
 
   test("matches Anthropic's published table for common aspect ratios", () => {

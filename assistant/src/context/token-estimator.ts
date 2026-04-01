@@ -9,7 +9,6 @@ const CHARS_PER_TOKEN = 4;
 const MESSAGE_OVERHEAD_TOKENS = 4;
 const TEXT_BLOCK_OVERHEAD_TOKENS = 2;
 const TOOL_BLOCK_OVERHEAD_TOKENS = 16;
-const IMAGE_BLOCK_TOKENS = 1024;
 const IMAGE_BLOCK_OVERHEAD_TOKENS = 16;
 const FILE_BLOCK_OVERHEAD_TOKENS = 48;
 const WEB_SEARCH_RESULT_TOKENS = 800;
@@ -104,10 +103,7 @@ function estimateAnthropicImageTokens(width: number, height: number): number {
     scaledHeight = Math.round(scaledHeight * mpScale);
   }
 
-  return Math.max(
-    IMAGE_BLOCK_TOKENS, // minimum 1024
-    Math.ceil(scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL),
-  );
+  return Math.ceil(scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL);
 }
 
 function estimateImageTokens(
@@ -155,11 +151,10 @@ export function estimateContentBlockTokens(
       return tokens;
     }
     case "image":
-      return Math.max(
-        IMAGE_BLOCK_TOKENS,
+      return (
         IMAGE_BLOCK_OVERHEAD_TOKENS +
-          estimateTextTokens(block.source.media_type) +
-          estimateImageTokens(block, options),
+        estimateTextTokens(block.source.media_type) +
+        estimateImageTokens(block, options)
       );
     case "file":
       return (
