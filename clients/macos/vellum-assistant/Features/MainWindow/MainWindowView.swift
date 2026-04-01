@@ -223,7 +223,8 @@ struct MainWindowView: View {
         ConversationHeaderPresentation(
             activeConversation: conversationManager.activeConversation,
             activeViewModel: conversationManager.activeViewModel,
-            isConversationVisible: windowState.isConversationVisible
+            isConversationVisible: windowState.isConversationVisible,
+            hasNonEmptyMessage: conversationManager.activeViewModel?.hasNonEmptyMessage ?? false
         )
     }
 
@@ -470,7 +471,7 @@ struct MainWindowView: View {
                         AppDelegate.shared?.checkForUpdates()
                     }
                 }
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .transition(.opacity)
                 .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
                 .animation(VAnimation.fast, value: updateManager.isServiceGroupUpdateAvailable)
                 .animation(VAnimation.fast, value: updateManager.isDeferredUpdateReady)
@@ -478,9 +479,7 @@ struct MainWindowView: View {
             if windowState.isConversationVisible {
                 // Temporary chat toggle — always visible on private conversations (so users can exit temp chat),
                 // only visible on normal conversations when no messages exist yet
-                if conversationManager.activeConversation?.kind == .private || conversationManager.activeViewModel?.messages.contains(where: {
-                    !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                }) != true {
+                if conversationManager.activeConversation?.kind == .private || conversationManager.activeViewModel?.hasNonEmptyMessage != true {
                     TemporaryChatToggle(
                         isActive: conversationManager.activeConversation?.kind == .private,
                         tooltip: conversationManager.activeConversation?.kind == .private ? "Exit temporary chat" : "Temporary chat",
