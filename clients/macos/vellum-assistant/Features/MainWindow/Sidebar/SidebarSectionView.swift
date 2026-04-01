@@ -39,6 +39,10 @@ struct SidebarSectionView: View {
 
     /// Schedule sub-group expand/collapse state.
     var expandedScheduleGroups: Binding<Set<String>>?
+    /// Optional label provider for sub-groups. When set, overrides the default
+    /// title-parsing logic in `buildSubGroups`. Receives the group key and its
+    /// conversations, returns the display label.
+    var subGroupLabelProvider: ((String, [ConversationModel]) -> String)?
     /// Drop delegate plumbing.
     var sidebar: SidebarInteractionState?
     var conversationManager: ConversationManager?
@@ -350,7 +354,9 @@ struct SidebarSectionView: View {
         return order.compactMap { key in
             guard let conversations = grouped[key], let first = conversations.first else { return nil }
             let label: String
-            if conversations.count > 1 {
+            if let provider = subGroupLabelProvider {
+                label = provider(key, conversations)
+            } else if conversations.count > 1 {
                 let base = first.title
                 if let colonRange = base.range(of: ":") {
                     label = String(base[base.startIndex..<colonRange.lowerBound])

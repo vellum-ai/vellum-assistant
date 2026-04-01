@@ -120,6 +120,20 @@ extension MainWindowView {
     /// to reduce type-checker pressure (the init has many parameters).
     private func makeSectionView(group: ConversationGroup, conversations: [ConversationModel]) -> SidebarSectionView {
         let isScheduled = group.id == ConversationGroup.scheduled.id
+        let isBackground = group.id == ConversationGroup.background.id
+        let countMode: SidebarSectionView.CountMode = isScheduled
+            ? .subGroups(grouper: { $0.scheduleJobId })
+            : isBackground
+                ? .subGroups(grouper: { $0.source })
+                : .items
+        let subGroupLabelProvider: ((String, [ConversationModel]) -> String)? = isBackground
+            ? { key, _ in key.prefix(1).uppercased() + key.dropFirst() }
+            : nil
+        let expandedSubGroups: Binding<Set<String>>? = isScheduled
+            ? Binding(get: { sidebar.expandedScheduleGroups }, set: { sidebar.expandedScheduleGroups = $0 })
+            : isBackground
+                ? Binding(get: { sidebar.expandedBackgroundGroups }, set: { sidebar.expandedBackgroundGroups = $0 })
+                : nil
         return SidebarSectionView(
             group: group,
             conversations: conversations,
@@ -127,7 +141,7 @@ extension MainWindowView {
             showAll: sidebar.showAllInSection.contains(group.id),
             maxCollapsed: 5,
             isDropTarget: sidebar.dropTargetSectionId == group.id,
-            countMode: isScheduled ? .subGroups(grouper: { $0.scheduleJobId }) : .items,
+            countMode: countMode,
             isRenaming: sidebar.renamingGroupId == group.id,
             renamingName: Binding(
                 get: { sidebar.renamingGroupName },
@@ -151,10 +165,8 @@ extension MainWindowView {
             onToggleExpand: { sidebar.toggleSection(group.id) },
             onToggleShowAll: { sidebar.toggleShowAll(group.id) },
             makeRow: { makeSidebarRow(conversation: $0) },
-            expandedScheduleGroups: isScheduled ? Binding(
-                get: { sidebar.expandedScheduleGroups },
-                set: { sidebar.expandedScheduleGroups = $0 }
-            ) : nil,
+            expandedScheduleGroups: expandedSubGroups,
+            subGroupLabelProvider: subGroupLabelProvider,
             sidebar: sidebar,
             conversationManager: conversationManager
         )
