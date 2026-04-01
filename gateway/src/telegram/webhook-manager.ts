@@ -48,7 +48,7 @@ async function registerManagedTelegramCallbackRoute(
   const platformBaseUrl = (
     platformBaseUrlRaw?.trim() ||
     process.env.VELLUM_PLATFORM_URL?.trim() ||
-    "https://platform.vellum.ai"
+    ""
   ).replace(/\/+$/, "");
 
   const platformInternalApiKey =
@@ -64,7 +64,7 @@ async function registerManagedTelegramCallbackRoute(
     process.env.PLATFORM_ASSISTANT_ID?.trim() ||
     undefined;
 
-  if (!authToken || !assistantId) {
+  if (!platformBaseUrl || !authToken || !assistantId) {
     log.debug(
       {
         hasPlatformBaseUrl: !!platformBaseUrl,

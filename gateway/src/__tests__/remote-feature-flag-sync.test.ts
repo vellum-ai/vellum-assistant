@@ -114,11 +114,12 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 describe("RemoteFeatureFlagSync", () => {
-  test("falls back to default platform URL when platform_base_url is missing", async () => {
+  test("skips sync when no platform URL is available from cache or env", async () => {
     fetchMock = mock(async () => Response.json({ flags: { ff1: true } }));
 
     const creds = defaultCredentials();
     delete creds["credential/vellum/platform_base_url"];
+    delete process.env.VELLUM_PLATFORM_URL;
 
     const sync = new RemoteFeatureFlagSync({
       credentials: fakeCredentialCache(creds),
@@ -126,11 +127,8 @@ describe("RemoteFeatureFlagSync", () => {
     await sync.start();
     sync.stop();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url] = fetchMock.mock.calls[0];
-    expect(url).toBe(
-      "https://platform.vellum.ai/v1/assistants/asst-123/feature-flags/",
-    );
+    // No fetch calls — sync is skipped when platform URL is unavailable
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("falls back to VELLUM_PLATFORM_URL env var when platform_base_url is missing", async () => {
