@@ -789,6 +789,7 @@ export async function searchSkills(
       version: string;
       createdAt: number;
       source: "vellum" | "clawhub" | "skillssh";
+      origin: "vellum" | "clawhub" | "skillssh";
     }
 
     const catalogItems: SearchItem[] = catalogMatches.map((s) => ({
@@ -801,6 +802,7 @@ export async function searchSkills(
       version: "",
       createdAt: 0,
       source: "vellum" as const,
+      origin: "vellum" as const,
     }));
 
     // Search both community registries in parallel (non-fatal on failure)
@@ -811,7 +813,10 @@ export async function searchSkills(
 
     let clawhubSkills: SearchItem[] = [];
     if (clawhubResult.status === "fulfilled") {
-      clawhubSkills = clawhubResult.value.skills;
+      clawhubSkills = clawhubResult.value.skills.map((s) => ({
+        ...s,
+        origin: "clawhub" as const,
+      }));
     } else {
       log.warn(
         { err: clawhubResult.reason },
@@ -831,6 +836,7 @@ export async function searchSkills(
         version: "",
         createdAt: 0,
         source: "skillssh" as const,
+        origin: "skillssh" as const,
       }));
     } else {
       log.warn(
