@@ -301,7 +301,9 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
   const fidelityFilter =
     statusParam === "all"
       ? undefined
-      : notInArray(memoryGraphNodes.fidelity, ["gone"]);
+      : statusParam === "inactive"
+        ? eq(memoryGraphNodes.fidelity, "gone")
+        : notInArray(memoryGraphNodes.fidelity, ["gone"]);
 
   // ── Semantic search path ────────────────────────────────────────────
   if (searchParam) {
@@ -329,24 +331,28 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
         semanticKindCounts[row.kind] = row.count;
       }
 
-      // Apply kind filter while preserving semantic relevance ordering
+      // Apply kind + fidelity filter while preserving semantic relevance ordering
       let filteredIds = semanticResult.ids;
-      if (kindParam) {
-        const kindFilterConditions = [
+      {
+        const filterConditions = [
           inArray(memoryGraphNodes.id, semanticResult.ids),
-          eq(memoryGraphNodes.type, kindParam),
         ];
-        if (fidelityFilter) kindFilterConditions.push(fidelityFilter);
+        if (kindParam) {
+          filterConditions.push(eq(memoryGraphNodes.type, kindParam));
+        }
+        if (fidelityFilter) filterConditions.push(fidelityFilter);
 
-        const kindIdSet = new Set(
-          db
-            .select({ id: memoryGraphNodes.id })
-            .from(memoryGraphNodes)
-            .where(and(...kindFilterConditions))
-            .all()
-            .map((r) => r.id),
-        );
-        filteredIds = semanticResult.ids.filter((id) => kindIdSet.has(id));
+        if (filterConditions.length > 1) {
+          const validIdSet = new Set(
+            db
+              .select({ id: memoryGraphNodes.id })
+              .from(memoryGraphNodes)
+              .where(and(...filterConditions))
+              .all()
+              .map((r) => r.id),
+          );
+          filteredIds = semanticResult.ids.filter((id) => validIdSet.has(id));
+        }
       }
 
       const total = filteredIds.length;
@@ -632,6 +638,8 @@ export async function handleUpdateMemoryItem(
     // Map client status to fidelity
     if (body.status === "superseded" || body.status === "inactive") {
       changes.fidelity = "gone";
+    } else if (body.status === "active") {
+      changes.fidelity = "vivid";
     }
   }
 
