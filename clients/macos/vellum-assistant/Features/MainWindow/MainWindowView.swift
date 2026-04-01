@@ -528,6 +528,7 @@ struct MainWindowView: View {
                 } action: { newFrame in
                     conversationTitleFrame = newFrame
                 }
+                .padding(.horizontal, 120)
                 // Shift the title right so it centers above the chat content area
                 // (not the full window). Content starts after outer padding (16) +
                 // sidebar + spacing (16), so its center is offset from the window
