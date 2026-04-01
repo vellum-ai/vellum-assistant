@@ -323,8 +323,23 @@ public final class AuthService {
 
         log.debug("Platform request POST assistants/hatch/ -> \(statusCode)")
 
-        if statusCode == 401 || statusCode == 403 {
+        if statusCode == 401 {
             throw PlatformAPIError.authenticationRequired
+        }
+
+        if statusCode == 403 {
+            // Surface the server's detail message (e.g. "Hatching is not
+            // currently available for your account.") instead of collapsing
+            // all 403s into a generic "Authentication required" error.
+            let detail: String
+            if let body = try? JSONDecoder().decode([String: String].self, from: data),
+               let message = body["detail"] {
+                detail = message
+            } else {
+                let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                detail = (raw?.isEmpty == false) ? raw! : "Access denied"
+            }
+            throw PlatformAPIError.accessDenied(detail: detail)
         }
 
         guard (200..<300).contains(statusCode) else {
