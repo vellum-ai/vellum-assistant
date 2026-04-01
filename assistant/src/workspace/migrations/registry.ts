@@ -22,6 +22,7 @@ import { moveHooksToWorkspaceMigration } from "./022-move-hooks-to-workspace.js"
 import { moveConfigFilesToWorkspaceMigration } from "./023-move-config-files-to-workspace.js";
 import { moveRuntimeFilesToWorkspaceMigration } from "./024-move-runtime-files-to-workspace.js";
 import { removeOauthAppSetupSkillsMigration } from "./025-remove-oauth-app-setup-skills.js";
+import { backfillInstallMetaMigration } from "./026-backfill-install-meta.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -55,4 +56,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   moveConfigFilesToWorkspaceMigration,
   moveRuntimeFilesToWorkspaceMigration,
   removeOauthAppSetupSkillsMigration,
+  backfillInstallMetaMigration,
 ];
