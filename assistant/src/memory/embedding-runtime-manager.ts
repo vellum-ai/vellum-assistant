@@ -14,7 +14,6 @@
  */
 
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -26,6 +25,7 @@ import {
 import { arch, platform } from "node:os";
 import { join } from "node:path";
 
+import { ensureBun, findBun } from "../util/bun-runtime.js";
 import { getLogger } from "../util/logger.js";
 import { getEmbeddingModelsDir } from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
@@ -37,9 +37,6 @@ const ONNXRUNTIME_NODE_VERSION = "1.21.0";
 const ONNXRUNTIME_COMMON_VERSION = "1.21.0";
 const TRANSFORMERS_VERSION = "3.8.1";
 const JINJA_VERSION = "0.5.5";
-
-/** Bun version to download when system bun is not available. */
-const BUN_VERSION = "1.2.0";
 
 /** Composite version string for cache invalidation. */
 const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}_jinja-${JINJA_VERSION}`;
@@ -200,25 +197,15 @@ export class EmbeddingRuntimeManager {
 
   /**
    * Find a usable bun binary.
-   * Checks: downloaded copy → common install locations.
+   * Delegates to the shared bun-runtime helper, also checking
+   * the legacy per-runtime bin/ directory for backwards compat.
    */
   getBunPath(): string | undefined {
-    // 1. Downloaded bun
-    const downloadedBun = join(this.baseDir, "bin", "bun");
-    if (existsSync(downloadedBun)) return downloadedBun;
+    // Check per-runtime bin/ directory for backwards compat
+    const legacyBun = join(this.baseDir, "bin", "bun");
+    if (existsSync(legacyBun)) return legacyBun;
 
-    // 2. Common installation paths — the compiled daemon inherits a
-    //    restricted PATH, so we check well-known prefixes directly.
-    const home = process.env.HOME ?? "";
-    for (const p of [
-      join(home, ".bun", "bin", "bun"),
-      "/opt/homebrew/bin/bun",
-      "/usr/local/bin/bun",
-    ]) {
-      if (existsSync(p)) return p;
-    }
-
-    return undefined;
+    return findBun();
   }
 
   /**
@@ -301,12 +288,10 @@ export class EmbeddingRuntimeManager {
 
     // Declared outside try so catch/finally can reference them for cleanup
     const modelCacheDir = join(this.baseDir, "model-cache");
-    const existingBinDir = join(this.baseDir, "bin");
     let tmpModelCache: string | null = null;
-    let tmpBinDir: string | null = null;
 
     try {
-      // Step 1: Download npm packages (and bun if needed) in parallel
+      // Step 1: Download npm packages in parallel
       const nodeModules = join(tmpDir, "node_modules");
       const downloads: Promise<void>[] = [
         downloadAndExtract(
@@ -331,12 +316,10 @@ export class EmbeddingRuntimeManager {
         ),
       ];
 
-      // Download bun binary if not already available on the system
-      if (!this.getBunPath()) {
-        downloads.push(this.downloadBunBinary(tmpDir, signal));
-      }
-
       await Promise.all(downloads);
+
+      // Ensure bun is available (downloads to shared location if needed)
+      await ensureBun();
 
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
@@ -411,7 +394,7 @@ export class EmbeddingRuntimeManager {
       );
 
       // Step 6: Atomic swap — remove old install and rename temp to final
-      // Preserve model-cache/, bin/ (downloaded bun), and .gitignore
+      // Preserve model-cache/ and .gitignore
       const hadModelCache = existsSync(modelCacheDir);
       if (hadModelCache) {
         tmpModelCache = join(
@@ -419,14 +402,6 @@ export class EmbeddingRuntimeManager {
           `.model-cache-preserve-${Date.now()}`,
         );
         renameSync(modelCacheDir, tmpModelCache);
-      }
-
-      // Preserve downloaded bun binary if it exists and we didn't just download a new one
-      const newBinDir = join(tmpDir, "bin");
-      const hadBinDir = existsSync(existingBinDir) && !existsSync(newBinDir);
-      if (hadBinDir) {
-        tmpBinDir = join(this.baseDir, `.bin-preserve-${Date.now()}`);
-        renameSync(existingBinDir, tmpBinDir);
       }
 
       // Remove old install (preserving dotfiles like .gitignore, .downloading, temp dirs)
@@ -446,11 +421,6 @@ export class EmbeddingRuntimeManager {
         renameSync(tmpModelCache, modelCacheDir);
       }
 
-      // Restore bun binary
-      if (tmpBinDir && existsSync(tmpBinDir)) {
-        renameSync(tmpBinDir, existingBinDir);
-      }
-
       log.info(
         { runtimeVersion: RUNTIME_VERSION },
         "Embedding runtime installed successfully",
@@ -468,13 +438,6 @@ export class EmbeddingRuntimeManager {
           /* best effort */
         }
       }
-      if (tmpBinDir && existsSync(tmpBinDir) && !existsSync(existingBinDir)) {
-        try {
-          renameSync(tmpBinDir, existingBinDir);
-        } catch {
-          /* best effort */
-        }
-      }
       log.error({ err }, "Failed to install embedding runtime");
       throw err;
     } finally {
@@ -482,72 +445,7 @@ export class EmbeddingRuntimeManager {
       rmSync(tmpDir, { recursive: true, force: true });
       if (tmpModelCache)
         rmSync(tmpModelCache, { recursive: true, force: true });
-      if (tmpBinDir) rmSync(tmpBinDir, { recursive: true, force: true });
     }
-  }
-
-  private async downloadBunBinary(
-    installDir: string,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    const os = platform();
-    const cpu = arch() === "arm64" ? "aarch64" : arch();
-    const target = `${os}-${cpu}`;
-    const url = `https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-${target}.zip`;
-
-    log.info(
-      { url, target, bunVersion: BUN_VERSION },
-      "Downloading bun binary",
-    );
-
-    const response = await fetch(url, {
-      signal,
-      redirect: "follow",
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to download bun: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const zipData = await response.arrayBuffer();
-    const binDir = join(installDir, "bin");
-    mkdirSync(binDir, { recursive: true });
-
-    const tmpZip = join(binDir, `bun-download-${Date.now()}.zip`);
-    writeFileSync(tmpZip, Buffer.from(zipData));
-
-    try {
-      // Extract zip
-      const proc = Bun.spawn({
-        cmd: ["unzip", "-o", tmpZip, "-d", binDir],
-        stdout: "ignore",
-        stderr: "pipe",
-      });
-      await proc.exited;
-      if (proc.exitCode !== 0) {
-        const stderr = await new Response(proc.stderr).text();
-        throw new Error(`Failed to extract bun zip: ${stderr}`);
-      }
-
-      // Move binary from bun-{target}/bun to bin/bun
-      const extractedBun = join(binDir, `bun-${target}`, "bun");
-      if (existsSync(extractedBun)) {
-        renameSync(extractedBun, join(binDir, "bun"));
-        rmSync(join(binDir, `bun-${target}`), { recursive: true, force: true });
-      }
-
-      // Make executable
-      chmodSync(join(binDir, "bun"), 0o755);
-    } finally {
-      try {
-        rmSync(tmpZip);
-      } catch {
-        /* ignore */
-      }
-    }
-
-    log.info("Bun binary downloaded successfully");
   }
 
   private readManifest(): VersionManifest | null {

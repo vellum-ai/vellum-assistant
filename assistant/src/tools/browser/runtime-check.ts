@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { ensureBun } from "../../util/bun-runtime.js";
 import { getExternalDir } from "../../util/platform.js";
 
 export interface BrowserRuntimeStatus {
@@ -83,7 +84,8 @@ export async function importPlaywright(): Promise<typeof import("playwright")> {
     if (!existsSync(join(externalDir, "package.json"))) {
       writeFileSync(join(externalDir, "package.json"), '{"private":true}\n');
     }
-    const proc = Bun.spawn(["bun", "add", "playwright"], {
+    const bunPath = await ensureBun();
+    const proc = Bun.spawn([bunPath, "add", "playwright"], {
       cwd: externalDir,
       stdout: "pipe",
       stderr: "pipe",
