@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
@@ -15,9 +21,9 @@ mock.module("../util/logger.js", () => ({
 import {
   clawhubInspect,
   clawhubInstall,
-  loadIntegrityManifest,
   verifyAndRecordSkillHash,
 } from "../skills/clawhub.js";
+import type { SkillInstallMeta } from "../skills/install-meta.js";
 
 // ---------------------------------------------------------------------------
 // Slug validation (exercised through public API)
@@ -92,15 +98,20 @@ describe("clawhubInspect slug validation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integrity manifest edge cases — tested via verifyAndRecordSkillHash
-// which is the code path that reads/writes the manifest.
+// Content hash verification — tested via verifyAndRecordSkillHash
+// which reads legacy .integrity.json but always writes to install-meta.json.
 // ---------------------------------------------------------------------------
 
-describe("integrity manifest", () => {
+describe("content hash verification", () => {
   function createSkillFiles(slug: string): void {
     const skillDir = join(TEST_DIR, "skills", slug);
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(join(skillDir, "SKILL.md"), "# Test Skill\n", "utf-8");
+  }
+
+  function readSkillInstallMeta(slug: string): SkillInstallMeta {
+    const metaPath = join(TEST_DIR, "skills", slug, "install-meta.json");
+    return JSON.parse(readFileSync(metaPath, "utf-8")) as SkillInstallMeta;
   }
 
   test("malformed integrity JSON is handled gracefully", () => {
@@ -109,41 +120,43 @@ describe("integrity manifest", () => {
     writeFileSync(integrityPath, "{not valid json!!!", "utf-8");
     createSkillFiles("valid-slug");
 
-    // Should not throw — malformed manifest is replaced with a fresh one
+    // Should not throw — malformed legacy manifest is ignored; install-meta.json is created
     verifyAndRecordSkillHash("valid-slug");
 
-    // Manifest should now contain a valid entry
-    const manifest = loadIntegrityManifest();
-    expect(manifest["valid-slug"]).toBeDefined();
-    expect(manifest["valid-slug"].sha256).toMatch(/^v2:[0-9a-f]{64}$/);
+    // install-meta.json should now contain a valid hash
+    const meta = readSkillInstallMeta("valid-slug");
+    expect(meta.contentHash).toMatch(/^v2:[0-9a-f]{64}$/);
+    expect(meta.origin).toBe("clawhub");
+    expect(meta.slug).toBe("valid-slug");
   });
 
-  test("missing integrity manifest is created on first install", () => {
+  test("install-meta.json is created on first hash verification for skills without one", () => {
     const skillsDir = join(TEST_DIR, "skills");
     mkdirSync(skillsDir, { recursive: true });
-    const integrityPath = join(skillsDir, ".integrity.json");
-    // Remove any manifest left by earlier tests so we test the fresh-creation path
-    rmSync(integrityPath, { force: true });
-    expect(existsSync(integrityPath)).toBe(false);
     createSkillFiles("new-skill");
+    const metaPath = join(skillsDir, "new-skill", "install-meta.json");
+    // Remove any install-meta left by earlier tests
+    rmSync(metaPath, { force: true });
+    expect(existsSync(metaPath)).toBe(false);
 
     verifyAndRecordSkillHash("new-skill");
 
-    // Manifest should now exist with the skill's hash
-    expect(existsSync(integrityPath)).toBe(true);
-    const manifest = loadIntegrityManifest();
-    expect(manifest["new-skill"]).toBeDefined();
-    expect(manifest["new-skill"].sha256).toMatch(/^v2:[0-9a-f]{64}$/);
+    // install-meta.json should now exist with the skill's hash
+    expect(existsSync(metaPath)).toBe(true);
+    const meta = readSkillInstallMeta("new-skill");
+    expect(meta.contentHash).toMatch(/^v2:[0-9a-f]{64}$/);
+    expect(meta.origin).toBe("clawhub");
+    expect(meta.slug).toBe("new-skill");
   });
 
   test("re-install with same content preserves hash", () => {
     createSkillFiles("stable-skill");
 
     verifyAndRecordSkillHash("stable-skill");
-    const first = loadIntegrityManifest()["stable-skill"].sha256;
+    const first = readSkillInstallMeta("stable-skill").contentHash;
 
     verifyAndRecordSkillHash("stable-skill");
-    const second = loadIntegrityManifest()["stable-skill"].sha256;
+    const second = readSkillInstallMeta("stable-skill").contentHash;
 
     expect(first).toBe(second);
   });
@@ -151,7 +164,7 @@ describe("integrity manifest", () => {
   test("re-install with changed content updates hash", () => {
     createSkillFiles("changing-skill");
     verifyAndRecordSkillHash("changing-skill");
-    const first = loadIntegrityManifest()["changing-skill"].sha256;
+    const first = readSkillInstallMeta("changing-skill").contentHash;
 
     // Modify skill content
     writeFileSync(
@@ -160,8 +173,25 @@ describe("integrity manifest", () => {
       "utf-8",
     );
     verifyAndRecordSkillHash("changing-skill");
-    const second = loadIntegrityManifest()["changing-skill"].sha256;
+    const second = readSkillInstallMeta("changing-skill").contentHash;
 
     expect(first).not.toBe(second);
+  });
+
+  test(".integrity.json is never written to", () => {
+    const skillsDir = join(TEST_DIR, "skills");
+    mkdirSync(skillsDir, { recursive: true });
+    const integrityPath = join(skillsDir, ".integrity.json");
+    // Remove any legacy manifest
+    rmSync(integrityPath, { force: true });
+    createSkillFiles("no-integrity-write");
+
+    verifyAndRecordSkillHash("no-integrity-write");
+
+    // .integrity.json should NOT have been created
+    expect(existsSync(integrityPath)).toBe(false);
+    // But install-meta.json should exist
+    const metaPath = join(skillsDir, "no-integrity-write", "install-meta.json");
+    expect(existsSync(metaPath)).toBe(true);
   });
 });
