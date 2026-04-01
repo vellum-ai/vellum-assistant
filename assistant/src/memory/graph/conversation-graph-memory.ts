@@ -200,6 +200,8 @@ export class ConversationGraphMemory {
     injectedTokens: number;
     latencyMs: number;
     mode: "context-load" | "refresh" | "per-turn" | "none";
+    /** The raw text content of the injected block (without XML wrapper), or null if nothing was injected. */
+    injectedBlockText: string | null;
   }> {
     this.turnCount++;
     this.tracker.advanceTurn();
@@ -209,6 +211,7 @@ export class ConversationGraphMemory {
       injectedTokens: 0,
       latencyMs: 0,
       mode: "none" as const,
+      injectedBlockText: null as string | null,
     };
 
     // Gate: skip for empty/tool-result-only messages — unless we need to
@@ -286,6 +289,7 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "context-load" as const,
+        injectedBlockText: null,
       };
     }
 
@@ -303,6 +307,7 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "context-load" as const,
+        injectedBlockText: null,
       };
     }
 
@@ -333,6 +338,7 @@ export class ConversationGraphMemory {
       injectedTokens,
       latencyMs: result.latencyMs,
       mode: "context-load" as const,
+      injectedBlockText: contextBlock,
     };
   }
 
@@ -371,6 +377,7 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "refresh" as const,
+        injectedBlockText: null,
       };
     }
 
@@ -384,6 +391,7 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "refresh" as const,
+        injectedBlockText: null,
       };
     }
 
@@ -404,6 +412,7 @@ export class ConversationGraphMemory {
         images.size * ESTIMATED_IMAGE_TOKENS,
       latencyMs: result.latencyMs,
       mode: "refresh" as const,
+      injectedBlockText: injectionBlock,
     };
   }
 
@@ -454,6 +463,7 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "per-turn" as const,
+        injectedBlockText: null,
       };
     }
 
@@ -467,6 +477,7 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "per-turn" as const,
+        injectedBlockText: null,
       };
     }
 
@@ -487,6 +498,7 @@ export class ConversationGraphMemory {
         images.size * ESTIMATED_IMAGE_TOKENS,
       latencyMs: result.latencyMs,
       mode: "per-turn" as const,
+      injectedBlockText: injectionBlock,
     };
   }
 }
@@ -545,10 +557,13 @@ function stripExistingMemoryInjections(messages: Message[]): Message[] {
 function injectTextBlock(messages: Message[], text: string): Message[] {
   if (text.trim().length === 0) return messages;
   if (messages.length === 0) return messages;
-  const userTail = messages[messages.length - 1];
+  // Strip existing memory blocks from the last user message first to prevent
+  // duplicates when the message was loaded from DB with a persisted block.
+  const cleaned = stripExistingMemoryInjections(messages);
+  const userTail = cleaned[cleaned.length - 1];
   if (!userTail || userTail.role !== "user") return messages;
   return [
-    ...messages.slice(0, -1),
+    ...cleaned.slice(0, -1),
     {
       ...userTail,
       content: [
@@ -569,7 +584,10 @@ function injectMemoryBlock(
 ): Message[] {
   if (text.trim().length === 0 && images.size === 0) return messages;
   if (messages.length === 0) return messages;
-  const userTail = messages[messages.length - 1];
+  // Strip existing memory blocks from the last user message first to prevent
+  // duplicates when the message was loaded from DB with a persisted block.
+  const cleaned = stripExistingMemoryInjections(messages);
+  const userTail = cleaned[cleaned.length - 1];
   if (!userTail || userTail.role !== "user") return messages;
 
   const blocks: ContentBlock[] = [
@@ -592,7 +610,7 @@ function injectMemoryBlock(
   }
 
   return [
-    ...messages.slice(0, -1),
+    ...cleaned.slice(0, -1),
     { ...userTail, content: [...blocks, ...userTail.content] },
   ];
 }

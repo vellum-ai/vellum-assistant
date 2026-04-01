@@ -42,6 +42,7 @@ import {
   provenanceFromTrustContext,
   updateConversationContextWindow,
   updateConversationTitle,
+  updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import {
   rebuildConversationDiskViewFromDbState,
@@ -609,6 +610,22 @@ export async function runAgentLoopImpl(
         onEvent,
       );
       runMessages = graphResult.runMessages;
+
+      // Persist the injected block text in message metadata so it survives
+      // conversation reloads (eviction, restart, fork). loadFromDb re-injects
+      // from metadata.
+      if (graphResult.injectedBlockText) {
+        try {
+          updateMessageMetadata(userMessageId, {
+            memoryInjectedBlock: graphResult.injectedBlockText,
+          });
+        } catch (err) {
+          rlog.warn(
+            { err },
+            "Failed to persist memory injection to metadata (non-fatal)",
+          );
+        }
+      }
 
       try {
         recordMemoryRecallLog({
