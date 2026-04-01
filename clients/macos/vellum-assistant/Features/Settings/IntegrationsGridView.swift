@@ -28,18 +28,23 @@ struct IntegrationsGridView: View {
         }
     }
 
-    private var enabledProviders: [OAuthProviderMetadata] {
-        filteredProviders.filter { provider in
-            let connections = store.managedOAuthConnections[provider.provider_key] ?? []
-            return !connections.isEmpty
+    private func hasActiveConnections(for providerKey: String) -> Bool {
+        let managedConnections = store.managedOAuthConnections[providerKey] ?? []
+        if !managedConnections.isEmpty { return true }
+        let yourOwnApps = store.yourOwnApps(for: providerKey)
+        for app in yourOwnApps {
+            let appConns = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
+            if !appConns.isEmpty { return true }
         }
+        return false
+    }
+
+    private var enabledProviders: [OAuthProviderMetadata] {
+        filteredProviders.filter { hasActiveConnections(for: $0.provider_key) }
     }
 
     private var notEnabledProviders: [OAuthProviderMetadata] {
-        filteredProviders.filter { provider in
-            let connections = store.managedOAuthConnections[provider.provider_key] ?? []
-            return connections.isEmpty
-        }
+        filteredProviders.filter { !hasActiveConnections(for: $0.provider_key) }
     }
 
     // MARK: - Body

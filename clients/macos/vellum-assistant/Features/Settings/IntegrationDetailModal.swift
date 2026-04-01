@@ -127,7 +127,6 @@ struct IntegrationDetailModal: View {
             Button("Disconnect", role: .destructive) {
                 if let connection = connectionToDisconnect {
                     store.disconnectManagedOAuthConnection(connection.id, providerKey: providerKey, userId: currentUserId)
-                    showToast("Account disconnected", .success)
                     connectionToDisconnect = nil
                 }
             }

@@ -21,7 +21,7 @@ enum IntegrationIcon {
     static func image(for providerKey: String, size: CGFloat = 24, displayName: String? = nil) -> some View {
         let name = displayName ?? providerKey
         let initials = String(name.prefix(2)).uppercased()
-        let color = palette[abs(providerKey.hashValue) % palette.count]
+        let color = palette[Int(providerKey.utf8.reduce(0 as UInt32) { $0 &+ UInt32($1) }) % palette.count]
 
         ZStack {
             Circle()

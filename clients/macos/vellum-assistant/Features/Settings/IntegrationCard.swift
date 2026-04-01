@@ -13,7 +13,7 @@ struct IntegrationCard: View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
                 IntegrationIcon.image(for: providerKey, size: 24, displayName: displayName)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(displayName)
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
