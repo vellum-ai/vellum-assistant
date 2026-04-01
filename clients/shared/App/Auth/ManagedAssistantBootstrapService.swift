@@ -199,6 +199,8 @@ public final class ManagedAssistantBootstrapService {
         switch error {
         case .authenticationRequired:
             return .authenticationRequired
+        case .accessDenied(let detail):
+            return .hatchFailed(detail)
         case .networkError(let message):
             return .networkError(message)
         case .serverError(let statusCode, let detail):
