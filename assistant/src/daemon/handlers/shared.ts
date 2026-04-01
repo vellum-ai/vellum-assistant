@@ -510,7 +510,7 @@ function parseSemverParts(v: string): {
   const pre = rest.length > 0 ? rest.join("-") : null;
   const segs = (core ?? "").split(".").map(Number);
   return {
-    nums: [segs[0] ?? 0, segs[1] ?? 0, segs[2] ?? 0],
+    nums: [segs[0] || 0, segs[1] || 0, segs[2] || 0],
     pre,
   };
 }
