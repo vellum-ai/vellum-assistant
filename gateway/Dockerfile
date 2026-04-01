@@ -30,14 +30,6 @@ RUN groupadd --system --gid 1001 gateway && \
 
 COPY --from=builder --chown=gateway:gateway /app /app
 
-# Stamp release version into package.json so the service reports the full
-# semver (including pre-release suffixes like 0.6.0-staging.1) at runtime.
-# Placed after COPY to preserve the dependency-install layer cache.
-ARG RELEASE_VERSION
-RUN if [ -n "$RELEASE_VERSION" ]; then \
-      sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$RELEASE_VERSION\"/" /app/package.json; \
-    fi
-
 RUN mkdir -p /gateway-security && chown gateway:gateway /gateway-security
 
 USER gateway

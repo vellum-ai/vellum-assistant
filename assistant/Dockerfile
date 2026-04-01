@@ -126,13 +126,5 @@ ENV IS_CONTAINERIZED=true
 COPY --from=builder /app /app
 RUN chmod +x /app/assistant/docker-entrypoint.sh
 
-# Stamp release version into package.json so the daemon reports the full
-# semver (including pre-release suffixes like 0.6.0-staging.1) at runtime.
-# Placed after COPY to preserve the dependency-install layer cache.
-ARG RELEASE_VERSION
-RUN if [ -n "$RELEASE_VERSION" ]; then \
-      jq --arg v "$RELEASE_VERSION" '.version = $v' /app/assistant/package.json > /tmp/pkg.json && mv /tmp/pkg.json /app/assistant/package.json; \
-    fi
-
 # Run the daemon + http server
 CMD ["/app/assistant/docker-entrypoint.sh"]
