@@ -292,63 +292,63 @@ export async function clawhubUpdate(
 
 export async function clawhubSearch(
   query: string,
+  opts?: { limit?: number },
 ): Promise<ClawhubSearchResult> {
+  const limit = opts?.limit ?? 25;
+
   // Empty query: use explore (browse trending) instead of search
   if (!query.trim()) {
-    return clawhubExplore();
+    return clawhubExplore({ limit });
   }
 
+  const result = await runClawhub(["search", query, "--limit", String(limit)]);
+  if (result.exitCode !== 0) {
+    const error =
+      result.stderr.trim() || result.stdout.trim() || "Unknown error";
+    throw new Error(`clawhub search failed: ${error}`);
+  }
+  // Try JSON first
   try {
-    const result = await runClawhub(["search", query, "--limit", "25"]);
-    if (result.exitCode !== 0) {
-      return { skills: [] };
+    const parsed = JSON.parse(result.stdout);
+    if (Array.isArray(parsed)) {
+      return {
+        skills: parsed.map((s: ClawhubSearchResultItem) => ({
+          ...s,
+          source: s.source ?? ("clawhub" as const),
+        })),
+      };
     }
-    // Try JSON first
-    try {
-      const parsed = JSON.parse(result.stdout);
-      if (Array.isArray(parsed)) {
-        return {
-          skills: parsed.map((s: ClawhubSearchResultItem) => ({
-            ...s,
-            source: s.source ?? ("clawhub" as const),
-          })),
-        };
-      }
-      if (parsed.skills && Array.isArray(parsed.skills)) {
-        return {
-          skills: parsed.skills.map((s: ClawhubSearchResultItem) => ({
-            ...s,
-            source: s.source ?? ("clawhub" as const),
-          })),
-        };
-      }
-    } catch {
-      // CLI outputs text: "slug vVersion  DisplayName  (score)"
+    if (parsed.skills && Array.isArray(parsed.skills)) {
+      return {
+        skills: parsed.skills.map((s: ClawhubSearchResultItem) => ({
+          ...s,
+          source: s.source ?? ("clawhub" as const),
+        })),
+      };
     }
-
-    // Parse text output lines: "slug vVersion  Display Name  (score)"
-    const skills: ClawhubSearchResultItem[] = [];
-    for (const line of result.stdout.split("\n")) {
-      const match = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
-      if (match) {
-        skills.push({
-          slug: match[1],
-          version: match[2],
-          name: match[3].trim(),
-          description: "",
-          author: "",
-          stars: 0,
-          installs: 0,
-          createdAt: 0,
-          source: "clawhub",
-        });
-      }
-    }
-    return { skills };
-  } catch (err) {
-    log.warn({ err }, "clawhub search failed");
-    return { skills: [] };
+  } catch {
+    // CLI outputs text: "slug vVersion  DisplayName  (score)"
   }
+
+  // Parse text output lines: "slug vVersion  Display Name  (score)"
+  const skills: ClawhubSearchResultItem[] = [];
+  for (const line of result.stdout.split("\n")) {
+    const match = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
+    if (match) {
+      skills.push({
+        slug: match[1],
+        version: match[2],
+        name: match[3].trim(),
+        description: "",
+        author: "",
+        stars: 0,
+        installs: 0,
+        createdAt: 0,
+        source: "clawhub",
+      });
+    }
+  }
+  return { skills };
 }
 
 export async function clawhubExplore(opts?: {
@@ -358,46 +358,41 @@ export async function clawhubExplore(opts?: {
   const limit = String(opts?.limit ?? 25);
   const sort = opts?.sort ?? "installsAllTime";
 
+  const result = await runClawhub([
+    "explore",
+    "--json",
+    "--limit",
+    limit,
+    "--sort",
+    sort,
+  ]);
+  if (result.exitCode !== 0) {
+    const error =
+      result.stderr.trim() || result.stdout.trim() || "Unknown error";
+    throw new Error(`clawhub explore failed: ${error}`);
+  }
   try {
-    const result = await runClawhub([
-      "explore",
-      "--json",
-      "--limit",
-      limit,
-      "--sort",
-      sort,
-    ]);
-    if (result.exitCode !== 0) {
-      return { skills: [] };
-    }
-    try {
-      const parsed = JSON.parse(result.stdout);
-      const items = parsed.items ?? parsed;
-      if (!Array.isArray(items)) return { skills: [] };
+    const parsed = JSON.parse(result.stdout);
+    const items = parsed.items ?? parsed;
+    if (!Array.isArray(items)) return { skills: [] };
 
-      // Normalize explore response to ClawhubSearchResultItem shape
-      const skills: ClawhubSearchResultItem[] = items.map(
-        (item: Record<string, unknown>) => ({
-          name: (item.displayName as string) ?? (item.slug as string) ?? "",
-          slug: (item.slug as string) ?? "",
-          description: (item.summary as string) ?? "",
-          author: (item.author as string) ?? "",
-          stars: (item.stats as Record<string, number>)?.stars ?? 0,
-          installs:
-            (item.stats as Record<string, number>)?.installsAllTime ?? 0,
-          version: (item.tags as Record<string, string>)?.latest ?? "",
-          createdAt: (item.createdAt as number) ?? 0,
-          source: "clawhub",
-        }),
-      );
-      return { skills };
-    } catch {
-      // parse failure
-    }
-    return { skills: [] };
-  } catch (err) {
-    log.warn({ err }, "clawhub explore failed");
-    return { skills: [] };
+    // Normalize explore response to ClawhubSearchResultItem shape
+    const skills: ClawhubSearchResultItem[] = items.map(
+      (item: Record<string, unknown>) => ({
+        name: (item.displayName as string) ?? (item.slug as string) ?? "",
+        slug: (item.slug as string) ?? "",
+        description: (item.summary as string) ?? "",
+        author: (item.author as string) ?? "",
+        stars: (item.stats as Record<string, number>)?.stars ?? 0,
+        installs: (item.stats as Record<string, number>)?.installsAllTime ?? 0,
+        version: (item.tags as Record<string, string>)?.latest ?? "",
+        createdAt: (item.createdAt as number) ?? 0,
+        source: "clawhub",
+      }),
+    );
+    return { skills };
+  } catch {
+    throw new Error("Failed to parse clawhub explore output");
   }
 }
 
