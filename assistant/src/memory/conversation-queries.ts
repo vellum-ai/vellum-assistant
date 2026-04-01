@@ -14,7 +14,7 @@ const log = getLogger("conversation-store");
  * Build an FTS5 MATCH query string from natural text by extracting tokens.
  * Used for messages_fts full-text search over conversation content.
  */
-function buildFtsMatchQuery(text: string): string | null {
+export function buildFtsMatchQuery(text: string): string | null {
   const tokens = text
     .toLowerCase()
     .split(/[^a-z0-9_]+/g)
@@ -311,7 +311,7 @@ export function searchConversations(
  * occurrence of `query`. The content may be JSON (content blocks) or plain
  * text; we extract a readable snippet in either case.
  */
-function buildExcerpt(rawContent: string, query: string): string {
+export function buildExcerpt(rawContent: string, query: string): string {
   // Try to extract plain text from JSON content blocks first.
   let text = rawContent;
   try {
