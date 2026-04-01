@@ -637,12 +637,8 @@ extension AppDelegate {
             )
         }
 
-        source.setCancelHandler { [weak self] in
-            guard let self else { return }
-            if self.lockfileWatcherFd >= 0 {
-                close(self.lockfileWatcherFd)
-                self.lockfileWatcherFd = -1
-            }
+        source.setCancelHandler {
+            close(fd)
         }
 
         source.resume()
@@ -650,17 +646,15 @@ extension AppDelegate {
         log.info("Lockfile watcher started on \(path, privacy: .public)")
     }
 
-    /// Stops the lockfile watcher and closes the file descriptor.
+    /// Stops the lockfile watcher. The cancel handler on the dispatch source
+    /// is the sole closer of the file descriptor — we only clear the local
+    /// references here to prevent stale re-use.
     func stopLockfileWatcher() {
         if let source = lockfileWatcherSource {
             source.cancel()
             lockfileWatcherSource = nil
         }
-        // The cancel handler closes the fd, but guard against it not firing
-        if lockfileWatcherFd >= 0 {
-            close(lockfileWatcherFd)
-            lockfileWatcherFd = -1
-        }
+        lockfileWatcherFd = -1
     }
 
     // MARK: - CLI Symlink
