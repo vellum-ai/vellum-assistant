@@ -146,6 +146,7 @@ export { migrateCreateMemoryGraphTables } from "./202-memory-graph-tables.js";
 export { migrateDropMemoryItemsTables } from "./203-drop-memory-items-tables.js";
 export { migrateRenameMemoryGraphTypeValues } from "./204-rename-memory-graph-type-values.js";
 export { migrateMemoryGraphImageRefs } from "./205-memory-graph-image-refs.js";
+export { migrateScheduleReuseConversation } from "./206-schedule-reuse-conversation.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

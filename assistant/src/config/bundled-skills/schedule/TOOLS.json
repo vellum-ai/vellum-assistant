@@ -59,6 +59,10 @@
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "reuse_conversation": {
+            "type": "boolean",
+            "description": "When true, reuse the conversation from the last successful run instead of creating a new one each time. Only applies to recurring execute-mode schedules. Useful for polling jobs that accumulate results in a single conversation. Defaults to false."
           }
         },
         "required": ["name", "message"]
@@ -150,6 +154,10 @@
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "reuse_conversation": {
+            "type": "boolean",
+            "description": "When true, reuse the conversation from the last successful run instead of creating a new one each time. Only applies to recurring execute-mode schedules. Useful for polling jobs that accumulate results in a single conversation. Defaults to false."
           }
         },
         "required": ["job_id"]
