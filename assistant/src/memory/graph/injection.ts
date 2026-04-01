@@ -111,6 +111,94 @@ function relativeAge(createdMs: number): string {
   return `${months}mo ago`;
 }
 
+/**
+ * Format an event date as a human-readable string with relative countdown.
+ * Examples:
+ *   "Tue Apr 8, 6:00 PM (in 3d)"
+ *   "Thu Apr 10 (in 5d)"
+ *   "Mon Apr 7, 9:00 AM (tomorrow)"
+ *   "Wed Apr 1 (today)"
+ */
+export function formatEventDate(epochMs: number): string {
+  const date = new Date(epochMs);
+  const now = new Date();
+
+  // Day names and month names
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  const dayName = dayNames[date.getDay()];
+  const monthName = monthNames[date.getMonth()];
+  const dayOfMonth = date.getDate();
+
+  // Include time only when hours/minutes are non-zero (midnight = date-only event)
+  const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+  let datePart = `${dayName} ${monthName} ${dayOfMonth}`;
+  if (hasTime) {
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHour = hours % 12 || 12;
+    const timePart =
+      minutes === 0
+        ? `${displayHour}:00 ${ampm}`
+        : `${displayHour}:${String(minutes).padStart(2, "0")} ${ampm}`;
+    datePart += `, ${timePart}`;
+  }
+
+  // Calculate relative countdown using calendar days
+  const todayStart = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
+  const eventStart = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  );
+  const diffDays = Math.round(
+    (eventStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  let relative: string;
+  if (diffDays === 0) {
+    relative = "today";
+  } else if (diffDays === 1) {
+    relative = "tomorrow";
+  } else if (diffDays < 14) {
+    relative = `in ${diffDays}d`;
+  } else if (diffDays < 60) {
+    relative = `in ${Math.floor(diffDays / 7)}w`;
+  } else {
+    relative = `in ${Math.floor(diffDays / 30)}mo`;
+  }
+
+  return `${datePart} (${relative})`;
+}
+
+/** Format an upcoming entry — uses event date when available, falls back to standard format. */
+function formatUpcomingEntry(scored: ScoredNode): string {
+  const node = scored.node;
+  if (node.eventDate != null) {
+    return `- ${formatEventDate(node.eventDate)} — ${node.content}`;
+  }
+  return formatNodeEntry(scored);
+}
+
 /** Format a single node for the context block. */
 function formatNodeEntry(scored: ScoredNode): string {
   const node = scored.node;
@@ -136,6 +224,7 @@ export function assembleContextBlock(
   const rightNow: ScoredNode[] = [];
   const threads: ScoredNode[] = [];
   const triggered: ScoredNode[] = [];
+  const upcoming: ScoredNode[] = [];
   const onMyMind: ScoredNode[] = [];
 
   for (const scored of nodes) {
@@ -143,6 +232,9 @@ export function assembleContextBlock(
 
     if (scored.scoreBreakdown.triggerBoost > 0) {
       triggered.push(scored);
+    } else if (node.eventDate && node.eventDate > Date.now()) {
+      // Future-dated events without an active trigger go to Upcoming
+      upcoming.push(scored);
     } else if (node.type === "prospective") {
       threads.push(scored);
     } else if (node.type === "emotional" && isRecent(node)) {
@@ -155,6 +247,9 @@ export function assembleContextBlock(
       onMyMind.push(scored);
     }
   }
+
+  // Sort upcoming by eventDate ascending (soonest first)
+  upcoming.sort((a, b) => (a.node.eventDate ?? 0) - (b.node.eventDate ?? 0));
 
   const parts: string[] = [];
 
@@ -171,6 +266,14 @@ export function assembleContextBlock(
     const entries = buildSection(threads, 5);
     if (entries.length > 0) {
       parts.push(`### Active Threads\n${entries.join("\n")}`);
+    }
+  }
+
+  // --- Upcoming ---
+  if (upcoming.length > 0) {
+    const entries = upcoming.slice(0, 5).map(formatUpcomingEntry);
+    if (entries.length > 0) {
+      parts.push(`### Upcoming\n${entries.join("\n")}`);
     }
   }
 
