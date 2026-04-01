@@ -1021,10 +1021,23 @@ private struct StepDetailRow: View {
                     .stroke(VColor.borderBase, lineWidth: 0.5)
             )
 
-            VButton(label: copyLabel, iconOnly: VIcon.copy.rawValue, style: .ghost, iconSize: 24, iconColor: VColor.contentTertiary) {
+            ChatEquatableButton(
+                config: ChatButtonConfig(
+                    label: copyLabel,
+                    iconOnly: VIcon.copy.rawValue,
+                    style: .ghost,
+                    size: .regular,
+                    iconSize: 24,
+                    iconColorRole: .contentTertiary,
+                    tooltip: nil,
+                    isDisabled: false,
+                    closureIdentity: copyText.hashValue
+                )
+            ) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(copyText, forType: .string)
             }
+            .equatable()
             .padding(VSpacing.xs)
         }
     }
