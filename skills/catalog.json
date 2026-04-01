@@ -16,22 +16,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "airtable-oauth-app-setup",
-      "name": "airtable-oauth-app-setup",
-      "description": "Walk the user through creating an Airtable OAuth integration in the Airtable developer console",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Airtable OAuth Setup",
-          "feature-flag": "integration-airtable",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "amazon",
       "name": "amazon",
       "description": "Shop on Amazon and Amazon Fresh using the bundled Amazon scripts",
@@ -51,22 +35,6 @@
         "emoji": "🗺️",
         "vellum": {
           "display-name": "API Mapping"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "asana-oauth-app-setup",
-      "name": "asana-oauth-app-setup",
-      "description": "Walk the user through creating an Asana OAuth app in the Asana Developer Console",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Asana OAuth Setup",
-          "feature-flag": "integration-asana",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -96,22 +64,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "discord-oauth-app-setup",
-      "name": "discord-oauth-app-setup",
-      "description": "Walk the user through creating a Discord OAuth app in the Discord Developer Portal",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Discord OAuth Setup",
-          "feature-flag": "integration-discord",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "document-writer",
       "name": "document-writer",
       "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
@@ -131,22 +83,6 @@
         "emoji": "🍕",
         "vellum": {
           "display-name": "DoorDash"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "dropbox-oauth-app-setup",
-      "name": "dropbox-oauth-app-setup",
-      "description": "Walk the user through creating a Dropbox OAuth app in the Dropbox App Console",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Dropbox OAuth Setup",
-          "feature-flag": "integration-dropbox",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -177,58 +113,11 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "figma-oauth-app-setup",
-      "name": "figma-oauth-app-setup",
-      "description": "Walk the user through creating a Figma OAuth app on the Figma developers page",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Figma OAuth Setup",
-          "feature-flag": "integration-figma",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "frontend-design",
       "name": "frontend-design",
       "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
       "metadata": {
         "emoji": "🎨"
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "github-oauth-app-setup",
-      "name": "github-oauth-app-setup",
-      "description": "Walk the user through creating a GitHub OAuth app in GitHub Developer Settings",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "GitHub OAuth Setup",
-          "feature-flag": "integration-github",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "google-oauth-app-setup",
-      "name": "google-oauth-app-setup",
-      "description": "Walk the user through creating Google Cloud OAuth credentials for Gmail and Calendar",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Google OAuth Setup",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
-        }
       },
       "compatibility": "Designed for Vellum personal assistants"
     },
@@ -253,22 +142,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "hubspot-oauth-app-setup",
-      "name": "hubspot-oauth-app-setup",
-      "description": "Walk the user through creating a HubSpot OAuth app in the HubSpot developer portal",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "HubSpot OAuth Setup",
-          "feature-flag": "integration-hubspot",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "influencer",
       "name": "influencer",
       "description": "Research influencers on Instagram, TikTok, and X/Twitter using the Chrome extension relay",
@@ -276,22 +149,6 @@
         "emoji": "🔍",
         "vellum": {
           "display-name": "Influencer Research"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "linear-oauth-app-setup",
-      "name": "linear-oauth-app-setup",
-      "description": "Walk the user through creating a Linear OAuth application in Linear API settings",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Linear OAuth Setup",
-          "feature-flag": "integration-linear",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -334,22 +191,6 @@
         "emoji": "📝",
         "vellum": {
           "display-name": "Notion"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "notion-oauth-app-setup",
-      "name": "notion-oauth-app-setup",
-      "description": "Walk the user through setting up a Notion integration (defaults to Internal integration, not OAuth)",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Notion Setup",
-          "feature-flag": "integration-notion",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -428,22 +269,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "spotify-oauth-app-setup",
-      "name": "spotify-oauth-app-setup",
-      "description": "Walk the user through creating a Spotify OAuth app in the Spotify Developer Dashboard",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Spotify OAuth Setup",
-          "feature-flag": "integration-spotify",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "start-the-day",
       "name": "start-the-day",
       "description": "Get a personalized daily briefing with weather, news, and actionable insights",
@@ -483,22 +308,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "todoist-oauth-app-setup",
-      "name": "todoist-oauth-app-setup",
-      "description": "Walk the user through creating a Todoist OAuth app in the Todoist App Console",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Todoist OAuth Setup",
-          "feature-flag": "integration-todoist",
-          "includes": [
-            "vellum-oauth-integrations"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "twilio-setup",
       "name": "twilio-setup",
       "description": "Configure Twilio credentials and phone numbers for voice calls",
@@ -508,22 +317,6 @@
           "display-name": "Twilio Setup",
           "includes": [
             "public-ingress"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "twitter-oauth-app-setup",
-      "name": "twitter-oauth-app-setup",
-      "description": "Walk the user through creating a Twitter/X OAuth 2.0 app in the Twitter Developer Portal",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Twitter / X OAuth Setup",
-          "feature-flag": "integration-twitter",
-          "includes": [
-            "vellum-oauth-integrations"
           ]
         }
       },
