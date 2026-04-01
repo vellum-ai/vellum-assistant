@@ -1,14 +1,9 @@
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
+import { computeSkillHash } from "./install-meta.js";
 
 const log = getLogger("clawhub");
 
@@ -60,49 +55,6 @@ function saveIntegrityManifest(manifest: IntegrityManifest): void {
     JSON.stringify(manifest, null, 2) + "\n",
     "utf-8",
   );
-}
-
-/** Collect all file contents in a directory tree, sorted by relative path for determinism. */
-function collectFileContents(
-  dir: string,
-  prefix = "",
-): Array<{ relPath: string; content: Buffer }> {
-  const results: Array<{ relPath: string; content: Buffer }> = [];
-  if (!existsSync(dir)) return results;
-
-  const entries = readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...collectFileContents(fullPath, relPath));
-    } else if (entry.isFile()) {
-      results.push({ relPath, content: readFileSync(fullPath) });
-    }
-  }
-  return results.sort((a, b) => a.relPath.localeCompare(b.relPath));
-}
-
-/**
- * Compute a SHA-256 hash over all files in a skill directory.
- * Returns format: "v2:sha256hex" (version prefix added to support hash format evolution).
- */
-function computeSkillHash(skillDir: string): string | null {
-  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) return null;
-
-  const files = collectFileContents(skillDir);
-  if (files.length === 0) return null;
-
-  const hasher = new Bun.CryptoHasher("sha256");
-  for (const file of files) {
-    // Length-prefix each segment to prevent boundary ambiguity collisions
-    const pathBuf = Buffer.from(file.relPath, "utf-8");
-    hasher.update(`${pathBuf.length}:`);
-    hasher.update(pathBuf);
-    hasher.update(`${file.content.length}:`);
-    hasher.update(file.content);
-  }
-  return `v2:${hasher.digest("hex")}`;
 }
 
 /**
