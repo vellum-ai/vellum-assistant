@@ -56,6 +56,14 @@ export const UiConfigSchema = z
       .describe(
         "IANA timezone identifier for displaying dates and times (e.g. 'America/New_York')",
       ),
+    greetingModelIntent: z
+      .enum(["latency-optimized", "quality-optimized"], {
+        error: "ui.greetingModelIntent must be 'latency-optimized' or 'quality-optimized'",
+      })
+      .default("latency-optimized")
+      .describe(
+        "Model intent for empty-state greeting generation (latency-optimized = fast/small model, quality-optimized = primary model)",
+      ),
   })
   .describe("User interface display settings");
 
