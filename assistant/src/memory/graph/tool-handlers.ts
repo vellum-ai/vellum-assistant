@@ -36,11 +36,11 @@ const log = getLogger("graph-tool-handlers");
 export interface RecallInput {
   query: string;
   mode?: "memory" | "archive";
+  num_results?: number;
   filters?: {
     types?: string[];
     after?: string;
     before?: string;
-    min_confidence?: number;
   };
 }
 
@@ -95,9 +95,10 @@ async function handleMemoryRecall(
   const sparseVector = generateSparseEmbedding(input.query);
 
   // Search graph nodes
+  const limit = Math.min(input.num_results ?? 20, 50);
   const searchResults = await searchGraphNodes(
     queryVector,
-    20,
+    limit,
     [scopeId],
     sparseVector,
   );
@@ -129,14 +130,6 @@ async function handleMemoryRecall(
       if (!isNaN(beforeMs) && node.created > beforeMs) return [];
     }
 
-    // Confidence filter
-    if (
-      input.filters?.min_confidence != null &&
-      node.confidence < input.filters.min_confidence
-    ) {
-      return [];
-    }
-
     return [
       {
         id: node.id,
@@ -163,6 +156,7 @@ async function handleArchiveRecall(
 
   try {
     // Use SQLite FTS on messages table, scoped to the active memory scope
+    const limit = Math.min(input.num_results ?? 20, 50);
     const rows = rawAll(
       `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
        FROM messages_fts fts
@@ -171,9 +165,10 @@ async function handleArchiveRecall(
        WHERE messages_fts MATCH ?
          AND c.memory_scope_id = ?
        ORDER BY rank
-       LIMIT 20`,
+       LIMIT ?`,
       input.query,
       scopeId,
+      limit,
     ) as Array<{
       id: string;
       content: string;

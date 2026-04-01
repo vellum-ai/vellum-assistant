@@ -24,11 +24,16 @@ export const graphRecallDefinition: ToolDefinition = {
         description:
           "What you're looking for — be specific and descriptive. Can be a topic, feeling, time period, or person.",
       },
+      num_results: {
+        type: "integer",
+        description:
+          "Maximum number of results to return (default 20, max 50).",
+      },
       mode: {
         type: "string",
         enum: ["memory", "archive"],
         description:
-          '"memory" searches the living memory graph (default). "archive" searches raw conversation transcripts for exact words and full context.',
+          '"memory" searches the living memory graph using semantic similarity (default). "archive" searches raw conversation transcripts using keyword matching — any matching keyword will surface results, not just exact phrases.',
       },
       filters: {
         type: "object",
@@ -60,10 +65,6 @@ export const graphRecallDefinition: ToolDefinition = {
             type: "string",
             description:
               "Only return memories created before this date (ISO 8601)",
-          },
-          min_confidence: {
-            type: "number",
-            description: "Minimum confidence threshold (0-1)",
           },
         },
       },
