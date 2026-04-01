@@ -1179,9 +1179,14 @@ export async function teleport(): Promise<void> {
       process.exit(1);
     }
 
+    // If targeting an existing platform assistant, use its runtimeUrl for all
+    // platform calls so upload, org ID fetch, and import hit the same instance.
+    const existingTarget = targetName ? findAssistantByName(targetName) : null;
+    const targetPlatformUrl = existingTarget?.runtimeUrl;
+
     let orgId: string;
     try {
-      orgId = await fetchOrganizationId(token);
+      orgId = await fetchOrganizationId(token, targetPlatformUrl);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("401") || msg.includes("403")) {
@@ -1197,6 +1202,7 @@ export async function teleport(): Promise<void> {
       const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
         token,
         orgId,
+        targetPlatformUrl,
       );
       bundleKey = key;
       console.log("Uploading bundle to GCS...");
