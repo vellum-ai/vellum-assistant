@@ -840,6 +840,9 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryCacheReadInputTokens ?? 0,
             collapseRawResponses(step.compactionResult.summaryRawResponses),
           );
+          ctx.graphMemory.onCompacted(
+            step.compactionResult.compactedPersistedMessages,
+          );
         }
 
         // Re-inject with potentially downgraded injection mode
@@ -847,6 +850,10 @@ export async function runAgentLoopImpl(
           ...injectionOpts,
           mode: currentInjectionMode,
         });
+        if (isTrustedActor && currentInjectionMode !== "minimal") {
+          const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+          runMessages = memResult.runMessages;
+        }
 
         // Re-estimate with injections included — step.estimatedTokens was
         // computed on bare history (ctx.messages) and doesn't account for
@@ -1024,6 +1031,9 @@ export async function runAgentLoopImpl(
           midLoopCompact.summaryCacheReadInputTokens ?? 0,
           collapseRawResponses(midLoopCompact.summaryRawResponses),
         );
+        ctx.graphMemory.onCompacted(
+          midLoopCompact.compactedPersistedMessages,
+        );
       }
 
       // Re-inject runtime context and re-enter the agent loop
@@ -1031,6 +1041,10 @@ export async function runAgentLoopImpl(
         ...injectionOpts,
         mode: currentInjectionMode,
       });
+      if (isTrustedActor && currentInjectionMode !== "minimal") {
+        const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+        runMessages = memResult.runMessages;
+      }
       preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
 
@@ -1220,12 +1234,19 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryCacheReadInputTokens ?? 0,
             collapseRawResponses(step.compactionResult.summaryRawResponses),
           );
+          ctx.graphMemory.onCompacted(
+            step.compactionResult.compactedPersistedMessages,
+          );
         }
 
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           mode: currentInjectionMode,
         });
+        if (isTrustedActor && currentInjectionMode !== "minimal") {
+          const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+          runMessages = memResult.runMessages;
+        }
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
@@ -1327,12 +1348,19 @@ export async function runAgentLoopImpl(
                 emergencyCompact.summaryCacheReadInputTokens ?? 0,
                 collapseRawResponses(emergencyCompact.summaryRawResponses),
               );
+              ctx.graphMemory.onCompacted(
+                emergencyCompact.compactedPersistedMessages,
+              );
             }
 
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
               mode: currentInjectionMode,
             });
+            if (isTrustedActor && currentInjectionMode !== "minimal") {
+              const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+              runMessages = memResult.runMessages;
+            }
             preRepairMessages = runMessages;
             preRunHistoryLength = runMessages.length;
             state.contextTooLargeDetected = false;
@@ -1431,12 +1459,19 @@ export async function runAgentLoopImpl(
               emergencyCompact.summaryCacheReadInputTokens ?? 0,
               collapseRawResponses(emergencyCompact.summaryRawResponses),
             );
+            ctx.graphMemory.onCompacted(
+              emergencyCompact.compactedPersistedMessages,
+            );
           }
 
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             mode: currentInjectionMode,
           });
+          if (isTrustedActor && currentInjectionMode !== "minimal") {
+            const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+            runMessages = memResult.runMessages;
+          }
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
           state.contextTooLargeDetected = false;
