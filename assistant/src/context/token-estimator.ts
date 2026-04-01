@@ -20,12 +20,14 @@ const GEMINI_INLINE_FILE_MIME_TYPES = new Set(["application/pdf"]);
 // Anthropic scales images to fit within 1568x1568 maintaining aspect ratio,
 // then charges ~(width * height) / 750 tokens.
 const ANTHROPIC_IMAGE_MAX_DIMENSION = 1568;
+// Anthropic caps images at ~1.15 megapixels in addition to the 1568px dimension limit.
+// Images exceeding this are further scaled down. The docs state images above ~1,600 tokens
+// are resized. Reference table (max sizes that won't be resized):
+//   1:1 → 1092x1092 (~1,590 tokens)   1:2 → 784x1568 (~1,639 tokens)
+// See: https://platform.claude.com/docs/en/build-with-claude/vision#evaluate-image-size
+const ANTHROPIC_IMAGE_MAX_PIXELS = 1_150_000;
 const ANTHROPIC_IMAGE_TOKENS_PER_PIXEL = 1 / 750;
-const ANTHROPIC_IMAGE_MAX_TOKENS = Math.ceil(
-  ANTHROPIC_IMAGE_MAX_DIMENSION *
-    ANTHROPIC_IMAGE_MAX_DIMENSION *
-    ANTHROPIC_IMAGE_TOKENS_PER_PIXEL,
-); // ~3,277 tokens
+const ANTHROPIC_IMAGE_MAX_TOKENS = 1_600;
 
 // Anthropic renders each PDF page as an image (~1,568 tokens at standard
 // resolution) plus any extracted text. Typical PDF pages are 50-150 KB.
@@ -85,13 +87,22 @@ function estimateFileDataTokens(
 }
 
 function estimateAnthropicImageTokens(width: number, height: number): number {
-  // Scale down to fit within 1568x1568 bounding box, maintaining aspect ratio
-  const scale = Math.min(
+  // Step 1: Scale to fit within 1568px bounding box
+  const dimScale = Math.min(
     1,
     ANTHROPIC_IMAGE_MAX_DIMENSION / Math.max(width, height),
   );
-  const scaledWidth = Math.round(width * scale);
-  const scaledHeight = Math.round(height * scale);
+  let scaledWidth = Math.round(width * dimScale);
+  let scaledHeight = Math.round(height * dimScale);
+
+  // Step 2: Scale further if exceeds megapixel budget
+  const pixels = scaledWidth * scaledHeight;
+  if (pixels > ANTHROPIC_IMAGE_MAX_PIXELS) {
+    const mpScale = Math.sqrt(ANTHROPIC_IMAGE_MAX_PIXELS / pixels);
+    scaledWidth = Math.round(scaledWidth * mpScale);
+    scaledHeight = Math.round(scaledHeight * mpScale);
+  }
+
   return Math.max(
     IMAGE_BLOCK_TOKENS, // minimum 1024
     Math.ceil(scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL),

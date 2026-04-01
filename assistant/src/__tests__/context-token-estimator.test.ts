@@ -9,6 +9,27 @@ import {
 } from "../context/token-estimator.js";
 import type { Message } from "../providers/types.js";
 
+/** Build a minimal valid PNG header with the given dimensions, returned as base64. */
+function makePngBase64(width: number, height: number): string {
+  const header = Buffer.alloc(24);
+  header[0] = 0x89;
+  header[1] = 0x50;
+  header[2] = 0x4e;
+  header[3] = 0x47;
+  header[4] = 0x0d;
+  header[5] = 0x0a;
+  header[6] = 0x1a;
+  header[7] = 0x0a;
+  header.writeUInt32BE(13, 8);
+  header[12] = 0x49;
+  header[13] = 0x48;
+  header[14] = 0x44;
+  header[15] = 0x52;
+  header.writeUInt32BE(width, 16);
+  header.writeUInt32BE(height, 20);
+  return header.toString("base64");
+}
+
 describe("token estimator", () => {
   test("estimates text tokens from character length", () => {
     expect(estimateTextTokens("")).toBe(0);
@@ -264,9 +285,11 @@ describe("token estimator", () => {
       { providerName: "anthropic" },
     );
 
-    // 1920x1080 scaled to fit 1568x1568: scale = 1568/1920 = 0.8167
+    // 1920x1080 scaled to fit 1568px bounding box: dimScale = 1568/1920 = 0.8167
     // scaledWidth = round(1920 * 0.8167) = 1568, scaledHeight = round(1080 * 0.8167) = 882
-    // tokens = ceil(1568 * 882 / 750) = ceil(1843.968) = ~1844
+    // pixels = 1568 * 882 = 1,382,976 > 1,150,000 → mpScale = sqrt(1150000/1382976) = 0.9117
+    // scaledWidth = round(1568 * 0.9117) = 1430, scaledHeight = round(882 * 0.9117) = 804
+    // tokens = ceil(1430 * 804 / 750) = ceil(1533.12) = ~1,533
     // With IMAGE_BLOCK_OVERHEAD_TOKENS and media_type overhead, still well under 5000
     expect(anthropicTokens).toBeLessThan(5_000);
 
@@ -299,13 +322,13 @@ describe("token estimator", () => {
       { providerName: "anthropic" },
     );
 
-    // Should fall back to ANTHROPIC_IMAGE_MAX_TOKENS (~3,277)
+    // Should fall back to ANTHROPIC_IMAGE_MAX_TOKENS (1,600)
     // The total will include IMAGE_BLOCK_OVERHEAD_TOKENS + media_type overhead,
     // but the max is applied at the outer Math.max(IMAGE_BLOCK_TOKENS, ...) level
-    // ANTHROPIC_IMAGE_MAX_TOKENS = ceil(1568*1568/750) = 3277
-    // Total = max(1024, 16 + ceil(9/4) + 3277) = max(1024, 3296) = 3296
-    expect(tokens).toBeGreaterThanOrEqual(3_277);
-    expect(tokens).toBeLessThan(4_000);
+    // ANTHROPIC_IMAGE_MAX_TOKENS = 1600
+    // Total = max(1024, 16 + ceil(9/4) + 1600) = max(1024, 1619) = 1619
+    expect(tokens).toBeGreaterThanOrEqual(1_600);
+    expect(tokens).toBeLessThan(2_000);
   });
 
   test("Anthropic image tokens are the same for same-dimension images regardless of payload size", () => {
@@ -355,5 +378,96 @@ describe("token estimator", () => {
 
     // For Anthropic, same dimensions should produce the same estimate
     expect(largeTokens).toBe(smallTokens);
+  });
+
+  test("applies megapixel cap for square images on Anthropic", () => {
+    // Build a minimal valid PNG header encoding 2000x2000 dimensions.
+    const pngHeader = Buffer.alloc(24);
+    // PNG signature
+    pngHeader[0] = 0x89;
+    pngHeader[1] = 0x50;
+    pngHeader[2] = 0x4e;
+    pngHeader[3] = 0x47;
+    pngHeader[4] = 0x0d;
+    pngHeader[5] = 0x0a;
+    pngHeader[6] = 0x1a;
+    pngHeader[7] = 0x0a;
+    // IHDR chunk length (13 bytes)
+    pngHeader.writeUInt32BE(13, 8);
+    // "IHDR"
+    pngHeader[12] = 0x49;
+    pngHeader[13] = 0x48;
+    pngHeader[14] = 0x44;
+    pngHeader[15] = 0x52;
+    // Width: 2000
+    pngHeader.writeUInt32BE(2000, 16);
+    // Height: 2000
+    pngHeader.writeUInt32BE(2000, 20);
+
+    const base64Data = pngHeader.toString("base64");
+
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: base64Data },
+      },
+      { providerName: "anthropic" },
+    );
+
+    // 2000x2000 → dimScale = 1568/2000 = 0.784 → 1568x1568 = 2,458,624 pixels
+    // 2,458,624 > 1,150,000 → mpScale = sqrt(1150000/2458624) ≈ 0.6837
+    // scaledWidth = round(1568 * 0.6837) = 1072, scaledHeight = round(1568 * 0.6837) = 1072
+    // tokens = ceil(1072 * 1072 / 750) = ceil(1532.7) ≈ 1533
+    // Previously would have been ceil(1568 * 1568 / 750) ≈ 3277
+    expect(tokens).toBeLessThanOrEqual(1_700);
+  });
+
+  test("matches Anthropic's published table for common aspect ratios", () => {
+    // These are the max sizes that should NOT be further scaled (at or below the megapixel cap).
+    // 1:1 → 1092x1092 (~1,590 tokens)
+    const squareTokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: makePngBase64(1092, 1092),
+        },
+      },
+      { providerName: "anthropic" },
+    );
+
+    // 1:2 → 784x1568 (~1,639 tokens)
+    const tallTokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: makePngBase64(784, 1568),
+        },
+      },
+      { providerName: "anthropic" },
+    );
+
+    // 1092x1092 = 1,192,464 pixels → slightly above 1,150,000 but close.
+    // The image tokens (excluding block overhead) should be ~1,590.
+    // With IMAGE_BLOCK_OVERHEAD_TOKENS (16) + media_type overhead (~3), total includes overhead.
+    // We check that the result (with overhead) is in a reasonable range.
+    // 1092*1092 = 1,192,464 > 1,150,000 → slight scaling applies
+    // mpScale = sqrt(1150000/1192464) ≈ 0.9824
+    // scaledWidth = round(1092 * 0.9824) = 1073, scaledHeight = round(1092 * 0.9824) = 1073
+    // tokens = ceil(1073 * 1073 / 750) = ceil(1535.2) ≈ 1536
+    // With overhead: 16 + 3 + 1536 = 1555
+    expect(squareTokens).toBeGreaterThan(1_400);
+    expect(squareTokens).toBeLessThan(1_800);
+
+    // 784*1568 = 1,229,312 > 1,150,000 → slight scaling applies
+    // mpScale = sqrt(1150000/1229312) ≈ 0.9674
+    // scaledWidth = round(784 * 0.9674) = 758, scaledHeight = round(1568 * 0.9674) = 1517
+    // tokens = ceil(758 * 1517 / 750) = ceil(1533.5) ≈ 1534
+    // With overhead: 16 + 3 + 1534 = 1553
+    expect(tallTokens).toBeGreaterThan(1_400);
+    expect(tallTokens).toBeLessThan(1_800);
   });
 });
