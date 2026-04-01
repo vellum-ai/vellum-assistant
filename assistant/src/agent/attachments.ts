@@ -1,4 +1,5 @@
 import type { ContentBlock, Message } from "../providers/types.js";
+import { optimizeImageForTransport } from "./image-optimize.js";
 
 export interface MessageAttachmentInput {
   id?: string;
@@ -14,12 +15,16 @@ export function attachmentsToContentBlocks(
 ): ContentBlock[] {
   return attachments.map((attachment) => {
     if (attachment.mimeType.toLowerCase().startsWith("image/")) {
+      const { data, mediaType } = optimizeImageForTransport(
+        attachment.data,
+        attachment.mimeType,
+      );
       return {
         type: "image",
         source: {
           type: "base64",
-          media_type: attachment.mimeType,
-          data: attachment.data,
+          media_type: mediaType,
+          data,
         },
       } as ContentBlock;
     }
