@@ -288,6 +288,11 @@ const EXTRACT_TOOL_SCHEMA = {
               description:
                 "Downgrade fidelity when a transient event has resolved",
             },
+            event_date: {
+              type: "number",
+              description:
+                "Epoch ms of the event date. Use to update when an event is rescheduled.",
+            },
           },
           required: ["id"],
         },
@@ -356,6 +361,7 @@ interface RawUpdateNode {
   significance?: number;
   confidence?: number;
   fidelity?: string;
+  event_date?: number;
 }
 
 interface RawNewEdge {
@@ -582,6 +588,7 @@ export function parseExtractionResponse(
       ["vivid", "clear", "faded", "gist"].includes(raw.fidelity)
     )
       changes.fidelity = raw.fidelity;
+    if (raw.event_date !== undefined) changes.eventDate = raw.event_date;
     if (Object.keys(changes).length > 0) {
       diff.updateNodes.push({ id: raw.id, changes });
     }
