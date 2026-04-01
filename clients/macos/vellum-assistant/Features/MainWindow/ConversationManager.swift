@@ -432,9 +432,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     private func latestPersistedTipDaemonMessageId(for conversationLocalId: UUID) -> String? {
-        chatViewModels[conversationLocalId]?.messages.last(where: {
-            $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden
-        })?.daemonMessageId
+        chatViewModels[conversationLocalId]?.latestPersistedTipDaemonMessageId
     }
 
     func createConversation() {

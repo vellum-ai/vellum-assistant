@@ -52,7 +52,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertFalse(p.showsForkConversationAction)
     }
 
-    func testStartedStandardConversationWithPersistedTipShowsForkAction() {
+    func testStartedStandardConversationWithPersistedTipShowsForkAction() async {
         let conversation = ConversationModel(title: "Test Conversation", conversationId: "session-1")
         let vm = {
             let dc = GatewayConnectionManager()
@@ -61,6 +61,9 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         var message = ChatMessage(role: .assistant, text: "Persisted reply")
         message.daemonMessageId = "msg-tip"
         vm.messages = [message]
+        // Yield so the Combine pipeline in ChatMessageManager propagates
+        // the cached latestPersistedTipDaemonMessageId value.
+        await Task.yield()
         let p = ConversationHeaderPresentation(
             activeConversation: conversation,
             activeViewModel: vm,

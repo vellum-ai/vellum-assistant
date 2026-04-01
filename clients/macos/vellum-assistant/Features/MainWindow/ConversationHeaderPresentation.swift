@@ -42,24 +42,21 @@ struct ConversationHeaderPresentation {
         self.isPrivateConversation = conversation.kind == .private
         self.isChannelConversation = conversation.isChannelConversation
 
-        // "Started" = has a conversationId OR has at least one non-empty user message
-        let hasUserMessage = activeViewModel?.messages.contains(where: {
-            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) ?? false
-        self.isStarted = conversation.conversationId != nil || hasUserMessage
+        // Read O(1) cached values from the model layer instead of scanning the
+        // messages array. ChatMessageManager keeps these in sync via Combine
+        // pipelines, avoiding O(n) work during view body evaluation.
+        let hasNonEmptyMessage = activeViewModel?.hasNonEmptyMessage ?? false
+        self.isStarted = conversation.conversationId != nil || hasNonEmptyMessage
 
         // Private conversations don't show the full actions menu
         self.showsActionsMenu = isStarted && !isPrivateConversation
 
         // Can copy when there's non-empty content
-        self.canCopy = hasUserMessage
-        let latestPersistedTipDaemonMessageId = activeViewModel?.messages.last(where: {
-            $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden
-        })?.daemonMessageId
+        self.canCopy = hasNonEmptyMessage
         self.showsForkConversationAction =
             conversation.conversationId != nil
             && !isPrivateConversation
-            && latestPersistedTipDaemonMessageId != nil
+            && activeViewModel?.latestPersistedTipDaemonMessageId != nil
         if isPrivateConversation {
             self.forkParentTitle = nil
             self.forkParentConversationId = nil
