@@ -920,6 +920,10 @@ export async function dispatchAgentEvent(
         break;
     }
   } catch (err) {
+    log.error(
+      { err, eventType: event.type, conversationId: deps.ctx.conversationId },
+      "Event dispatch failed; suppressing to keep agent loop alive",
+    );
     // Re-throw errors from critical handlers that must not be silently swallowed:
     // - message_complete: persists assistant message to DB, sets state flags
     // - error: sets recovery flags (contextTooLargeDetected, orderingErrorDetected)
@@ -931,9 +935,5 @@ export async function dispatchAgentEvent(
     ) {
       throw err;
     }
-    log.error(
-      { err, eventType: event.type, conversationId: deps.ctx.conversationId },
-      "Event dispatch failed; suppressing to keep agent loop alive",
-    );
   }
 }
