@@ -63,7 +63,7 @@ struct IntegrationsGridView: View {
                 } else {
                     if !enabledProviders.isEmpty {
                         VDisclosureSection(
-                            title: "Enabled \(enabledProviders.count)",
+                            title: "Enabled",
                             isExpanded: $isEnabledExpanded
                         ) {
                             providerGrid(providers: enabledProviders)
@@ -72,7 +72,7 @@ struct IntegrationsGridView: View {
 
                     if !notEnabledProviders.isEmpty {
                         VDisclosureSection(
-                            title: "Not Enabled \(notEnabledProviders.count)",
+                            title: "Not Enabled",
                             isExpanded: $isNotEnabledExpanded
                         ) {
                             providerGrid(providers: notEnabledProviders)

@@ -20,7 +20,7 @@ enum IntegrationIcon {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: size, height: size)
         default:
-            VIconView(.link, size: size)
+            VIconView(.power, size: size)
         }
     }
 }

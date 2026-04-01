@@ -21,7 +21,7 @@ struct IntegrationCard: View {
                     if let description, !description.isEmpty {
                         Text(description)
                             .font(VFont.bodySmallDefault)
-                            .foregroundStyle(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .lineLimit(1)
                     }
                 }
