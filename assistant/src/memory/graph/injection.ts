@@ -175,8 +175,19 @@ export function formatEventDate(epochMs: number): string {
   );
 
   let relative: string;
-  if (diffDays === 0) {
+  if (diffDays === 0 || diffDays === -1) {
+    // Same calendar day, or just crossed midnight — treat as "today"
     relative = "today";
+  } else if (diffDays < -1) {
+    // Past dates
+    const absDays = -diffDays;
+    if (absDays < 14) {
+      relative = `${absDays}d ago`;
+    } else if (absDays < 60) {
+      relative = `${Math.floor(absDays / 7)}w ago`;
+    } else {
+      relative = `${Math.floor(absDays / 30)}mo ago`;
+    }
   } else if (diffDays === 1) {
     relative = "tomorrow";
   } else if (diffDays < 14) {
