@@ -327,7 +327,7 @@ struct SidebarSectionView: View {
 
     @ViewBuilder
     private var showMoreLessButton: some View {
-        if conversations.count > maxCollapsed {
+        if conversations.count > maxCollapsed, showAll || !effectiveShowAll {
             HStack {
                 VButton(
                     label: showAll ? "Show less" : "Show more",
