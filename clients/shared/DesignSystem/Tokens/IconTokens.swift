@@ -288,8 +288,10 @@ public enum VIcon: String, CaseIterable, Sendable {
         let cacheKey: String
         let roundedSize: CGFloat?
         if let size {
-            roundedSize = CGFloat(Int(size.rounded()))
-            cacheKey = "\(rawValue)-\(Int(size.rounded()))"
+            // Clamped to [1, 512] to bound keyspace; VIcon.allCases.count × 512 ≈ trivial memory
+            let roundedInt = max(1, min(Int(size.rounded()), 512))
+            roundedSize = CGFloat(roundedInt)
+            cacheKey = "\(rawValue)-\(roundedInt)"
         } else {
             roundedSize = nil
             cacheKey = "\(rawValue)-base"
