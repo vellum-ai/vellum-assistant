@@ -4180,7 +4180,7 @@ paths:
     post:
       operationId: memoryitems_post
       summary: Create a memory item
-      description: Create a new memory item and enqueue embedding.
+      description: Create a new memory graph node and enqueue embedding.
       tags:
         - memory
       responses:
@@ -4208,10 +4208,10 @@ paths:
               properties:
                 kind:
                   type: string
-                  description: Memory kind (identity, preference, project, etc.)
+                  description: Memory type (episodic, semantic, procedural, etc.)
                 subject:
                   type: string
-                  description: Subject line
+                  description: Subject line (first line of content)
                 statement:
                   type: string
                   description: Statement content
@@ -4220,14 +4220,13 @@ paths:
                   description: Importance score (default 0.8)
               required:
                 - kind
-                - subject
                 - statement
               additionalProperties: false
   /v1/memory-items/{id}:
     delete:
       operationId: memoryitems_by_id_delete
       summary: Delete a memory item
-      description: Delete a memory item and its embeddings.
+      description: Delete a memory graph node and its embeddings.
       tags:
         - memory
       responses:
@@ -4252,7 +4251,7 @@ paths:
     get:
       operationId: memoryitems_by_id_get
       summary: Get a memory item
-      description: Return a single memory item by ID with supersession metadata.
+      description: Return a single memory item by ID with graph metadata.
       tags:
         - memory
       responses:
@@ -4267,7 +4266,7 @@ paths:
                     type: object
                     properties: {}
                     additionalProperties: {}
-                    description: Memory item with scopeLabel and supersession info
+                    description: Memory item with scopeLabel and graph metadata
                 required:
                   - item
                 additionalProperties: false
@@ -4280,7 +4279,7 @@ paths:
     patch:
       operationId: memoryitems_by_id_patch
       summary: Update a memory item
-      description: Partially update fields on an existing memory item.
+      description: Partially update fields on an existing memory graph node.
       tags:
         - memory
       responses:
@@ -4322,18 +4321,6 @@ paths:
                   type: string
                 importance:
                   type: number
-                sourceType:
-                  type: string
-                verificationState:
-                  type: string
-              required:
-                - subject
-                - statement
-                - kind
-                - status
-                - importance
-                - sourceType
-                - verificationState
               additionalProperties: false
   /v1/messages:
     get:
