@@ -463,6 +463,103 @@ describe("attachment extraction in normalize functions", () => {
     });
   });
 
+  describe("file_share subtype handling", () => {
+    describe("normalizeSlackDirectMessage", () => {
+      it("normalizes DM with file_share subtype and files", () => {
+        const config = makeConfig();
+        const event = makeDmEvent({
+          subtype: "file_share",
+          files: [
+            makeSlackFile({
+              id: "F030",
+              mimetype: "image/png",
+              name: "screenshot.png",
+            }),
+          ],
+        });
+        const result = normalizeSlackDirectMessage(event, "evt-fs-1", config);
+
+        expect(result).not.toBeNull();
+        expect(result!.event.message.attachments).toHaveLength(1);
+        expect(result!.event.message.attachments![0].fileId).toBe("F030");
+        expect(result!.event.message.attachments![0].type).toBe("image");
+        expect(result!.slackFiles).toBeDefined();
+        expect(result!.slackFiles!.get("F030")!.id).toBe("F030");
+      });
+
+      it("normalizes DM with file_share subtype without files", () => {
+        const config = makeConfig();
+        const event = makeDmEvent({ subtype: "file_share" });
+        const result = normalizeSlackDirectMessage(event, "evt-fs-2", config);
+
+        expect(result).not.toBeNull();
+        expect(result!.event.message.content).toBe("hello");
+        expect(result!.event.message.attachments).toBeUndefined();
+      });
+
+      it("drops DM with bot_message subtype", () => {
+        const config = makeConfig();
+        const event = makeDmEvent({ subtype: "bot_message" });
+        const result = normalizeSlackDirectMessage(event, "evt-fs-3", config);
+
+        expect(result).toBeNull();
+      });
+    });
+
+    describe("normalizeSlackChannelMessage", () => {
+      it("normalizes channel message with file_share subtype and files", () => {
+        const config = makeConfig();
+        const event = makeChannelEvent({
+          subtype: "file_share",
+          files: [
+            makeSlackFile({
+              id: "F031",
+              mimetype: "image/jpeg",
+              name: "photo.jpg",
+            }),
+          ],
+        });
+        const result = normalizeSlackChannelMessage(
+          event,
+          "evt-fs-4",
+          config,
+        );
+
+        expect(result).not.toBeNull();
+        expect(result!.event.message.attachments).toHaveLength(1);
+        expect(result!.event.message.attachments![0].fileId).toBe("F031");
+        expect(result!.event.message.attachments![0].type).toBe("image");
+        expect(result!.slackFiles).toBeDefined();
+      });
+
+      it("normalizes channel message with file_share subtype without files", () => {
+        const config = makeConfig();
+        const event = makeChannelEvent({ subtype: "file_share" });
+        const result = normalizeSlackChannelMessage(
+          event,
+          "evt-fs-5",
+          config,
+        );
+
+        expect(result).not.toBeNull();
+        expect(result!.event.message.content).toBe("hello");
+        expect(result!.event.message.attachments).toBeUndefined();
+      });
+
+      it("drops channel message with bot_message subtype", () => {
+        const config = makeConfig();
+        const event = makeChannelEvent({ subtype: "bot_message" });
+        const result = normalizeSlackChannelMessage(
+          event,
+          "evt-fs-6",
+          config,
+        );
+
+        expect(result).toBeNull();
+      });
+    });
+  });
+
   describe("normalizeSlackAppMention", () => {
     it("populates attachments for app mention events with files", () => {
       const config = makeConfig();
