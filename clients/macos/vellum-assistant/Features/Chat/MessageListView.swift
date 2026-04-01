@@ -960,14 +960,14 @@ struct MessageListView: View {
                 // response. Daemon confirmation resumes stay bottom-pinned.
                 if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
                     scrollState.enterPushToTop(messageId: lastUserMsg.id)
-                    // Scroll immediately in the same transaction as the tail
-                    // spacer state change. SwiftUI batches both mutations into
-                    // a single layout pass, so the spacer provides room and
-                    // the scroll resolves together — no blank-frame flash.
+                    // Set scroll position declaratively so SwiftUI resolves
+                    // it in the same layout pass that renders the tail spacer
+                    // (both triggered by the uiVersion bump in enterPushToTop).
+                    // Unlike the imperative scrollTo(), the declarative
+                    // ScrollPosition is evaluated against the NEW layout —
+                    // so the tail spacer provides room for .top anchoring.
                     scrollState.pendingPushToTopTarget = nil
-                    withAnimation(VAnimation.fast) {
-                        scrollPosition.scrollTo(id: lastUserMsg.id, anchor: .top)
-                    }
+                    scrollPosition = ScrollPosition(id: lastUserMsg.id, anchor: .top)
                     os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                                 "target=userMessage reason=pushToTop")
                 } else {
@@ -992,8 +992,9 @@ struct MessageListView: View {
 
     private func handleUIVersionChanged() {
         // Fallback: if a push-to-top target wasn't consumed by the
-        // immediate scroll in handleSendingChanged (e.g. edge-case
-        // timing), consume it here after the tail spacer has rendered.
+        // declarative scroll position in handleSendingChanged (e.g.
+        // enterPushToTop called from a different code path), consume
+        // it here after the tail spacer has rendered.
         guard let targetId = scrollState.pendingPushToTopTarget,
               scrollState.mode.pushToTopMessageId != nil else { return }
         scrollState.pendingPushToTopTarget = nil
