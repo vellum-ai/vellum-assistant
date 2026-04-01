@@ -100,20 +100,7 @@ struct SidebarSectionView: View {
     }
 
     private var displayCount: Int {
-        switch countMode {
-        case .items:
-            return conversations.count
-        case .subGroups(let grouper):
-            var seen = Set<String>()
-            for c in conversations {
-                if let key = grouper(c) {
-                    seen.insert(key)
-                } else {
-                    seen.insert(c.id.uuidString)
-                }
-            }
-            return seen.count
-        }
+        return conversations.count
     }
 
     var body: some View {
