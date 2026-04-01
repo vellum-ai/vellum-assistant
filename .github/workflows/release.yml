@@ -21,8 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      version: ${{ steps.extract.outputs.version }}
+      version: ${{ steps.finalize.outputs.version }}
+      base_version: ${{ steps.extract.outputs.base_version }}
       is_staging: ${{ steps.detect-staging.outputs.is_staging }}
+      docker_environments: ${{ steps.finalize.outputs.docker_environments }}
     steps:
       - uses: actions/checkout@v6
 
@@ -31,7 +33,7 @@ jobs:
         run: |
           BRANCH="${GITHUB_REF_NAME}"
           if [[ "$BRANCH" == release/v* ]]; then
-            VERSION="${BRANCH#release/v}"
+            BASE_VERSION="${BRANCH#release/v}"
           elif [ "$BRANCH" = "main" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             git fetch --tags
             LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
@@ -41,13 +43,13 @@ jobs:
             LATEST_VERSION=${LATEST_TAG#v}
             IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
             PATCH=$((PATCH + 1))
-            VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            echo "Computed next patch version from $LATEST_TAG: $VERSION"
+            BASE_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "Computed next patch version from $LATEST_TAG: $BASE_VERSION"
           else
             echo "::error::Workflow must run on a release/v* branch or be manually dispatched from main, got '$BRANCH'"
             exit 1
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Detect staging release
         id: detect-staging
@@ -63,9 +65,23 @@ jobs:
             echo "Commit-triggered release — staging only"
           fi
 
+      - name: Compute final version
+        id: finalize
+        run: |
+          BASE_VERSION="${{ steps.extract.outputs.base_version }}"
+          IS_STAGING="${{ steps.detect-staging.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            VERSION="${BASE_VERSION}-staging.${{ github.run_number }}"
+            echo "Staging prerelease version: $VERSION"
+            echo 'docker_environments=["dev"]' >> "$GITHUB_OUTPUT"
+          else
+            VERSION="$BASE_VERSION"
+            echo 'docker_environments=["dev","production"]' >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   push-assistant-image:
     needs: [extract-version, ci-assistant]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
@@ -74,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
@@ -144,7 +160,7 @@ jobs:
 
   push-assistant-manifest:
     needs: [extract-version, push-assistant-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -153,7 +169,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Fail if image build failed
@@ -202,9 +218,12 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
           GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$IS_STAGING" != "true" ]; then
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -259,7 +278,6 @@ jobs:
 
   push-gateway-image:
     needs: [extract-version, ci-gateway]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -268,7 +286,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
@@ -337,7 +355,6 @@ jobs:
 
   push-credential-executor-image:
     needs: [extract-version, ci-credential-executor]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -346,7 +363,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
@@ -413,7 +430,7 @@ jobs:
 
   push-gateway-manifest:
     needs: [extract-version, push-gateway-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -422,7 +439,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Fail if image build failed
@@ -471,9 +488,12 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
           GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$IS_STAGING" != "true" ]; then
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -528,7 +548,7 @@ jobs:
 
   push-credential-executor-manifest:
     needs: [extract-version, push-credential-executor-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -537,7 +557,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Fail if image build failed
@@ -586,9 +606,12 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
           GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$IS_STAGING" != "true" ]; then
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -725,13 +748,12 @@ jobs:
 
   register-release:
     needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
@@ -820,9 +842,17 @@ jobs:
           ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            IS_STABLE="false"
+          else
+            IS_STABLE="true"
+          fi
+
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \
             --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson is_stable "$IS_STABLE" \
             --argjson db_migration_version "${{ steps.migration-ceilings.outputs.db_version }}" \
             --arg last_workspace_migration_id "${{ steps.migration-ceilings.outputs.ws_id }}" \
             --arg assistant_repo "$ASSISTANT_REPO" \
@@ -840,7 +870,7 @@ jobs:
             '{
               version: $version,
               released_at: $released_at,
-              is_stable: true,
+              is_stable: $is_stable,
               db_migration_version: $db_migration_version,
               last_workspace_migration_id: $last_workspace_migration_id,
               assistant_image: {
@@ -966,7 +996,7 @@ jobs:
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
   # This is the primary/default build.
   build-macos-arm64:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -1014,12 +1044,13 @@ jobs:
       - name: Set version
         id: version
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          DISPLAY_VERSION="${BRANCH#release/v}"
+          # Use base_version for DISPLAY_VERSION (Apple requires MAJOR.MINOR.PATCH for CFBundleShortVersionString)
+          DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION / Full version: ${{ needs.extract-version.outputs.version }}"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -1308,7 +1339,7 @@ jobs:
   # produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -1357,11 +1388,12 @@ jobs:
       - name: Set version
         id: version
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          DISPLAY_VERSION="${BRANCH#release/v}"
+          # Use base_version for DISPLAY_VERSION (Apple requires MAJOR.MINOR.PATCH for CFBundleShortVersionString)
+          DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -1958,7 +1990,7 @@ jobs:
         working-directory: credential-executor
 
   build-ios:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -2050,12 +2082,13 @@ jobs:
       - name: Set version
         id: version
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          DISPLAY_VERSION="${BRANCH#release/v}"
+          # Use base_version for DISPLAY_VERSION (Apple requires MAJOR.MINOR.PATCH for CFBundleShortVersionString)
+          DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION / Full version: ${{ needs.extract-version.outputs.version }}"
 
       - name: Cache Homebrew XcodeGen
         id: cache-xcodegen-release
@@ -2239,10 +2272,22 @@ jobs:
             RELEASE_FAILED="true"
           fi
 
-          # For staging releases, check that desktop app artifacts were successfully built
+          # For staging releases, check that desktop app and Docker images were successfully pushed
           STAGING_READY="true"
           if [ "$IS_STAGING" = "true" ]; then
             if [ "${{ needs.build-macos-arm64.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.push-assistant-manifest.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.push-gateway-manifest.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.push-credential-executor-manifest.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.register-release.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
           fi
@@ -2301,7 +2346,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered as unstable._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
@@ -2363,7 +2408,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ] && [ "$STAGING_READY" = "true" ] && [ "$IS_RELEASE_BRANCH" = "true" ] && [ -n "$RELEASE_TRIGGER_SECRET" ]; then
-            RELEASE_BRANCH="release/${VERSION_TAG}"
+            RELEASE_BRANCH="release/v${{ needs.extract-version.outputs.base_version }}"
             GO_LIVE_TS=$(date +%s)
             GO_LIVE_SIG=$(echo -n "${RELEASE_BRANCH}:${GO_LIVE_TS}" | openssl dgst -sha256 -hmac "$RELEASE_TRIGGER_SECRET" -hex | awk '{print $NF}')
             GO_LIVE_URL="https://qa.vellum.ai/api/slack/go-live?branch=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RELEASE_BRANCH}', safe=''))")&ts=${GO_LIVE_TS}&sig=${GO_LIVE_SIG}"
