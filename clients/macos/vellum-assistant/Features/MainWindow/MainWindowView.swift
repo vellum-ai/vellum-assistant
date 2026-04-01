@@ -64,6 +64,7 @@ struct MainWindowView: View {
 
     @State var showConversationSwitcher = false
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
+    @State var groupToDelete: ConversationGroup?
 
     /// Cached assistant display name, refreshed when IDENTITY.md changes on disk.
     @State var cachedAssistantName: String = "Your Assistant"
