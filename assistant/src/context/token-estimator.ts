@@ -20,12 +20,13 @@ const GEMINI_INLINE_FILE_MIME_TYPES = new Set(["application/pdf"]);
 // Anthropic scales images to fit within 1568x1568 maintaining aspect ratio,
 // then charges ~(width * height) / 750 tokens.
 const ANTHROPIC_IMAGE_MAX_DIMENSION = 1568;
-// Anthropic caps images at ~1.15 megapixels in addition to the 1568px dimension limit.
+// Anthropic caps images at ~1.2 megapixels in addition to the 1568px dimension limit.
 // Images exceeding this are further scaled down. The docs state images above ~1,600 tokens
-// are resized. Reference table (max sizes that won't be resized):
+// are resized. 1,200,000 / 750 = 1,600 tokens, matching the documented threshold.
+// Reference table (max sizes that won't be resized):
 //   1:1 → 1092x1092 (~1,590 tokens)   1:2 → 784x1568 (~1,639 tokens)
 // See: https://platform.claude.com/docs/en/build-with-claude/vision#evaluate-image-size
-const ANTHROPIC_IMAGE_MAX_PIXELS = 1_150_000;
+const ANTHROPIC_IMAGE_MAX_PIXELS = 1_200_000;
 const ANTHROPIC_IMAGE_TOKENS_PER_PIXEL = 1 / 750;
 const ANTHROPIC_IMAGE_MAX_TOKENS = 1_600;
 
