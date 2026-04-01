@@ -13,6 +13,7 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type CanonicalGuardianRequest,
@@ -396,6 +397,25 @@ const accessRequestResolver: GuardianRequestResolver = {
     const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
     const desktopBearerToken = mintDaemonDeliveryToken();
 
+    // Resolve display names from the contacts database for enriched payloads
+    const requesterContactResult = requesterExternalUserId
+      ? findContactChannel({
+          channelType: channel,
+          externalUserId: requesterExternalUserId,
+        })
+      : null;
+    const requesterDisplayName =
+      requesterContactResult?.contact.displayName ?? null;
+
+    const decidedByContactResult = decidedByExternalUserId
+      ? findContactChannel({
+          channelType: channel,
+          externalUserId: decidedByExternalUserId,
+        })
+      : null;
+    const decidedByDisplayName =
+      decidedByContactResult?.contact.displayName ?? null;
+
     if (decision.action === "reject") {
       log.info(
         { event: "resolver_access_request_denied", requestId: request.id },
@@ -435,6 +455,8 @@ const accessRequestResolver: GuardianRequestResolver = {
           requesterExternalUserId,
           requesterChatId,
           decidedByExternalUserId,
+          requesterDisplayName,
+          decidedByDisplayName,
           decision: "denied" as const,
         };
 
@@ -726,6 +748,8 @@ const accessRequestResolver: GuardianRequestResolver = {
             sourceChannel: channel,
             requesterExternalUserId,
             requesterChatId,
+            requesterDisplayName,
+            decidedByDisplayName,
             verificationSessionId: session.sessionId,
           },
           dedupeKey: `trusted-contact:verification-sent:${session.sessionId}`,
