@@ -644,7 +644,7 @@ export async function installSkill(
         resolved.repo,
         resolved.skillSlug,
         true /* overwrite */,
-        resolved.ref,
+        resolved.ref ?? spec.version,
       );
 
       // Reload skill catalog so the newly installed skill is picked up
