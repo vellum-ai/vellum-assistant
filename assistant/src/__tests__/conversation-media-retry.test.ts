@@ -103,9 +103,10 @@ describe("stripMediaPayloadsForRetry", () => {
   // ---------------------------------------------------------------------------
 
   test("budget-aware: keeps images that fit within token budget", () => {
-    // Each small image (data length 100) costs 1024 tokens on non-Anthropic.
-    // Budget of 3500 allows 3 images (3 * 1024 = 3072 <= 3500) but not 4.
-    const images = Array.from({ length: 5 }, () => makeImageBlockWithSize(100));
+    // Non-Anthropic estimation: estimateTextTokens(base64Data) + overhead (~19 tokens).
+    // Data length 4000 → 1000 data tokens + 19 overhead ≈ 1019 tokens/image.
+    // Budget of 3500 allows 3 images (3 * 1019 = 3057 <= 3500) but not 4.
+    const images = Array.from({ length: 5 }, () => makeImageBlockWithSize(4000));
     const messages: Message[] = [
       makeUserMessage({ type: "text", text: "describe these" }, ...images),
     ];
