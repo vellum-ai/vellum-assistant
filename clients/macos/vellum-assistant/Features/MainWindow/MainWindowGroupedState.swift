@@ -47,12 +47,8 @@ final class SidebarInteractionState {
         if let saved = defaults.stringArray(forKey: "sidebar.expandedSections") {
             initial = Set(saved)
         } else {
-            // First-launch defaults: all system groups expanded.
-            initial = [
-                ConversationGroup.pinned.id,
-                ConversationGroup.scheduled.id,
-                ConversationGroup.background.id,
-            ]
+            // First-launch defaults: all groups collapsed.
+            initial = []
         }
 
         // Clean up old keys (one-time migration).

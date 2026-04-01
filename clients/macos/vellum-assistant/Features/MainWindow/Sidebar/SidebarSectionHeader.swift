@@ -37,11 +37,29 @@ struct SidebarSectionHeader: View {
     @FocusState private var isRenameFocused: Bool
     @State private var isHeaderHovered: Bool = false
 
+    private var isGroupPinned: Bool {
+        group.id == ConversationGroup.pinned.id
+    }
+
+    /// Icon to show when the header is NOT hovered. System groups get distinctive icons;
+    /// custom groups keep the folder open/closed behaviour.
+    private var groupIcon: VIcon {
+        if group.id == ConversationGroup.pinned.id {
+            return .pin
+        } else if group.id == ConversationGroup.scheduled.id {
+            return .calendar
+        } else if group.id == ConversationGroup.background.id {
+            return .layers
+        } else {
+            return isExpanded ? .folderOpen : .folderClosed
+        }
+    }
+
     var body: some View {
         HStack(spacing: VSpacing.xs) {
-            VIconView(isHeaderHovered ? .chevronRight : (isExpanded ? .folderOpen : .folderClosed), size: isHeaderHovered ? SidebarLayoutMetrics.sectionChevronSize : 13)
+            VIconView(isHeaderHovered ? .chevronRight : groupIcon, size: isHeaderHovered ? SidebarLayoutMetrics.sectionChevronSize : 13)
                 .foregroundStyle(VColor.contentTertiary)
-                .rotationEffect(.degrees(isHeaderHovered && isExpanded ? 90 : 0))
+                .rotationEffect(.degrees(isHeaderHovered && isExpanded ? 90 : (isGroupPinned && !isHeaderHovered ? -45 : 0)))
                 .animation(VAnimation.fast, value: isExpanded)
                 .animation(VAnimation.fast, value: isHeaderHovered)
                 .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
@@ -84,18 +102,27 @@ struct SidebarSectionHeader: View {
                 case .idle:
                     EmptyView()
                 }
-                if conversationCount > 0 {
-                    Text("\(conversationCount)")
-                        .font(.caption2)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
             }
         }
         .padding(.leading, VSpacing.xs)
-        .padding(.trailing, VSpacing.sm)
+        .padding(.trailing, SidebarLayoutMetrics.trailingIconPadding)
         .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
         .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
         .contentShape(Rectangle())
+        .overlay(alignment: .trailing) {
+            if conversationCount > 0 {
+                Text("\(conversationCount)")
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .padding(.horizontal, VSpacing.sm - VSpacing.xxs)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(
+                        Capsule()
+                            .fill(VColor.contentTertiary.opacity(0.12))
+                    )
+                    .padding(.trailing, VSpacing.xs)
+            }
+        }
         .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
