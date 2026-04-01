@@ -632,6 +632,7 @@ async function importToAssistant(
   cloud: string,
   bundleData: Uint8Array<ArrayBuffer>,
   dryRun: boolean,
+  preUploadedBundleKey?: string,
 ): Promise<void> {
   if (cloud === "vellum") {
     // Platform target
@@ -653,24 +654,26 @@ async function importToAssistant(
       throw err;
     }
 
-    // Try signed-URL upload for large bundle support
-    let bundleKey: string | undefined;
-    try {
-      const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
-        token,
-        orgId,
-        entry.runtimeUrl,
-      );
-      bundleKey = key;
-      console.log("Uploading bundle...");
-      await platformUploadToSignedUrl(uploadUrl, bundleData);
-    } catch (err) {
-      // If signed uploads unavailable (503), fall back to inline upload
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("not available")) {
-        bundleKey = undefined;
-      } else {
-        throw err;
+    // Use pre-uploaded bundle key if provided, otherwise try signed-URL upload
+    let bundleKey: string | undefined = preUploadedBundleKey;
+    if (bundleKey === undefined) {
+      try {
+        const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
+          token,
+          orgId,
+          entry.runtimeUrl,
+        );
+        bundleKey = key;
+        console.log("Uploading bundle...");
+        await platformUploadToSignedUrl(uploadUrl, bundleData);
+      } catch (err) {
+        // If signed uploads unavailable (503), fall back to inline upload
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("not available")) {
+          bundleKey = undefined;
+        } else {
+          throw err;
+        }
       }
     }
 
@@ -869,7 +872,19 @@ export async function resolveOrHatchTarget(
       process.exit(1);
     }
 
-    const result = await hatchAssistant(token);
+    let orgId: string;
+    try {
+      orgId = await fetchOrganizationId(token);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("401") || msg.includes("403")) {
+        console.error("Authentication failed. Run 'vellum login' to refresh.");
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    const result = await hatchAssistant(token, orgId);
     const entry: AssistantEntry = {
       assistantId: result.id,
       runtimeUrl: getPlatformUrl(),
@@ -1119,10 +1134,53 @@ export async function teleport(): Promise<void> {
       // No existing target — just describe what would happen
       console.log("Dry run summary:");
       console.log(`  Would export data from: ${from} (${fromCloud})`);
-      console.log(
-        `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
-      );
-      console.log(`  Would import data into the new assistant`);
+      if (targetEnv === "platform") {
+        // For platform targets, reflect the reordered flow
+        const token = readPlatformToken();
+        if (!token) {
+          console.error("Not logged in. Run 'vellum login' first.");
+          process.exit(1);
+        }
+        let orgId: string;
+        try {
+          orgId = await fetchOrganizationId(token);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("401") || msg.includes("403")) {
+            console.error(
+              "Authentication failed. Run 'vellum login' to refresh.",
+            );
+            process.exit(1);
+          }
+          throw err;
+        }
+        // Check if signed uploads are available
+        let signedUploadsAvailable = true;
+        try {
+          await platformRequestUploadUrl(token, orgId);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("not available")) {
+            signedUploadsAvailable = false;
+          } else {
+            throw err;
+          }
+        }
+        console.log(
+          `  Would upload bundle to GCS${signedUploadsAvailable ? "" : " (signed uploads unavailable — would use inline upload)"}`,
+        );
+        console.log(
+          `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
+        );
+        console.log(
+          `  Would import data into the new assistant${signedUploadsAvailable ? " from GCS" : " via inline upload"}`,
+        );
+      } else {
+        console.log(
+          `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
+        );
+        console.log(`  Would import data into the new assistant`);
+      }
     }
 
     console.log(`Dry run complete — no changes were made.`);
@@ -1133,6 +1191,62 @@ export async function teleport(): Promise<void> {
   console.log(`Exporting from ${from} (${fromCloud})...`);
   const bundleData = await exportFromAssistant(fromEntry, fromCloud);
 
+  // Platform target: reordered flow — upload to GCS before hatching so that
+  // if upload fails, no empty assistant is left dangling on the platform.
+  if (targetEnv === "platform") {
+    // Step B — Auth + Org ID
+    const token = readPlatformToken();
+    if (!token) {
+      console.error("Not logged in. Run 'vellum login' first.");
+      process.exit(1);
+    }
+
+    let orgId: string;
+    try {
+      orgId = await fetchOrganizationId(token);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("401") || msg.includes("403")) {
+        console.error("Authentication failed. Run 'vellum login' to refresh.");
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    // Step C — Upload to GCS
+    let bundleKey: string | undefined;
+    try {
+      const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
+        token,
+        orgId,
+      );
+      bundleKey = key;
+      console.log("Uploading bundle to GCS...");
+      await platformUploadToSignedUrl(uploadUrl, bundleData);
+    } catch (err) {
+      // If signed uploads unavailable (503), fall back to inline upload later
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("not available")) {
+        bundleKey = undefined;
+      } else {
+        throw err;
+      }
+    }
+
+    // Step D — Hatch (upload succeeded or fallback to inline — safe to hatch)
+    const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
+    const toCloud = resolveCloud(toEntry);
+
+    // Step E — Import from GCS (or inline fallback)
+    console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
+    await importToAssistant(toEntry, toCloud, bundleData, false, bundleKey);
+
+    // Success summary
+    console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
+    return;
+  }
+
+  // Non-platform targets (local/docker): existing flow unchanged
   // For local<->docker transfers, stop (sleep) the source to free up ports
   // before hatching the target. We do NOT retire yet — if hatch or import
   // fails, the user can recover by running `vellum wake <source>`.
