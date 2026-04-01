@@ -160,13 +160,15 @@ export class ConversationGraphMemory {
       mode: "none" as const,
     };
 
-    // Gate: skip for empty/tool-result-only messages
+    // Gate: skip for empty/tool-result-only messages — unless we need to
+    // reload after compaction (needsReload) or haven't initialized yet.
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage || lastMessage.role !== "user") return noopResult;
     const hasUserContent = lastMessage.content.some(
       (block) => block.type === "text" && block.text.trim().length > 0,
     );
-    if (!hasUserContent) return noopResult;
+    if (!hasUserContent && this.initialized && !this.needsReload)
+      return noopResult;
 
     try {
       // Decide which retrieval mode to use
