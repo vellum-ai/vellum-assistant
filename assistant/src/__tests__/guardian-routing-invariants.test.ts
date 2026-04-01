@@ -730,6 +730,62 @@ describe("routing invariant: channel formatting delimiters stripped from code pa
     const resolved = getCanonicalGuardianRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
+
+  test("*CODE* action — formatting wraps only the code portion", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "A1B2C3",
+      toolName: "shell",
+      inputDigest: "sha256:abc",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "*A1B2C3* approve",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("approved");
+  });
+
+  test("**CODE** action — double-asterisk formatting wraps only the code portion", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "D4E5F6",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "**D4E5F6** reject",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("denied");
+  });
 });
 
 // ===========================================================================
