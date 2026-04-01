@@ -343,6 +343,7 @@ Examples:
             if (r.installs > 0) {
               log.info(`    Installs: ${r.installs}`);
             }
+            log.info(`    Install: npx clawhub install ${r.slug}`);
             if (conflictIds.has(r.slug)) {
               log.info(`    NOTE: Conflicts with Vellum catalog skill`);
             }
