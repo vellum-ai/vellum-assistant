@@ -298,38 +298,24 @@ struct IntegrationDetailModal: View {
 
     // MARK: - Your Own Tab
 
+    /// Whether the user is in the "add app" form step vs the app list step.
+    @State private var isShowingAddAppForm = false
+    @State private var isAddAppButtonHovered = false
+
+    /// True when there are no apps yet, or the user clicked "Add Another App".
+    private var shouldShowForm: Bool {
+        store.yourOwnApps(for: providerKey).isEmpty || isShowingAddAppForm
+    }
+
     @ViewBuilder
     private var yourOwnBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if store.yourOwnIsLoading(for: providerKey) {
                 yourOwnSkeleton
+            } else if shouldShowForm {
+                yourOwnFormStep
             } else {
-                // Always show credential fields
-                VTextField(
-                    "Client ID",
-                    placeholder: yourOwnMeta?.client_id_placeholder ?? "Enter client ID",
-                    text: $createAppClientId
-                )
-                if yourOwnMeta?.requires_client_secret ?? true {
-                    VTextField(
-                        "Client Secret",
-                        placeholder: "Enter client secret",
-                        text: $createAppClientSecret,
-                        isSecure: true
-                    )
-                }
-                if yourOwnMeta?.dashboard_url != nil {
-                    VInlineMessage("Find these in your \(displayName) developer console.", tone: .info)
-                }
-
-                // Existing apps and their connections
-                if !store.yourOwnApps(for: providerKey).isEmpty {
-                    Divider().foregroundStyle(VColor.borderBase)
-
-                    ForEach(store.yourOwnApps(for: providerKey)) { app in
-                        yourOwnAppCard(for: app)
-                    }
-                }
+                yourOwnListStep
             }
 
             if let error = store.yourOwnError(for: providerKey) {
@@ -338,11 +324,59 @@ struct IntegrationDetailModal: View {
         }
         .onAppear {
             store.fetchYourOwnOAuthApps(providerKey: providerKey)
-            // Pre-fill fields from existing app if there is one
-            if let existingApp = store.yourOwnApps(for: providerKey).first {
-                createAppClientId = existingApp.client_id
-                createAppClientSecret = ""
+        }
+    }
+
+    /// Step 1: Credential entry form (shown when no apps, or user clicked "Add Another App")
+    private var yourOwnFormStep: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            VTextField(
+                "Client ID",
+                placeholder: yourOwnMeta?.client_id_placeholder ?? "Enter client ID",
+                text: $createAppClientId
+            )
+            if yourOwnMeta?.requires_client_secret ?? true {
+                VTextField(
+                    "Client Secret",
+                    placeholder: "Enter client secret",
+                    text: $createAppClientSecret,
+                    isSecure: true
+                )
             }
+            if yourOwnMeta?.dashboard_url != nil {
+                VInlineMessage("Find these in your \(displayName) developer console.", tone: .info)
+            }
+        }
+    }
+
+    /// Step 2: App list with "Add Another App" ghost button
+    private var yourOwnListStep: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            ForEach(store.yourOwnApps(for: providerKey)) { app in
+                yourOwnAppCard(for: app)
+            }
+
+            Button {
+                createAppClientId = ""
+                createAppClientSecret = ""
+                isShowingAddAppForm = true
+            } label: {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(.plus, size: 14)
+                    Text("Add Another App")
+                        .font(VFont.bodyMediumDefault)
+                }
+                .foregroundStyle(VColor.primaryBase)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.surfaceBase.opacity(isAddAppButtonHovered ? 1 : 0))
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { isAddAppButtonHovered = $0 }
         }
     }
 
@@ -361,15 +395,23 @@ struct IntegrationDetailModal: View {
 
     @ViewBuilder
     private var yourOwnFooterButton: some View {
-        VButton(
-            label: createAppIsSubmitting ? "Saving..." : "Save",
-            style: .primary,
-            isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
-        ) {
-            createAppIsSubmitting = true
-            Task {
-                await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
-                createAppIsSubmitting = false
+        if shouldShowForm {
+            if isShowingAddAppForm && !store.yourOwnApps(for: providerKey).isEmpty {
+                VButton(label: "Back", style: .outlined) {
+                    isShowingAddAppForm = false
+                }
+            }
+            VButton(
+                label: createAppIsSubmitting ? "Saving..." : "Save",
+                style: .primary,
+                isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
+            ) {
+                createAppIsSubmitting = true
+                Task {
+                    await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
+                    createAppIsSubmitting = false
+                    isShowingAddAppForm = false
+                }
             }
         }
     }
