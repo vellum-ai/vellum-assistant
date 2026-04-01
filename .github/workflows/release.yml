@@ -155,6 +155,8 @@ jobs:
           context: .
           file: assistant/Dockerfile
           platforms: ${{ matrix.platform }}
+          build-args: |
+            VELLUM_SERVICE_VERSION=${{ needs.extract-version.outputs.version }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
@@ -758,6 +760,8 @@ jobs:
           push: true
           provenance: false
           tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VELLUM_SERVICE_VERSION=${{ needs.extract-version.outputs.version }}
 
       - name: Summary
         run: |

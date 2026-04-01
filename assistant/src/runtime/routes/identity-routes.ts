@@ -127,6 +127,11 @@ function getCpuInfo(): CpuInfo {
 }
 
 function getPackageVersion(): string | undefined {
+  // Prefer the build-time version injected via Docker build-arg / env var
+  // so that staging pre-release suffixes (e.g. 0.6.0-staging.1) are preserved.
+  const envVersion = process.env.VELLUM_SERVICE_VERSION;
+  if (envVersion) return envVersion;
+
   try {
     const pkgPath = join(
       dirname(fileURLToPath(import.meta.url)),
