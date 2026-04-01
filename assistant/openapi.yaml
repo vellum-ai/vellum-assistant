@@ -6129,13 +6129,89 @@ paths:
               schema:
                 type: object
                 properties:
-                  data:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Search results
+                  skills:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        kind:
+                          type: string
+                          enum:
+                            - bundled
+                            - installed
+                            - catalog
+                        origin:
+                          type: string
+                          enum:
+                            - vellum
+                            - clawhub
+                            - skillssh
+                            - custom
+                        status:
+                          type: string
+                          enum:
+                            - enabled
+                            - disabled
+                            - available
+                        vellum:
+                          type: object
+                          properties:
+                            emoji:
+                              type: string
+                          additionalProperties: false
+                        clawhub:
+                          type: object
+                          properties:
+                            slug:
+                              type: string
+                            author:
+                              type: string
+                            stars:
+                              type: number
+                            installs:
+                              type: number
+                            reports:
+                              type: number
+                            publishedAt:
+                              type: string
+                          required:
+                            - slug
+                            - author
+                            - stars
+                            - installs
+                            - reports
+                          additionalProperties: false
+                        skillssh:
+                          type: object
+                          properties:
+                            slug:
+                              type: string
+                            sourceRepo:
+                              type: string
+                            installs:
+                              type: number
+                          required:
+                            - slug
+                            - sourceRepo
+                            - installs
+                          additionalProperties: false
+                      required:
+                        - id
+                        - name
+                        - description
+                        - kind
+                        - origin
+                        - status
+                      additionalProperties: false
+                    description: Skill objects matching the search query
                 required:
-                  - data
+                  - skills
                 additionalProperties: false
       parameters:
         - name: q

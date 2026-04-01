@@ -210,27 +210,19 @@ describe("searchSkills (unified)", () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
-    const data = result.data as {
-      skills: Array<{
-        id: string;
-        origin: string;
-        kind: string;
-        status: string;
-      }>;
-    };
-    expect(data.skills).toHaveLength(3);
+    expect(result.skills).toHaveLength(3);
 
     // Verify ordering: catalog first, then clawhub, then skills.sh
-    expect(data.skills[0]!.id).toBe("weather");
-    expect(data.skills[0]!.origin).toBe("vellum");
-    expect(data.skills[0]!.kind).toBe("catalog");
-    expect(data.skills[0]!.status).toBe("available");
-    expect(data.skills[1]!.id).toBe("deploy");
-    expect(data.skills[1]!.origin).toBe("clawhub");
-    expect(data.skills[1]!.kind).toBe("catalog");
-    expect(data.skills[2]!.id).toBe("vercel-labs/skills/react-best");
-    expect(data.skills[2]!.origin).toBe("skillssh");
-    expect(data.skills[2]!.kind).toBe("catalog");
+    expect(result.skills[0]!.id).toBe("weather");
+    expect(result.skills[0]!.origin).toBe("vellum");
+    expect(result.skills[0]!.kind).toBe("catalog");
+    expect(result.skills[0]!.status).toBe("available");
+    expect(result.skills[1]!.id).toBe("deploy");
+    expect(result.skills[1]!.origin).toBe("clawhub");
+    expect(result.skills[1]!.kind).toBe("catalog");
+    expect(result.skills[2]!.id).toBe("vercel-labs/skills/react-best");
+    expect(result.skills[2]!.origin).toBe("skillssh");
+    expect(result.skills[2]!.kind).toBe("catalog");
   });
 
   test("deduplicates: catalog takes precedence over clawhub and skills.sh", async () => {
@@ -273,16 +265,13 @@ describe("searchSkills (unified)", () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
-    const data = result.data as {
-      skills: Array<{ id: string; origin: string }>;
-    };
     // Catalog deduplicates clawhub (same slug "shared-skill"), but skills.sh
     // now uses the full id "org/repo/shared-skill" so it's a distinct entry.
-    expect(data.skills).toHaveLength(2);
-    expect(data.skills[0]!.id).toBe("shared-skill");
-    expect(data.skills[0]!.origin).toBe("vellum");
-    expect(data.skills[1]!.id).toBe("org/repo/shared-skill");
-    expect(data.skills[1]!.origin).toBe("skillssh");
+    expect(result.skills).toHaveLength(2);
+    expect(result.skills[0]!.id).toBe("shared-skill");
+    expect(result.skills[0]!.origin).toBe("vellum");
+    expect(result.skills[1]!.id).toBe("org/repo/shared-skill");
+    expect(result.skills[1]!.origin).toBe("skillssh");
   });
 
   test("deduplicates: clawhub takes precedence over skills.sh with same slug", async () => {
@@ -318,15 +307,12 @@ describe("searchSkills (unified)", () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
-    const data = result.data as {
-      skills: Array<{ id: string; origin: string }>;
-    };
     // Full id slug means no collision — both entries survive
-    expect(data.skills).toHaveLength(2);
-    expect(data.skills[0]!.id).toBe("overlap-skill");
-    expect(data.skills[0]!.origin).toBe("clawhub");
-    expect(data.skills[1]!.id).toBe("org/repo/overlap-skill");
-    expect(data.skills[1]!.origin).toBe("skillssh");
+    expect(result.skills).toHaveLength(2);
+    expect(result.skills[0]!.id).toBe("overlap-skill");
+    expect(result.skills[0]!.origin).toBe("clawhub");
+    expect(result.skills[1]!.id).toBe("org/repo/overlap-skill");
+    expect(result.skills[1]!.origin).toBe("skillssh");
   });
 
   test("returns clawhub results when skills.sh fails", async () => {
@@ -352,12 +338,9 @@ describe("searchSkills (unified)", () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
-    const data = result.data as {
-      skills: Array<{ id: string; origin: string }>;
-    };
-    expect(data.skills).toHaveLength(1);
-    expect(data.skills[0]!.id).toBe("clawhub-only");
-    expect(data.skills[0]!.origin).toBe("clawhub");
+    expect(result.skills).toHaveLength(1);
+    expect(result.skills[0]!.id).toBe("clawhub-only");
+    expect(result.skills[0]!.origin).toBe("clawhub");
   });
 
   test("returns skills.sh results when clawhub fails", async () => {
@@ -377,12 +360,9 @@ describe("searchSkills (unified)", () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
-    const data = result.data as {
-      skills: Array<{ id: string; origin: string }>;
-    };
-    expect(data.skills).toHaveLength(1);
-    expect(data.skills[0]!.id).toBe("org/repo/skillssh-only");
-    expect(data.skills[0]!.origin).toBe("skillssh");
+    expect(result.skills).toHaveLength(1);
+    expect(result.skills[0]!.id).toBe("org/repo/skillssh-only");
+    expect(result.skills[0]!.origin).toBe("skillssh");
   });
 
   test("returns catalog-only results when both community registries fail", async () => {
@@ -401,12 +381,9 @@ describe("searchSkills (unified)", () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
-    const data = result.data as {
-      skills: Array<{ id: string; origin: string }>;
-    };
-    expect(data.skills).toHaveLength(1);
-    expect(data.skills[0]!.id).toBe("my-skill");
-    expect(data.skills[0]!.origin).toBe("vellum");
+    expect(result.skills).toHaveLength(1);
+    expect(result.skills[0]!.id).toBe("my-skill");
+    expect(result.skills[0]!.origin).toBe("vellum");
   });
 
   test("skills.sh results have correct normalized fields", async () => {
@@ -426,24 +403,9 @@ describe("searchSkills (unified)", () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error("Expected success");
 
-    const data = result.data as {
-      skills: Array<{
-        id: string;
-        name: string;
-        description: string;
-        kind: string;
-        origin: string;
-        status: string;
-        skillssh?: {
-          slug: string;
-          sourceRepo: string;
-          installs: number;
-        };
-      }>;
-    };
-    expect(data.skills).toHaveLength(1);
+    expect(result.skills).toHaveLength(1);
 
-    const skill = data.skills[0]!;
+    const skill = result.skills[0]!;
     expect(skill.id).toBe("org/repo/test-skill");
     expect(skill.name).toBe("Test Skill");
     expect(skill.description).toBe("");

@@ -839,7 +839,7 @@ export async function searchSkills(
   query: string,
   _ctx: SkillOperationContext,
 ): Promise<
-  | { success: true; data: { skills: SlimSkillResponse[] } }
+  | { success: true; skills: SlimSkillResponse[] }
   | { success: false; error: string }
 > {
   try {
@@ -938,9 +938,7 @@ export async function searchSkills(
 
     return {
       success: true,
-      data: {
-        skills: [...catalogItems, ...dedupedClawhub, ...dedupedSkillssh],
-      },
+      skills: [...catalogItems, ...dedupedClawhub, ...dedupedSkillssh],
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

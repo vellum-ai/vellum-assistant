@@ -279,7 +279,40 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         },
       ],
       responseBody: z.object({
-        data: z.object({}).passthrough().describe("Search results"),
+        skills: z
+          .array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              description: z.string(),
+              kind: z.enum(["bundled", "installed", "catalog"]),
+              origin: z.enum(["vellum", "clawhub", "skillssh", "custom"]),
+              status: z.enum(["enabled", "disabled", "available"]),
+              vellum: z
+                .object({
+                  emoji: z.string().optional(),
+                })
+                .optional(),
+              clawhub: z
+                .object({
+                  slug: z.string(),
+                  author: z.string(),
+                  stars: z.number(),
+                  installs: z.number(),
+                  reports: z.number(),
+                  publishedAt: z.string().optional(),
+                })
+                .optional(),
+              skillssh: z
+                .object({
+                  slug: z.string(),
+                  sourceRepo: z.string(),
+                  installs: z.number(),
+                })
+                .optional(),
+            }),
+          )
+          .describe("Skill objects matching the search query"),
       }),
       handler: async ({ url }) => {
         const query = url.searchParams.get("q") ?? "";
@@ -290,7 +323,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         if (!result.success) {
           return httpError("INTERNAL_ERROR", result.error, 500);
         }
-        return Response.json({ data: result.data });
+        return Response.json({ skills: result.skills });
       },
     },
 
