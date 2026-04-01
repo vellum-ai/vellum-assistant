@@ -592,7 +592,7 @@ export function parseExtractionResponse(
 
     // Auto-create event trigger when event_date is set but LLM didn't include one
     if (
-      node.eventDate &&
+      node.eventDate != null &&
       (!Array.isArray(raw.triggers) ||
         !raw.triggers.some((t) => t.type === "event"))
     ) {

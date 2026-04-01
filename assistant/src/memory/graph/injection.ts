@@ -264,7 +264,7 @@ export function assembleContextBlock(
 
     if (scored.scoreBreakdown.triggerBoost > 0) {
       triggered.push(scored);
-    } else if (node.eventDate && node.eventDate > Date.now()) {
+    } else if (node.eventDate != null && node.eventDate > Date.now()) {
       // Future-dated events without an active trigger go to Upcoming
       upcoming.push(scored);
     } else if (node.type === "prospective") {
