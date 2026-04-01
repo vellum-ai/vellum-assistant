@@ -520,7 +520,7 @@ export function serviceDockerRunArgs(opts: {
         "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,
         "-e",
-        "IS_CONTAINERIZED=false",
+        "IS_CONTAINERIZED=true",
         "-e",
         `VELLUM_ASSISTANT_NAME=${instanceName}`,
         "-e",
