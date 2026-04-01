@@ -8,13 +8,7 @@ import type {
   QdrantSparseVector,
 } from "../qdrant-client.js";
 import { getQdrantClient } from "../qdrant-client.js";
-import {
-  conversations,
-  memoryItems,
-  memoryItemSources,
-  memorySegments,
-  memorySummaries,
-} from "../schema.js";
+import { conversations, memorySegments, memorySummaries } from "../schema.js";
 // ── Types (inlined from deleted types.ts) ──────────────────────────
 
 type CandidateType = "segment" | "item" | "summary" | "media";
@@ -60,7 +54,7 @@ export async function semanticSearch(
   limit: number,
   excludedMessageIds: string[] = [],
   scopeIds?: string[],
-  sparseVector?: QdrantSparseVector,
+  sparseVector?: QdrantSparseVector
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
@@ -85,63 +79,33 @@ export async function semanticSearch(
         filter,
         limit: fetchLimit,
         prefetchLimit: fetchLimit,
-      }),
+      })
     );
   } else {
     results = await withQdrantBreaker(() =>
       qdrant.searchWithFilter(
         queryVector,
         fetchLimit,
-        ["item", "summary", "segment", "media"],
+        ["summary", "segment", "media"],
         excludedMessageIds,
-        scopeIds,
-      ),
+        scopeIds
+      )
     );
   }
 
   const db = getDb();
 
   // Batch-fetch all backing records upfront to avoid N+1 queries per result
-  const itemTargetIds: string[] = [];
   const summaryTargetIds: string[] = [];
   const segmentTargetIds: string[] = [];
   const mediaConversationIds: string[] = [];
   for (const r of results) {
-    if (r.payload.target_type === "item")
-      itemTargetIds.push(r.payload.target_id);
-    else if (r.payload.target_type === "summary")
+    if (r.payload.target_type === "summary")
       summaryTargetIds.push(r.payload.target_id);
     else if (r.payload.target_type === "segment")
       segmentTargetIds.push(r.payload.target_id);
     else if (r.payload.target_type === "media" && r.payload.conversation_id)
       mediaConversationIds.push(r.payload.conversation_id);
-  }
-
-  const itemsMap = new Map<string, typeof memoryItems.$inferSelect>();
-  if (itemTargetIds.length > 0) {
-    const allItems = db
-      .select()
-      .from(memoryItems)
-      .where(inArray(memoryItems.id, itemTargetIds))
-      .all();
-    for (const item of allItems) itemsMap.set(item.id, item);
-  }
-
-  const sourcesMap = new Map<string, string[]>();
-  if (itemTargetIds.length > 0) {
-    const allSources = db
-      .select({
-        memoryItemId: memoryItemSources.memoryItemId,
-        messageId: memoryItemSources.messageId,
-      })
-      .from(memoryItemSources)
-      .where(inArray(memoryItemSources.memoryItemId, itemTargetIds))
-      .all();
-    for (const s of allSources) {
-      const existing = sourcesMap.get(s.memoryItemId);
-      if (existing) existing.push(s.messageId);
-      else sourcesMap.set(s.memoryItemId, [s.messageId]);
-    }
   }
 
   const summariesMap = new Map<string, typeof memorySummaries.$inferSelect>();
@@ -192,29 +156,8 @@ export async function semanticSearch(
     const createdAt = payload.created_at ?? Date.now();
 
     if (payload.target_type === "item") {
-      const item = itemsMap.get(payload.target_id);
-      if (!item || item.status !== "active" || item.invalidAt != null) continue;
-      if (scopeIds && !scopeIds.includes(item.scopeId)) continue;
-      const sources = sourcesMap.get(payload.target_id);
-      if (!sources || sources.length === 0) continue;
-      if (excludedSet) {
-        const hasNonExcluded = sources.some((msgId) => !excludedSet.has(msgId));
-        if (!hasNonExcluded) continue;
-      }
-      candidates.push({
-        key: `item:${payload.target_id}`,
-        type: "item",
-        id: payload.target_id,
-        source: "semantic",
-        text: `${item.subject}: ${item.statement}`,
-        kind: item.kind,
-        confidence: item.confidence,
-        importance: item.importance ?? 0.5,
-        createdAt: item.lastSeenAt,
-        semantic,
-        recency: computeRecencyScore(item.lastSeenAt),
-        finalScore: 0,
-      });
+      // Legacy item vectors — skip (table dropped, Qdrant cleanup pending)
+      continue;
     } else if (payload.target_type === "summary") {
       if (scopeIds) {
         const summary = summariesMap.get(payload.target_id);
@@ -317,32 +260,14 @@ export async function semanticSearch(
  */
 function buildHybridFilter(
   excludeMessageIds: string[],
-  scopeIds?: string[],
+  scopeIds?: string[]
 ): Record<string, unknown> {
   const mustConditions: Array<Record<string, unknown>> = [
     {
       key: "target_type",
-      match: { any: ["item", "summary", "segment", "media"] },
+      match: { any: ["summary", "segment", "media"] },
     },
   ];
-
-  if (excludeMessageIds.length > 0) {
-    // Only require status=active for items; segments and summaries don't have a status field
-    mustConditions.push({
-      should: [
-        {
-          must: [
-            { key: "target_type", match: { value: "item" } },
-            { key: "status", match: { value: "active" } },
-          ],
-        },
-        {
-          key: "target_type",
-          match: { any: ["segment", "summary", "media"] },
-        },
-      ],
-    });
-  }
 
   // Scope filtering: accept points whose memory_scope_id matches one of the
   // allowed scopes, OR points that lack the field entirely (legacy data).
@@ -379,6 +304,6 @@ export function mapCosineToUnit(value: number): number {
 export function isQdrantConnectionError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(
-    err.message,
+    err.message
   );
 }

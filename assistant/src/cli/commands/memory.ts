@@ -36,7 +36,7 @@ Key concepts:
 Examples:
   $ assistant memory status
   $ assistant memory query "What is the project deadline?"
-  $ assistant memory backfill`,
+  $ assistant memory backfill`
   );
 
   memory
@@ -52,15 +52,13 @@ Fields shown:
                      degraded mode (e.g. missing embedding backend)
   embedding backend  The provider/model pair used for vector embeddings (or "none")
   segments           Total conversation segments indexed
-  items              Total distilled fact items stored
+  graph nodes        Total memory graph nodes stored
   summaries          Total compressed conversation summaries
   embeddings         Total vector embeddings computed
-  cleanup backlogs   Number of superseded items pending cleanup
-  cleanup throughput Number of cleanup operations completed in the last 24 hours
   jobs               Status of background jobs (backfill, cleanup, rebuild-index)
 
 Examples:
-  $ assistant memory status`,
+  $ assistant memory status`
     )
     .action(async () => {
       initializeDb();
@@ -74,15 +72,9 @@ Examples:
         log.info("Embedding backend: none");
       }
       log.info(`Segments: ${status.counts.segments.toLocaleString()}`);
-      log.info(`Items: ${status.counts.items.toLocaleString()}`);
+      log.info(`Graph nodes: ${status.counts.graphNodes.toLocaleString()}`);
       log.info(`Summaries: ${status.counts.summaries.toLocaleString()}`);
       log.info(`Embeddings: ${status.counts.embeddings.toLocaleString()}`);
-      log.info(
-        `Cleanup backlog (superseded items): ${status.cleanup.supersededBacklog.toLocaleString()}`,
-      );
-      log.info(
-        `Cleanup throughput 24h (superseded items): ${status.cleanup.supersededCompleted24h.toLocaleString()}`,
-      );
       log.info("Jobs:");
       for (const [key, value] of Object.entries(status.jobs)) {
         log.info(`  ${key}: ${value}`);
@@ -106,7 +98,7 @@ useful after bulk imports or if the incremental state has become inconsistent.
 
 Examples:
   $ assistant memory backfill
-  $ assistant memory backfill --force`,
+  $ assistant memory backfill --force`
     )
     .action((opts: { force?: boolean }) => {
       initializeDb();
@@ -119,7 +111,7 @@ Examples:
     .description("Queue cleanup jobs for stale superseded items")
     .option(
       "--retention-ms <ms>",
-      "Optional retention threshold in milliseconds",
+      "Optional retention threshold in milliseconds"
     )
     .addHelpText(
       "after",
@@ -133,19 +125,17 @@ default retention period is used.
 
 Examples:
   $ assistant memory cleanup
-  $ assistant memory cleanup --retention-ms 86400000`,
+  $ assistant memory cleanup --retention-ms 86400000`
     )
     .action((opts: { retentionMs?: string }) => {
       initializeDb();
       const retentionMs = opts.retentionMs
         ? Number.parseInt(opts.retentionMs, 10)
         : undefined;
-      const jobs = requestMemoryCleanup(
-        Number.isFinite(retentionMs) ? retentionMs : undefined,
+      requestMemoryCleanup(
+        Number.isFinite(retentionMs) ? retentionMs : undefined
       );
-      log.info(
-        `Queued cleanup_stale_superseded_items job: ${jobs.staleSupersededItemsJobId}`,
-      );
+      log.info("Memory cleanup requested (legacy items table dropped)");
     });
 
   memory
@@ -164,20 +154,20 @@ existing short segments that were stored before the filter was added.
 
 Examples:
   $ assistant memory cleanup-segments
-  $ assistant memory cleanup-segments --dry-run`,
+  $ assistant memory cleanup-segments --dry-run`
     )
     .action(async (opts: { dryRun?: boolean }) => {
       initializeDb();
       const result = await cleanupShortSegments({ dryRun: opts.dryRun });
       if (opts.dryRun) {
         log.info(
-          `Dry run: ${result.dryRunCount} short segment(s) would be removed.`,
+          `Dry run: ${result.dryRunCount} short segment(s) would be removed.`
         );
       } else {
         log.info(`Removed ${result.removed} short segment(s).`);
         if (result.failed > 0) {
           log.warn(
-            `${result.failed} segment(s) skipped — Qdrant deletion failed. Re-run when Qdrant is available.`,
+            `${result.failed} segment(s) skipped — Qdrant deletion failed. Re-run when Qdrant is available.`
           );
         }
       }
@@ -186,7 +176,7 @@ Examples:
   memory
     .command("query <text>")
     .description(
-      "Run a memory recall query and print the injected memory payload",
+      "Run a memory recall query and print the injected memory payload"
     )
     .option("-c, --conversation <id>", "Optional conversation ID")
     .addHelpText(
@@ -207,7 +197,7 @@ context-aware recall. If omitted, the most recent conversation is used.
 Examples:
   $ assistant memory query "What is the project deadline?"
   $ assistant memory query "preferred communication style" --conversation conv_abc123
-  $ assistant memory query "API rate limits"`,
+  $ assistant memory query "API rate limits"`
     )
     .action(async (text: string, opts?: { conversation?: string }) => {
       initializeDb();
@@ -223,7 +213,9 @@ Examples:
         log.info("");
         for (const r of result.results) {
           log.info(
-            `[${r.type}] (confidence: ${r.confidence.toFixed(2)}, score: ${r.score.toFixed(3)})`,
+            `[${r.type}] (confidence: ${r.confidence.toFixed(
+              2
+            )}, score: ${r.score.toFixed(3)})`
           );
           log.info(r.content);
           log.info("");
@@ -249,7 +241,7 @@ status" to monitor job progress.
 
 Examples:
   $ assistant memory rebuild-index
-  $ assistant memory status`,
+  $ assistant memory status`
     )
     .action(() => {
       initializeDb();
@@ -260,13 +252,13 @@ Examples:
   memory
     .command("re-extract")
     .description(
-      "Re-extract memories from conversations using the latest extraction prompt",
+      "Re-extract memories from conversations using the latest extraction prompt"
     )
     .option(
       "-c, --conversation <id>",
       "Target a specific conversation by ID (repeatable)",
       (val: string, prev: string[]) => [...prev, val],
-      [] as string[],
+      [] as string[]
     )
     .option("-t, --top <n>", "Auto-select top N conversations by message count")
     .option("--dry-run", "Show what would be re-extracted without doing it")
@@ -289,7 +281,7 @@ background worker).
 Examples:
   $ assistant memory re-extract --top 20
   $ assistant memory re-extract --conversation conv_abc123
-  $ assistant memory re-extract --top 10 --dry-run`,
+  $ assistant memory re-extract --top 10 --dry-run`
     )
     .action(
       (opts: { conversation?: string[]; top?: string; dryRun?: boolean }) => {
@@ -329,7 +321,7 @@ Examples:
 
         if (targets.length === 0) {
           log.info(
-            "No targets specified. Use --conversation <id> or --top <n>.",
+            "No targets specified. Use --conversation <id> or --top <n>."
           );
           return;
         }
@@ -348,8 +340,8 @@ Examples:
 
         const { jobIds } = requestReextract(targets);
         log.info(
-          `\nQueued ${jobIds.length} re-extraction job(s). The assistant will process them in the background.`,
+          `\nQueued ${jobIds.length} re-extraction job(s). The assistant will process them in the background.`
         );
-      },
+      }
     );
 }

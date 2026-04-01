@@ -9,7 +9,7 @@
 // Checkpointed and resumable. Progress tracked via memory_checkpoints.
 // ---------------------------------------------------------------------------
 
-import { existsSync,readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { and, asc, ne, sql } from "drizzle-orm";
@@ -61,7 +61,7 @@ export interface BootstrapResult {
  * if interrupted, re-run and it picks up where it left off.
  */
 export async function bootstrapFromHistory(
-  options?: BootstrapOptions,
+  options?: BootstrapOptions
 ): Promise<BootstrapResult> {
   const start = Date.now();
   const scopeId = options?.scopeId ?? "default";
@@ -106,7 +106,7 @@ export async function bootstrapFromHistory(
 
   log.info(
     { total: allConversations.length },
-    "Starting graph bootstrap from historical conversations",
+    "Starting graph bootstrap from historical conversations"
   );
 
   // Resume from checkpoint
@@ -148,7 +148,7 @@ export async function bootstrapFromHistory(
           skipQdrant: true, // Use DB query for candidates (no Qdrant dependency)
           conversationTimestamp: conv.createdAt, // Use actual conversation time
           embedInline: true, // Embed synchronously so nodes are searchable immediately
-        },
+        }
       );
 
       result.totalNodesCreated += extractionResult.nodesCreated;
@@ -171,14 +171,14 @@ export async function bootstrapFromHistory(
             nodes: nodeCount,
             elapsed: `${((Date.now() - start) / 1000).toFixed(1)}s`,
           },
-          "Bootstrap progress",
+          "Bootstrap progress"
         );
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       log.warn(
         { conversationId: conv.id, err: errMsg },
-        "Failed to extract conversation, continuing",
+        "Failed to extract conversation, continuing"
       );
       result.errors.push({ conversationId: conv.id, error: errMsg });
 
@@ -199,7 +199,7 @@ export async function bootstrapFromHistory(
       errors: result.errors.length,
       elapsedMs: result.elapsedMs,
     },
-    "Graph bootstrap complete",
+    "Graph bootstrap complete"
   );
 
   return result;
@@ -209,7 +209,7 @@ export async function bootstrapFromHistory(
  * Also extract from journal files on disk.
  */
 export async function bootstrapFromJournal(
-  scopeId: string = "default",
+  scopeId: string = "default"
 ): Promise<{ extracted: number; errors: number }> {
   const config = getConfig();
   const journalDir = join(getWorkspaceDir(), "journal");
@@ -227,7 +227,7 @@ export async function bootstrapFromJournal(
         (f) =>
           f.endsWith(".md") &&
           !f.startsWith(".") &&
-          f.toLowerCase() !== "readme.md",
+          f.toLowerCase() !== "readme.md"
       );
     } catch {
       continue;
@@ -248,7 +248,7 @@ export async function bootstrapFromJournal(
       } catch (err) {
         log.warn(
           { file, slug, err: err instanceof Error ? err.message : String(err) },
-          "Failed to extract journal entry",
+          "Failed to extract journal entry"
         );
         errors++;
       }
@@ -288,7 +288,9 @@ function parseJournalDate(filename: string): number {
   }
 
   return new Date(
-    `${year}-${month}-${day}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`,
+    `${year}-${month}-${day}T${String(hours).padStart(2, "0")}:${String(
+      minutes
+    ).padStart(2, "0")}:00`
   ).getTime();
 }
 
@@ -318,8 +320,8 @@ export function maybeEnqueueGraphBootstrap(): void {
       .where(
         and(
           ne(memoryGraphNodes.type, "procedural"),
-          sql`${memoryGraphNodes.fidelity} != 'gone'`,
-        ),
+          sql`${memoryGraphNodes.fidelity} != 'gone'`
+        )
       )
       .get()?.count ?? 0;
 
@@ -341,7 +343,7 @@ export function maybeEnqueueGraphBootstrap(): void {
 
   log.info(
     { segmentCount, hasJournalFiles },
-    "Graph empty with historical data — enqueueing bootstrap",
+    "Graph empty with historical data — enqueueing bootstrap"
   );
   enqueueMemoryJob("graph_bootstrap", {});
 }
@@ -390,7 +392,7 @@ export function migrateToolCreatedItems(): void {
       `SELECT id, kind, subject, statement, confidence, importance, scope_id, first_seen_at
        FROM memory_items
        WHERE kind IN (${placeholders}) AND status = 'active'`,
-      ...kinds,
+      ...kinds
     );
   } catch {
     // Table may not exist (fresh install) — nothing to migrate
@@ -422,7 +424,9 @@ export function migrateToolCreatedItems(): void {
       .select({ id: memoryGraphNodes.id })
       .from(memoryGraphNodes)
       .where(
-        sql`${memoryGraphNodes.sourceConversations} LIKE ${"%" + sourceKey + "%"}`,
+        sql`${memoryGraphNodes.sourceConversations} LIKE ${
+          "%" + sourceKey + "%"
+        }`
       )
       .get();
     if (existing) continue;
@@ -464,7 +468,43 @@ export function migrateToolCreatedItems(): void {
   if (migrated > 0) {
     log.info(
       { migrated, total: rows.length },
-      "Migrated tool-created items to graph nodes",
+      "Migrated tool-created items to graph nodes"
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// One-time cleanup: remove stale Qdrant vectors with target_type "item"
+// ---------------------------------------------------------------------------
+
+const CLEANUP_ITEM_VECTORS_CHECKPOINT = "graph_bootstrap:cleaned_item_vectors";
+
+/**
+ * Delete Qdrant vectors with target_type "item" left over from the legacy
+ * memory_items system. The backing SQLite rows have been dropped (migration
+ * 203), so these vectors are orphaned and waste index space.
+ *
+ * Checkpoint-gated: runs exactly once per workspace.
+ */
+export async function cleanupStaleItemVectors(): Promise<void> {
+  if (getMemoryCheckpoint(CLEANUP_ITEM_VECTORS_CHECKPOINT)) return;
+
+  let qdrant;
+  try {
+    qdrant = (await import("../qdrant-client.js")).getQdrantClient();
+  } catch {
+    // Qdrant not initialized yet — skip; will run on next startup.
+    return;
+  }
+
+  try {
+    await qdrant.deleteByTargetType("item");
+    setMemoryCheckpoint(CLEANUP_ITEM_VECTORS_CHECKPOINT, "done");
+    log.info("Cleaned up stale Qdrant vectors with target_type 'item'");
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to clean up stale item vectors — will retry on next startup"
     );
   }
 }

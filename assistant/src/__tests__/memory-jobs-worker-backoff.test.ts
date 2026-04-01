@@ -34,7 +34,6 @@ mock.module("../memory/jobs-store.js", () => ({
   deferMemoryJob: () => "deferred",
   failMemoryJob: () => {},
   failStalledJobs: () => 0,
-  enqueueCleanupStaleSupersededItemsJob: () => null,
   enqueuePruneOldConversationsJob: () => null,
 }));
 
@@ -90,7 +89,7 @@ describe("memory jobs worker adaptive poll interval", () => {
         timeoutDelays.push(delay);
         pendingCallbacks.push(fn);
       }
-      return 999 as unknown as ReturnType<typeof setTimeout>;
+      return (999 as unknown) as ReturnType<typeof setTimeout>;
     }) as typeof setTimeout;
     globalThis.clearTimeout = (() => {}) as typeof clearTimeout;
 
@@ -129,7 +128,7 @@ describe("memory jobs worker adaptive poll interval", () => {
 
       // Should eventually reach the cap
       expect(timeoutDelays[timeoutDelays.length - 1]).toBe(
-        POLL_INTERVAL_MAX_MS,
+        POLL_INTERVAL_MAX_MS
       );
     } finally {
       globalThis.setTimeout = originalSetTimeout;

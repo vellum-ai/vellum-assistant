@@ -51,8 +51,6 @@ import {
   conversationStarters,
   llmRequestLogs,
   memoryEmbeddings,
-  memoryItems,
-  memoryItemSources,
   memorySegments,
   memorySummaries,
   messageAttachments,
@@ -111,7 +109,7 @@ export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 function cloneForkMessageMetadata(
   metadata: string | null,
-  sourceMessageId: string,
+  sourceMessageId: string
 ): string {
   if (!metadata) {
     return JSON.stringify({ forkSourceMessageId: sourceMessageId });
@@ -144,7 +142,7 @@ function cloneForkMessageMetadata(
  * callers with actual guardian trust should always supply a real context.
  */
 export function provenanceFromTrustContext(
-  ctx: TrustContext | null | undefined,
+  ctx: TrustContext | null | undefined
 ): Record<string, unknown> {
   if (!ctx) return { provenanceTrustClass: "unknown" };
   return {
@@ -246,14 +244,14 @@ export function createConversation(
         source?: string;
         scheduleJobId?: string;
         groupId?: string;
-      },
+      }
 ) {
   const db = getDb();
   const now = Date.now();
   const opts =
     typeof titleOrOpts === "string"
       ? { title: titleOrOpts }
-      : (titleOrOpts ?? {});
+      : titleOrOpts ?? {};
   const conversationType = opts.conversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
@@ -304,7 +302,7 @@ export function createConversation(
       ) {
         log.warn(
           { attempt, conversationId: id, code },
-          "createConversation: INSERT transient error, retrying",
+          "createConversation: INSERT transient error, retrying"
         );
         Bun.sleepSync(50 * (attempt + 1));
         continue;
@@ -321,7 +319,7 @@ export function createConversation(
         rawRun(
           "UPDATE conversations SET group_id = ? WHERE id = ?",
           groupId,
-          id,
+          id
         );
         break;
       } catch (err) {
@@ -332,7 +330,7 @@ export function createConversation(
         ) {
           log.warn(
             { attempt, conversationId: id, code },
-            "createConversation: group_id UPDATE transient error, retrying",
+            "createConversation: group_id UPDATE transient error, retrying"
           );
           Bun.sleepSync(50 * (attempt + 1));
           continue;
@@ -363,18 +361,18 @@ export function getConversation(id: string): ConversationRow | null {
  * (i.e. no other conversations still reference it).
  */
 export function countConversationsByScheduleJobId(
-  scheduleJobId: string,
+  scheduleJobId: string
 ): number {
   return (
     rawGet<{ c: number }>(
       "SELECT COUNT(*) AS c FROM conversations WHERE schedule_job_id = ?",
-      scheduleJobId,
+      scheduleJobId
     )?.c ?? 0
   );
 }
 
 export function getConversationType(
-  conversationId: string,
+  conversationId: string
 ): "standard" | "private" {
   const conv = getConversation(conversationId);
   const raw = conv?.conversationType;
@@ -395,7 +393,7 @@ export function getConversationGroupId(conversationId: string): string | null {
   ensureGroupMigration();
   const row = rawGet<{ group_id: string | null }>(
     "SELECT group_id FROM conversations WHERE id = ?",
-    conversationId,
+    conversationId
   );
   return row?.group_id ?? null;
 }
@@ -419,7 +417,7 @@ export function forkConversation(params: {
 
   if (sourceMessages.length === 0) {
     throw new UserError(
-      `Conversation ${conversationId} has no persisted messages to fork`,
+      `Conversation ${conversationId} has no persisted messages to fork`
     );
   }
 
@@ -430,7 +428,7 @@ export function forkConversation(params: {
 
   if (throughMessageId != null && copyBoundaryIndex === -1) {
     throw new UserError(
-      `Message ${throughMessageId} does not belong to conversation ${conversationId}`,
+      `Message ${throughMessageId} does not belong to conversation ${conversationId}`
     );
   }
 
@@ -438,8 +436,8 @@ export function forkConversation(params: {
     0,
     Math.min(
       sourceConversation.contextCompactedMessageCount,
-      sourceMessages.length,
-    ),
+      sourceMessages.length
+    )
   );
   const preserveSourceCompactionState =
     copyBoundaryIndex >= visibleWindowStartIndex;
@@ -533,7 +531,7 @@ export function forkConversation(params: {
         .orderBy(messageAttachments.position)
         .all();
       const uncachedAttachmentLinks = attachmentLinks.filter(
-        (link) => !attachmentIdMap.has(link.attachmentId),
+        (link) => !attachmentIdMap.has(link.attachmentId)
       );
       const stagingMessageId =
         uncachedAttachmentLinks.length > 0 ? uuid() : null;
@@ -569,7 +567,7 @@ export function forkConversation(params: {
         const scopedAttachmentId = linkAttachmentToMessage(
           stagingMessageId ?? forkedMessageId,
           link.attachmentId,
-          link.position,
+          link.position
         );
         attachmentIdMap.set(link.attachmentId, scopedAttachmentId);
       }
@@ -604,7 +602,7 @@ export function forkConversation(params: {
   const persistedFork = getConversation(forkedConversation.id);
   if (!persistedFork) {
     throw new Error(
-      `Failed to load forked conversation ${forkedConversation.id} after creation`,
+      `Failed to load forked conversation ${forkedConversation.id} after creation`
     );
   }
 
@@ -649,16 +647,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
         .all();
       result.segmentIds = linkedSegments.map((r) => r.id);
 
-      // Collect memory item IDs linked to these messages before cascade.
-      const linkedItems = tx
-        .select({ memoryItemId: memoryItemSources.memoryItemId })
-        .from(memoryItemSources)
-        .where(inArray(memoryItemSources.messageId, messageIds))
-        .all();
-      const candidateItemIds = [
-        ...new Set(linkedItems.map((r) => r.memoryItemId)),
-      ];
-
       // Delete non-cascading tables first.
       tx.delete(llmRequestLogs)
         .where(eq(llmRequestLogs.conversationId, id))
@@ -666,7 +654,7 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
-      // Cascade deletes memory_segments, memory_item_sources, message_attachments.
+      // Cascade deletes memory_segments, message_attachments.
       tx.delete(messages).where(eq(messages.conversationId, id)).run();
 
       // Clean up segment embeddings.
@@ -675,38 +663,10 @@ export function deleteConversation(id: string): DeletedMemoryIds {
           .where(
             and(
               eq(memoryEmbeddings.targetType, "segment"),
-              inArray(memoryEmbeddings.targetId, result.segmentIds),
-            ),
+              inArray(memoryEmbeddings.targetId, result.segmentIds)
+            )
           )
           .run();
-      }
-
-      // Clean up orphaned memory items whose only sources were in this conversation.
-      if (candidateItemIds.length > 0) {
-        const surviving = tx
-          .select({ memoryItemId: memoryItemSources.memoryItemId })
-          .from(memoryItemSources)
-          .where(inArray(memoryItemSources.memoryItemId, candidateItemIds))
-          .all();
-        const survivingIds = new Set(surviving.map((r) => r.memoryItemId));
-        const orphanedIds = candidateItemIds.filter(
-          (itemId) => !survivingIds.has(itemId),
-        );
-        result.orphanedItemIds = orphanedIds;
-
-        if (orphanedIds.length > 0) {
-          tx.delete(memoryEmbeddings)
-            .where(
-              and(
-                eq(memoryEmbeddings.targetType, "item"),
-                inArray(memoryEmbeddings.targetId, orphanedIds),
-              ),
-            )
-            .run();
-          tx.delete(memoryItems)
-            .where(inArray(memoryItems.id, orphanedIds))
-            .run();
-        }
       }
     } else {
       // No messages — just clean up non-message tables.
@@ -719,35 +679,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     }
 
     if (isPrivateScope && memoryScopeId) {
-      // Sweep remaining memory items with this private scopeId.
-      const scopeItems = tx
-        .select({ id: memoryItems.id })
-        .from(memoryItems)
-        .where(eq(memoryItems.scopeId, memoryScopeId))
-        .all();
-      const alreadyDeleted = new Set(result.orphanedItemIds);
-      const scopeItemIds = scopeItems
-        .map((r) => r.id)
-        .filter((id) => !alreadyDeleted.has(id));
-
-      if (scopeItemIds.length > 0) {
-        tx.delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "item"),
-              inArray(memoryEmbeddings.targetId, scopeItemIds),
-            ),
-          )
-          .run();
-        tx.delete(memoryItemSources)
-          .where(inArray(memoryItemSources.memoryItemId, scopeItemIds))
-          .run();
-        tx.delete(memoryItems)
-          .where(inArray(memoryItems.id, scopeItemIds))
-          .run();
-        result.orphanedItemIds.push(...scopeItemIds);
-      }
-
       // Sweep memory summaries with this private scopeId.
       const scopeSummaries = tx
         .select({ id: memorySummaries.id })
@@ -761,8 +692,8 @@ export function deleteConversation(id: string): DeletedMemoryIds {
           .where(
             and(
               eq(memoryEmbeddings.targetType, "summary"),
-              inArray(memoryEmbeddings.targetId, scopeSummaryIds),
-            ),
+              inArray(memoryEmbeddings.targetId, scopeSummaryIds)
+            )
           )
           .run();
         tx.delete(memorySummaries)
@@ -807,65 +738,6 @@ export function wipeConversation(id: string): WipeConversationResult {
   // the cancellation queries join on `messages`).
   const cancelledJobCount = cancelPendingJobsForConversation(id);
 
-  // Step B — Un-supersede memory items with explicit `supersededBy` links.
-  // Find memory items whose `superseded_by` points to an item sourced
-  // exclusively from this conversation.
-  const explicitSuperseded = rawAll<{ oldItemId: string }>(
-    `SELECT DISTINCT mi_old.id AS oldItemId
-     FROM memory_items mi_old
-     JOIN memory_items mi_new ON mi_old.superseded_by = mi_new.id
-     WHERE mi_old.status = 'superseded'
-       AND mi_new.id IN (
-         SELECT mis.memory_item_id
-         FROM memory_item_sources mis
-         JOIN messages m ON m.id = mis.message_id
-         WHERE m.conversation_id = ?
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM memory_item_sources mis2
-         JOIN messages m2 ON m2.id = mis2.message_id
-         WHERE mis2.memory_item_id = mi_new.id
-           AND m2.conversation_id != ?
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM memory_items mi_active
-         WHERE mi_active.kind = mi_old.kind
-           AND mi_active.subject = mi_old.subject
-           AND mi_active.scope_id = mi_old.scope_id
-           AND mi_active.status = 'active'
-           AND mi_active.id != mi_old.id
-           -- Exclude items sourced exclusively from the conversation being
-           -- wiped — deleteConversation will remove them, so they should not
-           -- block restoration of mi_old.
-           AND NOT (
-             EXISTS (
-               SELECT 1 FROM memory_item_sources mis_a
-               JOIN messages m_a ON m_a.id = mis_a.message_id
-               WHERE mis_a.memory_item_id = mi_active.id
-                 AND m_a.conversation_id = ?
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM memory_item_sources mis_b
-               JOIN messages m_b ON m_b.id = mis_b.message_id
-               WHERE mis_b.memory_item_id = mi_active.id
-                 AND m_b.conversation_id != ?
-             )
-           )
-       )`,
-    id,
-    id,
-    id,
-    id,
-  );
-  for (const { oldItemId } of explicitSuperseded) {
-    rawRun(
-      "UPDATE memory_items SET status = 'active', superseded_by = NULL WHERE id = ?",
-      oldItemId,
-    );
-    enqueueMemoryJob("embed_item", { itemId: oldItemId });
-    unsupersededItemIds.push(oldItemId);
-  }
-
   // Step C — Delete conversation-scoped memory summaries and their embeddings.
   const summaryRows = db
     .select({ id: memorySummaries.id })
@@ -873,8 +745,8 @@ export function wipeConversation(id: string): WipeConversationResult {
     .where(
       and(
         eq(memorySummaries.scope, "conversation"),
-        eq(memorySummaries.scopeKey, id),
-      ),
+        eq(memorySummaries.scopeKey, id)
+      )
     )
     .all();
   const summaryIds = summaryRows.map((r) => r.id);
@@ -883,8 +755,8 @@ export function wipeConversation(id: string): WipeConversationResult {
       .where(
         and(
           eq(memoryEmbeddings.targetType, "summary"),
-          inArray(memoryEmbeddings.targetId, summaryIds),
-        ),
+          inArray(memoryEmbeddings.targetId, summaryIds)
+        )
       )
       .run();
     db.delete(memorySummaries)
@@ -893,79 +765,12 @@ export function wipeConversation(id: string): WipeConversationResult {
   }
   deletedSummaryIds.push(...summaryIds);
 
-  // Step D — Get the conversation's memoryScopeId before deletion.
-  const scopeId = getConversationMemoryScopeId(id);
-
-  // Step D.5 — Collect kind + subject pairs of items that will be orphaned
-  // by deleteConversation. These are items sourced from this conversation's
-  // messages that have NO sources from any other conversation. We need this
-  // before deletion so we can scope Step F to only restore superseded items
-  // matching the specific kind + subject pairs that just lost their active
-  // replacement.
-  const orphanedKindSubjects = rawAll<{ kind: string; subject: string }>(
-    `SELECT DISTINCT mi.kind, mi.subject
-     FROM memory_items mi
-     JOIN memory_item_sources mis ON mis.memory_item_id = mi.id
-     JOIN messages m ON m.id = mis.message_id
-     WHERE m.conversation_id = ?
-       AND NOT EXISTS (
-         SELECT 1 FROM memory_item_sources mis2
-         JOIN messages m2 ON m2.id = mis2.message_id
-         WHERE mis2.memory_item_id = mi.id
-           AND m2.conversation_id != ?
-       )`,
-    id,
-    id,
-  );
-
-  // Step E — Delegate to deleteConversation which handles messages (cascade
-  // segments, item_sources, attachments), llmRequestLogs, toolInvocations,
-  // orphaned memory items + embeddings, and the conversation row.
+  // Step D — Delegate to deleteConversation which handles messages (cascade
+  // segments, attachments), llmRequestLogs, toolInvocations,
+  // embeddings, and the conversation row.
   const deletedMemoryIds = deleteConversation(id);
 
-  // Step F — Restore orphaned subject-match superseded items. After
-  // deleteConversation removes superseding items, find superseded items
-  // with no supersededBy link where no active item with the same
-  // kind + subject + scope_id exists. Scoped to only the kind + subject
-  // pairs of items that were just orphaned by deleteConversation, so we
-  // don't accidentally restore items superseded by unrelated conversations.
-  let orphanedSuperseded: Array<{ id: string }> = [];
-  if (orphanedKindSubjects.length > 0) {
-    const placeholders = orphanedKindSubjects.map(() => "(?, ?)").join(", ");
-    const params: Array<string> = [scopeId];
-    for (const { kind, subject } of orphanedKindSubjects) {
-      params.push(kind, subject);
-    }
-    orphanedSuperseded = rawAll<{ id: string }>(
-      `SELECT id FROM (
-         SELECT id, ROW_NUMBER() OVER (
-           PARTITION BY kind, subject, scope_id
-           ORDER BY last_seen_at DESC
-         ) AS rn
-         FROM memory_items
-         WHERE status = 'superseded'
-           AND superseded_by IS NULL
-           AND scope_id = ?
-           AND (kind, subject) IN (VALUES ${placeholders})
-           AND NOT EXISTS (
-             SELECT 1 FROM memory_items mi2
-             WHERE mi2.kind = memory_items.kind
-               AND mi2.subject = memory_items.subject
-               AND mi2.scope_id = memory_items.scope_id
-               AND mi2.status = 'active'
-               AND mi2.id != memory_items.id
-           )
-       ) WHERE rn = 1`,
-      ...params,
-    );
-  }
-  for (const { id: itemId } of orphanedSuperseded) {
-    rawRun("UPDATE memory_items SET status = 'active' WHERE id = ?", itemId);
-    enqueueMemoryJob("embed_item", { itemId });
-    unsupersededItemIds.push(itemId);
-  }
-
-  // Step G — Return the combined result.
+  // Step E — Return the combined result.
   return {
     ...deletedMemoryIds,
     unsupersededItemIds,
@@ -1030,7 +835,7 @@ export async function addMessage(
   role: string,
   content: string,
   metadata?: Record<string, unknown>,
-  opts?: { skipIndexing?: boolean },
+  opts?: { skipIndexing?: boolean }
 ) {
   const db = getDb();
   const messageId = uuid();
@@ -1040,7 +845,7 @@ export async function addMessage(
     if (!result.success) {
       log.warn(
         { conversationId, messageId, issues: result.error.issues },
-        "Invalid message metadata, storing as-is",
+        "Invalid message metadata, storing as-is"
       );
     }
   }
@@ -1075,8 +880,8 @@ export async function addMessage(
             .where(
               and(
                 eq(conversations.id, conversationId),
-                isNull(conversations.originChannel),
-              ),
+                isNull(conversations.originChannel)
+              )
             )
             .run();
         }
@@ -1095,7 +900,7 @@ export async function addMessage(
       ) {
         log.warn(
           { attempt, conversationId, code: errCode },
-          "addMessage: transient SQLite error, retrying",
+          "addMessage: transient SQLite error, retrying"
         );
         await Bun.sleep(50 * (attempt + 1));
         continue;
@@ -1134,12 +939,12 @@ export async function addMessage(
           provenanceTrustClass,
           automated,
         },
-        config.memory,
+        config.memory
       );
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
-        "Failed to index message for memory",
+        "Failed to index message for memory"
       );
     }
   }
@@ -1154,7 +959,7 @@ export async function addMessage(
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
-        "Failed to project assistant message for attention tracking",
+        "Failed to project assistant message for attention tracking"
       );
     }
   }
@@ -1181,7 +986,7 @@ export interface PaginatedMessagesResult {
 export function getMessagesPaginated(
   conversationId: string,
   limit: number | undefined,
-  beforeTimestamp?: number,
+  beforeTimestamp?: number
 ): PaginatedMessagesResult {
   const db = getDb();
 
@@ -1225,7 +1030,7 @@ export function getMessagesPaginated(
 
 export function getLastAssistantTimestampBefore(
   conversationId: string,
-  beforeTimestamp: number,
+  beforeTimestamp: number
 ): number {
   const db = getDb();
   const row = db
@@ -1235,8 +1040,8 @@ export function getLastAssistantTimestampBefore(
       and(
         eq(messages.conversationId, conversationId),
         eq(messages.role, "assistant"),
-        lt(messages.createdAt, beforeTimestamp),
-      ),
+        lt(messages.createdAt, beforeTimestamp)
+      )
     )
     .orderBy(desc(messages.createdAt))
     .limit(1)
@@ -1247,7 +1052,7 @@ export function getLastAssistantTimestampBefore(
 /** Fetch a single message by ID, optionally scoped to a specific conversation. */
 export function getMessageById(
   messageId: string,
-  conversationId?: string,
+  conversationId?: string
 ): MessageRow | null {
   const db = getDb();
   const conditions = [eq(messages.id, messageId)];
@@ -1265,7 +1070,7 @@ export function getMessageById(
 export function updateConversationTitle(
   id: string,
   title: string,
-  isAutoTitle?: number,
+  isAutoTitle?: number
 ): void {
   const db = getDb();
   const set: Record<string, unknown> = { title, updatedAt: Date.now() };
@@ -1283,7 +1088,7 @@ export function updateConversationUsage(
   id: string,
   totalInputTokens: number,
   totalOutputTokens: number,
-  totalEstimatedCost: number,
+  totalEstimatedCost: number
 ): void {
   const db = getDb();
   db.update(conversations)
@@ -1300,7 +1105,7 @@ export function updateConversationUsage(
 export function updateConversationContextWindow(
   id: string,
   contextSummary: string,
-  contextCompactedMessageCount: number,
+  contextCompactedMessageCount: number
 ): void {
   const db = getDb();
   db.update(conversations)
@@ -1325,18 +1130,16 @@ export function clearAll(): { conversations: number; messages: number } {
   const convCount =
     rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM conversations")?.c ?? 0;
 
-  // Delete in dependency order. Cascades handle memory_segments,
-  // memory_item_sources, and tool_invocations, but we explicitly
-  // clear non-cascading memory tables too.
+  // Delete in dependency order. Cascades handle memory_segments and
+  // tool_invocations, but we explicitly clear non-cascading memory
+  // tables too.
   //
   // FTS virtual tables are cleared before their base tables. If an FTS
   // table is corrupted, the DELETE will fail — we drop the associated
   // triggers so that the subsequent base-table DELETEs don't also fail
   // (SQLite triggers are atomic with the triggering statement, so a
   // corrupted FTS table would roll back every base-table DELETE).
-  rawExec("DELETE FROM memory_item_sources");
   rawExec("DELETE FROM memory_segments");
-  rawExec("DELETE FROM memory_items");
   rawExec("DELETE FROM memory_summaries");
   rawExec("DELETE FROM memory_embeddings");
   rawExec("DELETE FROM memory_jobs");
@@ -1352,7 +1155,7 @@ export function clearAll(): { conversations: number; messages: number } {
   } catch (err) {
     log.warn(
       { err },
-      "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed",
+      "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed"
     );
     rawExec("DROP TRIGGER IF EXISTS messages_fts_ai");
     rawExec("DROP TRIGGER IF EXISTS messages_fts_ad");
@@ -1368,7 +1171,7 @@ export function clearAll(): { conversations: number; messages: number } {
     `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
     uuid(),
     "conversations_clear_all",
-    Date.now(),
+    Date.now()
   );
 
   // Rebuild corrupted FTS tables and restore triggers after all base-table
@@ -1378,16 +1181,16 @@ export function clearAll(): { conversations: number; messages: number } {
   if (messagesFtsCorrupted) {
     rawExec("DROP TABLE IF EXISTS messages_fts");
     rawExec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, content)`,
+      `CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, content)`
     );
     rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
+      `CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`
     );
     rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`,
+      `CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`
     );
     rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
+      `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`
     );
   }
 
@@ -1412,8 +1215,8 @@ export function deleteLastExchange(conversationId: string): number {
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        eq(messages.role, "user"),
-      ),
+        eq(messages.role, "user")
+      )
     )
     .orderBy(sql`rowid DESC`)
     .limit(1)
@@ -1427,7 +1230,7 @@ export function deleteLastExchange(conversationId: string): number {
   const rowidSubquery = sql`(SELECT rowid FROM messages WHERE id = ${lastUserMsg.id})`;
   const condition = and(
     eq(messages.conversationId, conversationId),
-    sql`rowid >= ${rowidSubquery}`,
+    sql`rowid >= ${rowidSubquery}`
   );
 
   const [{ deleted }] = db
@@ -1491,7 +1294,7 @@ export interface WipeConversationResult extends DeletedMemoryIds {
  */
 export function updateMessageContent(
   messageId: string,
-  newContent: string,
+  newContent: string
 ): void {
   const db = getDb();
   db.update(messages)
@@ -1507,7 +1310,7 @@ export function updateMessageContent(
  */
 export function relinkAttachments(
   fromMessageIds: string[],
-  toMessageId: string,
+  toMessageId: string
 ): number {
   if (fromMessageIds.length === 0) return 0;
   const db = getDb();
@@ -1535,15 +1338,8 @@ export function relinkAttachments(
  * NULL before the message row is removed, so associated run and event
  * records survive.
  *
- * Also cleans up derived memory_items: if the memory worker has already
- * processed an extract_items job for this message, deleting the message
- * cascades memory_item_sources but leaves the memory_items active.
- * Without cleanup, those items would leak into summaries and recall.
- * We delete any memory_items that become orphaned (no remaining sources)
- * after this message is removed.
- *
- * Returns segment and orphaned item IDs so the caller can clean up the
- * corresponding Qdrant vector entries.
+ * Returns segment IDs so the caller can clean up the corresponding
+ * Qdrant vector entries.
  */
 export function deleteMessageById(messageId: string): DeletedMemoryIds {
   const db = getDb();
@@ -1572,22 +1368,14 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
       .all();
     result.segmentIds = linkedSegments.map((r) => r.id);
 
-    // Collect memory item IDs linked to this message before cascade.
-    const linkedItems = tx
-      .select({ memoryItemId: memoryItemSources.memoryItemId })
-      .from(memoryItemSources)
-      .where(eq(memoryItemSources.messageId, messageId))
-      .all();
-    const candidateItemIds = linkedItems.map((r) => r.memoryItemId);
-
     // Detach nullable FK references so the cascade doesn't destroy them.
     tx.update(channelInboundEvents)
       .set({ messageId: null })
       .where(eq(channelInboundEvents.messageId, messageId))
       .run();
 
-    // Now safe to delete — NOT NULL cascades remove memory_item_sources,
-    // memory_segments, and message_attachments.
+    // Now safe to delete — NOT NULL cascades remove memory_segments
+    // and message_attachments.
     tx.delete(messages).where(eq(messages.id, messageId)).run();
 
     // Clean up segment embeddings from SQLite (Qdrant cleanup is the caller's job).
@@ -1596,41 +1384,10 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
         .where(
           and(
             eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds),
-          ),
+            inArray(memoryEmbeddings.targetId, result.segmentIds)
+          )
         )
         .run();
-    }
-
-    // Clean up orphaned memory items whose only source was this message.
-    if (candidateItemIds.length > 0) {
-      // Find which items still have at least one remaining source.
-      const surviving = tx
-        .select({ memoryItemId: memoryItemSources.memoryItemId })
-        .from(memoryItemSources)
-        .where(inArray(memoryItemSources.memoryItemId, candidateItemIds))
-        .all();
-      const survivingIds = new Set(surviving.map((r) => r.memoryItemId));
-      const orphanedIds = candidateItemIds.filter(
-        (id) => !survivingIds.has(id),
-      );
-      result.orphanedItemIds = orphanedIds;
-
-      if (orphanedIds.length > 0) {
-        // Delete embeddings referencing these items.
-        tx.delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "item"),
-              inArray(memoryEmbeddings.targetId, orphanedIds),
-            ),
-          )
-          .run();
-        // Delete the orphaned memory items themselves.
-        tx.delete(memoryItems)
-          .where(inArray(memoryItems.id, orphanedIds))
-          .run();
-      }
     }
   });
 
@@ -1641,7 +1398,7 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
 
 export function setConversationOriginChannelIfUnset(
   conversationId: string,
-  channel: ChannelId,
+  channel: ChannelId
 ): void {
   const db = getDb();
   db.update(conversations)
@@ -1649,14 +1406,14 @@ export function setConversationOriginChannelIfUnset(
     .where(
       and(
         eq(conversations.id, conversationId),
-        isNull(conversations.originChannel),
-      ),
+        isNull(conversations.originChannel)
+      )
     )
     .run();
 }
 
 export function getConversationOriginChannel(
-  conversationId: string,
+  conversationId: string
 ): ChannelId | null {
   const db = getDb();
   const row = db
@@ -1669,7 +1426,7 @@ export function getConversationOriginChannel(
 
 export function setConversationOriginInterfaceIfUnset(
   conversationId: string,
-  interfaceId: InterfaceId,
+  interfaceId: InterfaceId
 ): void {
   const db = getDb();
   db.update(conversations)
@@ -1677,14 +1434,14 @@ export function setConversationOriginInterfaceIfUnset(
     .where(
       and(
         eq(conversations.id, conversationId),
-        isNull(conversations.originInterface),
-      ),
+        isNull(conversations.originInterface)
+      )
     )
     .run();
 }
 
 export function getConversationOriginInterface(
-  conversationId: string,
+  conversationId: string
 ): InterfaceId | null {
   const db = getDb();
   const row = db
@@ -1704,13 +1461,13 @@ export function getConversationOriginInterface(
  * conversation itself isn't a desktop-origin private conversation).
  */
 export function getConversationRecentProvenanceTrustClass(
-  conversationId: string,
+  conversationId: string
 ): "guardian" | "trusted_contact" | "unknown" | undefined {
   const row = rawGet<{ metadata: string | null }>(
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
      ORDER BY created_at DESC LIMIT 1`,
-    conversationId,
+    conversationId
   );
   if (!row?.metadata) return undefined;
   try {
@@ -1731,7 +1488,7 @@ export function batchSetDisplayOrders(
     displayOrder: number | null;
     isPinned: boolean;
     groupId?: string | null;
-  }>,
+  }>
 ): void {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
@@ -1748,7 +1505,7 @@ export function batchSetDisplayOrders(
           safeGroupId !== null &&
           !rawGet<{ id: string }>(
             "SELECT id FROM conversation_groups WHERE id = ?",
-            safeGroupId,
+            safeGroupId
           )
         ) {
           safeGroupId = null;
@@ -1758,7 +1515,7 @@ export function batchSetDisplayOrders(
           update.displayOrder,
           safeGroupId === "system:pinned" ? 1 : 0,
           safeGroupId,
-          update.id,
+          update.id
         );
       } else {
         // Old client: no groupId in payload
@@ -1769,7 +1526,7 @@ export function batchSetDisplayOrders(
           rawRun(
             "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
             update.displayOrder,
-            update.id,
+            update.id
           );
         } else {
           // Restore system group from source/conversationType when old clients
@@ -1786,7 +1543,7 @@ export function batchSetDisplayOrders(
              ELSE group_id END
              WHERE id = ?`,
             update.displayOrder,
-            update.id,
+            update.id
           );
         }
       }
@@ -1799,7 +1556,7 @@ export function batchSetDisplayOrders(
 }
 
 export function getDisplayMetaForConversations(
-  conversationIds: string[],
+  conversationIds: string[]
 ): Map<
   string,
   { displayOrder: number | null; isPinned: boolean; groupId: string | null }
@@ -1818,7 +1575,7 @@ export function getDisplayMetaForConversations(
       group_id: string | null;
     }>(
       "SELECT display_order, is_pinned, group_id FROM conversations WHERE id = ?",
-      id,
+      id
     );
     result.set(id, {
       displayOrder: row?.display_order ?? null,
@@ -1847,7 +1604,7 @@ function isToolResultMessage(role: string, content: string): boolean {
       (block: unknown) =>
         block != null &&
         typeof block === "object" &&
-        (block as Record<string, unknown>).type === "tool_result",
+        (block as Record<string, unknown>).type === "tool_result"
     );
   } catch {
     return false;
@@ -1867,7 +1624,7 @@ function isToolResultMessage(role: string, content: string): boolean {
  */
 export function getTurnTimeBounds(
   conversationId: string,
-  messageCreatedAt: number,
+  messageCreatedAt: number
 ): { startTime: number; endTime: number } | null {
   const db = getDb();
 
@@ -1889,8 +1646,8 @@ export function getTurnTimeBounds(
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        sql`rowid <= ${rowidSubquery}`,
-      ),
+        sql`rowid <= ${rowidSubquery}`
+      )
     )
     .orderBy(sql`rowid DESC`)
     .limit(50)
@@ -1921,8 +1678,8 @@ export function getTurnTimeBounds(
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        sql`rowid > ${forwardRowidSubquery}`,
-      ),
+        sql`rowid > ${forwardRowidSubquery}`
+      )
     )
     .orderBy(sql`rowid ASC`)
     .limit(50)
@@ -1963,8 +1720,8 @@ export function getTurnTimeBounds(
         and(
           eq(llmRequestLogs.conversationId, conversationId),
           gte(llmRequestLogs.createdAt, startTime),
-          lte(llmRequestLogs.createdAt, hardCeiling),
-        ),
+          lte(llmRequestLogs.createdAt, hardCeiling)
+        )
       )
       .orderBy(desc(llmRequestLogs.createdAt))
       .limit(1)
@@ -2012,8 +1769,8 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     .where(
       and(
         eq(messages.conversationId, target.conversationId),
-        lte(messages.createdAt, target.createdAt),
-      ),
+        lte(messages.createdAt, target.createdAt)
+      )
     )
     .orderBy(desc(messages.createdAt))
     .limit(50)
@@ -2050,8 +1807,8 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     .where(
       and(
         eq(messages.conversationId, target.conversationId),
-        gt(messages.createdAt, target.createdAt),
-      ),
+        gt(messages.createdAt, target.createdAt)
+      )
     )
     .orderBy(asc(messages.createdAt))
     .limit(50)
@@ -2087,8 +1844,8 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
         and(
           eq(messages.conversationId, target.conversationId),
           gt(messages.createdAt, boundaryCreatedAt),
-          lte(messages.createdAt, target.createdAt),
-        ),
+          lte(messages.createdAt, target.createdAt)
+        )
       )
       .orderBy(asc(messages.createdAt))
       .all();
@@ -2111,8 +1868,8 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     .where(
       and(
         eq(messages.conversationId, target.conversationId),
-        inArray(messages.id, [...idSet]),
-      ),
+        inArray(messages.id, [...idSet])
+      )
     )
     .orderBy(asc(messages.createdAt))
     .all();

@@ -59,6 +59,7 @@ import {
   migrateConversationsThreadTypeIndex,
   migrateCreateMemoryGraphTables,
   migrateCreateMemoryRecallLogs,
+  migrateDropMemoryItemsTables,
   migrateCreateThreadStartersTable,
   migrateCreateTraceEventsTable,
   migrateDropAccountsTable,
@@ -153,7 +154,7 @@ function getTemplateDbPath(): string {
   }
   return join(
     tmpdir(),
-    `vellum-test-db-template-${hash.digest("hex").slice(0, 12)}.db`,
+    `vellum-test-db-template-${hash.digest("hex").slice(0, 12)}.db`
   );
 }
 
@@ -552,6 +553,9 @@ export function initializeDb(): void {
 
   // 101. Memory graph tables (nodes, edges, triggers)
   migrateCreateMemoryGraphTables(database);
+
+  // 102. Drop legacy memory_items and memory_item_sources tables (migrated to memory_graph_nodes)
+  migrateDropMemoryItemsTables(database);
 
   validateMigrationState(database);
 

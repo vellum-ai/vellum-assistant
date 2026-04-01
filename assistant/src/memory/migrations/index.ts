@@ -143,6 +143,7 @@ export { migrateUsageLlmCallCount } from "./200-usage-llm-call-count.js";
 export { migrateOAuthProvidersFeatureFlag } from "./201-oauth-providers-feature-flag.js";
 export { migrateDropCallbackTransportColumn } from "./202-drop-callback-transport-column.js";
 export { migrateCreateMemoryGraphTables } from "./202-memory-graph-tables.js";
+export { migrateDropMemoryItemsTables } from "./203-drop-memory-items-tables.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

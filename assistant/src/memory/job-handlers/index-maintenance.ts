@@ -12,7 +12,6 @@ import { getQdrantClient } from "../qdrant-client.js";
 import {
   mediaAssets,
   memoryEmbeddings,
-  memoryItems,
   memorySegments,
   memorySummaries,
   messages,
@@ -23,15 +22,6 @@ const log = getLogger("memory-jobs-worker");
 export async function rebuildIndexJob(): Promise<void> {
   const db = getDb();
   db.delete(memoryEmbeddings).run();
-
-  const items = db
-    .select({ id: memoryItems.id })
-    .from(memoryItems)
-    .where(eq(memoryItems.status, "active"))
-    .all();
-  for (const item of items) {
-    enqueueMemoryJob("embed_item", { itemId: item.id });
-  }
 
   const summaries = db
     .select({ id: memorySummaries.id })

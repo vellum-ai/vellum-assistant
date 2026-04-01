@@ -9,7 +9,6 @@ import { getMemoryBackendStatus } from "./embedding-backend.js";
 import { handleRecall, type RecallResult } from "./graph/tool-handlers.js";
 import { enqueueBackfillJob, enqueueRebuildIndexJob, MIN_SEGMENT_CHARS } from "./indexer.js";
 import {
-  enqueueCleanupStaleSupersededItemsJob,
   enqueueMemoryJob,
   getMemoryJobCounts,
 } from "./jobs-store.js";
@@ -27,20 +26,11 @@ export interface MemorySystemStatus {
   model: string | null;
   counts: {
     segments: number;
-    items: number;
+    graphNodes: number;
     summaries: number;
     embeddings: number;
   };
-  cleanup: {
-    supersededBacklog: number;
-    supersededCompleted24h: number;
-  };
   jobs: Record<string, number>;
-}
-
-interface CleanupStatsRow {
-  superseded_backlog: number | null;
-  superseded_completed_24h: number | null;
 }
 
 export async function getMemorySystemStatus(): Promise<MemorySystemStatus> {
@@ -48,26 +38,10 @@ export async function getMemorySystemStatus(): Promise<MemorySystemStatus> {
   const backend = await getMemoryBackendStatus(config);
   const counts = {
     segments: countTable("memory_segments"),
-    items: countTable("memory_items"),
+    graphNodes: countTable("memory_graph_nodes"),
     summaries: countTable("memory_summaries"),
     embeddings: countTable("memory_embeddings"),
   };
-  const throughputWindowStartMs = Date.now() - 24 * 60 * 60 * 1000;
-  const cleanupStats = rawGet<CleanupStatsRow>(
-    `
-    SELECT
-      SUM(CASE
-        WHEN type = 'cleanup_stale_superseded_items' AND status IN ('pending', 'running')
-        THEN 1 ELSE 0 END
-      ) AS superseded_backlog,
-      SUM(CASE
-        WHEN type = 'cleanup_stale_superseded_items' AND status = 'completed' AND updated_at >= ?
-        THEN 1 ELSE 0 END
-      ) AS superseded_completed_24h
-    FROM memory_jobs
-  `,
-    throughputWindowStartMs,
-  );
   return {
     enabled: backend.enabled,
     degraded: backend.degraded,
@@ -75,10 +49,6 @@ export async function getMemorySystemStatus(): Promise<MemorySystemStatus> {
     provider: backend.provider,
     model: backend.model,
     counts,
-    cleanup: {
-      supersededBacklog: cleanupStats?.superseded_backlog ?? 0,
-      supersededCompleted24h: cleanupStats?.superseded_completed_24h ?? 0,
-    },
     jobs: getMemoryJobCounts(),
   };
 
@@ -99,16 +69,8 @@ export function requestMemoryRebuildIndex(): string {
   return id;
 }
 
-export function requestMemoryCleanup(retentionMs?: number): {
-  staleSupersededItemsJobId: string;
-} {
-  const staleSupersededItemsJobId =
-    enqueueCleanupStaleSupersededItemsJob(retentionMs);
-  log.info(
-    { staleSupersededItemsJobId, retentionMs },
-    "Queued memory cleanup jobs",
-  );
-  return { staleSupersededItemsJobId };
+export function requestMemoryCleanup(_retentionMs?: number): void {
+  log.info("Memory cleanup requested (legacy items table dropped — no-op)");
 }
 
 export async function queryMemory(

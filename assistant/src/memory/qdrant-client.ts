@@ -47,14 +47,14 @@ let _instance: VellumQdrantClient | null = null;
 export function getQdrantClient(): VellumQdrantClient {
   if (!_instance) {
     throw new Error(
-      "Qdrant client not initialized. Call initQdrantClient() first.",
+      "Qdrant client not initialized. Call initQdrantClient() first."
     );
   }
   return _instance;
 }
 
 export function initQdrantClient(
-  config: QdrantClientConfig,
+  config: QdrantClientConfig
 ): VellumQdrantClient {
   _instance = new VellumQdrantClient(config);
   return _instance;
@@ -125,7 +125,7 @@ export class VellumQdrantClient {
                 currentSize,
                 expectedSize: this.vectorSize,
               },
-              "Qdrant collection uses unnamed vectors (legacy) — deleting and recreating with named vectors. Embeddings will be re-indexed.",
+              "Qdrant collection uses unnamed vectors (legacy) — deleting and recreating with named vectors. Embeddings will be re-indexed."
             );
             await this.client.deleteCollection(this.collection);
             migrated = true;
@@ -138,7 +138,7 @@ export class VellumQdrantClient {
                 expectedSize: this.vectorSize,
                 modelMismatch,
               },
-              "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand.",
+              "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand."
             );
             await this.client.deleteCollection(this.collection);
             migrated = true;
@@ -152,7 +152,7 @@ export class VellumQdrantClient {
         } catch (err) {
           log.warn(
             { err },
-            "Failed to verify collection compatibility, assuming compatible",
+            "Failed to verify collection compatibility, assuming compatible"
           );
           if (await this.ensurePayloadIndexesSafe()) {
             this.collectionReady = true;
@@ -166,7 +166,7 @@ export class VellumQdrantClient {
 
     log.info(
       { collection: this.collection, vectorSize: this.vectorSize },
-      "Creating Qdrant collection with named vectors (dense + sparse)",
+      "Creating Qdrant collection with named vectors (dense + sparse)"
     );
 
     try {
@@ -222,7 +222,7 @@ export class VellumQdrantClient {
       this.collectionReady = true;
       log.info(
         { collection: this.collection },
-        "Qdrant collection created with payload indexes",
+        "Qdrant collection created with payload indexes"
       );
     }
 
@@ -234,7 +234,7 @@ export class VellumQdrantClient {
     targetId: string,
     vector: number[],
     payload: Omit<QdrantPointPayload, "target_type" | "target_id">,
-    sparseVector?: QdrantSparseVector,
+    sparseVector?: QdrantSparseVector
   ): Promise<string> {
     await this.ensureCollection();
 
@@ -289,7 +289,7 @@ export class VellumQdrantClient {
   async search(
     vector: number[],
     limit: number,
-    filter?: Record<string, unknown>,
+    filter?: Record<string, unknown>
   ): Promise<QdrantSearchResult[]> {
     await this.ensureCollection();
 
@@ -317,7 +317,7 @@ export class VellumQdrantClient {
     return results.map((result) => ({
       id: typeof result.id === "string" ? result.id : String(result.id),
       score: result.score,
-      payload: result.payload as unknown as QdrantPointPayload,
+      payload: (result.payload as unknown) as QdrantPointPayload,
     }));
   }
 
@@ -326,7 +326,7 @@ export class VellumQdrantClient {
     limit: number,
     targetTypes: Array<"segment" | "item" | "summary" | "media">,
     excludeMessageIds?: string[],
-    scopeIds?: string[],
+    scopeIds?: string[]
   ): Promise<QdrantSearchResult[]> {
     const mustConditions: Array<Record<string, unknown>> = [
       {
@@ -403,7 +403,7 @@ export class VellumQdrantClient {
     const queryParams = {
       prefetch: [
         {
-          query: denseVector as unknown as number[],
+          query: (denseVector as unknown) as number[],
           using: "dense",
           limit: effectivePrefetchLimit,
         },
@@ -438,7 +438,7 @@ export class VellumQdrantClient {
     return (results.points ?? []).map((point) => ({
       id: typeof point.id === "string" ? point.id : String(point.id),
       score: point.score ?? 0,
-      payload: point.payload as unknown as QdrantPointPayload,
+      payload: (point.payload as unknown) as QdrantPointPayload,
     }));
   }
 
@@ -453,6 +453,33 @@ export class VellumQdrantClient {
             { key: "target_type", match: { value: targetType } },
             { key: "target_id", match: { value: targetId } },
           ],
+        },
+      });
+
+    try {
+      await doDelete();
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        await doDelete();
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Delete all vectors matching a given target_type (bulk cleanup).
+   */
+  async deleteByTargetType(targetType: string): Promise<void> {
+    await this.ensureCollection();
+
+    const doDelete = () =>
+      this.client.delete(this.collection, {
+        wait: true,
+        filter: {
+          must: [{ key: "target_type", match: { value: targetType } }],
         },
       });
 
@@ -498,7 +525,7 @@ export class VellumQdrantClient {
     } catch (err) {
       log.warn(
         { err, collection: this.collection },
-        "Failed to delete Qdrant collection",
+        "Failed to delete Qdrant collection"
       );
       return false;
     }
@@ -615,7 +642,7 @@ export class VellumQdrantClient {
 
   private async findByTarget(
     targetType: string,
-    targetId: string,
+    targetId: string
   ): Promise<string | null> {
     try {
       const results = await this.client.scroll(this.collection, {

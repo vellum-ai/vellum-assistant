@@ -18,7 +18,6 @@ import { generateConversationStartersJob } from "./job-handlers/conversation-sta
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
   embedAttachmentJob,
-  embedItemJob,
   embedMediaJob,
   embedSegmentJob,
   embedSummaryJob,
@@ -39,7 +38,6 @@ import {
   claimMemoryJobs,
   completeMemoryJob,
   deferMemoryJob,
-  enqueueCleanupStaleSupersededItemsJob,
   enqueueMemoryJob,
   enqueuePruneOldConversationsJob,
   failMemoryJob,
@@ -362,16 +360,14 @@ async function processJob(
       await embedSegmentJob(job, config);
       return;
     case "embed_item":
-      await embedItemJob(job, config);
-      return;
-    case "embed_summary":
-      await embedSummaryJob(job, config);
-      return;
     case "extract_items":
     case "batch_extract":
     case "extract_entities":
     case "cleanup_stale_superseded_items":
       // Old extraction pipeline replaced by memory graph — silently drop
+      return;
+    case "embed_summary":
+      await embedSummaryJob(job, config);
       return;
     case "prune_old_conversations":
       pruneOldConversationsJob(job, config);
@@ -466,9 +462,6 @@ export function maybeEnqueueScheduledCleanupJobs(
   if (nowMs - lastScheduledCleanupEnqueueMs < cleanup.enqueueIntervalMs)
     return false;
 
-  const staleSupersededItemsJobId = enqueueCleanupStaleSupersededItemsJob(
-    cleanup.supersededItemRetentionMs,
-  );
   const pruneConversationsJobId =
     cleanup.conversationRetentionDays > 0
       ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
@@ -476,10 +469,8 @@ export function maybeEnqueueScheduledCleanupJobs(
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug(
     {
-      staleSupersededItemsJobId,
       pruneConversationsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
-      supersededItemRetentionMs: cleanup.supersededItemRetentionMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
     },
     "Enqueued scheduled memory cleanup jobs",
