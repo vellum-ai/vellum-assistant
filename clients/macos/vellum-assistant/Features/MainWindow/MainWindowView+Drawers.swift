@@ -153,7 +153,6 @@ extension MainWindowView {
                 windowState: windowState,
                 sidebar: sidebar,
                 customGroupsEnabled: assistantFeatureFlagStore.isEnabled("conversation-groups-ui"),
-                backgroundEnabled: assistantFeatureFlagStore.isEnabled("show-background-conversations"),
                 selectConversation: { selectConversation($0) },
                 onDismiss: { showConversationSwitcher = false }
             )
