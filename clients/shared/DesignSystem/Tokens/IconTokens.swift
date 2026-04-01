@@ -258,11 +258,9 @@ public enum VIcon: String, CaseIterable, Sendable {
     /// On iOS, pass the display size so the PDF is rasterized at the correct resolution.
     public func image(size: CGFloat = 24) -> Image {
         #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-        guard let url = pdfURL, let ns = NSImage(contentsOf: url) else {
+        guard let ns = cachedNSImage(size: size) else {
             return Image(systemName: "questionmark.square")
         }
-        ns.isTemplate = true
-        ns.size = NSSize(width: size, height: size)
         return Image(nsImage: ns)
         #elseif canImport(UIKit)
         guard let url = pdfURL, let ui = Self.rasterizePDF(at: url, size: size, cacheKey: "\(rawValue)-\(size)") else {
@@ -278,18 +276,40 @@ public enum VIcon: String, CaseIterable, Sendable {
     public var image: Image { image() }
 
     #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-    /// AppKit `NSImage` resolved from the vendored PDF.
-    public var nsImage: NSImage? {
+    /// Cache for loaded NSImage instances, keyed on "rawValue-base" or "rawValue-{size}".
+    private static let nsImageCache = NSCache<NSString, NSImage>()
+
+    /// Loads (or returns cached) NSImage from the vendored PDF.
+    /// Pass `nil` for the unsized base image, or a size for a sized variant.
+    private func cachedNSImage(size: CGFloat? = nil) -> NSImage? {
+        let cacheKey: NSString
+        if let size {
+            cacheKey = NSString(string: "\(rawValue)-\(size)")
+        } else {
+            cacheKey = NSString(string: "\(rawValue)-base")
+        }
+
+        if let cached = Self.nsImageCache.object(forKey: cacheKey) {
+            return cached
+        }
+
         guard let url = pdfURL, let img = NSImage(contentsOf: url) else { return nil }
         img.isTemplate = true
+        if let size {
+            img.size = NSSize(width: size, height: size)
+        }
+        Self.nsImageCache.setObject(img, forKey: cacheKey)
         return img
+    }
+
+    /// AppKit `NSImage` resolved from the vendored PDF.
+    public var nsImage: NSImage? {
+        cachedNSImage()
     }
 
     /// Convenience returning a sized `NSImage`.
     public func nsImage(size: CGFloat) -> NSImage? {
-        guard let img = nsImage else { return nil }
-        img.size = NSSize(width: size, height: size)
-        return img
+        cachedNSImage(size: size)
     }
     #endif
 
