@@ -8,6 +8,7 @@
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
+import { buildExcerpt, buildFtsMatchQuery } from "../conversation-queries.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
 import { enqueueGraphNodeEmbed, searchGraphNodes } from "./graph-search.js";
@@ -155,39 +156,62 @@ async function handleArchiveRecall(
   const { rawAll } = await import("../db.js");
 
   try {
-    // Use SQLite FTS on messages table, scoped to the active memory scope
     const limit = Math.min(input.num_results ?? 20, 50);
-    const rows = rawAll(
-      `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
-       FROM messages_fts fts
-       JOIN messages m ON m.rowid = fts.rowid
-       JOIN conversations c ON c.id = m.conversation_id
-       WHERE messages_fts MATCH ?
-         AND c.memory_scope_id = ?
-       ORDER BY rank
-       LIMIT ?`,
-      input.query,
-      scopeId,
-      limit,
-    ) as Array<{
+    const ftsMatch = buildFtsMatchQuery(input.query.trim());
+
+    type ArchiveRow = {
       id: string;
       content: string;
       role: string;
       created_at: number;
       conversation_id: string;
-    }>;
+    };
+
+    let rows: ArchiveRow[];
+
+    if (ftsMatch) {
+      // Use SQLite FTS on messages table, scoped to the active memory scope
+      rows = rawAll<ArchiveRow>(
+        `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
+         FROM messages_fts fts
+         JOIN messages m ON m.rowid = fts.rowid
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE messages_fts MATCH ?
+           AND c.memory_scope_id = ?
+         ORDER BY rank
+         LIMIT ?`,
+        ftsMatch,
+        scopeId,
+        limit,
+      );
+    } else {
+      // All FTS tokens dropped (non-ASCII, single-char, etc.) — fall back to
+      // LIKE-based search so queries like CJK characters still match.
+      const likePattern = `%${input.query
+        .replace(/\\/g, "\\\\")
+        .replace(/%/g, "\\%")
+        .replace(/_/g, "\\_")}%`;
+      rows = rawAll<ArchiveRow>(
+        `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
+         FROM messages m
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.content LIKE ? ESCAPE '\\' AND c.memory_scope_id = ?
+         ORDER BY m.created_at DESC
+         LIMIT ?`,
+        likePattern,
+        scopeId,
+        limit,
+      );
+    }
 
     return {
       results: rows.map((r) => ({
         id: r.id,
-        content:
-          typeof r.content === "string"
-            ? r.content.slice(0, 500)
-            : String(r.content).slice(0, 500),
+        content: buildExcerpt(r.content, input.query),
         type: "archive",
-        confidence: 1.0,
+        confidence: 0,
         significance: 0,
-        score: 1.0,
+        score: 0,
         created: r.created_at,
       })),
       mode: "archive",
