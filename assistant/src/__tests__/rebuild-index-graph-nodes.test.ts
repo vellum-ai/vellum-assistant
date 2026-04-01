@@ -100,7 +100,9 @@ function createTestDb() {
       source_type TEXT NOT NULL DEFAULT 'inferred',
       narrative_role TEXT,
       part_of_story TEXT,
-      scope_id TEXT NOT NULL DEFAULT 'default'
+      scope_id TEXT NOT NULL DEFAULT 'default',
+      event_date INTEGER,
+      image_refs TEXT
     );
 
     CREATE TABLE memory_graph_triggers (
