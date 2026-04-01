@@ -101,6 +101,14 @@ export const PLACEHOLDER_EMPTY_TURN =
 export const PLACEHOLDER_BLOCKS_OMITTED =
   "\x00__PLACEHOLDER__[internal blocks omitted]";
 
+/**
+ * Synthetic placeholder injected as user-message content when Anthropic API
+ * alternation requires a user turn but no real user content exists. Uses the
+ * `__injected` XML tag convention so the LLM treats it as system metadata
+ * rather than user speech.
+ */
+const SYNTHETIC_CONTINUATION_TEXT = "<synthetic_continuation __injected />";
+
 /** Type-guard for tool_use blocks in Anthropic-formatted content. */
 function isToolUseBlock(block: unknown): block is Anthropic.ToolUseBlockParam {
   return (
@@ -316,7 +324,7 @@ function expandCollapsedAssistantTurns(
         content:
           rebuiltUserContent.length > 0
             ? rebuiltUserContent
-            : [{ type: "text" as const, text: "(continue)" }],
+            : [{ type: "text" as const, text: SYNTHETIC_CONTINUATION_TEXT }],
       });
       mi++; // skip the original user message
     }
@@ -582,7 +590,7 @@ function ensureToolPairing(
           content:
             normalized.remainingContent.length > 0
               ? normalized.remainingContent
-              : [{ type: "text" as const, text: "(continue)" }],
+              : [{ type: "text" as const, text: SYNTHETIC_CONTINUATION_TEXT }],
         });
       } else {
         // No carryover assistant text to restore, so preserve existing behavior
