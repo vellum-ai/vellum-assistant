@@ -41,7 +41,10 @@ import {
   clawhubSearch,
   clawhubUpdate,
 } from "../../skills/clawhub.js";
-import { readInstallMeta } from "../../skills/install-meta.js";
+import {
+  readInstallMeta,
+  type SkillInstallMeta,
+} from "../../skills/install-meta.js";
 import {
   createManagedSkill,
   deleteManagedSkill,
@@ -258,11 +261,12 @@ function deriveKind(
 function deriveOrigin(
   kind: SlimSkillResponse["kind"],
   directoryPath: string,
+  installMeta?: SkillInstallMeta | null,
 ): SlimSkillResponse["origin"] {
   if (kind === "bundled") return "vellum";
   if (kind === "catalog") return "vellum";
-  // For installed skills, read install-meta.json
-  const meta = readInstallMeta(directoryPath);
+  // For installed skills, use provided install-meta or read from disk
+  const meta = installMeta ?? readInstallMeta(directoryPath);
   return meta?.origin ?? "custom";
 }
 
@@ -270,6 +274,7 @@ function deriveOrigin(
 function buildOriginMeta(
   origin: SlimSkillResponse["origin"],
   summary: SkillSummary,
+  installMeta?: SkillInstallMeta | null,
 ): Pick<SlimSkillResponse, "vellum" | "clawhub" | "skillssh"> {
   switch (origin) {
     case "vellum": {
@@ -279,27 +284,46 @@ function buildOriginMeta(
       return vellumMeta ? { vellum: vellumMeta } : {};
     }
     case "clawhub": {
-      const installMeta = readInstallMeta(summary.directoryPath);
+      const meta = installMeta ?? readInstallMeta(summary.directoryPath);
       const clawhubMeta: ClawhubSkillMeta = {
-        slug: installMeta?.slug ?? summary.id,
+        slug: meta?.slug ?? summary.id,
         author: "",
         stars: 0,
         installs: 0,
         reports: 0,
       };
-      return { clawhub: clawhubMeta };
+      // Preserve emoji for the Swift client which reads skill.vellum?.emoji
+      const emojiMeta: VellumSkillMeta | undefined = summary.emoji
+        ? { emoji: summary.emoji }
+        : undefined;
+      return {
+        clawhub: clawhubMeta,
+        ...(emojiMeta ? { vellum: emojiMeta } : {}),
+      };
     }
     case "skillssh": {
-      const installMeta = readInstallMeta(summary.directoryPath);
+      const meta = installMeta ?? readInstallMeta(summary.directoryPath);
       const skillsshMeta: SkillsshSkillMeta = {
-        slug: installMeta?.slug ?? summary.id,
-        sourceRepo: installMeta?.sourceRepo ?? "",
+        slug: meta?.slug ?? summary.id,
+        sourceRepo: meta?.sourceRepo ?? "",
         installs: 0,
       };
-      return { skillssh: skillsshMeta };
+      // Preserve emoji for the Swift client which reads skill.vellum?.emoji
+      const emojiMeta: VellumSkillMeta | undefined = summary.emoji
+        ? { emoji: summary.emoji }
+        : undefined;
+      return {
+        skillssh: skillsshMeta,
+        ...(emojiMeta ? { vellum: emojiMeta } : {}),
+      };
     }
-    default:
-      return {};
+    default: {
+      // Custom origin: still preserve emoji if present
+      const emojiMeta: VellumSkillMeta | undefined = summary.emoji
+        ? { emoji: summary.emoji }
+        : undefined;
+      return emojiMeta ? { vellum: emojiMeta } : {};
+    }
   }
 }
 
@@ -316,7 +340,10 @@ function toSlimSkillResponse(
   state: "enabled" | "disabled",
 ): SlimSkillResponse {
   const kind = deriveKind(summary.source);
-  const origin = deriveOrigin(kind, summary.directoryPath);
+  // Read install-meta once and pass it through to avoid redundant file I/O
+  const installMeta =
+    kind === "installed" ? readInstallMeta(summary.directoryPath) : null;
+  const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
   const status: SlimSkillResponse["status"] = state;
   return {
     id: summary.id,
@@ -325,7 +352,7 @@ function toSlimSkillResponse(
     kind,
     origin,
     status,
-    ...buildOriginMeta(origin, summary),
+    ...buildOriginMeta(origin, summary, installMeta),
   };
 }
 
@@ -893,8 +920,15 @@ export async function searchSkills(
   | { success: false; error: string }
 > {
   try {
-    // Search the loaded skill catalog (bundled + installed) for matches
+    // Search the loaded skill catalog (bundled + installed) for matches.
+    // Use resolveSkillStates + toSlimSkillResponse so that already-installed
+    // or bundled skills get their correct kind/origin/status instead of being
+    // hard-coded as catalog/available.
     const catalog = loadSkillCatalog();
+    const config = getConfig();
+    const resolved = resolveSkillStates(catalog, config);
+    const resolvedById = new Map(resolved.map((r) => [r.summary.id, r]));
+
     const catalogMatches = filterByQuery(catalog, query, [
       (s) => s.id,
       (s) => s.displayName,
@@ -902,6 +936,12 @@ export async function searchSkills(
     ]);
 
     const catalogItems: SlimSkillResponse[] = catalogMatches.map((s) => {
+      const r = resolvedById.get(s.id);
+      if (r) {
+        return toSlimSkillResponse(r.summary, r.state);
+      }
+      // Fallback for catalog entries not in resolvedSkillStates (shouldn't
+      // normally happen, but defensive)
       const result: SlimSkillResponse = {
         id: s.id,
         name: s.displayName,
