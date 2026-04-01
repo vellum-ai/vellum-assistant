@@ -15,7 +15,7 @@ public final class SkillsStore: ObservableObject {
     @Published public var loadedBodies: [String: String] = [:]
     @Published public var isLoading = false
 
-    @Published public var searchResults: [ClawhubSearchItem] = []
+    @Published public var searchResults: [SkillInfo] = []
     @Published public var isSearching = false
 
     @Published public var inspectedSkill: SkillsInspectResponseData?
@@ -148,9 +148,9 @@ public final class SkillsStore: ObservableObject {
         isSearching = true
 
         Task {
-            let response = await skillsClient.searchSkills(query: query)
-            if let response, response.success, let data = response.data {
-                searchResults = data.skills
+            let result = await skillsClient.searchSkills(query: query)
+            if let result, result.success {
+                searchResults = result.skills
             } else {
                 searchResults = []
             }

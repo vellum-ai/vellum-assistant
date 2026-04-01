@@ -18,13 +18,6 @@ import Foundation
 // │                                 │ contract type is skipped (SKIP_TYPES)    │
 // │ GenerationCancelledMessage      │ Swift adds `conversationId` for conversation  │
 // │                                 │ filtering not present in the contract    │
-// │ ClawhubSearchItem               │ Decoded from nested `data` field of      │
-// │                                 │ skills_operation_response, not a direct  │
-// │                                 │ wire message                             │
-// │ ClawhubSearchData               │ Wrapper for ClawhubSearchItem array,     │
-// │                                 │ not a direct wire message                │
-// │ SkillsOperationResponseMessage  │ Uses typed ClawhubSearchData? for `data` │
-// │                                 │ instead of generated AnyCodable?         │
 // │ TraceEventMessage               │ References hand-maintained TraceEventKind│
 // │                                 │ via string `kind`; contract type skipped │
 // │ ConversationErrorMessage        │ References hand-maintained               │
@@ -899,6 +892,19 @@ public typealias AppDataResponseMessage = AppDataResponse
 /// Backed by generated `SkillsListResponseSkill`.
 public typealias SkillInfo = SkillsListResponseSkill
 
+/// Result of a skill search operation.
+public struct SkillSearchResult: Sendable {
+    public let success: Bool
+    public let error: String?
+    public let skills: [SkillInfo]
+
+    public init(success: Bool, error: String? = nil, skills: [SkillInfo] = []) {
+        self.success = success
+        self.error = error
+        self.skills = skills
+    }
+}
+
 extension SkillsListResponseSkill: Identifiable {}
 
 extension SkillsListResponseSkill {
@@ -1003,56 +1009,12 @@ public typealias GenerateAvatarResponseMessage = GenerateAvatarResponse
 /// Backed by generated `SkillStateChanged`.
 public typealias SkillStateChangedMessage = SkillStateChanged
 
-/// A skill returned from a search or explore query.
-/// Kept hand-maintained — this type is decoded from the `data` field of
-/// `skills_operation_response` (which is `AnyCodable` in the contract).
-public struct ClawhubSearchItem: Decodable, Sendable, Identifiable, Equatable {
-    public var id: String { slug }
-    public let name: String
-    public let slug: String
-    public let description: String
-    public let author: String
-    public let stars: Int
-    public let installs: Int
-    public let version: String
-    /// Epoch milliseconds when the skill was first published.
-    public let createdAt: Int
-    /// Where this skill comes from: "vellum" (first-party) or "clawhub" (community).
-    public let source: String
-
-    public var isVellum: Bool { source == "vellum" }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
-        slug = try container.decode(String.self, forKey: .slug)
-        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
-        author = try container.decodeIfPresent(String.self, forKey: .author) ?? ""
-        stars = try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0
-        installs = try container.decodeIfPresent(Int.self, forKey: .installs) ?? 0
-        version = try container.decodeIfPresent(String.self, forKey: .version) ?? ""
-        createdAt = try container.decodeIfPresent(Int.self, forKey: .createdAt) ?? 0
-        source = try container.decodeIfPresent(String.self, forKey: .source) ?? "clawhub"
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case name, slug, description, author, stars, installs, version, createdAt, source
-    }
-}
-
-/// Wrapper for ClaWHub search results embedded in `skills_operation_response.data`.
-public struct ClawhubSearchData: Decodable, Sendable {
-    public let skills: [ClawhubSearchItem]
-}
-
-/// Generic operation response.
-/// Kept hand-maintained — the `data` field is typed as `ClawhubSearchData?`
-/// for search results, while the generated type uses `AnyCodable?`.
+/// Generic operation response for non-search skill operations.
 public struct SkillsOperationResponseMessage: Decodable, Sendable {
     public let operation: String
     public let success: Bool
     public let error: String?
-    public let data: ClawhubSearchData?
+    public let data: AnyCodable?
 }
 
 /// Skill info from a ClaWHub inspect response.

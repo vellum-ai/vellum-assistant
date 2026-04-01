@@ -16,7 +16,7 @@ public protocol SkillsClientProtocol {
     func uninstallSkill(name: String) async -> SkillsOperationResponseMessage?
     func updateSkill(name: String) async -> SkillsOperationResponseMessage?
     func checkSkillUpdates() async -> SkillsOperationResponseMessage?
-    func searchSkills(query: String) async -> SkillsOperationResponseMessage?
+    func searchSkills(query: String) async -> SkillSearchResult?
     func inspectSkill(slug: String) async -> SkillsInspectResponseMessage?
     func draftSkill(sourceText: String) async -> SkillsDraftResponseMessage?
     func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, overwrite: Bool?) async -> SkillsOperationResponseMessage?
@@ -239,7 +239,7 @@ public struct SkillsClient: SkillsClientProtocol {
         }
     }
 
-    public func searchSkills(query: String) async -> SkillsOperationResponseMessage? {
+    public func searchSkills(query: String) async -> SkillSearchResult? {
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/skills/search",
@@ -248,49 +248,18 @@ public struct SkillsClient: SkillsClientProtocol {
             )
             guard response.isSuccess else {
                 log.error("searchSkills failed (HTTP \(response.statusCode))")
-                return SkillsOperationResponseMessage(
-                    operation: "search", success: false,
-                    error: extractErrorMessage(from: response.data), data: nil
+                return SkillSearchResult(
+                    success: false,
+                    error: extractErrorMessage(from: response.data)
                 )
             }
-            // REST returns { skills: SlimSkillResponse[] } at top level.
-            // Decode the unified skill items and bridge into ClawhubSearchItem
-            // for backward compatibility until the store/UI layers migrate.
-            var searchData: ClawhubSearchData?
-            if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-               let skillsArray = json["skills"] as? [[String: Any]] {
-                let bridged: [[String: Any]] = skillsArray.map { item in
-                    var mapped: [String: Any] = [:]
-                    mapped["slug"] = item["id"] ?? ""
-                    mapped["name"] = item["name"] ?? ""
-                    mapped["description"] = item["description"] ?? ""
-                    mapped["source"] = item["origin"] ?? "clawhub"
-                    // Pull detailed fields from the origin-specific sub-object
-                    if let clawhub = item["clawhub"] as? [String: Any] {
-                        mapped["slug"] = clawhub["slug"] ?? mapped["slug"]!
-                        mapped["author"] = clawhub["author"] ?? ""
-                        mapped["stars"] = clawhub["stars"] ?? 0
-                        mapped["installs"] = clawhub["installs"] ?? 0
-                    } else if let skillssh = item["skillssh"] as? [String: Any] {
-                        mapped["slug"] = skillssh["slug"] ?? mapped["slug"]!
-                        mapped["installs"] = skillssh["installs"] ?? 0
-                    }
-                    return mapped
-                }
-                let wrapper: [String: Any] = ["skills": bridged]
-                if let wrapperData = try? JSONSerialization.data(withJSONObject: wrapper) {
-                    searchData = try? JSONDecoder().decode(ClawhubSearchData.self, from: wrapperData)
-                }
-            }
-            return SkillsOperationResponseMessage(
-                operation: "search", success: true, error: nil, data: searchData
-            )
+            // REST returns { skills: SkillsListResponseSkill[] } at top level.
+            struct SearchResponse: Decodable { let skills: [SkillsListResponseSkill] }
+            let decoded = try JSONDecoder().decode(SearchResponse.self, from: response.data)
+            return SkillSearchResult(success: true, skills: decoded.skills)
         } catch {
             log.error("searchSkills error: \(error.localizedDescription)")
-            return SkillsOperationResponseMessage(
-                operation: "search", success: false,
-                error: error.localizedDescription, data: nil
-            )
+            return SkillSearchResult(success: false, error: error.localizedDescription)
         }
     }
 
