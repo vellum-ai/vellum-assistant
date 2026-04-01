@@ -24,6 +24,11 @@ export const graphRecallDefinition: ToolDefinition = {
         description:
           "What you're looking for — be specific and descriptive. Can be a topic, feeling, time period, or person.",
       },
+      num_results: {
+        type: "integer",
+        description:
+          "Maximum number of results to return (default 20, max 50).",
+      },
       mode: {
         type: "string",
         enum: ["memory", "archive"],

@@ -9,7 +9,7 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
-import { enqueueGraphNodeEmbed,searchGraphNodes } from "./graph-search.js";
+import { enqueueGraphNodeEmbed, searchGraphNodes } from "./graph-search.js";
 import {
   createNode,
   deleteNode,
@@ -35,6 +35,7 @@ const log = getLogger("graph-tool-handlers");
 export interface RecallInput {
   query: string;
   mode?: "memory" | "archive";
+  num_results?: number;
   filters?: {
     types?: string[];
     after?: string;
@@ -91,7 +92,8 @@ async function handleMemoryRecall(
   }
 
   // Search graph nodes
-  const searchResults = await searchGraphNodes(queryVector, 20, [scopeId]);
+  const limit = Math.min(input.num_results ?? 20, 50);
+  const searchResults = await searchGraphNodes(queryVector, limit, [scopeId]);
   if (searchResults.length === 0) {
     return { results: [], mode: "memory", query: input.query };
   }
@@ -154,6 +156,7 @@ async function handleArchiveRecall(
 
   try {
     // Use SQLite FTS on messages table, scoped to the active memory scope
+    const limit = Math.min(input.num_results ?? 20, 50);
     const rows = rawAll(
       `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
        FROM messages_fts fts
@@ -162,9 +165,10 @@ async function handleArchiveRecall(
        WHERE messages_fts MATCH ?
          AND c.memory_scope_id = ?
        ORDER BY rank
-       LIMIT 20`,
+       LIMIT ?`,
       input.query,
       scopeId,
+      limit,
     ) as Array<{
       id: string;
       content: string;
