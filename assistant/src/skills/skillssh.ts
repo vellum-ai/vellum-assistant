@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 
-const log = getLogger("clawhub");
+const log = getLogger("skillssh");
 
 // Managed skills directory — where installed skill folders live
 function getManagedSkillsDir(): string {

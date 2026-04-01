@@ -27,7 +27,6 @@ mock.module("../config/loader.js", () => ({
       allowBundled: null,
       remoteProviders: {
         skillssh: { enabled: true },
-        clawhub: { enabled: true },
       },
       remotePolicy: {
         blockSuspicious: true,

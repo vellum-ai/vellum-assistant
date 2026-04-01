@@ -77,9 +77,22 @@ export const RemoteProvidersConfigSchema = z
     skillssh: RemoteProviderConfigSchema.default(
       RemoteProviderConfigSchema.parse({}),
     ).describe("skills.sh remote skill provider"),
-    clawhub: RemoteProviderConfigSchema.default(
-      RemoteProviderConfigSchema.parse({}),
-    ).describe("ClawHub remote skill provider"),
+    clawhub: RemoteProviderConfigSchema.optional().describe(
+      "Deprecated alias for skillssh — settings here are merged into skillssh",
+    ),
+  })
+  .transform((val) => {
+    // Merge legacy clawhub settings into skillssh so that existing
+    // config files with `clawhub.enabled: false` continue to work.
+    if (val.clawhub != null) {
+      if (val.clawhub.enabled === false) {
+        val.skillssh.enabled = false;
+      }
+    }
+    // Strip the legacy key from the resolved config so downstream
+    // code only sees `skillssh`.
+    const { clawhub: _, ...rest } = val;
+    return rest;
   })
   .describe("Remote skill provider configurations");
 
