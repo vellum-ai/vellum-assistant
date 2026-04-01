@@ -36,12 +36,8 @@ public struct VCard<Content: View>: View {
                     .strokeBorder(VColor.borderDisabled, lineWidth: 2)
             )
             .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            .onHover { isHovered = $0 }
+            .onTapGesture { action?() }
+            .pointerCursor(enabled: action != nil, onHover: { isHovered = $0 })
             .animation(VAnimation.fast, value: isHovered)
-            .if(action != nil) { view in
-                view
-                    .onTapGesture { action?() }
-                    .pointerCursor()
-            }
     }
 }
