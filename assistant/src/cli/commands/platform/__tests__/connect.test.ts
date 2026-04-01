@@ -30,7 +30,7 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 
 mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolvePlatformCallbackRegistrationContext: async () => ({
-    containerized: false,
+    isPlatform: false,
     platformBaseUrl: "",
     assistantId: "",
     hasInternalApiKey: false,
