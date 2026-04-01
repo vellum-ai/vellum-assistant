@@ -265,12 +265,15 @@ public struct SkillsClient: SkillsClientProtocol {
                     mapped["name"] = item["name"] ?? ""
                     mapped["description"] = item["description"] ?? ""
                     mapped["source"] = item["origin"] ?? "clawhub"
-                    // Pull detailed fields from the clawhub sub-object when available
+                    // Pull detailed fields from the origin-specific sub-object
                     if let clawhub = item["clawhub"] as? [String: Any] {
                         mapped["slug"] = clawhub["slug"] ?? mapped["slug"]!
                         mapped["author"] = clawhub["author"] ?? ""
                         mapped["stars"] = clawhub["stars"] ?? 0
                         mapped["installs"] = clawhub["installs"] ?? 0
+                    } else if let skillssh = item["skillssh"] as? [String: Any] {
+                        mapped["slug"] = skillssh["slug"] ?? mapped["slug"]!
+                        mapped["installs"] = skillssh["installs"] ?? 0
                     }
                     return mapped
                 }
