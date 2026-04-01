@@ -131,9 +131,15 @@ private let scrollLog = Logger(subsystem: Bundle.appBundleIdentifier, category: 
 // MARK: - MessageListScrollState
 
 /// Centralized scroll state machine with `@Observable` fine-grained tracking.
-/// A single `uiVersion` counter is the ONLY property that triggers SwiftUI
-/// view re-evaluations. The `mode` enum drives all scroll behavior decisions
-/// through explicit transitions rather than scattered handler logic.
+/// Each UI-facing property (`showTailSpacer`, `showScrollToLatest`,
+/// `scrollIndicatorsHidden`) is individually tracked by the Observation
+/// framework, so SwiftUI only re-evaluates views that read the specific
+/// property that changed. The `mode` enum drives all scroll behavior
+/// decisions through explicit transitions rather than scattered handler logic.
+///
+/// References:
+/// - [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
+/// - [Observation framework](https://developer.apple.com/documentation/observation)
 @Observable @MainActor
 final class MessageListScrollState {
 
@@ -143,20 +149,24 @@ final class MessageListScrollState {
     /// before executing. Transitions are logged for debugging.
     @ObservationIgnored private(set) var mode: ScrollMode = .initialLoad
 
-    // MARK: - UI State (single uiVersion observation)
+    // MARK: - UI State (fine-grained per-property observation)
 
-    /// Single observed property — the ONLY thing that triggers SwiftUI view
-    /// re-evaluation from scroll state. Bumped at most once per 16ms frame.
-    private(set) var uiVersion: UInt64 = 0
+    /// Internal counter for debounce tracking and diagnostics.
+    /// Not observed by any view — individual properties below are tracked
+    /// independently by the Observation framework.
+    @ObservationIgnored private(set) var uiVersion: UInt64 = 0
 
     /// Whether the "Scroll to latest" CTA should be visible.
-    @ObservationIgnored private(set) var showScrollToLatest = false
+    /// Tracked independently — only views reading this property re-evaluate.
+    private(set) var showScrollToLatest = false
 
-    /// Snapshot: whether the tail spacer should render.
-    @ObservationIgnored private(set) var showTailSpacer = false
+    /// Whether the tail spacer should render for push-to-top.
+    /// Tracked independently — only `TailSpacerView` re-evaluates on change.
+    private(set) var showTailSpacer = false
 
-    /// Snapshot: whether scroll indicators should be hidden.
-    @ObservationIgnored private(set) var scrollIndicatorsHidden = false
+    /// Whether scroll indicators should be hidden.
+    /// Tracked independently — only the scroll indicator modifier re-evaluates.
+    private(set) var scrollIndicatorsHidden = false
 
     // MARK: - Scroll Indicator Visibility
 
@@ -308,24 +318,37 @@ final class MessageListScrollState {
         }
     }
 
-    /// Computes all snapshot values from the current mode and bumps uiVersion
-    /// only if something actually changed.
+    /// Syncs snapshot properties from the current mode. Each property is
+    /// individually tracked by `@Observable`, so SwiftUI only re-evaluates
+    /// views that read the specific property that changed.
     private func syncUISnapshots() {
         let newShowScrollToLatest = mode.showsScrollToLatest
         let newShowTailSpacer = mode.showsTailSpacer
         let newScrollIndicatorsHidden = _hideScrollIndicators
 
+        let tailSpacerWasShowing = showTailSpacer
         var changed = false
+
         if showScrollToLatest != newShowScrollToLatest {
-            showScrollToLatest = newShowScrollToLatest; changed = true
+            showScrollToLatest = newShowScrollToLatest
+            changed = true
         }
         if showTailSpacer != newShowTailSpacer {
-            showTailSpacer = newShowTailSpacer; changed = true
+            showTailSpacer = newShowTailSpacer
+            changed = true
         }
         if scrollIndicatorsHidden != newScrollIndicatorsHidden {
-            scrollIndicatorsHidden = newScrollIndicatorsHidden; changed = true
+            scrollIndicatorsHidden = newScrollIndicatorsHidden
+            changed = true
         }
+
         if changed { uiVersion &+= 1 }
+
+        // Re-enter push-to-top: tail spacer was already rendered, so consume
+        // the pending target immediately without waiting for onAppear.
+        if tailSpacerWasShowing && newShowTailSpacer {
+            consumePendingPushToTop()
+        }
     }
 
     /// Synchronous UI sync — bypasses debounce for instant state transitions.
@@ -344,9 +367,9 @@ final class MessageListScrollState {
     @ObservationIgnored var anchorTimeoutTask: Task<Void, Never>?
 
     /// The message ID awaiting a deferred scroll-to-top. Set when entering
-    /// `pushToTop` mode and consumed after the next `uiVersion` bump,
-    /// which guarantees the tail spacer has rendered before the scroll
-    /// executes.
+    /// `pushToTop` mode and consumed by `TailSpacerView.onAppear` (fresh
+    /// push-to-top) or `syncUISnapshots` (re-enter when spacer is already
+    /// rendered).
     @ObservationIgnored var pendingPushToTopTarget: UUID?
 
     /// Timeout task for expansion stabilization — auto-ends after 200ms.
@@ -386,12 +409,26 @@ final class MessageListScrollState {
     }
 
     /// Enters push-to-top mode for the given message ID. Sets up the
-    /// deferred scroll target that will fire after the next uiVersion bump
-    /// (guaranteeing the tail spacer is rendered).
+    /// deferred scroll target that will fire after the tail spacer renders
+    /// (via `TailSpacerView.onAppear`) or immediately if already showing
+    /// (via `syncUISnapshots`).
     func enterPushToTop(messageId: UUID) {
         transition(to: .pushToTop(messageId: messageId))
         pendingPushToTopTarget = messageId
         syncUIImmediately()
+    }
+
+    /// Consumes a pending push-to-top scroll target. Called from
+    /// `TailSpacerView.onAppear` (fresh push-to-top, guaranteeing the spacer
+    /// is in the view tree) or from `syncUISnapshots` (re-enter case where
+    /// the spacer was already rendered).
+    func consumePendingPushToTop() {
+        guard let targetId = pendingPushToTopTarget,
+              mode.pushToTopMessageId != nil else { return }
+        pendingPushToTopTarget = nil
+        withAnimation(VAnimation.fast) {
+            performScrollTo(targetId, anchor: .top)
+        }
     }
 
     /// Exits push-to-top and transitions to followingBottom with a
