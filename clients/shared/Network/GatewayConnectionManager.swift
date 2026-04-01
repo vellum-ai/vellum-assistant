@@ -66,6 +66,19 @@ public final class GatewayConnectionManager: ObservableObject {
         #endif
     }
 
+    /// Whether the connected assistant is a managed (platform-hosted) assistant.
+    private var isManaged: Bool {
+        #if os(macOS)
+        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              let assistant = LockfileAssistant.loadByName(id) else {
+            return false
+        }
+        return assistant.isManaged
+        #else
+        return false
+        #endif
+    }
+
     // MARK: - Health Check
 
     private var healthCheckTask: Task<Void, Never>?
@@ -577,11 +590,11 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - Background Reconnection Loop
 
     /// Retries connection with increasing delays after the initial `connect()` fails.
-    /// Only applies to local assistants on macOS. Uses health checks and auto-wake
-    /// to reconnect without calling `connectImpl()` (which would interfere via
+    /// Applies to local and managed assistants on macOS. Uses health checks and auto-wake
+    /// (local only) to reconnect without calling `connectImpl()` (which would interfere via
     /// `disconnectInternal()`). Cancelled on explicit `disconnect()` or `reconfigure()`.
     private func startReconnectionLoop() {
-        guard isLocal, shouldReconnect else { return }
+        guard (isLocal || isManaged), shouldReconnect else { return }
         reconnectionTask?.cancel()
         reconnectionGeneration += 1
         let generation = reconnectionGeneration
@@ -611,6 +624,12 @@ public final class GatewayConnectionManager: ObservableObject {
                 do {
                     try await self.performHealthCheck()
                 } catch {
+                    // Managed assistants have no local gateway to wake — just retry
+                    if self.isManaged {
+                        log.warning("reconnect-loop: health check failed for managed assistant: \(error)")
+                        continue
+                    }
+
                     // Health check failed — try auto-wake if gateway unreachable
                     if let wakeHandler = self.wakeHandler {
                         let reachable = await HealthCheckClient.isReachable()
