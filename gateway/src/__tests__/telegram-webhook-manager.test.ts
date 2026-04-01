@@ -375,7 +375,7 @@ describe("reconcileTelegramWebhook", () => {
     delete process.env.PLATFORM_INTERNAL_API_KEY;
   });
 
-  test("credential cache values take precedence over env vars", async () => {
+  test("env vars take precedence for auth key and assistant ID, cache for base URL", async () => {
     const calls: {
       method: string;
       body: unknown;
@@ -408,7 +408,7 @@ describe("reconcileTelegramWebhook", () => {
           return new Response(
             JSON.stringify({
               callback_url:
-                "https://cache-platform.example.com/v1/gateway/callbacks/cache-assistant-id/webhooks/telegram/",
+                "https://cache-platform.example.com/v1/gateway/callbacks/env-assistant-id/webhooks/telegram/",
             }),
             {
               status: 201,
@@ -437,18 +437,18 @@ describe("reconcileTelegramWebhook", () => {
 
     expect(calls).toHaveLength(3);
     expect(calls[0].method).toBe("registerCallbackRoute");
-    // platform_base_url and platform_assistant_id: credential cache takes precedence
+    // platform_base_url: credential cache takes precedence over env var
+    // PLATFORM_ASSISTANT_ID and PLATFORM_INTERNAL_API_KEY: env var takes
+    // precedence, matching the daemon's resolvePlatformCallbackRegistrationContext().
     expect(calls[0].body).toEqual({
-      assistant_id: "cache-assistant-id",
+      assistant_id: "env-assistant-id",
       callback_path: "webhooks/telegram",
       type: "telegram",
     });
-    // PLATFORM_INTERNAL_API_KEY (env var, Bearer) takes precedence over
-    // assistant_api_key from credential cache, matching the daemon's behaviour.
     expect(calls[0].headers?.Authorization).toBe("Bearer env-internal-key");
     // Registration URL should use cache platform URL
     expect((calls[2].body as any).url).toBe(
-      "https://cache-platform.example.com/v1/gateway/callbacks/cache-assistant-id/webhooks/telegram/",
+      "https://cache-platform.example.com/v1/gateway/callbacks/env-assistant-id/webhooks/telegram/",
     );
 
     delete process.env.IS_CONTAINERIZED;
