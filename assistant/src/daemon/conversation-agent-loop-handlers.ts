@@ -524,7 +524,6 @@ export function handleToolResult(
     status: event.status,
     conversationId: deps.ctx.conversationId,
     imageData: imageDataList?.[0],
-    imageDataList,
     toolUseId: event.toolUseId,
   });
 }
