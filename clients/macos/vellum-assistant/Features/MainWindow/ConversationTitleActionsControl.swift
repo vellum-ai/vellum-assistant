@@ -26,6 +26,8 @@ struct ConversationTitleActionsControl: View {
                     showDrawer.toggle()
                 }
             }
+            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
 
             if let parentTitle = presentation.forkParentTitle, presentation.showsForkParentLink {
                 Button(action: onOpenForkParent) {
