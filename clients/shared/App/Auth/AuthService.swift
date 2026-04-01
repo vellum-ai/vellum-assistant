@@ -65,19 +65,22 @@ public final class AuthService {
         let body: Any?
         let headers: [String: String]
         let retryAfterSession410: Bool
+        let timeoutInterval: TimeInterval?
 
         init(
             path: String,
             method: String = "GET",
             body: Any? = nil,
             headers: [String: String] = [:],
-            retryAfterSession410: Bool = false
+            retryAfterSession410: Bool = false,
+            timeoutInterval: TimeInterval? = nil
         ) {
             self.path = path
             self.method = method
             self.body = body
             self.headers = headers
             self.retryAfterSession410 = retryAfterSession410
+            self.timeoutInterval = timeoutInterval
         }
     }
 
@@ -95,8 +98,8 @@ public final class AuthService {
         try await request(AuthRequestConfig(path: "config", retryAfterSession410: true))
     }
 
-    public func getSession() async throws -> AllauthResponse<SessionData> {
-        try await request(AuthRequestConfig(path: "auth/session"))
+    public func getSession(timeout: TimeInterval? = nil) async throws -> AllauthResponse<SessionData> {
+        try await request(AuthRequestConfig(path: "auth/session", timeoutInterval: timeout))
     }
 
     public func logout() async throws -> AllauthResponse<EmptyData> {
@@ -651,6 +654,9 @@ public final class AuthService {
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = requestConfig.method
+        if let timeout = requestConfig.timeoutInterval {
+            urlRequest.timeoutInterval = timeout
+        }
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
