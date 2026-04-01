@@ -492,6 +492,7 @@ export function parseExtractionResponse(
     }
 
     diff.createNodes.push(node);
+    const nodeIndex = diff.createNodes.length - 1;
 
     // Collect edges to existing nodes (need new node ID after creation)
     if (Array.isArray(raw.edges_to_existing)) {
@@ -501,7 +502,7 @@ export function parseExtractionResponse(
         if (!edge.relationship || !VALID_RELATIONSHIPS.has(edge.relationship))
           continue;
         deferredEdges.push({
-          newNodeIndex: i,
+          newNodeIndex: nodeIndex,
           targetNodeId: edge.target_node_id,
           relationship: edge.relationship,
           weight: clamp(Number(edge.weight) || 1.0, 0, 1),
@@ -514,7 +515,7 @@ export function parseExtractionResponse(
       for (const t of raw.triggers) {
         if (!t.type || !VALID_TRIGGER_TYPES.has(t.type)) continue;
         deferredTriggers.push({
-          newNodeIndex: i,
+          newNodeIndex: nodeIndex,
           trigger: {
             type: t.type as TriggerType,
             schedule: t.schedule ?? null,
