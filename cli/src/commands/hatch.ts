@@ -21,6 +21,7 @@ import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import { hatchLocal } from "../lib/hatch-local";
 import {
+  fetchOrganizationId,
   getPlatformUrl,
   hatchAssistant,
   readPlatformToken,
@@ -593,7 +594,19 @@ async function hatchVellumPlatform(): Promise<void> {
   console.log("   Hatching assistant on Vellum platform...");
   console.log("");
 
-  const result = await hatchAssistant(token);
+  let orgId: string;
+  try {
+    orgId = await fetchOrganizationId(token);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("401") || msg.includes("403")) {
+      console.error("Authentication failed. Run 'vellum login' to refresh.");
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const result = await hatchAssistant(token, orgId);
 
   const platformUrl = getPlatformUrl();
 

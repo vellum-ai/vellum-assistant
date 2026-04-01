@@ -757,7 +757,10 @@ describe("resolveOrHatchTarget", () => {
     findAssistantByNameMock.mockReturnValue(null);
 
     const result = await resolveOrHatchTarget("platform", "nonexistent");
-    expect(hatchAssistantMock).toHaveBeenCalledWith("platform-token");
+    expect(hatchAssistantMock).toHaveBeenCalledWith(
+      "platform-token",
+      "org-123",
+    );
     expect(saveAssistantEntryMock).toHaveBeenCalledWith(
       expect.objectContaining({
         assistantId: "platform-new-id",
