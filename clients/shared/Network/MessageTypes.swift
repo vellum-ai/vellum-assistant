@@ -18,10 +18,10 @@ import Foundation
 // │                                 │ contract type is skipped (SKIP_TYPES)    │
 // │ GenerationCancelledMessage      │ Swift adds `conversationId` for conversation  │
 // │                                 │ filtering not present in the contract    │
-// │ ClawhubSkillItem                │ Decoded from nested `data` field of      │
+// │ ClawhubSearchItem               │ Decoded from nested `data` field of      │
 // │                                 │ skills_operation_response, not a direct  │
 // │                                 │ wire message                             │
-// │ ClawhubSearchData               │ Wrapper for ClawhubSkillItem array,      │
+// │ ClawhubSearchData               │ Wrapper for ClawhubSearchItem array,     │
 // │                                 │ not a direct wire message                │
 // │ SkillsOperationResponseMessage  │ Uses typed ClawhubSearchData? for `data` │
 // │                                 │ instead of generated AnyCodable?         │
@@ -895,16 +895,13 @@ extension ErrorMessage {
 /// Backed by generated `AppDataResponse`.
 public typealias AppDataResponseMessage = AppDataResponse
 
-/// ClaWHub metadata for a skill (slim/list response).
-/// Backed by generated `ClawhubSkillMeta`.
-public typealias ClawhubInfo = ClawhubSkillMeta
-
 /// Full skill info from the daemon's resolved skill list.
 /// Backed by generated `SkillsListResponseSkill`.
 public typealias SkillInfo = SkillsListResponseSkill
 
 /// Legacy provenance type — retained for backward compatibility until all call sites migrate.
 /// Will be removed once downstream views no longer reference `provenance`.
+@available(*, deprecated, message: "Use kind/origin/status instead of provenance")
 public struct SkillsListResponseSkillProvenance: Codable, Sendable {
     public let kind: String
     public let provider: String?
@@ -918,9 +915,6 @@ public struct SkillsListResponseSkillProvenance: Codable, Sendable {
         self.sourceUrl = sourceUrl
     }
 }
-
-/// Legacy type alias for backward compatibility.
-public typealias SkillProvenance = SkillsListResponseSkillProvenance
 
 extension SkillsListResponseSkill: Identifiable {}
 
@@ -938,6 +932,12 @@ extension SkillsListResponseSkill {
 
     /// Whether the skill is currently installed (explicitly installed or bundled).
     public var isInstalled: Bool { kind == "installed" || kind == "bundled" }
+
+    /// Whether the skill is currently enabled.
+    public var isEnabled: Bool { status == "enabled" }
+
+    /// Whether the skill is currently disabled.
+    public var isDisabled: Bool { status == "disabled" }
 
     // MARK: - Backward-compatibility shims (remove when all call sites migrate to new fields)
 
@@ -973,6 +973,7 @@ extension SkillsListResponseSkill {
     public var updateAvailable: Bool { false }
 
     /// Legacy `provenance` accessor — no longer carried on slim responses.
+    @available(*, deprecated, message: "Use kind/origin/status instead of provenance")
     public var provenance: SkillsListResponseSkillProvenance? { nil }
 
     /// Returns a copy with a different `state` (legacy — delegates to withStatus).
@@ -1059,7 +1060,7 @@ public typealias SkillStateChangedMessage = SkillStateChanged
 /// A skill returned from a search or explore query.
 /// Kept hand-maintained — this type is decoded from the `data` field of
 /// `skills_operation_response` (which is `AnyCodable` in the contract).
-public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
+public struct ClawhubSearchItem: Decodable, Sendable, Identifiable, Equatable {
     public var id: String { slug }
     public let name: String
     public let slug: String
@@ -1093,9 +1094,12 @@ public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
     }
 }
 
+/// Legacy type alias for backward compatibility with call sites using the old name.
+public typealias ClawhubSkillItem = ClawhubSearchItem
+
 /// Wrapper for ClaWHub search results embedded in `skills_operation_response.data`.
 public struct ClawhubSearchData: Decodable, Sendable {
-    public let skills: [ClawhubSkillItem]
+    public let skills: [ClawhubSearchItem]
 }
 
 /// Generic operation response.
