@@ -226,6 +226,57 @@ final class RenderChurnTests: XCTestCase {
                           "ToolCallData instances differing in toolName should NOT be equal")
     }
 
+    // MARK: - ChatMessage toolCallsRevision (O(1) equality)
+
+    /// Freshly-init'd ChatMessages with the same toolCalls share revision 0 and compare equal.
+    func testChatMessageEqualityWithSameToolCalls() {
+        // GIVEN two ChatMessages created with identical tool calls
+        let msgId = UUID()
+        let tc = ToolCallData(toolName: "bash", inputSummary: "ls", isComplete: true, arrivedBeforeText: true)
+        let a = ChatMessage(id: msgId, role: .assistant, text: "", toolCalls: [tc])
+        let b = ChatMessage(id: msgId, role: .assistant, text: "", toolCalls: [tc])
+
+        // WHEN we compare them
+        // THEN they should be equal (both at revision 0)
+        XCTAssertEqual(a, b,
+                       "ChatMessages created with the same toolCalls should be equal (both revision 0)")
+    }
+
+    /// Mutating a tool call element bumps toolCallsRevision, making the copy
+    /// unequal to the original in O(1) without element-wise array comparison.
+    func testChatMessageInequalityAfterToolCallMutation() {
+        // GIVEN a ChatMessage with one tool call
+        let tc = ToolCallData(toolName: "bash", inputSummary: "ls", arrivedBeforeText: true)
+        var message = ChatMessage(role: .assistant, text: "", toolCalls: [tc])
+        let original = message
+        XCTAssertEqual(message.toolCallsRevision, 0,
+                       "Revision should start at 0 after init")
+
+        // WHEN we mutate a tool call field
+        message.toolCalls[0].isComplete = true
+
+        // THEN the revision increments and the messages are no longer equal
+        XCTAssertGreaterThan(message.toolCallsRevision, 0,
+                             "Revision should increment after tool call mutation")
+        XCTAssertNotEqual(message, original,
+                          "ChatMessage should be unequal after tool call mutation (revision diverged)")
+    }
+
+    /// Appending a new tool call bumps toolCallsRevision exactly once.
+    func testChatMessageRevisionBumpsOnAppend() {
+        // GIVEN a ChatMessage with no tool calls
+        var message = ChatMessage(role: .assistant, text: "")
+        XCTAssertEqual(message.toolCallsRevision, 0)
+
+        // WHEN we append a tool call
+        let tc = ToolCallData(toolName: "file_read", inputSummary: "readme", arrivedBeforeText: true)
+        message.toolCalls.append(tc)
+
+        // THEN the revision increments to 1
+        XCTAssertEqual(message.toolCallsRevision, 1,
+                       "Appending a tool call should increment revision once")
+    }
+
     /// Two ToolCallData instances that differ in inputFullLength should NOT be equal
     /// (detects rehydration changes without comparing full strings).
     func testToolCallDataInequalityOnInputFullLength() {

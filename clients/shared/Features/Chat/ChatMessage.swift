@@ -1571,7 +1571,7 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.status == rhs.status
         && lhs.isError == rhs.isError
         && lhs.conversationError == rhs.conversationError
-        && lhs.toolCalls == rhs.toolCalls
+        && lhs.toolCallsRevision == rhs.toolCallsRevision
         && lhs.attachments.count == rhs.attachments.count
         && lhs.attachmentWarnings == rhs.attachmentWarnings
         && lhs.inlineSurfaces == rhs.inlineSurfaces
@@ -1599,7 +1599,13 @@ public struct ChatMessage: Identifiable, Equatable {
     public var commandList: CommandListData?
     public var attachments: [ChatAttachment]
     public var attachmentWarnings: [String]
-    public var toolCalls: [ToolCallData]
+    public var toolCalls: [ToolCallData] {
+        didSet { toolCallsRevision &+= 1 }
+    }
+    /// Monotonically increasing revision counter so that `ChatMessage.==` can
+    /// detect tool-call mutations in O(1) instead of O(n) element-wise array
+    /// comparison.  Incremented by `toolCalls.didSet` on every mutation.
+    public private(set) var toolCallsRevision: Int = 0
     public var inlineSurfaces: [InlineSurfaceData]
     /// Streaming code preview from tool input generation (e.g. app_create HTML).
     public var streamingCodePreview: String?
