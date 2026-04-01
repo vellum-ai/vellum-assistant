@@ -30,6 +30,18 @@ export type SourceType =
   | "observed" // assistant noticed a pattern
   | "told-by-other"; // third party provided it
 
+/** Reference to an image stored in a conversation message. */
+export interface ImageRef {
+  /** Message ID containing the image. */
+  messageId: string;
+  /** Index of the image ContentBlock within the message's content array. */
+  blockIndex: number;
+  /** LLM-generated description of what the image shows. */
+  description: string;
+  /** MIME type (image/png, image/jpeg, etc). */
+  mimeType: string;
+}
+
 /** Emotional charge attached to a memory — decays independently from the memory itself. */
 export interface EmotionalCharge {
   /** Positive vs negative sentiment (-1 to 1). */
@@ -91,6 +103,9 @@ export interface MemoryNode {
   narrativeRole: string | null;
   /** Which story arc this belongs to. */
   partOfStory: string | null;
+
+  /** Image references attached to this memory (null if text-only). */
+  imageRefs: ImageRef[] | null;
 
   /** Memory scope for multi-scope isolation. */
   scopeId: string;

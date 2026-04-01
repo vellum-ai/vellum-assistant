@@ -228,6 +228,7 @@ export async function runPatternScan(
       sourceType: "observed",
       narrativeRole: null,
       partOfStory: pattern.partOfStory ?? null,
+      imageRefs: null,
       scopeId,
     });
 

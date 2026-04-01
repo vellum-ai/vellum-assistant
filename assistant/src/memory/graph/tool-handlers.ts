@@ -294,6 +294,7 @@ function handleSave(
     sourceType: "direct" as SourceType,
     narrativeRole: null,
     partOfStory: null,
+    imageRefs: null,
     scopeId,
   };
 

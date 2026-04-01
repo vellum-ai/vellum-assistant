@@ -52,6 +52,7 @@ function makeNewNode(overrides: Partial<NewNode> = {}): NewNode {
     sourceType: "direct",
     narrativeRole: null,
     partOfStory: null,
+    imageRefs: null,
     scopeId: "default",
     ...overrides,
   };

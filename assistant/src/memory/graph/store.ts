@@ -50,6 +50,7 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     sourceType: row.sourceType as SourceType,
     narrativeRole: row.narrativeRole,
     partOfStory: row.partOfStory,
+    imageRefs: null, // Column added in a later migration; default to null until then.
     scopeId: row.scopeId,
   };
 }

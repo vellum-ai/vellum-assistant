@@ -223,6 +223,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     sourceType: "direct" as const,
     narrativeRole: null,
     partOfStory: null,
+    imageRefs: null,
     scopeId: "default",
   });
 
