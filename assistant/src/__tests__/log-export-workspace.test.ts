@@ -220,7 +220,7 @@ describe("POST /v1/export — tar.gz archive", () => {
     }
   });
 
-  test("archive excludes embedding-models/ and data/qdrant/", async () => {
+  test("archive excludes embedding-models/ and data/qdrant/ data but includes manifests", async () => {
     const res = await callExport();
     const dir = await extractArchive(res);
     try {
@@ -229,8 +229,14 @@ describe("POST /v1/export — tar.gz archive", () => {
         f.startsWith("embedding-models/"),
       );
       const qdrantFiles = files.filter((f) => f.startsWith("data/qdrant/"));
-      expect(embeddingFiles).toHaveLength(0);
-      expect(qdrantFiles).toHaveLength(0);
+
+      // Original data files are excluded
+      expect(embeddingFiles).not.toContain("embedding-models/model.bin");
+      expect(qdrantFiles).not.toContain("data/qdrant/index.bin");
+
+      // Lightweight manifests are included for diagnostics
+      expect(embeddingFiles).toContain("embedding-models/_manifest.txt");
+      expect(qdrantFiles).toContain("data/qdrant/_manifest.txt");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
