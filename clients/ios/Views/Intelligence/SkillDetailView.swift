@@ -24,9 +24,13 @@ struct SkillDetailView: View {
             // Details section
             Section("Details") {
                 if let clawhub = skill.clawhub {
-                    detailRow(label: "Author", value: clawhub.author)
-                    detailRow(label: "Stars", value: "\(clawhub.stars)")
-                } else if let skillssh = skill.skillssh {
+                    if !clawhub.author.isEmpty {
+                        detailRow(label: "Author", value: clawhub.author)
+                    }
+                    if clawhub.stars > 0 {
+                        detailRow(label: "Stars", value: "\(clawhub.stars)")
+                    }
+                } else if let skillssh = skill.skillssh, !skillssh.sourceRepo.isEmpty {
                     detailRow(label: "Source Repo", value: skillssh.sourceRepo)
                 }
                 detailRow(label: "Origin", value: originLabel(skill.origin))
