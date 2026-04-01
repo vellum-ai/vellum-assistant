@@ -18,6 +18,7 @@ import {
   ensureDataDir,
   getDaemonStartupLockPath,
   getDaemonStderrLogPath,
+  getDataDir,
   getPidPath,
   getWorkspaceConfigPath,
 } from "../util/platform.js";
@@ -413,7 +414,7 @@ async function startDaemonLocked(): Promise<{
       const stderr = readFileSync(stderrPath, "utf-8").trim();
       const detail = stderr
         ? `\n${stderr}`
-        : `\nCheck logs at $VELLUM_WORKSPACE_DIR/data/logs/ for details.`;
+        : `\nCheck logs at ${getDataDir()}/logs/ for details.`;
       throw new DaemonError(
         `Daemon exited immediately (code ${
           childExitCode ?? "unknown"
