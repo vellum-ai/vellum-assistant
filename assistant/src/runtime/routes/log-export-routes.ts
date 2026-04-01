@@ -447,6 +447,7 @@ function formatBytes(bytes: number): string {
 
 /** Directory prefixes to skip when collecting workspace files. */
 const WORKSPACE_SKIP_DIRS = new Set([
+  "bin",
   "embedding-models",
   "data/qdrant",
   "data/attachments",
@@ -561,7 +562,53 @@ function collectWorkspaceFiles(): Record<string, string> {
   }
 
   walk(wsDir);
+
+  // For each skipped directory that exists, emit a lightweight manifest
+  // listing filenames and sizes so diagnostics show what was excluded.
+  for (const prefix of WORKSPACE_SKIP_DIRS) {
+    const dirPath = join(wsDir, prefix);
+    if (!existsSync(dirPath)) continue;
+    try {
+      const manifest = buildSkippedDirManifest(dirPath);
+      if (manifest) {
+        result[`${prefix}/_manifest.txt`] = manifest;
+      }
+    } catch {
+      // Best-effort — skip if unreadable
+    }
+  }
+
   return result;
+}
+
+/**
+ * Build a lightweight text manifest for a skipped workspace directory.
+ * Lists each entry with its type and size so diagnostics show what was
+ * excluded without shipping the actual (potentially large) files.
+ */
+function buildSkippedDirManifest(dirPath: string): string | undefined {
+  const entries = readdirSync(dirPath);
+  if (entries.length === 0) return undefined;
+
+  const lines: string[] = [];
+  for (const entry of entries) {
+    const fullPath = join(dirPath, entry);
+    try {
+      const stat = lstatSync(fullPath);
+      if (stat.isDirectory()) {
+        const size = directorySize(fullPath);
+        lines.push(`${entry}/  ${formatBytes(size)}`);
+      } else if (stat.isFile()) {
+        lines.push(`${entry}  ${formatBytes(stat.size)}`);
+      } else if (stat.isSymbolicLink()) {
+        lines.push(`${entry}  (symlink)`);
+      }
+    } catch {
+      lines.push(`${entry}  (unreadable)`);
+    }
+  }
+
+  return lines.join("\n") + "\n";
 }
 
 /**
