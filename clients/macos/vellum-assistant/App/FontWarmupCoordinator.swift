@@ -14,7 +14,7 @@ final class FontWarmupCoordinator {
 
     @Published private(set) var isReady = false
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum", category: "fontWarmup")
+    private let logger = Logger(subsystem: Bundle.appBundleIdentifier, category: "fontWarmup")
 
     /// The detached warmup task — nil until `start()` is called.
     private var warmupTask: Task<Void, Never>?
