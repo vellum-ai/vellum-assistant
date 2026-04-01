@@ -8,6 +8,8 @@ struct IntegrationsGridView: View {
 
     @State private var searchText = ""
     @State private var selectedProviderKey: String? = nil
+    @State private var isEnabledExpanded = true
+    @State private var isNotEnabledExpanded = true
 
     private let columns = Array(
         repeating: GridItem(.flexible(), spacing: VSpacing.md),
@@ -43,33 +45,43 @@ struct IntegrationsGridView: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            VSearchBar(placeholder: "Search integrations...", text: $searchText)
+        SettingsCard(
+            title: "Integrations",
+            subtitle: "\(store.managedOAuthProviders.count) integrations available"
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VSearchBar(placeholder: "Search integrations...", text: $searchText)
 
-            Text("\(filteredProviders.count) integrations")
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentTertiary)
+                if filteredProviders.isEmpty && !searchText.isEmpty {
+                    VEmptyState(
+                        title: "No integrations matched",
+                        subtitle: "No integrations matched \"\(searchText)\"",
+                        icon: VIcon.search.rawValue
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, VSpacing.xxxl)
+                } else {
+                    if !enabledProviders.isEmpty {
+                        VDisclosureSection(
+                            title: "Enabled \(enabledProviders.count)",
+                            isExpanded: $isEnabledExpanded
+                        ) {
+                            providerGrid(providers: enabledProviders)
+                        }
+                    }
 
-            if filteredProviders.isEmpty && !searchText.isEmpty {
-                VEmptyState(
-                    title: "No integrations matched",
-                    subtitle: "No integrations matched \"\(searchText)\"",
-                    icon: VIcon.search.rawValue
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, VSpacing.xxxl)
-            } else {
-                if !enabledProviders.isEmpty {
-                    sectionView(title: "Enabled", count: enabledProviders.count, providers: enabledProviders)
-                }
-
-                if !notEnabledProviders.isEmpty {
-                    sectionView(title: "Not Enabled", count: notEnabledProviders.count, providers: notEnabledProviders)
+                    if !notEnabledProviders.isEmpty {
+                        VDisclosureSection(
+                            title: "Not Enabled \(notEnabledProviders.count)",
+                            isExpanded: $isNotEnabledExpanded
+                        ) {
+                            providerGrid(providers: notEnabledProviders)
+                        }
+                    }
                 }
             }
         }
         .onAppear {
-            // Fetch connections for all providers so we can classify enabled vs not-enabled
             for provider in store.managedOAuthProviders {
                 Task {
                     await store.fetchManagedOAuthConnections(providerKey: provider.provider_key)
@@ -77,9 +89,6 @@ struct IntegrationsGridView: View {
             }
         }
         .onChange(of: store.managedOAuthProviders.map(\.provider_key)) { _, _ in
-            // Providers are fetched asynchronously, so re-trigger connection
-            // fetching when they arrive (onAppear may fire while the list is
-            // still empty).
             for provider in store.managedOAuthProviders {
                 Task {
                     await store.fetchManagedOAuthConnections(providerKey: provider.provider_key)
@@ -99,8 +108,6 @@ struct IntegrationsGridView: View {
         }
     }
 
-    /// Computed binding that bridges the optional `selectedProviderKey` to a Bool
-    /// for `.sheet(isPresented:)`, since `String` does not conform to `Identifiable`.
     private var isDetailPresented: Binding<Bool> {
         Binding(
             get: { selectedProviderKey != nil },
@@ -108,30 +115,19 @@ struct IntegrationsGridView: View {
         )
     }
 
-    // MARK: - Section
+    // MARK: - Grid
 
-    private func sectionView(title: String, count: Int, providers: [OAuthProviderMetadata]) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.xs) {
-                Text(title)
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentDefault)
-                Text("\(count)")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-
-            LazyVGrid(columns: columns, spacing: VSpacing.md) {
-                ForEach(providers, id: \.provider_key) { provider in
-                    IntegrationCard(
-                        providerKey: provider.provider_key,
-                        displayName: provider.display_name ?? provider.provider_key,
-                        description: provider.description,
-                        action: {
-                            selectedProviderKey = provider.provider_key
-                        }
-                    )
-                }
+    private func providerGrid(providers: [OAuthProviderMetadata]) -> some View {
+        LazyVGrid(columns: columns, spacing: VSpacing.md) {
+            ForEach(providers, id: \.provider_key) { provider in
+                IntegrationCard(
+                    providerKey: provider.provider_key,
+                    displayName: provider.display_name ?? provider.provider_key,
+                    description: provider.description,
+                    action: {
+                        selectedProviderKey = provider.provider_key
+                    }
+                )
             }
         }
     }
