@@ -449,6 +449,13 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
+/** Coerce an LLM-returned event_date to number | null, guarding against string values. */
+export function parseEpochMs(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function parseExtractionResponse(
   input: Record<string, unknown>,
   conversationId: string,
@@ -522,7 +529,7 @@ export function parseExtractionResponse(
       created: now,
       lastAccessed: now,
       lastConsolidated: now,
-      eventDate: raw.event_date ?? null,
+      eventDate: parseEpochMs(raw.event_date),
       emotionalCharge,
       fidelity: "vivid" as Fidelity,
       confidence: clamp(Number(raw.confidence) || 0.5, 0, 1),
@@ -578,7 +585,7 @@ export function parseExtractionResponse(
             condition: t.condition ?? null,
             conditionEmbedding: null, // Embedded async via job
             threshold: t.type === "semantic" ? 0.7 : null,
-            eventDate: t.event_date ?? null,
+            eventDate: parseEpochMs(t.event_date),
             rampDays: t.ramp_days ?? null,
             followUpDays: t.follow_up_days ?? null,
             recurring: t.recurring ?? false,
@@ -653,7 +660,7 @@ export function parseExtractionResponse(
       ["vivid", "clear", "faded", "gist"].includes(raw.fidelity)
     )
       changes.fidelity = raw.fidelity;
-    if (raw.event_date !== undefined) changes.eventDate = raw.event_date;
+    if (raw.event_date !== undefined) changes.eventDate = parseEpochMs(raw.event_date);
     if (Object.keys(changes).length > 0) {
       diff.updateNodes.push({ id: raw.id, changes });
     }
