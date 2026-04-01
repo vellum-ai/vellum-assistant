@@ -71,7 +71,9 @@ export function readInstallMeta(skillDir: string): SkillInstallMeta | null {
     try {
       return JSON.parse(readFileSync(metaPath, "utf-8")) as SkillInstallMeta;
     } catch {
-      return null;
+      // Malformed install-meta.json (partial write, manual edit, etc.) —
+      // fall through to the legacy version.json path so we don't lose
+      // provenance info when a valid legacy file exists.
     }
   }
 
@@ -136,8 +138,20 @@ function inferFromLegacyVersionJson(
 // ─── Content hash computation ───────────────────────────────────────────────
 
 /**
+ * Metadata files excluded from content hashing. These are written by the
+ * installer and must not contribute to the content hash — otherwise the hash
+ * stored inside `install-meta.json` would change after writing the file.
+ */
+const METADATA_FILENAMES = new Set([
+  INSTALL_META_FILENAME, // install-meta.json
+  LEGACY_VERSION_FILENAME, // version.json
+]);
+
+/**
  * Collect all file contents in a directory tree, sorted by relative path
- * for determinism.
+ * for determinism. Metadata files (`install-meta.json`, `version.json`) at
+ * the root level are excluded so the content hash covers only actual skill
+ * content.
  */
 export function collectFileContents(
   dir: string,
@@ -148,6 +162,9 @@ export function collectFileContents(
 
   const entries = readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
+    // Exclude metadata files at the root level (prefix === "")
+    if (!prefix && METADATA_FILENAMES.has(entry.name)) continue;
+
     const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {

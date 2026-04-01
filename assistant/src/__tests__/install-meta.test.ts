@@ -166,7 +166,7 @@ describe("readInstallMeta", () => {
     expect(readInstallMeta(dir)).toBeNull();
   });
 
-  test("returns null for malformed install-meta.json", () => {
+  test("returns null for malformed install-meta.json when no version.json exists", () => {
     const dir = makeTempDir();
     writeFileSync(
       join(dir, "install-meta.json"),
@@ -174,6 +174,31 @@ describe("readInstallMeta", () => {
       "utf-8",
     );
     expect(readInstallMeta(dir)).toBeNull();
+  });
+
+  test("falls back to version.json when install-meta.json is malformed", () => {
+    const dir = makeTempDir();
+    // Write a malformed install-meta.json
+    writeFileSync(
+      join(dir, "install-meta.json"),
+      "{not valid json!!!",
+      "utf-8",
+    );
+    // Write a valid legacy version.json
+    writeFileSync(
+      join(dir, "version.json"),
+      JSON.stringify({
+        version: "v1:abc123",
+        installedAt: "2025-02-01T08:00:00.000Z",
+      }),
+      "utf-8",
+    );
+
+    const result = readInstallMeta(dir);
+    expect(result).not.toBeNull();
+    expect(result!.origin).toBe("vellum");
+    expect(result!.version).toBe("v1:abc123");
+    expect(result!.installedAt).toBe("2025-02-01T08:00:00.000Z");
   });
 
   // ─── Legacy version.json fallback ──────────────────────────────────────
@@ -382,6 +407,32 @@ describe("computeSkillHash", () => {
 
     expect(hash1).not.toBe(hash2);
   });
+
+  test("excludes install-meta.json and version.json from the hash", () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "SKILL.md"), "# My Skill\n");
+    const hashBefore = computeSkillHash(dir);
+
+    // Adding install-meta.json should not change the hash
+    writeFileSync(
+      join(dir, "install-meta.json"),
+      JSON.stringify({
+        origin: "vellum",
+        installedAt: "2025-01-01T00:00:00.000Z",
+        contentHash: hashBefore,
+      }),
+      "utf-8",
+    );
+    expect(computeSkillHash(dir)).toBe(hashBefore);
+
+    // Adding version.json should not change the hash either
+    writeFileSync(
+      join(dir, "version.json"),
+      JSON.stringify({ version: "v1:abc123" }),
+      "utf-8",
+    );
+    expect(computeSkillHash(dir)).toBe(hashBefore);
+  });
 });
 
 // ─── collectFileContents ────────────────────────────────────────────────────
@@ -426,5 +477,30 @@ describe("collectFileContents", () => {
     const results = collectFileContents(dir);
     expect(results).toHaveLength(1);
     expect(results[0].content.toString("utf-8")).toBe("Hello, World!");
+  });
+
+  test("excludes install-meta.json and version.json at root level", () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "SKILL.md"), "# Skill\n");
+    writeFileSync(join(dir, "install-meta.json"), '{"origin":"vellum"}');
+    writeFileSync(join(dir, "version.json"), '{"version":"1.0.0"}');
+
+    const results = collectFileContents(dir);
+    const names = results.map((r) => r.relPath);
+    expect(names).toEqual(["SKILL.md"]);
+    expect(names).not.toContain("install-meta.json");
+    expect(names).not.toContain("version.json");
+  });
+
+  test("does not exclude install-meta.json or version.json in subdirectories", () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "sub"));
+    writeFileSync(join(dir, "sub", "install-meta.json"), "nested");
+    writeFileSync(join(dir, "sub", "version.json"), "nested");
+
+    const results = collectFileContents(dir);
+    const names = results.map((r) => r.relPath);
+    expect(names).toContain("sub/install-meta.json");
+    expect(names).toContain("sub/version.json");
   });
 });
