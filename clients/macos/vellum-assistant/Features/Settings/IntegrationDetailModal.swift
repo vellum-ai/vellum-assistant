@@ -235,7 +235,7 @@ struct IntegrationDetailModal: View {
             Text(" to Vellum to connect \(displayName).")
                 .foregroundStyle(VColor.contentDefault)
         }
-        .font(VFont.bodyMediumLighter)
+        .font(VFont.labelDefault)
     }
 
     private var managedConnectingState: some View {
