@@ -926,9 +926,6 @@ extension SkillsListResponseSkill {
 
     /// Reads emoji from the `vellum` sub-object for display.
     public var emoji: String? { vellum?.emoji }
-
-    /// Alias for `status` — used by views that reference `state`.
-    public var state: String { status }
 }
 
 /// Response containing the list of available skills.
