@@ -138,7 +138,7 @@ struct SkillDetailTitleRow: View {
                 .frame(width: 32, height: 32)
 
                 HStack(spacing: VSpacing.sm) {
-                    if let emoji = skill.emoji, !emoji.isEmpty {
+                    if let emoji = skill.vellum?.emoji, !emoji.isEmpty {
                         Text(emoji)
                             .font(.system(size: 20))
                     }
@@ -149,12 +149,12 @@ struct SkillDetailTitleRow: View {
                         .lineLimit(1)
                 }
 
-                VSkillTypePill(source: skill.source)
+                VSkillTypePill(origin: skill.origin, status: skill.status)
             }
 
             Spacer()
 
-            if skill.source == "managed" || skill.source == "clawhub" {
+            if skill.origin == "clawhub" || skill.origin == "skillssh" {
                 VButton(label: "Remove", style: .dangerOutline) {
                     onDelete()
                 }
