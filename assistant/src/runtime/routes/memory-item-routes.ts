@@ -39,6 +39,7 @@ import {
 } from "../../memory/graph/store.js";
 import type {
   Fidelity,
+  ImageRef,
   MemoryNode,
   MemoryType,
   NewNode,
@@ -751,7 +752,7 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
       | "told-by-other",
     narrativeRole: row.narrativeRole,
     partOfStory: row.partOfStory,
-    imageRefs: null, // Column added in a later migration; default to null until then.
+    imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
     scopeId: row.scopeId,
   };
 }
