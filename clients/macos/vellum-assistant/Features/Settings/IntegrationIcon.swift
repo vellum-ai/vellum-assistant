@@ -1,12 +1,13 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Maps OAuth provider keys to their brand icons.
 /// Falls back to a generic VIcon for unknown providers.
-public enum IntegrationIcon {
+enum IntegrationIcon {
     /// Returns a View for the given provider key.
     /// Uses bundled brand assets when available, falls back to a Lucide icon.
     @ViewBuilder
-    public static func image(for providerKey: String, size: CGFloat = 24) -> some View {
+    static func image(for providerKey: String, size: CGFloat = 24) -> some View {
         switch providerKey {
         case "google":
             Image("integration-google", bundle: .main)
