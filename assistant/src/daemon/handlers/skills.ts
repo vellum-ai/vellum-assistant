@@ -50,6 +50,7 @@ import {
 import {
   deleteSkillCapabilityMemory,
   seedCatalogSkillMemories,
+  seedUninstalledCatalogSkillMemories,
 } from "../../skills/skill-memory.js";
 import {
   installExternalSkill,
@@ -280,6 +281,7 @@ export function postInstallSkill(
 
   // Seed skill memories
   seedCatalogSkillMemories();
+  void seedUninstalledCatalogSkillMemories().catch(() => {});
 }
 
 export interface SkillListItem {
@@ -532,6 +534,7 @@ export function enableSkill(
       state: "enabled",
     });
     seedCatalogSkillMemories();
+    void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -554,6 +557,7 @@ export function disableSkill(
       state: "disabled",
     });
     seedCatalogSkillMemories();
+    void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -646,6 +650,7 @@ export async function installSkill(
         );
       }
       seedCatalogSkillMemories();
+      void seedUninstalledCatalogSkillMemories().catch(() => {});
       return { success: true };
     }
 
@@ -1174,6 +1179,7 @@ export async function createSkill(
     }
 
     seedCatalogSkillMemories();
+    void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

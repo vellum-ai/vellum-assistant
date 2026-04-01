@@ -37,6 +37,11 @@ export async function getCatalog(): Promise<CatalogSkill[]> {
   return catalog;
 }
 
+/** Return the cached catalog synchronously, or [] if no cache exists yet. */
+export function getCachedCatalogSync(): CatalogSkill[] {
+  return cachedCatalog ?? [];
+}
+
 /** Invalidate the cache (for testing or forced refresh). */
 export function invalidateCatalogCache(): void {
   cachedCatalog = null;

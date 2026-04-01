@@ -12,7 +12,10 @@ import { buildCliProgram } from "../../cli/program.js";
 import { getConfig } from "../../config/loader.js";
 import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getCachedCatalogSync } from "../../skills/catalog-cache.js";
 import {
+  fromCatalogSkill,
   fromSkillSummary,
   type SkillCapabilityInput,
 } from "../../skills/skill-memory.js";
@@ -107,9 +110,43 @@ export function seedSkillGraphNodes(): void {
       seenKeys.add(`${SKILL_SOURCE_PREFIX}${summary.id}`);
     }
 
+    // Include catalog skill keys so pruning doesn't remove them
+    for (const entry of getCachedCatalogSync()) {
+      seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
+    }
+
     pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
   } catch (err) {
     log.warn({ err }, "Failed to seed skill graph nodes");
+  }
+}
+
+/**
+ * Seed graph nodes for catalog skills that are not yet installed.
+ * Makes uninstalled skills discoverable via semantic retrieval so the LLM
+ * can auto-install them via skill_load when relevant.
+ */
+export async function seedUninstalledSkillGraphNodes(): Promise<void> {
+  try {
+    const { getCatalog } = await import("../../skills/catalog-cache.js");
+    const fullCatalog = await getCatalog();
+    if (fullCatalog.length === 0) return;
+
+    const installedCatalog = loadSkillCatalog();
+    const installedIds = new Set(installedCatalog.map((s) => s.id));
+
+    const config = getConfig();
+    for (const entry of fullCatalog) {
+      if (installedIds.has(entry.id)) continue;
+
+      const flagKey = entry.metadata?.vellum?.["feature-flag"];
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
+
+      const input = fromCatalogSkill(entry);
+      upsertSkillCapabilityNode(entry.id, input);
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to seed uninstalled skill graph nodes");
   }
 }
 
