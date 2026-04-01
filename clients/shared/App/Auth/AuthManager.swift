@@ -55,6 +55,7 @@ public final class AuthManager {
 
         var lastError: Error?
         for attempt in 1...3 {
+            guard !Task.isCancelled else { state = .unauthenticated; return }
             do {
                 let response = try await authService.getSession()
                 if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
@@ -69,6 +70,10 @@ public final class AuthManager {
                 state = .unauthenticated
                 return
             } catch {
+                if Task.isCancelled {
+                    state = .unauthenticated
+                    return
+                }
                 lastError = error
                 log.warning("Session check attempt \(attempt)/3 failed: \(error.localizedDescription, privacy: .public)")
                 if attempt < 3 {
