@@ -101,7 +101,7 @@ export class RemoteFeatureFlagSync {
     const platformUrl = (
       platformUrlRaw?.trim() ||
       process.env.VELLUM_PLATFORM_URL?.trim() ||
-      "https://platform.vellum.ai"
+      ""
     ).replace(/\/+$/, "");
 
     const platformInternalApiKey =
@@ -117,7 +117,7 @@ export class RemoteFeatureFlagSync {
       process.env.PLATFORM_ASSISTANT_ID?.trim() ||
       undefined;
 
-    if (!authToken || !assistantId) {
+    if (!platformUrl || !authToken || !assistantId) {
       log.debug(
         {
           hasPlatformUrl: !!platformUrl,

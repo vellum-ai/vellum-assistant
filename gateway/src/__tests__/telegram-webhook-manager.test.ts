@@ -457,12 +457,7 @@ describe("reconcileTelegramWebhook", () => {
     delete process.env.PLATFORM_INTERNAL_API_KEY;
   });
 
-  test("uses default platform URL when neither cache nor env var has a value", async () => {
-    const calls: {
-      method: string;
-      body: unknown;
-      headers?: Record<string, string>;
-    }[] = [];
+  test("skips registration when no platform URL is available from cache or env", async () => {
     process.env.IS_CONTAINERIZED = "true";
     process.env.PLATFORM_ASSISTANT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     process.env.PLATFORM_INTERNAL_API_KEY = "internal-key-from-env";
@@ -475,58 +470,12 @@ describe("reconcileTelegramWebhook", () => {
       platformAssistantId: undefined,
     });
 
-    fetchMock = mock(
-      async (input: string | URL | Request, init?: RequestInit) => {
-        const url =
-          typeof input === "string"
-            ? input
-            : input instanceof URL
-              ? input.toString()
-              : input.url;
-        if (url.includes("/callback-routes/register/")) {
-          const body = init?.body ? JSON.parse(init.body as string) : null;
-          const headers = init?.headers as Record<string, string>;
-          calls.push({ method: "registerCallbackRoute", body, headers });
-          return new Response(
-            JSON.stringify({
-              callback_url:
-                "https://platform.vellum.ai/v1/gateway/callbacks/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/webhooks/telegram/",
-            }),
-            {
-              status: 201,
-              headers: { "content-type": "application/json" },
-            },
-          );
-        }
-        if (url.includes("/getWebhookInfo")) {
-          calls.push({ method: "getWebhookInfo", body: null });
-          return makeTelegramResponse({
-            url: "",
-            has_custom_certificate: false,
-            pending_update_count: 0,
-          });
-        }
-        if (url.includes("/setWebhook")) {
-          const body = init?.body ? JSON.parse(init.body as string) : null;
-          calls.push({ method: "setWebhook", body });
-          return makeTelegramResponse(true);
-        }
-        return new Response("Not found", { status: 404 });
-      },
-    );
+    fetchMock = mock(async () => new Response("", { status: 200 }));
 
     await reconcileTelegramWebhook(caches);
 
-    expect(calls).toHaveLength(3);
-    expect(calls[0].method).toBe("registerCallbackRoute");
-    // Should use Bearer auth with internal key
-    expect(calls[0].headers?.Authorization).toBe(
-      "Bearer internal-key-from-env",
-    );
-    // Registration should hit the default platform URL
-    expect((calls[2].body as any).url).toBe(
-      "https://platform.vellum.ai/v1/gateway/callbacks/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/webhooks/telegram/",
-    );
+    // No fetch calls should be made — registration is skipped
+    expect(fetchMock).not.toHaveBeenCalled();
 
     delete process.env.IS_CONTAINERIZED;
     delete process.env.PLATFORM_ASSISTANT_ID;
