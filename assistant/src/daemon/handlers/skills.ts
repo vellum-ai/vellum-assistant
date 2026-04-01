@@ -806,7 +806,7 @@ export async function searchSkills(
     // Search both community registries in parallel (non-fatal on failure)
     const [clawhubResult, skillsshResult] = await Promise.allSettled([
       clawhubSearch(query),
-      searchSkillsRegistry(query),
+      searchSkillsRegistry(query, 25),
     ]);
 
     let clawhubSkills: SearchItem[] = [];
