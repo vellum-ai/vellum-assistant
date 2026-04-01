@@ -184,6 +184,13 @@ describe("Workspace git lifecycle (integration)", () => {
     await commitTurnChanges(testDir, conversationId, 3);
     expect(commitCount(testDir)).toBe(3); // Still 3
 
+    // Drain fire-and-forget enrichment from turn commits before heartbeat
+    // testing. Enrichment's writeNote() can leave a stale index.lock on
+    // some git versions (see heartbeat-service.ts:240-242), causing the
+    // heartbeat commit to fail with "index.lock: File exists".
+    await getEnrichmentService().shutdown();
+    _resetEnrichmentService();
+
     // ----------------------------------------------------------------
     // Step 5: Heartbeat safety net — simulate uncommitted changes
     //         that linger past the age threshold
