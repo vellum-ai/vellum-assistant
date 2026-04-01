@@ -152,6 +152,10 @@ async function downloadBun(installDir: string): Promise<string> {
         recursive: true,
         force: true,
       });
+    } else if (!existsSync(finalPath)) {
+      throw new Error(
+        `Bun binary not found at expected path after extraction: ${extractedBun}`,
+      );
     }
 
     chmodSync(finalPath, 0o755);

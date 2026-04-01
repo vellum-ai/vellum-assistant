@@ -201,7 +201,7 @@ export class EmbeddingRuntimeManager {
    * the legacy per-runtime bin/ directory for backwards compat.
    */
   getBunPath(): string | undefined {
-    // Check legacy location first (pre-shared-helper installs)
+    // Check per-runtime bin/ directory for backwards compat
     const legacyBun = join(this.baseDir, "bin", "bun");
     if (existsSync(legacyBun)) return legacyBun;
 
@@ -291,7 +291,7 @@ export class EmbeddingRuntimeManager {
     let tmpModelCache: string | null = null;
 
     try {
-      // Step 1: Download npm packages (and bun if needed) in parallel
+      // Step 1: Download npm packages in parallel
       const nodeModules = join(tmpDir, "node_modules");
       const downloads: Promise<void>[] = [
         downloadAndExtract(
