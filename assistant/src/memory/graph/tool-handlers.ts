@@ -96,7 +96,7 @@ async function handleMemoryRecall(
   const sparseVector = generateSparseEmbedding(input.query);
 
   // Search graph nodes
-  const limit = Math.min(input.num_results ?? 20, 50);
+  const limit = Math.max(1, Math.min(input.num_results ?? 20, 50));
   const searchResults = await searchGraphNodes(
     queryVector,
     limit,
@@ -156,7 +156,7 @@ async function handleArchiveRecall(
   const { rawAll } = await import("../db.js");
 
   try {
-    const limit = Math.min(input.num_results ?? 20, 50);
+    const limit = Math.max(1, Math.min(input.num_results ?? 20, 50));
     const ftsMatch = buildFtsMatchQuery(input.query.trim());
 
     type ArchiveRow = {
