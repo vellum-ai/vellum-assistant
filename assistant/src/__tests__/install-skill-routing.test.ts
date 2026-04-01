@@ -10,6 +10,7 @@ const mockCatalogSkills = mock(
     displayName: string;
     description: string;
     source: string;
+    directoryPath?: string;
   }> => [],
 );
 const mockClawhubInstall = mock(
@@ -100,6 +101,7 @@ mock.module("../skills/catalog-cache.js", () => ({
 }));
 mock.module("../skills/catalog-install.js", () => ({
   installSkillLocally: mockInstallSkillLocally,
+  upsertSkillsIndex: () => {},
 }));
 mock.module("../skills/catalog-search.js", () => ({
   filterByQuery: () => [],
@@ -251,6 +253,7 @@ describe("installSkill routing", () => {
         displayName: "Bundled Skill",
         description: "A bundled skill",
         source: "bundled",
+        directoryPath: "/tmp/test-bundled-skills/bundled-skill",
       },
     ]);
 

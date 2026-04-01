@@ -304,19 +304,6 @@ export async function installSkillLocally(
     ...(contactId ? { installedBy: contactId } : {}),
     contentHash: computeSkillHash(skillDir) ?? undefined,
   });
-
-  // Install npm dependencies if the skill has a package.json
-  if (existsSync(join(skillDir, "package.json"))) {
-    const bunPath = `${homedir()}/.bun/bin`;
-    execSync("bun install", {
-      cwd: skillDir,
-      stdio: "inherit",
-      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
-    });
-  }
-
-  // Register in SKILLS.md only after all steps succeed
-  upsertSkillsIndex(skillId);
 }
 
 // ─── Auto-install (for skill_load) ──────────────────────────────────────────
@@ -393,5 +380,21 @@ export async function autoInstallFromCatalog(
   }
 
   await installSkillLocally(skillId, entry, false);
+
+  // Post-install steps: SKILLS.md indexing and dependency installation.
+  // These are handled by postInstallSkill() for the daemon orchestrator path,
+  // but autoInstallFromCatalog runs outside the daemon context so we handle
+  // them directly here.
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+  upsertSkillsIndex(skillId);
+  if (existsSync(join(skillDir, "package.json"))) {
+    const bunPath = `${homedir()}/.bun/bin`;
+    execSync("bun install", {
+      cwd: skillDir,
+      stdio: "inherit",
+      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    });
+  }
+
   return true;
 }
