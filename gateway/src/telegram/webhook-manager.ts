@@ -51,23 +51,24 @@ async function registerManagedTelegramCallbackRoute(
     "https://platform.vellum.ai"
   ).replace(/\/+$/, "");
 
-  const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
-  const platformInternalApiKey = !assistantApiKey
-    ? process.env.PLATFORM_INTERNAL_API_KEY?.trim()
+  const platformInternalApiKey =
+    process.env.PLATFORM_INTERNAL_API_KEY?.trim() || undefined;
+  const assistantApiKey = !platformInternalApiKey
+    ? assistantApiKeyRaw?.trim() || undefined
     : undefined;
-  const apiKey = assistantApiKey || platformInternalApiKey;
-  const authScheme = assistantApiKey ? "Api-Key" : "Bearer";
+  const authToken = platformInternalApiKey || assistantApiKey;
+  const authScheme = platformInternalApiKey ? "Bearer" : "Api-Key";
 
   const assistantId =
     assistantIdRaw?.trim() ||
     process.env.PLATFORM_ASSISTANT_ID?.trim() ||
     undefined;
 
-  if (!apiKey || !assistantId) {
+  if (!authToken || !assistantId) {
     log.debug(
       {
         hasPlatformBaseUrl: !!platformBaseUrl,
-        hasApiKey: !!apiKey,
+        hasApiKey: !!authToken,
         hasAssistantId: !!assistantId,
       },
       "Managed Telegram callback route registration unavailable",
@@ -80,7 +81,7 @@ async function registerManagedTelegramCallbackRoute(
     {
       method: "POST",
       headers: {
-        Authorization: `${authScheme} ${apiKey}`,
+        Authorization: `${authScheme} ${authToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
