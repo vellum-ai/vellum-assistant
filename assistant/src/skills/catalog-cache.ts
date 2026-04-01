@@ -42,6 +42,11 @@ export function getCachedCatalogSync(): CatalogSkill[] {
   return cachedCatalog ?? [];
 }
 
+/** Whether the catalog cache has been populated at least once. */
+export function isCatalogCachePopulated(): boolean {
+  return cachedCatalog !== null;
+}
+
 /** Invalidate the cache (for testing or forced refresh). */
 export function invalidateCatalogCache(): void {
   cachedCatalog = null;

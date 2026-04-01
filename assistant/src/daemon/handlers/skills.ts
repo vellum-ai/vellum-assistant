@@ -710,6 +710,9 @@ export async function uninstallSkill(
       saveConfigWithSuppression(raw, ctx);
     }
 
+    // Re-seed so the uninstalled catalog skill becomes discoverable for auto-install
+    void seedUninstalledCatalogSkillMemories().catch(() => {});
+
     ctx.broadcast({
       type: "skills_state_changed",
       name: skillId,
