@@ -39,6 +39,10 @@ struct SidebarSectionView: View {
 
     /// Schedule sub-group expand/collapse state.
     var expandedScheduleGroups: Binding<Set<String>>?
+    /// Optional label provider for sub-groups. When set, overrides the default
+    /// title-parsing logic in `buildSubGroups`. Receives the group key and its
+    /// conversations, returns the display label.
+    var subGroupLabelProvider: ((String, [ConversationModel]) -> String)?
     /// Drop delegate plumbing.
     var sidebar: SidebarInteractionState?
     var conversationManager: ConversationManager?
@@ -240,20 +244,11 @@ struct SidebarSectionView: View {
         } label: {
             HStack(spacing: VSpacing.xs) {
                 // Leading 20x20 slot — chevron centered, matching pin icon position
-                ZStack {
-                    VIconView(.chevronRight, size: 10)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
-                        .animation(VAnimation.fast, value: isSubGroupExpanded)
-                    if hasUnread {
-                        Circle()
-                            .fill(VColor.systemMidStrong)
-                            .frame(width: 6, height: 6)
-                            .offset(x: 7, y: -7)
-                            .transition(.opacity)
-                    }
-                }
-                .frame(width: 20, height: 20)
+                VIconView(.chevronRight, size: 10)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
+                    .animation(VAnimation.fast, value: isSubGroupExpanded)
+                    .frame(width: 20, height: 20)
 
                 Text(subGroup.label)
                     .font(VFont.menuCompact)
@@ -261,6 +256,10 @@ struct SidebarSectionView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer()
+                if hasUnread {
+                    VBadge(style: .dot, color: VColor.systemMidStrong)
+                        .transition(.opacity)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
@@ -350,7 +349,9 @@ struct SidebarSectionView: View {
         return order.compactMap { key in
             guard let conversations = grouped[key], let first = conversations.first else { return nil }
             let label: String
-            if conversations.count > 1 {
+            if let provider = subGroupLabelProvider {
+                label = provider(key, conversations)
+            } else if conversations.count > 1 {
                 let base = first.title
                 if let colonRange = base.range(of: ":") {
                     label = String(base[base.startIndex..<colonRange.lowerBound])
