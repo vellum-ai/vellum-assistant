@@ -70,6 +70,7 @@ public final class AuthManager {
                 log.warning("Session check attempt \(attempt)/3 failed: \(error.localizedDescription, privacy: .public)")
                 if attempt < 3 {
                     try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds between retries
+                    guard !Task.isCancelled else { return }
                 }
             }
         }
