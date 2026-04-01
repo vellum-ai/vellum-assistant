@@ -5846,7 +5846,7 @@ paths:
     get:
       operationId: skills_by_id_get
       summary: Get skill
-      description: Return a single skill by ID.
+      description: Return a single skill by ID with enriched detail fields.
       tags:
         - skills
       responses:
