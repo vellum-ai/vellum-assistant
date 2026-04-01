@@ -21,7 +21,7 @@ runDaemon().catch(async (err) => {
   }
   console.error("Failed to start assistant:", err);
   console.error(
-    "Troubleshooting: check if another assistant is already running, verify ~/.vellum/ permissions, and review logs at ~/.vellum/workspace/data/logs/",
+    "Troubleshooting: check if another assistant is already running, verify $VELLUM_WORKSPACE_DIR permissions, and review logs at $VELLUM_WORKSPACE_DIR/data/logs/",
   );
   // Emit a structured error line as the last line of stderr so consumers
   // (e.g. the macOS app) can parse it reliably.

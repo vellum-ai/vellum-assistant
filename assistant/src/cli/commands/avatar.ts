@@ -35,7 +35,7 @@ The avatar system supports two modes:
   2. Custom image — an externally provided image file placed directly in the
      avatar directory. Custom images are not managed through this CLI.
 
-Files are stored in ~/.vellum/workspace/data/avatar/:
+Files are stored in $VELLUM_WORKSPACE_DIR/data/avatar/:
   character-traits.json   Current trait selection (bodyShape, eyeStyle, color)
   avatar-image.png        Rendered PNG of the character
   character-ascii.txt     ASCII art representation (best-effort; may not be written)
@@ -61,7 +61,7 @@ Generates an avatar image using AI based on the provided text description
 and saves it as the assistant's avatar PNG. This replaces any existing
 native character avatar — the character traits and ASCII files are removed.
 
-On success, writes avatar-image.png to ~/.vellum/workspace/data/avatar/
+On success, writes avatar-image.png to $VELLUM_WORKSPACE_DIR/data/avatar/
 and removes character-traits.json and character-ascii.txt if they exist.
 
 Examples:
@@ -155,7 +155,7 @@ The --color flag sets the body fill color. Valid values:
   green, orange, pink, purple, teal, yellow
 
 On success, writes character-traits.json and avatar-image.png to
-~/.vellum/workspace/data/avatar/. character-ascii.txt is written on a
+$VELLUM_WORKSPACE_DIR/data/avatar/. character-ascii.txt is written on a
 best-effort basis and may be skipped if ASCII rendering fails.
 
 Examples:

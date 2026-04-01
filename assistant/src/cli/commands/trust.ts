@@ -18,7 +18,7 @@ export function registerTrustCommand(program: Command): void {
 Trust rules are pattern-based decisions (allow/deny) for tool invocations.
 Each rule specifies a tool name, a command pattern matched with glob syntax,
 a scope, a decision (allow or deny), and a priority. Rules are stored in
-~/.vellum/protected/trust.json and evaluated in priority order when the
+the protected directory (trust.json) and evaluated in priority order when the
 assistant invokes a tool.
 
 Examples:
@@ -141,7 +141,7 @@ Examples:
     .addHelpText(
       "after",
       `
-Removes every trust rule from ~/.vellum/protected/trust.json. Prompts for
+Removes every trust rule from the protected directory (trust.json). Prompts for
 confirmation before proceeding (y/N). This action is irreversible — all
 rules must be re-created manually after clearing.
 
