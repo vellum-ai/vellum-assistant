@@ -12,8 +12,8 @@ const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 let currentConfig: Record<string, unknown> = {};
 
-const DECLARED_SKILL_ID = "contacts";
-const DECLARED_FLAG_KEY = "contacts";
+const DECLARED_SKILL_ID = "sounds";
+const DECLARED_FLAG_KEY = "sounds";
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
   get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
@@ -86,8 +86,8 @@ describe("skill_load feature flag enforcement", () => {
   test("returns deterministic error for flag OFF skill", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Contacts",
-      "Toggle contacts behavior",
+      "Sounds",
+      "Toggle sounds behavior",
       "Use the feature.",
     );
     writeFileSync(
@@ -107,8 +107,8 @@ describe("skill_load feature flag enforcement", () => {
   test("loads skill normally when flag is ON", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Contacts",
-      "Toggle contacts behavior",
+      "Sounds",
+      "Toggle sounds behavior",
       "Use the feature.",
     );
     writeFileSync(
@@ -121,14 +121,14 @@ describe("skill_load feature flag enforcement", () => {
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Skill: Contacts");
+    expect(result.content).toContain("Skill: Sounds");
   });
 
   test("loads skill when flag key is absent (registry defaults to enabled)", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Contacts",
-      "Toggle contacts behavior",
+      "Sounds",
+      "Toggle sounds behavior",
       "Use the feature.",
     );
     writeFileSync(
@@ -140,8 +140,8 @@ describe("skill_load feature flag enforcement", () => {
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
-    // contacts is declared in the registry with defaultEnabled: true
+    // sounds is declared in the registry with defaultEnabled: true
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Skill: Contacts");
+    expect(result.content).toContain("Skill: Sounds");
   });
 });

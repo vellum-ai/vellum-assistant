@@ -16,9 +16,9 @@ afterEach(() => {
   _setOverridesForTesting({});
 });
 
-const DECLARED_FLAG_ID = "contacts";
+const DECLARED_FLAG_ID = "sounds";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
-const DECLARED_SKILL_ID = "contacts";
+const DECLARED_SKILL_ID = "sounds";
 const APP_BUILDER_MULTIFILE_FLAG_KEY = "app-builder-multifile";
 // ---------------------------------------------------------------------------
 // Helpers
@@ -144,7 +144,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("falls back to registry default when no override", () => {
     const config = makeConfig();
-    // contacts defaults to true in the registry
+    // sounds defaults to true in the registry
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
@@ -214,7 +214,7 @@ describe("resolveSkillStates with feature flags", () => {
     const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
-    // contacts registry default is true, so it passes through
+    // sounds registry default is true, so it passes through
     expect(resolved.length).toBe(1);
     expect(resolved[0].summary.id).toBe(DECLARED_SKILL_ID);
   });
@@ -272,7 +272,7 @@ describe("resolveSkillStates with feature flags", () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    // contacts and deploy explicitly false; browser explicitly true
+    // sounds and deploy explicitly false; browser explicitly true
     expect(ids).toEqual(["browser"]);
   });
 });
@@ -283,7 +283,7 @@ describe("resolveSkillStates with feature flags", () => {
 
 describe("resolveSkillStates with frontmatter featureFlag", () => {
   test("skill with featureFlag (defaultEnabled: true) is included when no config override", () => {
-    // contacts has defaultEnabled: true in the registry
+    // sounds has defaultEnabled: true in the registry
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig();
 
