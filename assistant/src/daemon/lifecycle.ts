@@ -672,10 +672,8 @@ export async function runDaemon(): Promise<void> {
       try {
         const {
           maybeEnqueueGraphBootstrap,
-          migrateToolCreatedItems,
           cleanupStaleItemVectors,
         } = await import("../memory/graph/bootstrap.js");
-        migrateToolCreatedItems();
         maybeEnqueueGraphBootstrap();
         // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
         void cleanupStaleItemVectors().catch((err) =>

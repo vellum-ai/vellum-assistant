@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { getDb, getSqlite } from "./db-connection.js";
+import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   addCoreColumns,
   createActorRefreshTokenRecordsTable,
@@ -553,6 +554,10 @@ export function initializeDb(): void {
 
   // 101. Memory graph tables (nodes, edges, triggers)
   migrateCreateMemoryGraphTables(database);
+
+  // 101b. Migrate tool-created items from legacy memory_items → graph nodes
+  // MUST run before migration 102 drops memory_items so data is preserved.
+  migrateToolCreatedItems();
 
   // 102. Drop legacy memory_items and memory_item_sources tables (migrated to memory_graph_nodes)
   migrateDropMemoryItemsTables(database);
