@@ -484,6 +484,10 @@ async function consolidateChunk(
     merge_edges?: Array<{ survivor_id: string; deleted_id: string }>;
   };
 
+  // Build nodeMap once upfront; patch entries after each updateNode() so
+  // later iterations always read fresh in-memory state.
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+
   // Apply updates
   for (const update of input.updates ?? []) {
     if (!nodeIds.has(update.id)) continue; // safety: only update nodes in this partition
@@ -504,11 +508,12 @@ async function consolidateChunk(
       // more than just lastConsolidated
       updateNode(update.id, changes);
       result.nodesUpdated++;
+      const node = nodeMap.get(update.id);
+      if (node) Object.assign(node, changes);
     }
   }
 
   // Apply merge edges (before deletion so the edge can reference the node)
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   const { createEdge } = await import("./store.js");
   for (const merge of input.merge_edges ?? []) {
     if (!nodeIds.has(merge.survivor_id) || !nodeIds.has(merge.deleted_id))
@@ -532,6 +537,7 @@ async function consolidateChunk(
         survivor.eventDate == null
       ) {
         updateNode(merge.survivor_id, { eventDate: deleted.eventDate });
+        survivor.eventDate = deleted.eventDate;
 
         // The deleted node's triggers will be cascade-deleted when the node
         // is removed. Ensure the survivor has an event trigger for the
@@ -564,6 +570,7 @@ async function consolidateChunk(
         (survivor.imageRefs == null || survivor.imageRefs.length === 0)
       ) {
         updateNode(merge.survivor_id, { imageRefs: deleted.imageRefs });
+        survivor.imageRefs = deleted.imageRefs;
       }
     } catch (err) {
       log.warn({ err }, "Failed to create merge edge");
