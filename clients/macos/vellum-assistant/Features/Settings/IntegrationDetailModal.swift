@@ -21,7 +21,6 @@ struct IntegrationDetailModal: View {
 
     // MARK: - Your Own State
 
-    @State private var showCreateAppForm = false
     @State private var createAppClientId = ""
     @State private var createAppClientSecret = ""
     @State private var createAppIsSubmitting = false
@@ -99,6 +98,8 @@ struct IntegrationDetailModal: View {
                 VButton(label: "Close", style: .outlined, action: onClose)
                 if draftMode == "managed" {
                     managedFooterButton
+                } else {
+                    yourOwnFooterButton
                 }
             }
         }
@@ -295,10 +296,33 @@ struct IntegrationDetailModal: View {
                     Spacer()
                 }
                 .padding(.vertical, VSpacing.lg)
-            } else if store.yourOwnApps(for: providerKey).isEmpty {
-                yourOwnEmptyState
             } else {
-                yourOwnAppsList
+                // Always show credential fields
+                VTextField(
+                    "Client ID",
+                    placeholder: yourOwnMeta?.client_id_placeholder ?? "Enter client ID",
+                    text: $createAppClientId
+                )
+                if yourOwnMeta?.requires_client_secret ?? true {
+                    VTextField(
+                        "Client Secret",
+                        placeholder: "Enter client secret",
+                        text: $createAppClientSecret,
+                        isSecure: true
+                    )
+                }
+                if yourOwnMeta?.dashboard_url != nil {
+                    VInlineMessage("Find these in your \(displayName) developer console.", tone: .info)
+                }
+
+                // Existing apps and their connections
+                if !store.yourOwnApps(for: providerKey).isEmpty {
+                    Divider().foregroundStyle(VColor.borderBase)
+
+                    ForEach(store.yourOwnApps(for: providerKey)) { app in
+                        yourOwnAppCard(for: app)
+                    }
+                }
             }
 
             if let error = store.yourOwnError(for: providerKey) {
@@ -307,52 +331,25 @@ struct IntegrationDetailModal: View {
         }
         .onAppear {
             store.fetchYourOwnOAuthApps(providerKey: providerKey)
+            // Pre-fill fields from existing app if there is one
+            if let existingApp = store.yourOwnApps(for: providerKey).first {
+                createAppClientId = existingApp.client_id
+                createAppClientSecret = ""
+            }
         }
     }
 
-    private var yourOwnEmptyState: some View {
-        VStack(spacing: VSpacing.lg) {
-            if !showCreateAppForm {
-                VIconView(.keyRound, size: 32)
-                    .foregroundStyle(VColor.contentTertiary)
-
-                VStack(spacing: VSpacing.xs) {
-                    Text("No OAuth apps configured")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentDefault)
-                    Text("Add your \(displayName) OAuth credentials to connect accounts.")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .multilineTextAlignment(.center)
-                }
-
-                VButton(label: "Add OAuth App", leftIcon: "lucide-plus", style: .primary) {
-                    createAppClientId = ""
-                    createAppClientSecret = ""
-                    showCreateAppForm = true
-                }
-            } else {
-                createAppInlineForm
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.lg)
-    }
-
-    private var yourOwnAppsList: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            ForEach(store.yourOwnApps(for: providerKey)) { app in
-                yourOwnAppCard(for: app)
-            }
-
-            if showCreateAppForm {
-                createAppInlineForm
-            } else {
-                VButton(label: "Add OAuth App", leftIcon: "lucide-plus", style: .outlined) {
-                    createAppClientId = ""
-                    createAppClientSecret = ""
-                    showCreateAppForm = true
-                }
+    @ViewBuilder
+    private var yourOwnFooterButton: some View {
+        VButton(
+            label: createAppIsSubmitting ? "Saving..." : "Save",
+            style: .primary,
+            isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
+        ) {
+            createAppIsSubmitting = true
+            Task {
+                await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
+                createAppIsSubmitting = false
             }
         }
     }
@@ -463,61 +460,6 @@ struct IntegrationDetailModal: View {
             }
         }
         .padding(.vertical, VSpacing.xxs)
-    }
-
-    // MARK: - Create App Inline Form
-
-    private var createAppInlineForm: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text("Add OAuth App")
-                .font(VFont.bodyMediumEmphasised)
-                .foregroundStyle(VColor.contentDefault)
-
-            VTextField(
-                "Client ID",
-                placeholder: yourOwnMeta?.client_id_placeholder ?? "Enter client ID",
-                text: $createAppClientId
-            )
-            if yourOwnMeta?.requires_client_secret ?? true {
-                VTextField(
-                    "Client Secret",
-                    placeholder: "Enter client secret",
-                    text: $createAppClientSecret,
-                    isSecure: true
-                )
-            }
-            if yourOwnMeta?.dashboard_url != nil {
-                VInlineMessage("Find these in your \(displayName) developer console.", tone: .info)
-            }
-
-            HStack {
-                Spacer()
-                VButton(label: "Cancel", style: .outlined) {
-                    showCreateAppForm = false
-                    createAppClientId = ""
-                    createAppClientSecret = ""
-                }
-                VButton(
-                    label: createAppIsSubmitting ? "Creating..." : "Create",
-                    style: .primary,
-                    isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
-                ) {
-                    createAppIsSubmitting = true
-                    Task {
-                        await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
-                        createAppIsSubmitting = false
-                        showCreateAppForm = false
-                    }
-                }
-            }
-        }
-        .padding(VSpacing.lg)
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
     }
 
     // MARK: - Helpers
