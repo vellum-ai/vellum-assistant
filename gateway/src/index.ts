@@ -1319,7 +1319,7 @@ async function main() {
                 const nameList = failedAttachmentNames
                   .map((n) => `"${n}"`)
                   .join(", ");
-                normalized.event.message.text += `\n\n[The user attached file(s) that could not be retrieved: ${nameList}. Ask them to re-send if the content is important.]`;
+                normalized.event.message.content += `\n\n[The user attached file(s) that could not be retrieved: ${nameList}. Ask them to re-send if the content is important.]`;
               }
             }
 
