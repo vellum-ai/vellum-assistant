@@ -69,6 +69,8 @@ jobs:
 
       - name: Compute final version
         id: finalize
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           BASE_VERSION="${{ steps.extract.outputs.base_version }}"
           IS_STAGING="${{ steps.detect-staging.outputs.is_staging }}"
@@ -77,8 +79,9 @@ jobs:
             # as the prerelease suffix — monotonically increasing and scoped
             # to the branch (e.g. v0.6.0-staging.3 for the 3rd run).
             WORKFLOW_FILE="release.yml"
-            RUN_COUNT=$(gh api "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_FILE}/runs?branch=${GITHUB_REF_NAME}" --jq '.total_count' 2>/dev/null || echo "1")
-            if [ "$RUN_COUNT" -lt 1 ] 2>/dev/null; then
+            RUN_COUNT=$(gh api "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_FILE}/runs?branch=${GITHUB_REF_NAME}" --jq '.total_count')
+            if [ -z "$RUN_COUNT" ] || ! [ "$RUN_COUNT" -ge 1 ] 2>/dev/null; then
+              echo "::warning::Failed to query workflow run count (got '${RUN_COUNT}'), falling back to 1"
               RUN_COUNT=1
             fi
             VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
