@@ -145,8 +145,6 @@ export async function semanticSearch(
     for (const row of rows) mediaScopeMap.set(row.id, row.memoryScopeId);
   }
 
-  const excludedSet =
-    excludedMessageIds.length > 0 ? new Set(excludedMessageIds) : null;
 
   const candidates: Candidate[] = [];
   for (const result of results) {
