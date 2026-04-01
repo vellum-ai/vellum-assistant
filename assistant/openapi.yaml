@@ -6087,6 +6087,12 @@ paths:
                   description: Skill spec
                 version:
                   type: string
+                origin:
+                  description: Which registry to install from. When omitted, the install flow auto-detects based on slug format.
+                  type: string
+                  enum:
+                    - clawhub
+                    - skillssh
               required:
                 - slug
                 - url

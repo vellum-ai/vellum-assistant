@@ -201,6 +201,12 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         url: z.string().describe("Skill URL"),
         spec: z.string().describe("Skill spec"),
         version: z.string(),
+        origin: z
+          .enum(["clawhub", "skillssh"])
+          .optional()
+          .describe(
+            "Which registry to install from. When omitted, the install flow auto-detects based on slug format.",
+          ),
       }),
       responseBody: z.object({
         ok: z.boolean(),
@@ -211,6 +217,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
           url?: string;
           spec?: string;
           version?: string;
+          origin?: "clawhub" | "skillssh";
         };
         const slug = body.slug ?? body.url ?? body.spec;
         if (!slug || typeof slug !== "string") {
@@ -221,7 +228,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
           );
         }
         const result = await installSkill(
-          { slug, version: body.version },
+          { slug, version: body.version, origin: body.origin },
           ctx(),
         );
         if (!result.success) {
