@@ -647,15 +647,19 @@ export async function handleUpdateMemoryItem(
     changes.significance = body.importance;
   }
 
-  // Check for content collision
-  if (contentChanged) {
+  // Check for content collision when content changed OR when reactivating a
+  // gone item (which could duplicate an existing active item's content).
+  const reactivating =
+    changes.fidelity === "vivid" && existing.fidelity === "gone";
+  if (contentChanged || reactivating) {
+    const contentToCheck = changes.content ?? existing.content;
     const db = getDb();
     const collision = db
       .select({ id: memoryGraphNodes.id })
       .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryGraphNodes.content, changes.content!),
+          eq(memoryGraphNodes.content, contentToCheck),
           ne(memoryGraphNodes.id, id),
           ne(memoryGraphNodes.fidelity, "gone"),
         ),
