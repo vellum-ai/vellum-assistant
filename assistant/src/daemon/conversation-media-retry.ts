@@ -6,13 +6,25 @@
  * text stubs to shrink the payload before retrying.
  */
 
+import { estimateContentBlockTokens } from "../context/token-estimator.js";
 import { getSummaryFromContextMessage } from "../context/window-manager.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+
+export interface StripMediaOptions {
+  /** Token budget available for media in the latest user message. Keeps as
+   *  many images as fit within this budget instead of the hardcoded limit. */
+  mediaTokenBudget?: number;
+  /** Provider name for per-image token estimation. */
+  providerName?: string;
+}
 
 const RETRY_KEEP_LATEST_MEDIA_BLOCKS = 3;
 const MAX_MEDIA_STUB_TEXT = 2_000;
 
-export function stripMediaPayloadsForRetry(messages: Message[]): {
+export function stripMediaPayloadsForRetry(
+  messages: Message[],
+  options?: StripMediaOptions,
+): {
   messages: Message[];
   modified: boolean;
   replacedBlocks: number;
@@ -31,6 +43,8 @@ export function stripMediaPayloadsForRetry(messages: Message[]): {
   let modified = false;
   let replacedBlocks = 0;
   let keptLatestMediaBlocks = 0;
+  let cumulativeMediaTokens = 0;
+  const useBudget = options?.mediaTokenBudget != null;
 
   const nextMessages = messages.map((msg, msgIndex) => {
     const nextContent: ContentBlock[] = [];
@@ -39,9 +53,20 @@ export function stripMediaPayloadsForRetry(messages: Message[]): {
       // few (in the most recent user message) and strip older ones so the
       // retry can actually reduce context size when images are the cause.
       if (block.type === "image") {
-        const keep =
-          latestUserIndex === msgIndex &&
-          keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+        let keep = false;
+        if (latestUserIndex === msgIndex) {
+          if (useBudget) {
+            const cost = estimateContentBlockTokens(block, {
+              providerName: options!.providerName,
+            });
+            if (cumulativeMediaTokens + cost <= options!.mediaTokenBudget!) {
+              cumulativeMediaTokens += cost;
+              keep = true;
+            }
+          } else {
+            keep = keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+          }
+        }
         if (keep) {
           keptLatestMediaBlocks += 1;
           nextContent.push(block);
@@ -54,9 +79,20 @@ export function stripMediaPayloadsForRetry(messages: Message[]): {
       }
 
       if (block.type === "file") {
-        const keep =
-          latestUserIndex === msgIndex &&
-          keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+        let keep = false;
+        if (latestUserIndex === msgIndex) {
+          if (useBudget) {
+            const cost = estimateContentBlockTokens(block, {
+              providerName: options!.providerName,
+            });
+            if (cumulativeMediaTokens + cost <= options!.mediaTokenBudget!) {
+              cumulativeMediaTokens += cost;
+              keep = true;
+            }
+          } else {
+            keep = keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+          }
+        }
         if (keep) {
           keptLatestMediaBlocks += 1;
           nextContent.push(block);
