@@ -103,6 +103,11 @@ public struct VStreamingWaveform: View {
         let barSpacing: CGFloat = 2
         let effectiveBarCount = max(1, Int(size.width / (lineWidth + barSpacing)))
 
+        // Resolve color shadings once per frame to avoid adaptive-color resolution
+        // work (NSColor.withColorAppearance) inside per-bar hot loops.
+        let foregroundShading: GraphicsContext.Shading = .color(foregroundColor)
+        let baselineShading: GraphicsContext.Shading = .color(foregroundColor.opacity(0.25))
+
         // Push a new amplitude sample at ~30Hz
         if isActive {
             scrollingState.update(
@@ -116,7 +121,7 @@ public struct VStreamingWaveform: View {
         let samples = scrollingState.samples
         guard !samples.isEmpty else {
             // Draw baseline dots when no samples yet
-            drawScrollingBaseline(context: context, size: size, barCount: effectiveBarCount, barSpacing: barSpacing)
+            drawScrollingBaseline(context: context, size: size, barCount: effectiveBarCount, barSpacing: barSpacing, shading: baselineShading)
             return
         }
 
@@ -139,7 +144,7 @@ public struct VStreamingWaveform: View {
             let y = (size.height - barHeight) / 2
             let barRect = CGRect(x: x, y: y, width: lineWidth, height: barHeight)
             let path = Path(roundedRect: barRect, cornerRadius: cornerRadius)
-            context.fill(path, with: .color(foregroundColor))
+            context.fill(path, with: foregroundShading)
         }
 
         // Draw faint baseline dots for unfilled positions
@@ -150,12 +155,12 @@ public struct VStreamingWaveform: View {
                 let y = (size.height - minBarHeight) / 2
                 let barRect = CGRect(x: x, y: y, width: lineWidth, height: minBarHeight)
                 let path = Path(roundedRect: barRect, cornerRadius: cornerRadius)
-                context.fill(path, with: .color(foregroundColor.opacity(0.25)))
+                context.fill(path, with: baselineShading)
             }
         }
     }
 
-    private func drawScrollingBaseline(context: GraphicsContext, size: CGSize, barCount: Int, barSpacing: CGFloat) {
+    private func drawScrollingBaseline(context: GraphicsContext, size: CGSize, barCount: Int, barSpacing: CGFloat, shading: GraphicsContext.Shading) {
         let minBarHeight = max(lineWidth, 2)
         let cornerRadius = lineWidth / 2
 
@@ -164,7 +169,7 @@ public struct VStreamingWaveform: View {
             let y = (size.height - minBarHeight) / 2
             let barRect = CGRect(x: x, y: y, width: lineWidth, height: minBarHeight)
             let path = Path(roundedRect: barRect, cornerRadius: cornerRadius)
-            context.fill(path, with: .color(foregroundColor.opacity(0.25)))
+            context.fill(path, with: shading)
         }
     }
 
@@ -172,6 +177,9 @@ public struct VStreamingWaveform: View {
 
     private func draw(context: GraphicsContext, size: CGSize, time: TimeInterval) {
         guard barCount > 0 else { return }
+
+        // Resolve color shading once per frame.
+        let foregroundShading: GraphicsContext.Shading = .color(foregroundColor)
 
         let clampedAmplitude = CGFloat(min(max(amplitude, 0), 1))
         let totalBarWidth = CGFloat(barCount) * lineWidth
@@ -215,7 +223,7 @@ public struct VStreamingWaveform: View {
 
             let cornerRadius = isConversation ? lineWidth / 2 : lineWidth / 3
             let path = Path(roundedRect: barRect, cornerRadius: cornerRadius)
-            context.fill(path, with: .color(foregroundColor))
+            context.fill(path, with: foregroundShading)
         }
     }
 }
