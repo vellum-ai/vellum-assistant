@@ -125,13 +125,16 @@ extension AppDelegate {
                     requestId: msg.requestId,
                     decision: "allow"
                 )
-                if result == .success {
+                switch result {
+                case .success:
                     self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                         requestId: msg.requestId,
                         decision: "allow"
                     )
                     log.info("[confirm-flow] CU auto-approved requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public)")
-                } else {
+                case .alreadyResolved:
+                    log.info("[confirm-flow] CU auto-approve already resolved (benign 404): requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public)")
+                case .failed:
                     log.error("Failed to auto-approve confirmation")
                 }
                 return
@@ -156,12 +159,15 @@ extension AppDelegate {
                 requestId: msg.requestId,
                 decision: decision
             )
-            if result == .success {
+            switch result {
+            case .success:
                 self.mainWindow?.conversationManager.updateConfirmationStateAcrossConversations(
                     requestId: msg.requestId,
                     decision: decision
                 )
-            } else {
+            case .alreadyResolved:
+                log.info("[confirm-flow] Notification-path confirmation already resolved (benign 404): requestId=\(msg.requestId, privacy: .public) decision=\(decision, privacy: .public)")
+            case .failed:
                 log.error("[confirm-flow] Notification-path POST failed: requestId=\(msg.requestId, privacy: .public) decision=\(decision, privacy: .public)")
             }
         }
