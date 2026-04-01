@@ -183,14 +183,7 @@ struct IntegrationDetailModal: View {
                 if isConnecting {
                     managedConnectingState
                 } else {
-                    VButton(
-                        label: connections.isEmpty ? "Connect Account" : "Connect Another Account",
-                        leftIcon: "lucide-plus",
-                        style: .ghost,
-                        isFullWidth: true
-                    ) {
-                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
-                    }
+                    managedConnectButton
                 }
             }
 
@@ -223,6 +216,30 @@ struct IntegrationDetailModal: View {
                 .foregroundStyle(VColor.contentDefault)
         }
         .font(VFont.labelDefault)
+    }
+
+    @State private var isConnectButtonHovered = false
+
+    private var managedConnectButton: some View {
+        Button {
+            store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+        } label: {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.plus, size: 14)
+                Text(connections.isEmpty ? "Connect Account" : "Connect Another Account")
+                    .font(VFont.bodyMediumDefault)
+            }
+            .foregroundStyle(VColor.primaryBase)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceBase.opacity(isConnectButtonHovered ? 1 : 0))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isConnectButtonHovered = $0 }
     }
 
     private var managedConnectingState: some View {
