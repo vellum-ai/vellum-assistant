@@ -879,6 +879,7 @@ struct MessageListView: View {
         if scrollState.mode.pushToTopMessageId != nil && distanceFromBottom > 50
             && (scrollState.scrollPhase == .interacting || scrollState.scrollPhase == .decelerating) {
             scrollState.handlePushToTopOverflow()
+            scrollPosition = ScrollPosition(edge: .bottom)
         }
 
         // --- Pagination trigger ---
@@ -910,7 +911,14 @@ struct MessageListView: View {
             // scroll to it immediately instead of falling through to bottom.
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
-            scrollState.performScrollTo(id, anchor: .center)
+            // Use proxy if available; fall back to ScrollPosition for the
+            // rare case where handleAppear fires before the inner onAppear
+            // that configures the proxy (both onAppear calls race in practice).
+            if scrollState.scrollTo != nil {
+                scrollState.performScrollTo(id, anchor: .center)
+            } else {
+                $scrollPosition.wrappedValue.scrollTo(id: id, anchor: .center)
+            }
             flashHighlight(messageId: id)
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
@@ -984,6 +992,9 @@ struct MessageListView: View {
             // sees the complete response.
             if scrollState.mode.pushToTopMessageId != nil {
                 scrollState.exitPushToTop(animated: true)
+                // Reset the binding so SwiftUI stops anchoring to
+                // the push-to-top message and follows the bottom.
+                scrollPosition = ScrollPosition(edge: .bottom)
             }
             // First-message detection.
             if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
@@ -1002,6 +1013,13 @@ struct MessageListView: View {
         withAnimation(VAnimation.fast) {
             scrollState.performScrollTo(targetId, anchor: .top)
         }
+        // Sync the ScrollPosition binding so SwiftUI anchors to this
+        // message during content changes. Without this, the binding
+        // remains ScrollPosition(edge: .bottom) from the last
+        // conversation switch/load, causing SwiftUI to keep the bottom
+        // in view as the assistant's response streams — pushing the
+        // user's message out of the viewport.
+        scrollPosition = ScrollPosition(id: targetId, anchor: .top)
     }
 
     private func handleMessagesCountChanged() {
@@ -1175,6 +1193,7 @@ struct MessageListView: View {
                     if oldPhase == .interacting || oldPhase == .decelerating,
                        scrollState.mode.pushToTopMessageId != nil {
                         scrollState.exitPushToTop(animated: false)
+                        scrollPosition = ScrollPosition(edge: .bottom)
                     }
                     scrollState.handleReachedBottom()
                 }
