@@ -126,8 +126,5 @@ ENV IS_CONTAINERIZED=true
 COPY --from=builder /app /app
 RUN chmod +x /app/assistant/docker-entrypoint.sh
 
-ARG VELLUM_SERVICE_VERSION=""
-ENV VELLUM_SERVICE_VERSION=$VELLUM_SERVICE_VERSION
-
 # Run the daemon + http server
 CMD ["/app/assistant/docker-entrypoint.sh"]

@@ -148,6 +148,13 @@ jobs:
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json assistant/src/config/feature-flag-registry.json
 
+      - name: Stamp release version into package.json
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          for pkg in assistant/package.json gateway/package.json credential-executor/package.json; do
+            [ -f "$pkg" ] && jq --arg v "$VERSION" '.version = $v' "$pkg" > "${pkg}.tmp" && mv "${pkg}.tmp" "$pkg"
+          done
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
@@ -155,8 +162,6 @@ jobs:
           context: .
           file: assistant/Dockerfile
           platforms: ${{ matrix.platform }}
-          build-args: |
-            VELLUM_SERVICE_VERSION=${{ needs.extract-version.outputs.version }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
@@ -346,6 +351,9 @@ jobs:
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json gateway/src/feature-flag-registry.json
 
+      - name: Stamp release version into package.json
+        run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' gateway/package.json > gateway/package.json.tmp && mv gateway/package.json.tmp gateway/package.json
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
@@ -419,6 +427,13 @@ jobs:
         id: image
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp release version into package.json
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          for pkg in assistant/package.json gateway/package.json credential-executor/package.json; do
+            [ -f "$pkg" ] && jq --arg v "$VERSION" '.version = $v' "$pkg" > "${pkg}.tmp" && mv "${pkg}.tmp" "$pkg"
+          done
 
       - name: Build and push by digest
         id: build
@@ -751,6 +766,13 @@ jobs:
         if: matrix.feature_flag_path != ''
         run: cp meta/feature-flags/feature-flag-registry.json ${{ matrix.feature_flag_path }}
 
+      - name: Stamp release version into package.json
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          for pkg in assistant/package.json gateway/package.json credential-executor/package.json; do
+            [ -f "$pkg" ] && jq --arg v "$VERSION" '.version = $v' "$pkg" > "${pkg}.tmp" && mv "${pkg}.tmp" "$pkg"
+          done
+
       - name: Build and push multi-platform image to Docker Hub
         uses: docker/build-push-action@v6
         with:
@@ -760,8 +782,6 @@ jobs:
           push: true
           provenance: false
           tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            VELLUM_SERVICE_VERSION=${{ needs.extract-version.outputs.version }}
 
       - name: Summary
         run: |

@@ -36,7 +36,6 @@ const SAFE_ENV_VARS = [
   "CES_MANAGED_MODE",
   "IS_CONTAINERIZED",
   "CES_SERVICE_TOKEN",
-  "VELLUM_SERVICE_VERSION",
 ] as const;
 
 export function buildSanitizedEnv(): Record<string, string> {
