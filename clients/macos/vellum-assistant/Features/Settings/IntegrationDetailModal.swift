@@ -214,15 +214,8 @@ struct IntegrationDetailModal: View {
     }
 
     private var managedLoginPrompt: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Log in to Vellum to connect \(displayName).")
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentDefault)
-            VButton(
-                label: authManager.isSubmitting ? "Logging in..." : "Log In",
-                style: .primary,
-                isDisabled: authManager.isSubmitting
-            ) {
+        HStack(spacing: 0) {
+            Button {
                 Task {
                     await authManager.loginWithToast(showToast: showToast, onSuccess: {
                         if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
@@ -231,8 +224,18 @@ struct IntegrationDetailModal: View {
                         Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
                     })
                 }
+            } label: {
+                Text("Log in")
+                    .underline()
+                    .foregroundStyle(VColor.primaryBase)
             }
+            .buttonStyle(.plain)
+            .disabled(authManager.isSubmitting)
+
+            Text(" to Vellum to connect \(displayName).")
+                .foregroundStyle(VColor.contentDefault)
         }
+        .font(VFont.bodyMediumLighter)
     }
 
     private var managedConnectingState: some View {
