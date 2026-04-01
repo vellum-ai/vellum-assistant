@@ -57,7 +57,7 @@ public final class AuthManager {
         for attempt in 1...3 {
             guard !Task.isCancelled else { state = .unauthenticated; return }
             do {
-                let response = try await authService.getSession()
+                let response = try await authService.getSession(timeout: 10)
                 if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
                     state = .authenticated(user)
                     return
