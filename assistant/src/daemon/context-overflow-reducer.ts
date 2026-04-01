@@ -29,6 +29,7 @@ import type {
 import type { Message } from "../providers/types.js";
 import {
   countMediaBlocks,
+  estimateUnconditionalStubTokens,
   stripMediaPayloadsForRetry,
 } from "./conversation-media-retry.js";
 import type { InjectionMode } from "./conversation-runtime-assembly.js";
@@ -270,7 +271,15 @@ function applyMediaStubbing(
     }
 
     const nonMediaTokens = totalTokens - mediaTokens;
-    const mediaTokenBudget = Math.max(0, config.targetTokens - nonMediaTokens);
+
+    // Account for the token cost of text stubs that replace unconditionally
+    // stubbed media (non-latest-user images/files, tool_result-nested media).
+    // Without this adjustment the budget is systematically over-allocated.
+    const estimatedStubTokens = estimateUnconditionalStubTokens(messages, {
+      providerName: config.providerName,
+    });
+    const adjustedNonMediaTokens = nonMediaTokens + estimatedStubTokens;
+    const mediaTokenBudget = Math.max(0, config.targetTokens - adjustedNonMediaTokens);
 
     const stripped = stripMediaPayloadsForRetry(messages, {
       mediaTokenBudget,

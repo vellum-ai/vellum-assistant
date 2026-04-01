@@ -148,6 +148,48 @@ export function stripMediaPayloadsForRetry(
   };
 }
 
+/**
+ * Estimate the total token cost of stubs that will replace unconditionally
+ * stubbed media blocks (non-latest-user-message images/files and all
+ * tool_result-nested media). This lets callers account for stub overhead
+ * when computing the available media token budget.
+ */
+export function estimateUnconditionalStubTokens(
+  messages: Message[],
+  options?: { providerName?: string },
+): number {
+  let latestUserIndex: number | null = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "user") continue;
+    if (isToolResultOnlyMessage(msg)) continue;
+    if (getSummaryFromContextMessage(msg) != null) continue;
+    latestUserIndex = i;
+    break;
+  }
+
+  let stubTokens = 0;
+  for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
+    const msg = messages[msgIndex];
+    for (const block of msg.content) {
+      if (block.type === "image" && msgIndex !== latestUserIndex) {
+        stubTokens += estimateContentBlockTokens(imageBlockToStub(block), options);
+      } else if (block.type === "file" && msgIndex !== latestUserIndex) {
+        stubTokens += estimateContentBlockTokens(fileBlockToStub(block), options);
+      } else if (block.type === "tool_result" && block.contentBlocks) {
+        for (const cb of block.contentBlocks) {
+          if (cb.type === "image") {
+            stubTokens += estimateContentBlockTokens(imageBlockToStub(cb), options);
+          } else if (cb.type === "file") {
+            stubTokens += estimateContentBlockTokens(fileBlockToStub(cb), options);
+          }
+        }
+      }
+    }
+  }
+  return stubTokens;
+}
+
 function imageBlockToStub(
   block: Extract<ContentBlock, { type: "image" }>,
 ): Extract<ContentBlock, { type: "text" }> {
