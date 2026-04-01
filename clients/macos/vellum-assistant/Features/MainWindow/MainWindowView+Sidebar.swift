@@ -240,18 +240,14 @@ extension MainWindowView {
             }
 
             let customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
-            let backgroundEnabled = assistantFeatureFlagStore.isEnabled("show-background-conversations")
             let groupEntries: [SidebarGroupEntry] = {
                 let raw = conversationManager.groupedConversations
                 var entries: [SidebarGroupEntry] = []
                 var extraUngrouped: [ConversationModel] = []
                 for entry in raw {
                     if let group = entry.group {
-                        // Hide Background group when its flag is off
-                        if group.id == ConversationGroup.background.id && !backgroundEnabled {
-                            extraUngrouped.append(contentsOf: entry.conversations)
                         // Hide custom groups when custom groups flag is off
-                        } else if !group.isSystemGroup && !customGroupsEnabled {
+                        if !group.isSystemGroup && !customGroupsEnabled {
                             extraUngrouped.append(contentsOf: entry.conversations)
                         } else {
                             entries.append(SidebarGroupEntry(id: group.id, group: group, conversations: entry.conversations))
