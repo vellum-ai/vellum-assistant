@@ -6,7 +6,7 @@ export const HeartbeatConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "heartbeat.enabled must be a boolean" })
-      .default(true)
+      .default(false)
       .describe("Whether periodic heartbeat checks are enabled"),
     intervalMs: z
       .number({ error: "heartbeat.intervalMs must be a number" })
