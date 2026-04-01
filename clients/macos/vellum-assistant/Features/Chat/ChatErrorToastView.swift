@@ -143,6 +143,8 @@ struct ChatConversationErrorToast: View {
             return .wifiOff
         case .rateLimit:
             return .clockAlert
+        case .providerOverloaded:
+            return .cloudOff
         case .providerApi:
             return .cloudOff
         case .providerBilling:
