@@ -145,6 +145,37 @@ describe("node CRUD", () => {
     expect(updated!.emotionalCharge.decayCurve).toBe("permanent");
   });
 
+  test("createNode with eventDate round-trips through getNode", () => {
+    const eventDate = Date.now() - 86400000; // yesterday
+    const node = createNode(makeNewNode({ eventDate }));
+    const found = getNode(node.id);
+    expect(found).not.toBeNull();
+    expect(found!.eventDate).toBe(eventDate);
+  });
+
+  test("createNode with null eventDate round-trips as null", () => {
+    const node = createNode(makeNewNode({ eventDate: null }));
+    const found = getNode(node.id);
+    expect(found).not.toBeNull();
+    expect(found!.eventDate).toBeNull();
+  });
+
+  test("updateNode updates eventDate", () => {
+    const node = createNode(makeNewNode({ eventDate: null }));
+    const newEventDate = Date.now() - 86400000;
+    updateNode(node.id, { eventDate: newEventDate });
+    const updated = getNode(node.id);
+    expect(updated!.eventDate).toBe(newEventDate);
+  });
+
+  test("updateNode can set eventDate to null", () => {
+    const eventDate = Date.now() - 86400000;
+    const node = createNode(makeNewNode({ eventDate }));
+    updateNode(node.id, { eventDate: null });
+    const updated = getNode(node.id);
+    expect(updated!.eventDate).toBeNull();
+  });
+
   test("deleteNode removes the node", () => {
     const node = createNode(makeNewNode());
     deleteNode(node.id);
@@ -210,6 +241,62 @@ describe("queryNodes", () => {
     expect(results[0].significance).toBe(0.9);
     expect(results[1].significance).toBe(0.6);
     expect(results[2].significance).toBe(0.3);
+  });
+
+  test("filters by hasEventDate", () => {
+    createNode(makeNewNode({ content: "Dated.", eventDate: 1700000000000 }));
+    createNode(makeNewNode({ content: "Undated.", eventDate: null }));
+
+    const results = queryNodes({ hasEventDate: true });
+    expect(results).toHaveLength(1);
+    expect(results[0].content).toBe("Dated.");
+  });
+
+  test("filters by eventDateAfter", () => {
+    createNode(
+      makeNewNode({ content: "Old.", eventDate: 1700000000000 }),
+    );
+    createNode(
+      makeNewNode({ content: "Recent.", eventDate: 1710000000000 }),
+    );
+    createNode(makeNewNode({ content: "None.", eventDate: null }));
+
+    const results = queryNodes({ eventDateAfter: 1705000000000 });
+    expect(results).toHaveLength(1);
+    expect(results[0].content).toBe("Recent.");
+  });
+
+  test("filters by eventDateBefore", () => {
+    createNode(
+      makeNewNode({ content: "Old.", eventDate: 1700000000000 }),
+    );
+    createNode(
+      makeNewNode({ content: "Recent.", eventDate: 1710000000000 }),
+    );
+    createNode(makeNewNode({ content: "None.", eventDate: null }));
+
+    const results = queryNodes({ eventDateBefore: 1705000000000 });
+    expect(results).toHaveLength(1);
+    expect(results[0].content).toBe("Old.");
+  });
+
+  test("combines eventDateAfter and eventDateBefore for range query", () => {
+    createNode(
+      makeNewNode({ content: "Before.", eventDate: 1690000000000 }),
+    );
+    createNode(
+      makeNewNode({ content: "In range.", eventDate: 1700000000000 }),
+    );
+    createNode(
+      makeNewNode({ content: "After.", eventDate: 1720000000000 }),
+    );
+
+    const results = queryNodes({
+      eventDateAfter: 1695000000000,
+      eventDateBefore: 1710000000000,
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0].content).toBe("In range.");
   });
 });
 
