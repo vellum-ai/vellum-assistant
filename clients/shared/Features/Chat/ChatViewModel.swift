@@ -1748,10 +1748,19 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         markConfirmationInFlight(requestId: requestId, decision: decision)
         inlineResponseHandledRequestIds.insert(requestId)
         Task {
-            let success = await performConfirmationResponse(
+            let result = await performConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
             )
-            if !success {
+            switch result {
+            case .success:
+                break
+            case .alreadyResolved:
+                // The backend already auto-denied this confirmation (e.g. a new
+                // message arrived). Collapse the prompt silently — the SSE
+                // confirmation_state_changed event will confirm the final state.
+                log.info("[confirm-flow] respondToConfirmation: already resolved, collapsing silently: requestId=\(requestId, privacy: .public)")
+                self.collapseStaleConfirmation(requestId: requestId)
+            case .failed:
                 log.error("[confirm-flow] respondToConfirmation POST failed (will show error banner): requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
                 self.revertConfirmationInFlight(requestId: requestId)
                 self.inlineResponseHandledRequestIds.remove(requestId)
@@ -1768,29 +1777,36 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         markConfirmationInFlight(requestId: requestId, decision: decision)
         inlineResponseHandledRequestIds.insert(requestId)
         Task {
-            let success = await interactionClient.sendConfirmationResponse(
+            let result = await interactionClient.sendConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
             )
-            guard success else {
+            switch result {
+            case .success:
+                if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+                    self.messages[index].confirmation?.approvedDecision = decision
+                }
+                self.clearPendingConfirmation(requestId: requestId)
+                self.onInlineConfirmationResponse?(requestId, "allow")
+                self.inlineResponseHandledRequestIds.insert(requestId)
+            case .alreadyResolved:
+                log.info("[confirm-flow] respondToAlwaysAllow: already resolved, collapsing silently: requestId=\(requestId, privacy: .public)")
+                self.collapseStaleConfirmation(requestId: requestId)
+            case .failed:
                 log.warning("Always-allow send failed, trying one-time allow fallback")
-                let fallbackSuccess = await self.performConfirmationResponse(
+                let fallbackResult = await self.performConfirmationResponse(
                     requestId: requestId, decision: "allow", selectedPattern: nil, selectedScope: nil
                 )
-                if !fallbackSuccess {
+                switch fallbackResult {
+                case .success:
+                    self.errorText = "Preference could not be saved. This action was allowed once."
+                case .alreadyResolved:
+                    log.info("[confirm-flow] respondToAlwaysAllow fallback: already resolved, collapsing silently: requestId=\(requestId, privacy: .public)")
+                    self.collapseStaleConfirmation(requestId: requestId)
+                case .failed:
                     self.revertConfirmationInFlight(requestId: requestId)
                     self.inlineResponseHandledRequestIds.remove(requestId)
                 }
-                if fallbackSuccess {
-                    self.errorText = "Preference could not be saved. This action was allowed once."
-                }
-                return
             }
-            if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-                self.messages[index].confirmation?.approvedDecision = decision
-            }
-            self.clearPendingConfirmation(requestId: requestId)
-            self.onInlineConfirmationResponse?(requestId, "allow")
-            self.inlineResponseHandledRequestIds.insert(requestId)
         }
     }
 
@@ -1813,18 +1829,29 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         messages[index].confirmation?.approvedDecision = nil
     }
 
+    /// Collapse a stale confirmation that was already resolved by the backend
+    /// (e.g. auto-denied when a new message arrived). Marks it as denied and
+    /// cleans up tracking state without showing an error banner.
+    private func collapseStaleConfirmation(requestId: String) {
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = .denied
+        }
+        clearPendingConfirmation(requestId: requestId)
+        onInlineConfirmationResponse?(requestId, "deny")
+        inlineResponseHandledRequestIds.insert(requestId)
+    }
+
     /// Shared async helper that sends a confirmation response and updates UI state on success.
-    /// Returns `true` if the send succeeded, `false` otherwise.
     private func performConfirmationResponse(
         requestId: String,
         decision: String,
         selectedPattern: String?,
         selectedScope: String?
-    ) async -> Bool {
-        let success = await interactionClient.sendConfirmationResponse(
+    ) async -> ConfirmationSendResult {
+        let result = await interactionClient.sendConfirmationResponse(
             requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
         )
-        guard success else { return false }
+        guard result == .success else { return result }
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
             messages[index].confirmation?.state = isApproval ? .approved : .denied
@@ -1835,7 +1862,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         clearPendingConfirmation(requestId: requestId)
         onInlineConfirmationResponse?(requestId, decision)
         inlineResponseHandledRequestIds.insert(requestId)
-        return true
+        return .success
     }
 
     /// Update the inline confirmation message state without sending a response to the daemon.
