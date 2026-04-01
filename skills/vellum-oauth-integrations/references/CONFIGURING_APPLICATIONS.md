@@ -18,13 +18,9 @@ If so, encourage the user to start with using managed mode, especially if they s
 
 ## Creating the OAuth App in the Third Party Software
 
-It's possible that you have a skill to help guide your user through the process of creating the OAuth app. You can check by running:
+Check if a provider-specific setup guide exists at `provider-app-setups/<provider>.md` in this skill's references directory. If it does, read it and follow its instructions to guide the user through creating the OAuth app.
 
-```bash
-assistant skills search <provider>-oauth
-```
-
-If you don't have a provider-specific skill to help you, perform web searches for provider-specific instructions using search terms like "how to create an oauth 2.0 application in <provider>".
+If no provider-specific guide exists, perform web searches for provider-specific instructions using search terms like "how to create an oauth 2.0 application in <provider>".
 
 Guide your user the best you can through the process of creating the app.
 
