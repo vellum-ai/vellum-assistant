@@ -76,6 +76,26 @@ struct IntegrationsGridView: View {
                 }
             }
         }
+        .sheet(isPresented: isDetailPresented) {
+            if let key = selectedProviderKey {
+                IntegrationDetailModal(
+                    store: store,
+                    authManager: authManager,
+                    showToast: showToast,
+                    providerKey: key,
+                    onClose: { selectedProviderKey = nil }
+                )
+            }
+        }
+    }
+
+    /// Computed binding that bridges the optional `selectedProviderKey` to a Bool
+    /// for `.sheet(isPresented:)`, since `String` does not conform to `Identifiable`.
+    private var isDetailPresented: Binding<Bool> {
+        Binding(
+            get: { selectedProviderKey != nil },
+            set: { if !$0 { selectedProviderKey = nil } }
+        )
     }
 
     // MARK: - Section
