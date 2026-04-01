@@ -200,29 +200,36 @@ struct IntegrationDetailModal: View {
         }
     }
 
-    private var managedLoginPrompt: some View {
-        HStack(spacing: 0) {
-            Button {
-                Task {
-                    await authManager.loginWithToast(showToast: showToast, onSuccess: {
-                        if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                            AppDelegate.shared?.reconnectManagedAssistant()
-                        }
-                        Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
-                    })
-                }
-            } label: {
-                Text("Log in")
-                    .underline()
-                    .foregroundStyle(VColor.primaryBase)
-            }
-            .buttonStyle(.plain)
-            .disabled(authManager.isSubmitting)
+    @State private var isLoginButtonHovered = false
 
-            Text(" to Vellum to connect \(displayName).")
-                .foregroundStyle(VColor.contentDefault)
+    private var managedLoginPrompt: some View {
+        Button {
+            Task {
+                await authManager.loginWithToast(showToast: showToast, onSuccess: {
+                    if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
+                        AppDelegate.shared?.reconnectManagedAssistant()
+                    }
+                    Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
+                })
+            }
+        } label: {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.logOut, size: 14)
+                Text(authManager.isSubmitting ? "Logging in..." : "Log in to Vellum")
+                    .font(VFont.bodyMediumDefault)
+            }
+            .foregroundStyle(VColor.primaryBase)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceBase.opacity(isLoginButtonHovered ? 1 : 0))
+            )
+            .contentShape(Rectangle())
         }
-        .font(VFont.labelDefault)
+        .buttonStyle(.plain)
+        .disabled(authManager.isSubmitting)
+        .onHover { isLoginButtonHovered = $0 }
     }
 
     @State private var isConnectButtonHovered = false
