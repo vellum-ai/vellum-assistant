@@ -174,7 +174,7 @@ async function handleArchiveRecall(
       rows = rawAll<ArchiveRow>(
         `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
          FROM messages_fts fts
-         JOIN messages m ON m.rowid = fts.rowid
+         JOIN messages m ON m.id = fts.message_id
          JOIN conversations c ON c.id = m.conversation_id
          WHERE messages_fts MATCH ?
            AND c.memory_scope_id = ?
