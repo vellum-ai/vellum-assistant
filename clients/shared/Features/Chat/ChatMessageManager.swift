@@ -29,7 +29,17 @@ public final class ChatMessageManager {
     /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     public private(set) var activePendingRequestId: String?
 
+    /// Whether any message in the conversation has non-whitespace text, derived
+    /// from `messages` via a Combine pipeline with `.removeDuplicates()`. Views
+    /// read this O(1) cached boolean instead of scanning the full message array
+    /// on every body evaluation — critical for `topBarView` which otherwise
+    /// re-evaluates on every streaming token due to @Observable tracking.
+    ///
+    /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
+    public private(set) var hasNonEmptyMessage: Bool = false
+
     @ObservationIgnored private var activePendingRequestIdSub: AnyCancellable?
+    @ObservationIgnored private var hasNonEmptyMessageSub: AnyCancellable?
 
     // MARK: - Combine bridges (CurrentValueSubject)
 
@@ -71,6 +81,15 @@ public final class ChatMessageManager {
             .removeDuplicates()
             .sink { [weak self] newValue in
                 self?.activePendingRequestId = newValue
+            }
+
+        hasNonEmptyMessageSub = messagesPublisher
+            .map { messages in
+                messages.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            }
+            .removeDuplicates()
+            .sink { [weak self] newValue in
+                self?.hasNonEmptyMessage = newValue
             }
     }
 
