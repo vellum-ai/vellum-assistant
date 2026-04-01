@@ -76,6 +76,16 @@ struct IntegrationsGridView: View {
                 }
             }
         }
+        .onChange(of: store.managedOAuthProviders.map(\.provider_key)) { _, _ in
+            // Providers are fetched asynchronously, so re-trigger connection
+            // fetching when they arrive (onAppear may fire while the list is
+            // still empty).
+            for provider in store.managedOAuthProviders {
+                Task {
+                    await store.fetchManagedOAuthConnections(providerKey: provider.provider_key)
+                }
+            }
+        }
         .sheet(isPresented: isDetailPresented) {
             if let key = selectedProviderKey {
                 IntegrationDetailModal(

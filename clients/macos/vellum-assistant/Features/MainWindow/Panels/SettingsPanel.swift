@@ -183,6 +183,7 @@ struct SettingsPanel: View {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             isSchedulesEnabled = assistantFeatureFlagStore.isEnabled(Self.schedulesFeatureFlagKey)
+            isIntegrationsGridEnabled = assistantFeatureFlagStore.isEnabled(Self.integrationsGridFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -246,6 +247,8 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .schedules {
                         selectedTab = .general
                     }
+                } else if key == Self.integrationsGridFeatureFlagKey {
+                    isIntegrationsGridEnabled = enabled
                 }
             }
         }
@@ -492,6 +495,10 @@ struct SettingsPanel: View {
                     )
                 }
             } else {
+                Divider()
+                    .background(VColor.borderBase)
+                    .padding(.vertical, VSpacing.sm)
+
                 IntegrationsGridView(
                     store: store,
                     authManager: authManager,
