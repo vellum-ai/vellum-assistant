@@ -105,7 +105,7 @@ describe("AssistantConfigSchema", () => {
       shellMaxTimeoutSec: 600,
       permissionTimeoutSec: 300,
       toolExecutionTimeoutSec: 120,
-      providerStreamTimeoutSec: 300,
+      providerStreamTimeoutSec: 1800,
     });
     expect(result.sandbox).toEqual({
       enabled: false,

@@ -678,7 +678,7 @@ export class AnthropicProvider implements Provider {
     this.client = new Anthropic({ apiKey, baseURL: options.baseURL });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
-    this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
   }
 
   async sendMessage(

@@ -112,7 +112,7 @@ export class OpenAIProvider implements Provider {
       baseURL: options.baseURL,
     });
     this.model = model;
-    this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     this.extraCreateParams = options.extraCreateParams ?? {};
   }
 
