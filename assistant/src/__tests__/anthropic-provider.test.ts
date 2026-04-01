@@ -931,7 +931,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // Assistant message should have tool_use in paired portion, server_tool_use in carryover
     // ensureToolPairing splits: paired = [tool_use(tu_a)], carryover = [server_tool_use(srvtoolu_b)]
-    // Result: assistant(tool_use) → user(tool_result) → assistant(server_tool_use) → user(continue)
+    // Result: assistant(tool_use) → user(tool_result) → assistant(server_tool_use) → user(synthetic_continuation)
     const assistantMsg = sent[1];
     expect(assistantMsg.role).toBe("assistant");
     expect(assistantMsg.content[0].type).toBe("tool_use");
@@ -1258,7 +1258,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // 2. assistant(tool_use)
     // 3. user(tool_result)
     // 4. assistant(Checking the file now.)
-    // 5. user((continue))  <-- synthetic user message to maintain alternation
+    // 5. user(<synthetic_continuation __injected />)  <-- synthetic user message to maintain alternation
     // 6. assistant(Next response)
     expect(sent).toHaveLength(6);
     expect(sent[0].role).toBe("user");
@@ -1271,7 +1271,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[3].content[0].text).toBe("Checking the file now.");
     expect(sent[4].role).toBe("user");
     expect(sent[4].content[0].type).toBe("text");
-    expect(sent[4].content[0].text).toBe("(continue)");
+    expect(sent[4].content[0].text).toBe(
+      "<synthetic_continuation __injected />",
+    );
     expect(sent[5].role).toBe("assistant");
     expect(sent[5].content[0].text).toBe("Next response");
   });
