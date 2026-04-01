@@ -5,7 +5,6 @@ struct IntegrationCard: View {
     let providerKey: String
     let displayName: String
     let description: String?
-    let isEnabled: Bool
     let action: () -> Void
 
     @State private var isHovered = false
