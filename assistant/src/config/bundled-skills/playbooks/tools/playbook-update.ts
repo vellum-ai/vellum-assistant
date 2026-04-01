@@ -1,9 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { getDb } from "../../../../memory/db.js";
-import { computeMemoryFingerprint } from "../../../../memory/fingerprint.js";
+import { getNode, updateNode } from "../../../../memory/graph/store.js";
 import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
-import { memoryItems } from "../../../../memory/schema.js";
+import { memoryGraphNodes } from "../../../../memory/schema.js";
 import type {
   Playbook,
   PlaybookAutonomyLevel,
@@ -13,7 +13,6 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { truncate } from "../../../../util/truncate.js";
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
@@ -32,28 +31,29 @@ export async function executePlaybookUpdate(
   const scopeId = context.memoryScopeId ?? "default";
 
   try {
-    const db = getDb();
-
-    const existing = db
-      .select()
-      .from(memoryItems)
-      .where(
-        and(
-          eq(memoryItems.id, playbookId),
-          eq(memoryItems.kind, "playbook"),
-          eq(memoryItems.scopeId, scopeId),
-        ),
-      )
-      .get();
-
-    if (!existing) {
+    const existing = getNode(playbookId);
+    if (
+      !existing ||
+      existing.scopeId !== scopeId ||
+      !existing.sourceConversations.some((s) => s.startsWith("playbook:")) ||
+      existing.fidelity === "gone"
+    ) {
       return {
         content: `Error: Playbook with ID "${playbookId}" not found`,
         isError: true,
       };
     }
 
-    const currentPlaybook = parsePlaybookStatement(existing.statement);
+    // Extract the JSON statement from the content (after the first newline)
+    const newlineIdx = existing.content.indexOf("\n");
+    if (newlineIdx === -1) {
+      return {
+        content: `Error: Playbook data is corrupted for ID "${playbookId}"`,
+        isError: true,
+      };
+    }
+    const currentStatement = existing.content.slice(newlineIdx + 1);
+    const currentPlaybook = parsePlaybookStatement(currentStatement);
     if (!currentPlaybook) {
       return {
         content: `Error: Playbook data is corrupted for ID "${playbookId}"`,
@@ -91,47 +91,38 @@ export async function executePlaybookUpdate(
     };
 
     const statement = JSON.stringify(updated);
-    const subject = truncate(`Playbook: ${updated.trigger}`, 80, "");
-    const now = Date.now();
+    const subject = `Playbook: ${updated.trigger}`.slice(0, 80);
+    const content = `${subject}\n${statement}`;
 
-    const fingerprint = computeMemoryFingerprint(
-      scopeId,
-      "playbook",
-      subject,
-      statement,
-    );
-
-    // Check if another playbook already has this fingerprint
+    // Check for duplicate content among other playbook nodes
+    const db = getDb();
     const collision = db
-      .select({ id: memoryItems.id })
-      .from(memoryItems)
+      .select({ id: memoryGraphNodes.id })
+      .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryItems.fingerprint, fingerprint),
-          eq(memoryItems.scopeId, scopeId),
+          eq(memoryGraphNodes.scopeId, scopeId),
+          sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'`,
+          eq(memoryGraphNodes.content, content),
+          sql`${memoryGraphNodes.fidelity} != 'gone'`,
+          sql`${memoryGraphNodes.id} != ${existing.id}`,
         ),
       )
       .get();
-    if (collision && collision.id !== existing.id) {
+
+    if (collision) {
       return {
         content: `Error: Another playbook with this exact configuration already exists (ID: ${collision.id}).`,
         isError: true,
       };
     }
 
-    db.update(memoryItems)
-      .set({
-        subject,
-        statement,
-        fingerprint,
-        lastSeenAt: now,
-        sourceType: "tool",
-        verificationState: "user_confirmed",
-      })
-      .where(eq(memoryItems.id, existing.id))
-      .run();
+    updateNode(existing.id, {
+      content,
+      lastAccessed: Date.now(),
+    });
 
-    enqueueMemoryJob("embed_item", { itemId: existing.id });
+    enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
 
     const autonomyLabel =
       updated.autonomyLevel === "auto"

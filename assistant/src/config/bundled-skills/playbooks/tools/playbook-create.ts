@@ -1,10 +1,10 @@
-import { and, eq } from "drizzle-orm";
-import { v4 as uuid } from "uuid";
+import { sql } from "drizzle-orm";
 
 import { getDb } from "../../../../memory/db.js";
-import { computeMemoryFingerprint } from "../../../../memory/fingerprint.js";
+import { createNode, updateNode } from "../../../../memory/graph/store.js";
+import type { NewNode } from "../../../../memory/graph/types.js";
 import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
-import { memoryItems } from "../../../../memory/schema.js";
+import { memoryGraphNodes } from "../../../../memory/schema.js";
 import type {
   Playbook,
   PlaybookAutonomyLevel,
@@ -13,7 +13,6 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { truncate } from "../../../../util/truncate.js";
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
@@ -56,27 +55,22 @@ export async function executePlaybookCreate(
     priority,
   };
   const statement = JSON.stringify(playbook);
-  const subject = truncate(`Playbook: ${trigger}`, 80, "");
+  const subject = `Playbook: ${trigger}`.slice(0, 80);
+  const content = `${subject}\n${statement}`;
   const scopeId = context.memoryScopeId ?? "default";
-
-  const fingerprint = computeMemoryFingerprint(
-    scopeId,
-    "playbook",
-    subject,
-    statement,
-  );
 
   try {
     const db = getDb();
 
+    // Check for duplicate by matching content in playbook-prefixed graph nodes
     const existing = db
-      .select()
-      .from(memoryItems)
+      .select({ id: memoryGraphNodes.id })
+      .from(memoryGraphNodes)
       .where(
-        and(
-          eq(memoryItems.fingerprint, fingerprint),
-          eq(memoryItems.scopeId, scopeId),
-        ),
+        sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'
+            AND ${memoryGraphNodes.content} = ${content}
+            AND ${memoryGraphNodes.scopeId} = ${scopeId}
+            AND ${memoryGraphNodes.fidelity} != 'gone'`,
       )
       .get();
 
@@ -87,29 +81,39 @@ export async function executePlaybookCreate(
       };
     }
 
-    const id = uuid();
     const now = Date.now();
+    const newNode: NewNode = {
+      content,
+      type: "semantic",
+      created: now,
+      lastAccessed: now,
+      lastConsolidated: now,
+      emotionalCharge: {
+        valence: 0,
+        intensity: 0.1,
+        decayCurve: "linear",
+        decayRate: 0.05,
+        originalIntensity: 0.1,
+      },
+      fidelity: "vivid",
+      confidence: 0.95,
+      significance: 0.8,
+      stability: 14,
+      reinforcementCount: 0,
+      lastReinforced: now,
+      sourceConversations: [],
+      sourceType: "direct",
+      narrativeRole: null,
+      partOfStory: null,
+      scopeId,
+    };
 
-    db.insert(memoryItems)
-      .values({
-        id,
-        kind: "playbook",
-        subject,
-        statement,
-        status: "active",
-        confidence: 0.95,
-        importance: 0.8,
-        fingerprint,
-        sourceType: "tool",
-        verificationState: "user_confirmed",
-        scopeId,
-        firstSeenAt: now,
-        lastSeenAt: now,
-        lastUsedAt: null,
-      })
-      .run();
+    const node = createNode(newNode);
+    updateNode(node.id, {
+      sourceConversations: [`playbook:${node.id}`],
+    });
 
-    enqueueMemoryJob("embed_item", { itemId: id });
+    enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
 
     const autonomyLabel =
       autonomyLevel === "auto"
@@ -121,7 +125,7 @@ export async function executePlaybookCreate(
     return {
       content: [
         "Playbook created successfully.",
-        `  ID: ${id}`,
+        `  ID: ${node.id}`,
         `  Trigger: ${trigger}`,
         `  Channel: ${channel}`,
         `  Category: ${category}`,

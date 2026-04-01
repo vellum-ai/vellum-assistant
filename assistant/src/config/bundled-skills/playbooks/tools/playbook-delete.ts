@@ -1,7 +1,4 @@
-import { and, eq } from "drizzle-orm";
-
-import { getDb } from "../../../../memory/db.js";
-import { memoryItems } from "../../../../memory/schema.js";
+import { getNode, updateNode } from "../../../../memory/graph/store.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
 import type {
   ToolContext,
@@ -23,38 +20,28 @@ export async function executePlaybookDelete(
   const scopeId = context.memoryScopeId ?? "default";
 
   try {
-    const db = getDb();
-
-    const existing = db
-      .select()
-      .from(memoryItems)
-      .where(
-        and(
-          eq(memoryItems.id, playbookId),
-          eq(memoryItems.kind, "playbook"),
-          eq(memoryItems.scopeId, scopeId),
-        ),
-      )
-      .get();
-
-    if (!existing) {
+    const existing = getNode(playbookId);
+    if (
+      !existing ||
+      existing.scopeId !== scopeId ||
+      !existing.sourceConversations.some((s) => s.startsWith("playbook:")) ||
+      existing.fidelity === "gone"
+    ) {
       return {
         content: `Error: Playbook with ID "${playbookId}" not found`,
         isError: true,
       };
     }
 
-    const playbook = parsePlaybookStatement(existing.statement);
-    const triggerLabel = playbook?.trigger ?? existing.subject;
+    // Extract trigger label from content
+    const newlineIdx = existing.content.indexOf("\n");
+    const statement =
+      newlineIdx !== -1 ? existing.content.slice(newlineIdx + 1) : "";
+    const playbook = parsePlaybookStatement(statement);
+    const triggerLabel = playbook?.trigger ?? existing.content.split("\n")[0];
 
-    // Soft-delete by marking as superseded rather than hard-deleting,
-    // consistent with how other memory items are retired.
-    // Setting invalidAt so the cleanup job can eventually hard-delete it.
-    const now = Date.now();
-    db.update(memoryItems)
-      .set({ status: "superseded", invalidAt: now })
-      .where(eq(memoryItems.id, existing.id))
-      .run();
+    // Soft-delete by setting fidelity to "gone"
+    updateNode(existing.id, { fidelity: "gone" });
 
     return {
       content: `Playbook deleted (ID: ${existing.id}, trigger: "${triggerLabel}").`,
