@@ -25,9 +25,6 @@ dist
 assistant/src/config/feature-flag-registry.json
 gateway/src/feature-flag-registry.json
 
-# Generated from meta/provider-env-vars.json
-cli/src/config/provider-env-vars.json
-
 # misc
 worktrees/
 .worktrees/

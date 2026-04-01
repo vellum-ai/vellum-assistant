@@ -1,4 +1,4 @@
-import providerEnvVarsRegistry from "../config/provider-env-vars.json";
+import { providerEnvVarsRegistry } from "@vellumai/provider-env-vars";
 
 /**
  * Canonical internal assistant ID used as the default/fallback across the CLI
@@ -30,7 +30,7 @@ export const LOCKFILE_NAMES = [
 
 /**
  * Environment variable names for provider API keys, keyed by provider ID.
- * Loaded from the shared registry at `meta/provider-env-vars.json` — the
+ * Loaded from the shared `@vellumai/provider-env-vars` package — the
  * single source of truth also consumed by the assistant runtime and the
  * macOS client.
  */

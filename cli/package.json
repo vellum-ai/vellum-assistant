@@ -19,11 +19,13 @@
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "prepack": "node ../scripts/prepack-bundled-deps.mjs"
   },
   "author": "Vellum AI",
   "license": "MIT",
   "dependencies": {
+    "@vellumai/provider-env-vars": "file:../packages/provider-env-vars",
     "chalk": "^5.6.0",
     "ink": "^6.7.0",
     "jsqr": "^1.4.0",
@@ -33,6 +35,9 @@
     "react": "^19.2.4",
     "react-devtools-core": "^6.1.2"
   },
+  "bundledDependencies": [
+    "@vellumai/provider-env-vars"
+  ],
   "devDependencies": {
     "@types/bun": "^1.2.4",
     "@types/pngjs": "^6.0.5",

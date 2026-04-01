@@ -21,8 +21,8 @@ import type {
   SecureKeyBackend,
   SecureKeyDeleteResult,
 } from "@vellumai/credential-storage";
+import { providerEnvVarsRegistry } from "@vellumai/provider-env-vars";
 
-import providerEnvVarsRegistry from "../../../meta/provider-env-vars.json" with { type: "json" };
 import { getIsContainerized } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { getLogger } from "../util/logger.js";
@@ -395,9 +395,9 @@ export async function deleteSecureKeyAsync(
 // ---------------------------------------------------------------------------
 
 /**
- * Env var names keyed by provider. Loaded from the shared registry at
- * `meta/provider-env-vars.json` — the single source of truth also consumed
- * by the CLI and the macOS client.
+ * Env var names keyed by provider. Loaded from the shared
+ * `@vellumai/provider-env-vars` package — the single source of truth also
+ * consumed by the CLI and the macOS client.
  * Ollama is intentionally omitted from the registry — it doesn't require
  * an API key.
  */

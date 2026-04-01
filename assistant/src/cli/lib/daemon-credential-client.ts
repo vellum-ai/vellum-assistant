@@ -7,7 +7,8 @@
  * (health check, JWT minting, HTTP call).
  */
 
-import providerEnvVarsRegistry from "../../../../meta/provider-env-vars.json" with { type: "json" };
+import { providerEnvVarsRegistry } from "@vellumai/provider-env-vars";
+
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
 import { API_KEY_PROVIDERS } from "../../config/loader.js";
 import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
