@@ -487,6 +487,7 @@ export function supersedeNode(
       oldNode.reinforcementCount,
     ),
     significance: Math.max(newNode.significance, oldNode.significance),
+    eventDate: newNode.eventDate ?? oldNode.eventDate,
   };
 
   const created = createNode(inherited);
