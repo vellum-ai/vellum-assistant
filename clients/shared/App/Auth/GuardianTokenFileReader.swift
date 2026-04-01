@@ -52,24 +52,39 @@ public enum GuardianTokenFileReader {
         }
     }
 
+    // MARK: - Import Result
+
+    /// Outcome of attempting to import a CLI-persisted guardian token file.
+    public enum ImportResult {
+        /// Credentials were successfully imported into `ActorTokenManager`.
+        case imported
+        /// The token file does not exist on disk yet — the CLI may still be
+        /// writing it, so polling is appropriate.
+        case fileNotFound
+        /// The file exists but contains expired or unparseable data. Polling
+        /// will not help — fall through to HTTP bootstrap immediately.
+        case staleOrInvalid
+    }
+
     // MARK: - Public API
 
     /// Attempts to load a CLI-persisted guardian token for the given assistant
     /// and populate `ActorTokenManager` with its credentials.
     ///
-    /// Returns `true` if credentials were successfully imported, `false` if the
-    /// file does not exist, is unreadable, or contains expired data.
-    public static func importIfAvailable(assistantId: String) -> Bool {
+    /// - Returns: `.imported` on success, `.fileNotFound` if the file does not
+    ///   exist, or `.staleOrInvalid` if the file exists but contains expired or
+    ///   unparseable data.
+    public static func tryImport(assistantId: String) -> ImportResult {
         let path = guardianTokenPath(for: assistantId)
 
         guard FileManager.default.fileExists(atPath: path) else {
             log.info("No guardian token file at \(path, privacy: .public)")
-            return false
+            return .fileNotFound
         }
 
         guard let data = FileManager.default.contents(atPath: path) else {
             log.warning("Guardian token file exists but is unreadable: \(path, privacy: .public)")
-            return false
+            return .staleOrInvalid
         }
 
         let token: GuardianTokenFile
@@ -77,10 +92,10 @@ public enum GuardianTokenFileReader {
             token = try JSONDecoder().decode(GuardianTokenFile.self, from: data)
         } catch let decodingError as DecodingError {
             log.error("Failed to decode guardian token file at \(path, privacy: .public): \(Self.describeDecodingError(decodingError), privacy: .public)")
-            return false
+            return .staleOrInvalid
         } catch {
             log.error("Failed to read guardian token file at \(path, privacy: .public): \(String(describing: error), privacy: .public)")
-            return false
+            return .staleOrInvalid
         }
 
         // Convert timestamps to epoch milliseconds for ActorTokenManager.
@@ -94,14 +109,14 @@ public enum GuardianTokenFileReader {
                 refreshTokenExpiresAt=\(token.refreshTokenExpiresAt.stringValue, privacy: .public), \
                 refreshAfter=\(token.refreshAfter.stringValue, privacy: .public)
                 """)
-            return false
+            return .staleOrInvalid
         }
 
         // Skip if the access token is already expired.
         let nowMs = Int(Date().timeIntervalSince1970 * 1000)
         if nowMs >= accessExpiresEpoch {
             log.info("Guardian token file contains expired access token — skipping import")
-            return false
+            return .staleOrInvalid
         }
 
         ActorTokenManager.storeCredentials(
@@ -114,7 +129,12 @@ public enum GuardianTokenFileReader {
         )
 
         log.info("Imported guardian token from CLI file for assistant \(assistantId, privacy: .public)")
-        return true
+        return .imported
+    }
+
+    /// Convenience wrapper that returns `true` when `tryImport` succeeds.
+    public static func importIfAvailable(assistantId: String) -> Bool {
+        tryImport(assistantId: assistantId) == .imported
     }
 
     /// Polls for a CLI-persisted guardian token file to appear on disk, then
@@ -143,8 +163,14 @@ public enum GuardianTokenFileReader {
         let deadline = CFAbsoluteTimeGetCurrent() + timeout
 
         while !Task.isCancelled {
-            if importIfAvailable(assistantId: assistantId) {
+            switch tryImport(assistantId: assistantId) {
+            case .imported:
                 return true
+            case .staleOrInvalid:
+                log.info("Guardian token file exists but is stale/invalid — skipping poll, falling through to HTTP bootstrap")
+                return false
+            case .fileNotFound:
+                break
             }
 
             if CFAbsoluteTimeGetCurrent() >= deadline {
