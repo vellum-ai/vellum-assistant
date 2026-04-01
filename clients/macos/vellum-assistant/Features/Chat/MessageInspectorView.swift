@@ -198,7 +198,7 @@ struct MessageInspectorView: View {
 
                     Spacer(minLength: VSpacing.sm)
 
-                    if index == 0 {
+                    if index == viewState.logs.count - 1 {
                         Text("Latest")
                             .font(VFont.labelSmall)
                             .foregroundStyle(VColor.primaryBase)
@@ -623,7 +623,7 @@ struct MessageInspectorViewState {
                 return
             }
 
-            selectedLogID = orderedLogs.first?.id
+            selectedLogID = orderedLogs.last?.id
         case .empty:
             logs = []
             memoryRecall = nil
@@ -653,10 +653,10 @@ struct MessageInspectorViewState {
     static func ordered(_ logs: [LLMRequestLogEntry]) -> [LLMRequestLogEntry] {
         logs.sorted { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
-                return lhs.createdAt > rhs.createdAt
+                return lhs.createdAt < rhs.createdAt
             }
 
-            return lhs.id > rhs.id
+            return lhs.id < rhs.id
         }
     }
 }
