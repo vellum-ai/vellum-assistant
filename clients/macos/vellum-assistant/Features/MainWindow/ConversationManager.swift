@@ -160,7 +160,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Subscription to activeViewModel's messages count changes.
     /// Drives activeMessageCount so only message-count-dependent views re-render,
     /// not the entire window tree.
-    private var groupsCancellable: AnyCancellable?
+    /// Combines `$conversations` and `$groups` to recompute cached derived
+    /// state (`visibleConversations`, `unseenVisibleConversationCount`,
+    /// `groupSortPositionMap`) in a single pass whenever either source changes.
+    private var derivedStateCancellable: AnyCancellable?
     private var activeViewModelCancellable: AnyCancellable?
     /// Tracks the message count of the active conversation's view model.
     /// SwiftUI views that need to react to new messages should observe this
@@ -275,10 +278,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Sorted: grouped conversations first (by group sortPosition), then ungrouped.
     /// Within each group, conversations sort by displayOrder ascending, then recency descending.
     /// Conversations move to the top when messages are sent or received, but NOT when clicked/selected.
-    var visibleConversations: [ConversationModel] {
-        conversations.filter { !$0.isArchived && $0.kind != .private }
-            .sorted { visibleConversationSortOrder($0, $1) }
-    }
+    ///
+    /// Cached as a stored property and recomputed via a Combine pipeline whenever
+    /// `conversations` or `groups` change. This avoids redundant O(N log N)
+    /// filter+sort work when multiple callers read the property in the same
+    /// render cycle (e.g. `groupedConversations`, `regularConversations`,
+    /// `scheduledUnreadCount`, sidebar view body).
+    private(set) var visibleConversations: [ConversationModel] = []
 
     /// Shared sort predicate for visible conversations: groups first (by sortPosition),
     /// then within each group by displayOrder/recency. Ungrouped last.
@@ -306,9 +312,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     /// Count of visible (non-archived, non-private) conversations with unseen assistant messages.
     /// Used by AppDelegate to drive the dock badge.
-    var unseenVisibleConversationCount: Int {
-        conversations.filter { !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage }.count
-    }
+    ///
+    /// Cached alongside `visibleConversations` in the same Combine pipeline.
+    private(set) var unseenVisibleConversationCount: Int = 0
 
     var archivedConversations: [ConversationModel] {
         conversations.filter { $0.isArchived }
@@ -355,10 +361,22 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
-        // Keep groupSortPositionMap in sync whenever `groups` changes.
-        self.groupsCancellable = $groups.sink { [weak self] newGroups in
-            self?.groupSortPositionMap = Dictionary(uniqueKeysWithValues: newGroups.map { ($0.id, $0.sortPosition) })
-        }
+        // Recompute cached derived state whenever `conversations` or `groups` change.
+        // Uses CombineLatest so a single sink handles groupSortPositionMap,
+        // visibleConversations, and unseenVisibleConversationCount together.
+        self.derivedStateCancellable = Publishers.CombineLatest($conversations, $groups)
+            .sink { [weak self] newConversations, newGroups in
+                guard let self else { return }
+                self.groupSortPositionMap = Dictionary(
+                    uniqueKeysWithValues: newGroups.map { ($0.id, $0.sortPosition) }
+                )
+                self.visibleConversations = newConversations
+                    .filter { !$0.isArchived && $0.kind != .private }
+                    .sorted { self.visibleConversationSortOrder($0, $1) }
+                self.unseenVisibleConversationCount = self.visibleConversations
+                    .filter { $0.hasUnseenLatestAssistantMessage }
+                    .count
+            }
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
         // the wake-up conversation's UUID is persisted.
