@@ -650,10 +650,10 @@ export async function installSkill(
     }
 
     // Check the Vellum catalog (first-party skills hosted on the platform).
-    // Skip when the caller explicitly specified an origin — this prevents
-    // slug collisions where a catalog skill shadows a community skill the
-    // user selected from search results.
-    if (!spec.origin)
+    // Skip when the caller explicitly specified a community origin — this
+    // prevents slug collisions where a catalog skill shadows a community
+    // skill the user selected from search results.
+    if (spec.origin !== "clawhub" && spec.origin !== "skillssh")
       try {
         const vellumCatalog = await getCatalog();
         const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
