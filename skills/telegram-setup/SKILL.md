@@ -8,6 +8,11 @@ metadata:
     display-name: "Telegram Setup"
     includes:
       - public-ingress
+    activation-hints:
+      - "Telegram bot setup, webhook configuration, or BotFather token"
+      - "User wants to connect Telegram to the assistant"
+    avoid-when:
+      - "User wants to send/receive Telegram messages (use messaging skill instead)"
 ---
 
 You are helping your user connect a Telegram bot to the Vellum Assistant gateway. Walk through each step below.

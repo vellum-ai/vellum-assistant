@@ -82,7 +82,10 @@ import {
   setCesClient,
   setCesReconnect,
 } from "../security/secure-keys.js";
-import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
+import {
+  seedCatalogSkillMemories,
+  seedUninstalledCatalogSkillMemories,
+} from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
@@ -649,6 +652,15 @@ export async function runDaemon(): Promise<void> {
       } catch (err) {
         log.warn({ err }, "Catalog skill memory seeding failed — continuing");
       }
+
+      // Seed memories for catalog skills not yet installed so they're
+      // discoverable via memory injection and can be auto-installed.
+      void seedUninstalledCatalogSkillMemories().catch((err) =>
+        log.warn(
+          { err },
+          "Uninstalled catalog skill memory seeding failed — continuing",
+        ),
+      );
 
       try {
         seedCliCommandMemories();
