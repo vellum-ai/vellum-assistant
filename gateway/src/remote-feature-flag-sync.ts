@@ -96,21 +96,22 @@ export class RemoteFeatureFlagSync {
         this.credentials.get(credentialKey("vellum", "assistant_api_key")),
       ]);
 
-    // Fall back to env vars when credential cache values are missing, matching
-    // the daemon's resolvePlatformCallbackRegistrationContext() behaviour.
+    // Fall back to env vars when credential cache values are missing.
     const platformUrl = (
       platformUrlRaw?.trim() ||
       process.env.VELLUM_PLATFORM_URL?.trim() ||
       ""
     ).replace(/\/+$/, "");
 
-    const platformInternalApiKey =
-      process.env.PLATFORM_INTERNAL_API_KEY?.trim() || undefined;
-    const assistantApiKey = !platformInternalApiKey
-      ? assistantApiKeyRaw?.trim() || undefined
+    // Feature flag sync hits the public platform API (/v1/assistants/…), not
+    // an internal gateway endpoint, so prefer Api-Key auth (assistant_api_key)
+    // over Bearer auth (PLATFORM_INTERNAL_API_KEY).
+    const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
+    const platformInternalApiKey = !assistantApiKey
+      ? process.env.PLATFORM_INTERNAL_API_KEY?.trim() || undefined
       : undefined;
-    const authToken = platformInternalApiKey || assistantApiKey;
-    const authScheme = platformInternalApiKey ? "Bearer" : "Api-Key";
+    const authToken = assistantApiKey || platformInternalApiKey;
+    const authScheme = assistantApiKey ? "Api-Key" : "Bearer";
 
     const assistantId =
       process.env.PLATFORM_ASSISTANT_ID?.trim() ||

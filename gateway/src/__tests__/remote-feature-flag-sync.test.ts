@@ -183,7 +183,7 @@ describe("RemoteFeatureFlagSync", () => {
     expect(headers.Authorization).toBe("Bearer internal-key-123");
   });
 
-  test("prefers PLATFORM_INTERNAL_API_KEY over assistant_api_key", async () => {
+  test("prefers assistant_api_key over PLATFORM_INTERNAL_API_KEY for public API", async () => {
     fetchMock = mock(async () => Response.json({ flags: {} }));
     process.env.PLATFORM_INTERNAL_API_KEY = "internal-key-123";
 
@@ -196,7 +196,9 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0];
     const headers = init?.headers as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer internal-key-123");
+    // Feature flag sync hits the public platform API, so Api-Key auth
+    // (assistant_api_key) takes precedence over Bearer (internal key).
+    expect(headers.Authorization).toBe("Api-Key test-api-key");
   });
 
   test("skips sync when platform_assistant_id is missing and no PLATFORM_ASSISTANT_ID", async () => {
