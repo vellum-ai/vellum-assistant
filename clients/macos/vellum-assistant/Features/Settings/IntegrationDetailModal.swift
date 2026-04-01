@@ -409,6 +409,8 @@ struct IntegrationDetailModal: View {
                 createAppIsSubmitting = true
                 Task {
                     await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
+                    createAppClientId = ""
+                    createAppClientSecret = ""
                     createAppIsSubmitting = false
                     isShowingAddAppForm = false
                 }
