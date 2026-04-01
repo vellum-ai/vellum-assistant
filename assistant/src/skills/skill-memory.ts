@@ -1,4 +1,4 @@
-import { and, eq, like, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -14,10 +14,10 @@ import type { CatalogSkill } from "./catalog-install.js";
 
 const log = getLogger("skill-memory");
 
-/** Strip SQL LIKE wildcards so they match literally.
- * SQLite has no default escape character for LIKE, so we strip rather than escape. */
+/** Escape SQL LIKE wildcards so they match literally.
+ * Uses backslash as the escape character — callers must pair with ESCAPE '\\'. */
 function escapeLike(s: string): string {
-  return s.replace(/%/g, "").replace(/_/g, "");
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
 /**
@@ -114,7 +114,7 @@ export function upsertSkillCapabilityMemory(
       .where(
         and(
           eq(memoryGraphNodes.type, "procedural"),
-          like(memoryGraphNodes.content, `skill:${escapeLike(skillId)}\n%`),
+          sql`${memoryGraphNodes.content} LIKE ${'skill:' + escapeLike(skillId) + '\n%'} ESCAPE '\\'`,
           eq(memoryGraphNodes.scopeId, scopeId),
         ),
       )
@@ -205,7 +205,7 @@ export function deleteSkillCapabilityMemory(skillId: string): void {
       .where(
         and(
           eq(memoryGraphNodes.type, "procedural"),
-          like(memoryGraphNodes.content, `skill:${escapeLike(skillId)}\n%`),
+          sql`${memoryGraphNodes.content} LIKE ${'skill:' + escapeLike(skillId) + '\n%'} ESCAPE '\\'`,
           eq(memoryGraphNodes.scopeId, "default"),
           sql`${memoryGraphNodes.fidelity} != 'gone'`,
         ),
