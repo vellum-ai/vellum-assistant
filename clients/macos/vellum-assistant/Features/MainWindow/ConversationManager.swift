@@ -1458,6 +1458,20 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         sendReorderConversations()
     }
 
+    func deleteGroupAndArchiveConversations(_ groupId: String) async {
+        guard let idx = groups.firstIndex(where: { $0.id == groupId }),
+              !groups[idx].isSystemGroup else { return }
+        // Archive all conversations in this group
+        let conversationsToArchive = conversations.filter { $0.groupId == groupId }
+        for conversation in conversationsToArchive {
+            archiveConversation(id: conversation.id)
+        }
+        // Then delete the group (conversations already archived, so the nil-out in deleteGroup is fine)
+        _ = await groupClient.deleteGroup(groupId: groupId)
+        groups.remove(at: idx)
+        sendReorderConversations()
+    }
+
     func reorderGroups(_ updates: [(groupId: String, sortPosition: Double)]) async {
         for update in updates {
             if let idx = groups.firstIndex(where: { $0.id == update.groupId }) {
