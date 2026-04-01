@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../security/credential-key.js";
 
-let mockIsContainerized = true;
+let mockIsPlatform = true;
 let mockPlatformBaseUrl = "";
 let mockPlatformAssistantId = "";
 let mockPlatformInternalApiKey = "";
 let mockSecureKeys: Record<string, string> = {};
 
 mock.module("../config/env-registry.js", () => ({
-  getIsContainerized: () => mockIsContainerized,
+  getIsPlatform: () => mockIsPlatform,
 }));
 
 mock.module("../config/env.js", () => ({
@@ -38,7 +38,7 @@ const { registerCallbackRoute, resolvePlatformCallbackRegistrationContext } =
 
 describe("platform callback registration", () => {
   beforeEach(() => {
-    mockIsContainerized = true;
+    mockIsPlatform = true;
     mockPlatformBaseUrl = "";
     mockPlatformAssistantId = "";
     mockPlatformInternalApiKey = "";
