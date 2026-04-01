@@ -260,8 +260,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         // Always include all groups so the view layer can decide visibility.
         // Non-system groups always appear (so "New Group" is visible immediately).
-        // System groups are emitted even when empty so the view can show ghost
-        // headers during drag; the view hides empty system groups when no drag is active.
         var result: [(ConversationGroup?, [ConversationModel])] = []
         for group in sortedGroups {
             result.append((group, buckets[group.id] ?? []))
@@ -371,6 +369,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         enterDraftMode()
         conversationRestorer.delegate = self
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
+        if isFirstLaunch && groups.isEmpty {
+            groups = [.pinned, .scheduled, .background]
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             for await message in self.eventStreamClient.subscribe() {
