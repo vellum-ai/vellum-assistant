@@ -665,6 +665,18 @@ export async function runDaemon(): Promise<void> {
       } catch (err) {
         log.warn({ err }, "Graph capability seeding failed — continuing");
       }
+
+      // Auto-bootstrap: if the graph has no non-procedural nodes but historical
+      // segments exist, enqueue a one-time graph_bootstrap job to populate the
+      // graph from conversation history and journal files.
+      try {
+        const { maybeEnqueueGraphBootstrap, migrateToolCreatedItems } =
+          await import("../memory/graph/bootstrap.js");
+        migrateToolCreatedItems();
+        maybeEnqueueGraphBootstrap();
+      } catch (err) {
+        log.warn({ err }, "Graph bootstrap check failed — continuing");
+      }
     }
 
     // Fire-and-forget: Qdrant init runs concurrently with the rest of startup

@@ -16,12 +16,14 @@ import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
-import { getDb } from "../db.js";
+import { getDb, rawAll } from "../db.js";
+import { enqueueMemoryJob, hasActiveJobOfType } from "../jobs-store.js";
 import { initQdrantClient } from "../qdrant-client.js";
-import { conversations } from "../schema.js";
-import { asc, sql } from "drizzle-orm";
+import { conversations, memoryGraphNodes, memorySegments } from "../schema.js";
+import { and, asc, ne, sql } from "drizzle-orm";
 import { runGraphExtraction } from "./extraction.js";
-import { countNodes } from "./store.js";
+import { countNodes, createNode } from "./store.js";
+import type { NewNode } from "./types.js";
 
 const log = getLogger("graph-bootstrap");
 
@@ -294,4 +296,174 @@ function parseJournalDate(filename: string): number {
  */
 export function resetBootstrapCheckpoint(): void {
   setMemoryCheckpoint(CHECKPOINT_KEY, "");
+}
+
+/**
+ * Enqueue a graph_bootstrap job if the graph is empty (no non-procedural nodes)
+ * but historical data exists (segments or journal files). Called on daemon startup
+ * to auto-populate the graph for users upgrading from the old extraction system.
+ *
+ * Idempotent: does nothing if graph nodes already exist or a bootstrap job is
+ * already pending/running.
+ */
+export function maybeEnqueueGraphBootstrap(): void {
+  const db = getDb();
+
+  // Check for non-procedural graph nodes (procedural = capability seeds, not real memories)
+  const nonProceduralCount =
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(memoryGraphNodes)
+      .where(
+        and(
+          ne(memoryGraphNodes.type, "procedural"),
+          sql`${memoryGraphNodes.fidelity} != 'gone'`,
+        ),
+      )
+      .get()?.count ?? 0;
+
+  if (nonProceduralCount > 0) return; // Graph already populated
+
+  // Check for historical data to bootstrap from
+  const segmentCount =
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(memorySegments)
+      .get()?.count ?? 0;
+
+  const hasJournalFiles = existsSync(join(getWorkspaceDir(), "journal"));
+
+  if (segmentCount === 0 && !hasJournalFiles) return; // Nothing to bootstrap from
+
+  // Don't enqueue if already in progress
+  if (hasActiveJobOfType("graph_bootstrap")) return;
+
+  log.info(
+    { segmentCount, hasJournalFiles },
+    "Graph empty with historical data — enqueueing bootstrap",
+  );
+  enqueueMemoryJob("graph_bootstrap", {});
+}
+
+// ---------------------------------------------------------------------------
+// One-time migration: port tool-created memoryItems to graph nodes
+// ---------------------------------------------------------------------------
+
+const MIGRATE_ITEMS_CHECKPOINT = "graph_bootstrap:migrated_tool_items";
+
+interface LegacyItem {
+  id: string;
+  kind: string;
+  subject: string;
+  statement: string;
+  confidence: number;
+  importance: number;
+  scope_id: string;
+  first_seen_at: number;
+}
+
+/** Source prefix mapping from old kind to new sourceConversations key. */
+const KIND_TO_PREFIX: Record<string, string> = {
+  playbook: "playbook:",
+  style: "style:",
+  relationship: "relationship:",
+};
+
+/**
+ * Migrate tool-created memoryItems (playbooks, style patterns, relationship
+ * dynamics) into graph nodes. These were created directly by tool handlers
+ * and won't be picked up by the conversation-based graph bootstrap.
+ *
+ * Idempotent: uses a checkpoint to run only once. Skips items whose
+ * sourceKey already exists in the graph.
+ */
+export function migrateToolCreatedItems(): void {
+  if (getMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT)) return;
+
+  const kinds = Object.keys(KIND_TO_PREFIX);
+  const placeholders = kinds.map(() => "?").join(", ");
+
+  let rows: LegacyItem[];
+  try {
+    rows = rawAll<LegacyItem>(
+      `SELECT id, kind, subject, statement, confidence, importance, scope_id, first_seen_at
+       FROM memory_items
+       WHERE kind IN (${placeholders}) AND status = 'active'`,
+      ...kinds,
+    );
+  } catch {
+    // Table may not exist (fresh install) — nothing to migrate
+    setMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT, "done");
+    return;
+  }
+
+  if (rows.length === 0) {
+    setMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT, "done");
+    return;
+  }
+
+  const db = getDb();
+  let migrated = 0;
+
+  for (const row of rows) {
+    const prefix = KIND_TO_PREFIX[row.kind];
+    if (!prefix) continue;
+
+    // Build content in the format the new tools expect
+    const content =
+      row.kind === "playbook"
+        ? `${row.subject}\n${row.statement}`
+        : `${row.subject}: ${row.statement}`;
+
+    // Check if already migrated (sourceKey exists in graph)
+    const sourceKey = `${prefix}${row.id}`;
+    const existing = db
+      .select({ id: memoryGraphNodes.id })
+      .from(memoryGraphNodes)
+      .where(
+        sql`${memoryGraphNodes.sourceConversations} LIKE ${"%" + sourceKey + "%"}`,
+      )
+      .get();
+    if (existing) continue;
+
+    const now = Date.now();
+    const node: NewNode = {
+      content,
+      type: "semantic",
+      created: row.first_seen_at || now,
+      lastAccessed: now,
+      lastConsolidated: now,
+      emotionalCharge: {
+        valence: 0,
+        intensity: 0.1,
+        decayCurve: "linear",
+        decayRate: 0.05,
+        originalIntensity: 0.1,
+      },
+      fidelity: "vivid",
+      confidence: row.confidence,
+      significance: row.importance,
+      stability: 14,
+      reinforcementCount: 0,
+      lastReinforced: now,
+      sourceConversations: [sourceKey],
+      sourceType: "direct",
+      narrativeRole: null,
+      partOfStory: null,
+      scopeId: row.scope_id || "default",
+    };
+
+    const created = createNode(node);
+    enqueueMemoryJob("embed_graph_node", { nodeId: created.id });
+    migrated++;
+  }
+
+  setMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT, "done");
+
+  if (migrated > 0) {
+    log.info(
+      { migrated, total: rows.length },
+      "Migrated tool-created items to graph nodes",
+    );
+  }
 }
