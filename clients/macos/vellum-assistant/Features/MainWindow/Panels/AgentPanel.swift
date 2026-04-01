@@ -240,7 +240,7 @@ struct SkillItemRow: View {
     let onDelete: () -> Void
 
     private var isRemovable: Bool {
-        skill.origin == "clawhub" || skill.origin == "skillssh"
+        skill.kind == "installed"
     }
 
     var body: some View {

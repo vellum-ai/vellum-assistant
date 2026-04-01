@@ -154,7 +154,7 @@ struct SkillDetailTitleRow: View {
 
             Spacer()
 
-            if skill.origin == "clawhub" || skill.origin == "skillssh" {
+            if skill.kind == "installed" {
                 VButton(label: "Remove", style: .dangerOutline) {
                     onDelete()
                 }
