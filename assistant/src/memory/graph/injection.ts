@@ -348,7 +348,14 @@ function buildSection(nodes: ScoredNode[], maxItems: number): string[] {
  */
 export function assembleInjectionBlock(nodes: ScoredNode[]): string {
   if (nodes.length === 0) return "";
-  return nodes.map(formatNodeEntry).join("\n");
+  return nodes
+    .map((scored) => {
+      if (scored.node.eventDate != null) {
+        return formatUpcomingEntry(scored);
+      }
+      return formatNodeEntry(scored);
+    })
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------
