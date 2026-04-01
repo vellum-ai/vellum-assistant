@@ -118,14 +118,6 @@ export interface SkillStateChanged {
   state: "enabled" | "disabled" | "installed" | "uninstalled";
 }
 
-export interface SkillsOperationResponse {
-  type: "skills_operation_response";
-  operation: string;
-  success: boolean;
-  error?: string;
-  data?: unknown;
-}
-
 export interface SkillBodyResponse {
   type: "skill_detail_response";
   skillId: string;
@@ -218,6 +210,5 @@ export type _SkillsServerMessages =
   | SkillsListResponse
   | SkillBodyResponse
   | SkillStateChanged
-  | SkillsOperationResponse
   | SkillsInspectResponse
   | SkillsDraftResponse;

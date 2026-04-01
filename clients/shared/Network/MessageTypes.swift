@@ -1009,12 +1009,14 @@ public typealias GenerateAvatarResponseMessage = GenerateAvatarResponse
 /// Backed by generated `SkillStateChanged`.
 public typealias SkillStateChangedMessage = SkillStateChanged
 
-/// Generic operation response for non-search skill operations.
-public struct SkillsOperationResponseMessage: Decodable, Sendable {
-    public let operation: String
+/// Minimal result for non-search skill operations (enable, disable, install, etc.).
+public struct SkillOperationResult: Sendable {
     public let success: Bool
     public let error: String?
-    public let data: AnyCodable?
+    public init(success: Bool, error: String? = nil) {
+        self.success = success
+        self.error = error
+    }
 }
 
 /// Skill info from a ClaWHub inspect response.
@@ -2043,7 +2045,6 @@ public enum ServerMessage: Decodable, Sendable {
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case skillStateChanged(SkillStateChangedMessage)
-    case skillsOperationResponse(SkillsOperationResponseMessage)
     case skillsInspectResponse(SkillsInspectResponseMessage)
     case skillsDraftResponse(SkillsDraftResponseMessage)
     case suggestionResponse(SuggestionResponseMessage)
@@ -2283,9 +2284,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "skills_state_changed":
             let message = try SkillStateChangedMessage(from: decoder)
             self = .skillStateChanged(message)
-        case "skills_operation_response":
-            let message = try SkillsOperationResponseMessage(from: decoder)
-            self = .skillsOperationResponse(message)
         case "skills_inspect_response":
             let message = try SkillsInspectResponseMessage(from: decoder)
             self = .skillsInspectResponse(message)
