@@ -738,8 +738,8 @@ jobs:
           echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   # Staging-only: build Docker images and upload as GitHub artifacts (no registry push).
-  # Produces a tarball per service that can later be loaded and pushed via
-  # `docker load` + `docker tag` + `docker push`.
+  # Produces an OCI tarball per service that can later be pushed to a registry via
+  # `skopeo copy oci-archive:<file>.tar docker://<registry>/<image>:<tag>`.
   build-staging-docker-images:
     needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
