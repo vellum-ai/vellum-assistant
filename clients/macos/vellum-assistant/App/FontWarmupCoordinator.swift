@@ -1,6 +1,7 @@
 import Foundation
 import os
 import CoreText
+import VellumAssistantShared
 
 /// Coordinates off-main-thread font registration and warmup at app launch.
 ///
