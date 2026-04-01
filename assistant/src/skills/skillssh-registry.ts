@@ -5,6 +5,7 @@ import { dirname, join, resolve, sep } from "node:path";
 
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { upsertSkillsIndex } from "./catalog-install.js";
+import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -434,7 +435,7 @@ export function validateSkillSlug(slug: string): void {
  * 1. Validates the skill slug for path safety
  * 2. Fetches all files from `skills/<skillSlug>/` in the source repo
  * 3. Writes them to `<workspace>/skills/<skillSlug>/` with path traversal protection
- * 4. Writes `version.json` with origin metadata
+ * 4. Writes `install-meta.json` with origin metadata
  * 5. Runs `bun install` if a `package.json` is present
  * 6. Registers the skill in SKILLS.md only after all steps succeed
  */
@@ -444,6 +445,7 @@ export async function installExternalSkill(
   skillSlug: string,
   overwrite: boolean,
   ref?: string,
+  contactId?: string,
 ): Promise<void> {
   // Validate slug before using in filesystem paths
   validateSkillSlug(skillSlug);
@@ -480,18 +482,15 @@ export async function installExternalSkill(
     writeFileSync(destPath, content, "utf-8");
   }
 
-  // Write origin metadata
-  const meta = {
-    origin: "skills.sh",
-    source: `${owner}/${repo}`,
-    skillSlug,
+  // Write install metadata
+  writeInstallMeta(skillDir, {
+    origin: "skillssh",
+    slug: skillSlug,
+    sourceRepo: `${owner}/${repo}`,
     installedAt: new Date().toISOString(),
-  };
-  writeFileSync(
-    join(skillDir, "version.json"),
-    JSON.stringify(meta, null, 2) + "\n",
-    "utf-8",
-  );
+    ...(contactId ? { installedBy: contactId } : {}),
+    contentHash: computeSkillHash(skillDir) ?? undefined,
+  });
 
   // Install npm dependencies if the skill ships a package.json
   if (existsSync(join(skillDir, "package.json"))) {

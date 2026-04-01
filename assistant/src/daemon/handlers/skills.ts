@@ -550,7 +550,12 @@ function looksLikeSkillsShSlug(slug: string): boolean {
 }
 
 export async function installSkill(
-  spec: { slug: string; version?: string; origin?: "clawhub" | "skillssh" },
+  spec: {
+    slug: string;
+    version?: string;
+    origin?: "clawhub" | "skillssh";
+    contactId?: string;
+  },
   ctx: SkillOperationContext,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
@@ -599,7 +604,12 @@ export async function installSkill(
       const vellumCatalog = await getCatalog();
       const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
       if (catalogEntry) {
-        await installSkillLocally(spec.slug, catalogEntry, true);
+        await installSkillLocally(
+          spec.slug,
+          catalogEntry,
+          true,
+          spec.contactId,
+        );
 
         // Reload skill catalog so the newly installed skill is picked up
         loadSkillCatalog();
@@ -645,6 +655,7 @@ export async function installSkill(
         resolved.skillSlug,
         true /* overwrite */,
         resolved.ref ?? spec.version,
+        spec.contactId,
       );
 
       // Reload skill catalog so the newly installed skill is picked up
@@ -672,7 +683,10 @@ export async function installSkill(
     }
 
     // Install from clawhub (community)
-    const result = await clawhubInstall(spec.slug, { version: spec.version });
+    const result = await clawhubInstall(spec.slug, {
+      version: spec.version,
+      contactId: spec.contactId,
+    });
     if (!result.success) {
       return { success: false, error: result.error ?? "Unknown error" };
     }
@@ -1105,6 +1119,7 @@ export interface CreateSkillParams {
   emoji?: string;
   bodyMarkdown: string;
   overwrite?: boolean;
+  contactId?: string;
 }
 
 export async function createSkill(
@@ -1119,6 +1134,7 @@ export async function createSkill(
       emoji: params.emoji,
       bodyMarkdown: params.bodyMarkdown,
       overwrite: params.overwrite,
+      contactId: params.contactId,
     });
 
     if (!result.created) {

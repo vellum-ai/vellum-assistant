@@ -13,6 +13,7 @@ import { stringify as stringifyYaml } from "yaml";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
+import { writeInstallMeta } from "./install-meta.js";
 import { deleteSkillCapabilityMemory } from "./skill-memory.js";
 
 const log = getLogger("managed-store");
@@ -165,15 +166,20 @@ function getVersionMetaPath(id: string): string {
   return join(getManagedSkillDir(id), "version.json");
 }
 
-function writeVersionMeta(id: string, version: string): void {
-  const meta: SkillVersionMeta = {
-    version,
-    installedAt: new Date().toISOString(),
-  };
-  atomicWriteFile(getVersionMetaPath(id), JSON.stringify(meta, null, 2) + "\n");
-}
-
 export function readSkillVersion(id: string): string | null {
+  // Try install-meta.json first (new format)
+  const installMetaPath = join(getManagedSkillDir(id), "install-meta.json");
+  if (existsSync(installMetaPath)) {
+    try {
+      const raw = readFileSync(installMetaPath, "utf-8");
+      const meta = JSON.parse(raw) as { version?: string };
+      if (meta.version) return meta.version;
+    } catch {
+      // Fall through to legacy path
+    }
+  }
+
+  // Fall back to legacy version.json
   const metaPath = getVersionMetaPath(id);
   if (!existsSync(metaPath)) return null;
   try {
@@ -197,6 +203,7 @@ interface CreateManagedSkillParams {
   addToIndex?: boolean;
   includes?: string[];
   version?: string;
+  contactId?: string;
 }
 
 interface CreateManagedSkillResult {
@@ -259,10 +266,16 @@ export function createManagedSkill(
   mkdirSync(skillDir, { recursive: true });
   atomicWriteFile(skillFilePath, content);
 
-  if (params.version) {
-    writeVersionMeta(params.id, params.version);
-  } else {
-    // Remove stale version metadata when overwriting without a version
+  // Write install metadata
+  writeInstallMeta(skillDir, {
+    origin: "custom",
+    installedAt: new Date().toISOString(),
+    ...(params.version ? { version: params.version } : {}),
+    ...(params.contactId ? { installedBy: params.contactId } : {}),
+  });
+
+  // Clean up legacy version.json if present (superseded by install-meta.json)
+  if (!params.version) {
     const metaPath = getVersionMetaPath(params.id);
     if (existsSync(metaPath)) {
       rmSync(metaPath);

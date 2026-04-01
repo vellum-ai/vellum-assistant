@@ -183,6 +183,7 @@ describe("installSkill routing", () => {
       "react-best-practices",
       true, // overwrite
       undefined, // ref
+      undefined, // contactId
     );
     // Should not have called clawhub
     expect(mockClawhubInstall).not.toHaveBeenCalled();
@@ -224,7 +225,8 @@ describe("installSkill routing", () => {
       "repo",
       "my-skill",
       true,
-      undefined,
+      undefined, // ref
+      undefined, // contactId
     );
     expect(mockClawhubInstall).not.toHaveBeenCalled();
   });
