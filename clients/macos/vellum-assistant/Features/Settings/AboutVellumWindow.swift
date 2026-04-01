@@ -67,10 +67,8 @@ struct AboutVellumView: View {
                 .font(VFont.titleMedium)
                 .foregroundStyle(VColor.contentEmphasized)
 
-            // Client Version — prefer VellumFullVersion (includes prerelease suffix
-            // for staging builds) over CFBundleShortVersionString (always MAJOR.MINOR.PATCH).
-            if let version = Bundle.main.infoDictionary?["VellumFullVersion"] as? String
-                ?? Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            // Client Version
+            if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                 let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
                 Text("Version \(version)" + (build.map { " (\($0))" } ?? ""))
                     .font(VFont.bodyMediumLighter)
