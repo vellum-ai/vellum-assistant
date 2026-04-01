@@ -16,6 +16,9 @@ struct ConversationSwitcherDrawer: View {
     /// Tracks which sections have been expanded via "Show more".
     @State private var expandedSections: Set<String> = []
 
+    /// Tracks which sub-groups (schedule/background) are expanded in the drawer.
+    @State private var expandedSubGroups: Set<String> = []
+
     /// Group entries filtered by flags: custom groups and Background merged into ungrouped when their flags are off.
     private var drawerEntries: [(group: ConversationGroup?, conversations: [ConversationModel])] {
         let raw = conversationManager.groupedConversations
@@ -109,6 +112,7 @@ struct ConversationSwitcherDrawer: View {
                             }
                             sectionContent(
                                 sectionId: sectionId,
+                                group: entry.group,
                                 title: entry.group?.name ?? "Conversations",
                                 conversations: conversations,
                                 isExpanded: isExpanded
@@ -152,6 +156,7 @@ struct ConversationSwitcherDrawer: View {
     @ViewBuilder
     private func sectionContent(
         sectionId: String,
+        group: ConversationGroup?,
         title: String,
         conversations: [ConversationModel],
         isExpanded: Bool
@@ -168,31 +173,179 @@ struct ConversationSwitcherDrawer: View {
         .padding(.horizontal, VSpacing.sm)
         .padding(.top, VSpacing.xs)
 
-        let displayed = isExpanded ? conversations : Array(conversations.prefix(maxPerSection))
-        ForEach(displayed) { conversation in
-            makeRow(conversation)
-                .equatable()
-                .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
-        }
+        let isScheduled = group?.id == ConversationGroup.scheduled.id
+        let isBackground = group?.id == ConversationGroup.background.id
 
-        if conversations.count > maxPerSection {
-            HStack {
-                VButton(
-                    label: isExpanded ? "Show less" : "Show more (\(conversations.count - maxPerSection))",
-                    style: .ghost,
-                    size: .compact
-                ) {
-                    withAnimation(VAnimation.fast) {
-                        if isExpanded {
-                            expandedSections.remove(sectionId)
-                        } else {
-                            expandedSections.insert(sectionId)
-                        }
+        if isScheduled || isBackground {
+            let grouper: (ConversationModel) -> String? = isScheduled ? { $0.scheduleJobId } : { $0.source }
+            let labelProvider: ((String, [ConversationModel]) -> String)? = isBackground
+                ? { key, _ in key.prefix(1).uppercased() + key.dropFirst() }
+                : nil
+            let subGroups = buildDrawerSubGroups(conversations: conversations, grouper: grouper, labelProvider: labelProvider)
+            let displayed = isExpanded ? subGroups : Array(subGroups.prefix(maxPerSection))
+
+            ForEach(displayed) { subGroup in
+                if subGroup.conversations.count == 1, let conversation = subGroup.conversations.first {
+                    makeRow(conversation)
+                        .equatable()
+                        .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
+                } else {
+                    drawerSubGroupDisclosure(subGroup)
+                }
+            }
+
+            if subGroups.count > maxPerSection {
+                drawerShowMoreLess(sectionId: sectionId, totalCount: subGroups.count, isExpanded: isExpanded)
+            }
+        } else {
+            let displayed = isExpanded ? conversations : Array(conversations.prefix(maxPerSection))
+            ForEach(displayed) { conversation in
+                makeRow(conversation)
+                    .equatable()
+                    .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
+            }
+
+            if conversations.count > maxPerSection {
+                drawerShowMoreLess(sectionId: sectionId, totalCount: conversations.count, isExpanded: isExpanded)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func drawerShowMoreLess(sectionId: String, totalCount: Int, isExpanded: Bool) -> some View {
+        HStack {
+            VButton(
+                label: isExpanded ? "Show less" : "Show more (\(totalCount - maxPerSection))",
+                style: .ghost,
+                size: .compact
+            ) {
+                withAnimation(VAnimation.fast) {
+                    if isExpanded {
+                        expandedSections.remove(sectionId)
+                    } else {
+                        expandedSections.insert(sectionId)
                     }
                 }
+            }
+            Spacer()
+        }
+        .padding(.leading, VSpacing.sm)
+    }
+
+    @ViewBuilder
+    private func drawerSubGroupDisclosure(_ subGroup: ScheduleSubGroup) -> some View {
+        let isSubGroupExpanded = expandedSubGroups.contains(subGroup.key)
+        let hasUnread = !isSubGroupExpanded &&
+            subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+
+        Button {
+            withAnimation(VAnimation.fast) {
+                if isSubGroupExpanded {
+                    expandedSubGroups.remove(subGroup.key)
+                } else {
+                    expandedSubGroups.insert(subGroup.key)
+                }
+            }
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                ZStack {
+                    VIconView(.chevronRight, size: 10)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
+                        .animation(VAnimation.fast, value: isSubGroupExpanded)
+                    if hasUnread {
+                        Circle()
+                            .fill(VColor.systemMidStrong)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 7, y: -7)
+                            .transition(.opacity)
+                    }
+                }
+                .frame(width: 20, height: 20)
+
+                Text(subGroup.label)
+                    .font(VFont.menuCompact)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer()
             }
-            .padding(.leading, VSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, SidebarLayoutMetrics.trailingIconPadding)
+            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+            .contentShape(Rectangle())
+            .overlay(alignment: .trailing) {
+                Text("\(subGroup.conversations.count)")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(VColor.contentTertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule()
+                            .fill(VColor.contentTertiary.opacity(0.12))
+                    )
+                    .padding(.trailing, VSpacing.xs)
+            }
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+
+        if isSubGroupExpanded {
+            VStack(spacing: 0) {
+                ForEach(subGroup.conversations) { conversation in
+                    makeRow(conversation)
+                        .equatable()
+                        .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
+                }
+            }
+            .padding(.vertical, VSpacing.xxs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.contentTertiary.opacity(0.03))
+            )
+            .overlay(alignment: .leading) {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: VRadius.md,
+                    bottomLeadingRadius: VRadius.md
+                )
+                .fill(VColor.contentTertiary.opacity(0.12))
+                .frame(width: 2)
+            }
+        }
+    }
+
+    private func buildDrawerSubGroups(
+        conversations: [ConversationModel],
+        grouper: (ConversationModel) -> String?,
+        labelProvider: ((String, [ConversationModel]) -> String)?
+    ) -> [ScheduleSubGroup] {
+        var grouped: [String: [ConversationModel]] = [:]
+        var order: [String] = []
+        for conversation in conversations {
+            let key = grouper(conversation) ?? conversation.id.uuidString
+            if grouped[key] == nil {
+                order.append(key)
+            }
+            grouped[key, default: []].append(conversation)
+        }
+        return order.compactMap { key in
+            guard let convs = grouped[key], let first = convs.first else { return nil }
+            let label: String
+            if let provider = labelProvider {
+                label = provider(key, convs)
+            } else if convs.count > 1 {
+                let base = first.title
+                if let colonRange = base.range(of: ":") {
+                    label = String(base[base.startIndex..<colonRange.lowerBound])
+                } else {
+                    label = base
+                }
+            } else {
+                label = first.title
+            }
+            return ScheduleSubGroup(key: key, label: label, conversations: convs)
         }
     }
 }

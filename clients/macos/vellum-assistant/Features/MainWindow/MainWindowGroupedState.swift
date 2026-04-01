@@ -88,6 +88,8 @@ final class SidebarInteractionState {
     var showAllChannelConversations: [String: Bool] = [:]
     /// Set of schedule sub-group keys (scheduleJobId values) that are currently expanded.
     var expandedScheduleGroups: Set<String> = []
+    /// Set of background sub-group keys (source values) that are currently expanded.
+    var expandedBackgroundGroups: Set<String> = []
     var showAllApps: Bool = false
 
     /// Toggles the expand/collapse state of a section.
