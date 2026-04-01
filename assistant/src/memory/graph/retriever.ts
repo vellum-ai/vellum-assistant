@@ -494,6 +494,7 @@ export async function loadContextMemory(
   });
 
   const unresolvedUpcoming = upcomingEvents.filter((node) => {
+    if (prospectiveIds.has(node.id)) return false; // already reserved as prospective
     const incoming = getEdgesForNode(node.id, "incoming");
     return !incoming.some(
       (e) => e.relationship === "supersedes" || e.relationship === "resolved-by",
