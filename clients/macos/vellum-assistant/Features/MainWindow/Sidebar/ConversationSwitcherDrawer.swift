@@ -190,7 +190,7 @@ struct ConversationSwitcherDrawer: View {
                         .equatable()
                         .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                 } else {
-                    drawerSubGroupDisclosure(subGroup)
+                    drawerSubGroupDisclosure(subGroup, sectionId: sectionId)
                 }
             }
 
@@ -233,17 +233,18 @@ struct ConversationSwitcherDrawer: View {
     }
 
     @ViewBuilder
-    private func drawerSubGroupDisclosure(_ subGroup: ScheduleSubGroup) -> some View {
-        let isSubGroupExpanded = expandedSubGroups.contains(subGroup.key)
+    private func drawerSubGroupDisclosure(_ subGroup: ScheduleSubGroup, sectionId: String) -> some View {
+        let scopedKey = "\(sectionId):\(subGroup.key)"
+        let isSubGroupExpanded = expandedSubGroups.contains(scopedKey)
         let hasUnread = !isSubGroupExpanded &&
             subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
 
         Button {
             withAnimation(VAnimation.fast) {
                 if isSubGroupExpanded {
-                    expandedSubGroups.remove(subGroup.key)
+                    expandedSubGroups.remove(scopedKey)
                 } else {
-                    expandedSubGroups.insert(subGroup.key)
+                    expandedSubGroups.insert(scopedKey)
                 }
             }
         } label: {
