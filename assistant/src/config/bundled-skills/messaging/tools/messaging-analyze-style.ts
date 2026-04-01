@@ -13,6 +13,12 @@ import type {
 import { truncate } from "../../../../util/truncate.js";
 import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
+/** Map legacy caller kinds to valid MemoryType values. */
+const KIND_TO_MEMORY_TYPE: Record<string, string> = {
+  style: "behavioral",
+  relationship: "semantic",
+};
+
 function upsertMemoryItem(opts: {
   kind: string;
   subject: string;
@@ -56,7 +62,7 @@ function upsertMemoryItem(opts: {
       .values({
         id,
         content,
-        type: opts.kind,
+        type: KIND_TO_MEMORY_TYPE[opts.kind] ?? opts.kind,
         created: now,
         lastAccessed: now,
         lastConsolidated: now,

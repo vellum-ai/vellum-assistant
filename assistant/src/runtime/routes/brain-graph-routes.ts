@@ -18,18 +18,22 @@ import type { RouteDefinition } from "../http-router.js";
 
 function getMemoryKindColor(kind: string): string {
   switch (kind) {
-    case "identity":
-      return "#8b5cf6";
-    case "preference":
-      return "#3b82f6";
-    case "project":
-      return "#10b981";
-    case "decision":
-      return "#f59e0b";
-    case "constraint":
-      return "#ef4444";
-    case "event":
-      return "#ec4899";
+    case "episodic":
+      return "#ec4899"; // pink — specific moments/events
+    case "semantic":
+      return "#3b82f6"; // blue — facts/knowledge
+    case "procedural":
+      return "#10b981"; // green — skills/how-to
+    case "emotional":
+      return "#ef4444"; // red — feelings
+    case "prospective":
+      return "#f59e0b"; // amber — future-oriented
+    case "behavioral":
+      return "#8b5cf6"; // violet — behavioral patterns
+    case "narrative":
+      return "#6366f1"; // indigo — stories
+    case "shared":
+      return "#14b8a6"; // teal — relationship memories
     default:
       return "#94a3b8";
   }

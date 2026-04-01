@@ -11,6 +11,11 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("skill-memory");
 
+/** Escape SQL LIKE wildcards (`%` and `_`) so they match literally. */
+function escapeLike(s: string): string {
+  return s.replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 /**
  * Generic input for building capability statements.
  * Decoupled from CatalogSkill so other skill sources (e.g. bundled skills) can
@@ -91,7 +96,7 @@ export function upsertSkillCapabilityMemory(
       .where(
         and(
           eq(memoryGraphNodes.type, "procedural"),
-          like(memoryGraphNodes.content, `skill:${skillId}\n%`),
+          like(memoryGraphNodes.content, `skill:${escapeLike(skillId)}\n%`),
           eq(memoryGraphNodes.scopeId, scopeId),
         ),
       )
@@ -182,7 +187,7 @@ export function deleteSkillCapabilityMemory(skillId: string): void {
       .where(
         and(
           eq(memoryGraphNodes.type, "procedural"),
-          like(memoryGraphNodes.content, `skill:${skillId}\n%`),
+          like(memoryGraphNodes.content, `skill:${escapeLike(skillId)}\n%`),
           eq(memoryGraphNodes.scopeId, "default"),
           sql`${memoryGraphNodes.fidelity} != 'gone'`,
         ),
