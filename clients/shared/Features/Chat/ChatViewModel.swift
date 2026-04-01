@@ -335,6 +335,17 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public var activePendingRequestId: String? {
         messageManager.activePendingRequestId
     }
+    /// Whether any message contains non-empty text. O(1) cached value kept in
+    /// sync with the message array by ChatMessageManager's Combine pipeline.
+    public var hasNonEmptyMessage: Bool {
+        messageManager.hasNonEmptyMessage
+    }
+    /// The daemon message ID of the last persisted, non-streaming, non-hidden
+    /// message. O(1) cached value kept in sync with the message array by
+    /// ChatMessageManager's Combine pipeline.
+    public var latestPersistedTipDaemonMessageId: String? {
+        messageManager.latestPersistedTipDaemonMessageId
+    }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
     }

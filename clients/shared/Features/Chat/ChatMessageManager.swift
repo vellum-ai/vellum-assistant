@@ -29,7 +29,18 @@ public final class ChatMessageManager {
     /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     public private(set) var activePendingRequestId: String?
 
+    /// Whether any message contains non-empty text. Cached O(1) value derived
+    /// from `messages` via a Combine pipeline so view bodies avoid O(n) scans.
+    public private(set) var hasNonEmptyMessage: Bool = false
+
+    /// The daemon message ID of the last persisted, non-streaming, non-hidden
+    /// message. Cached O(1) value derived from `messages` via a Combine pipeline
+    /// so view bodies avoid O(n) scans.
+    public private(set) var latestPersistedTipDaemonMessageId: String?
+
     @ObservationIgnored private var activePendingRequestIdSub: AnyCancellable?
+    @ObservationIgnored private var hasNonEmptyMessageSub: AnyCancellable?
+    @ObservationIgnored private var latestPersistedTipDaemonMessageIdSub: AnyCancellable?
 
     // MARK: - Combine bridges (CurrentValueSubject)
 
@@ -71,6 +82,24 @@ public final class ChatMessageManager {
             .removeDuplicates()
             .sink { [weak self] newValue in
                 self?.activePendingRequestId = newValue
+            }
+
+        hasNonEmptyMessageSub = messagesPublisher
+            .map { messages in
+                messages.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            }
+            .removeDuplicates()
+            .sink { [weak self] newValue in
+                self?.hasNonEmptyMessage = newValue
+            }
+
+        latestPersistedTipDaemonMessageIdSub = messagesPublisher
+            .map { messages in
+                messages.last { $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden }?.daemonMessageId
+            }
+            .removeDuplicates()
+            .sink { [weak self] newValue in
+                self?.latestPersistedTipDaemonMessageId = newValue
             }
     }
 
