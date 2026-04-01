@@ -31,7 +31,7 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("platform-callback-registration");
 
 export interface PlatformCallbackRegistrationContext {
-  containerized: boolean;
+  isPlatform: boolean;
   platformBaseUrl: string;
   assistantId: string;
   hasInternalApiKey: boolean;
@@ -80,7 +80,7 @@ export async function resolvePlatformCallbackRegistrationContext(): Promise<Plat
       : null;
 
   return {
-    containerized: platform,
+    isPlatform: platform,
     platformBaseUrl,
     assistantId,
     hasInternalApiKey: internalApiKey.length > 0,
@@ -119,7 +119,7 @@ export async function registerCallbackRoute(
   const context = await resolvePlatformCallbackRegistrationContext();
   if (!context.enabled || !context.authHeader) {
     throw new Error(
-      "Platform callbacks not available — missing containerized platform registration context",
+      "Platform callbacks not available — missing platform registration context",
     );
   }
 

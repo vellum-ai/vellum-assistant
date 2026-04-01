@@ -61,7 +61,7 @@ describe("platform callback registration", () => {
     const context = await resolvePlatformCallbackRegistrationContext();
 
     expect(context.enabled).toBe(true);
-    expect(context.containerized).toBe(true);
+    expect(context.isPlatform).toBe(true);
     expect(context.platformBaseUrl).toBe("https://platform.example.com");
     expect(context.assistantId).toBe("11111111-2222-4333-8444-555555555555");
     expect(context.hasInternalApiKey).toBe(false);

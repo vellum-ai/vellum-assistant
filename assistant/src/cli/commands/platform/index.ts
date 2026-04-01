@@ -112,7 +112,7 @@ Examples:
         const connected = !!storedBaseUrl && hasStoredApiKey;
 
         const result = {
-          containerized: context.containerized,
+          isPlatform: context.isPlatform,
           baseUrl: context.platformBaseUrl,
           assistantId: context.assistantId,
           hasInternalApiKey: context.hasInternalApiKey,
@@ -126,7 +126,7 @@ Examples:
         if (shouldOutputJson(cmd)) {
           writeOutput(cmd, result);
         } else {
-          log.info(`Containerized: ${result.containerized}`);
+          log.info(`Platform: ${result.isPlatform}`);
           log.info(`Base URL: ${result.baseUrl || "(not set)"}`);
           log.info(`Assistant ID: ${result.assistantId || "(not set)"}`);
           log.info(

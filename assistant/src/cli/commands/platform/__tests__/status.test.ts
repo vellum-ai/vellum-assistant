@@ -191,7 +191,7 @@ describe("assistant platform status", () => {
 
     // AND the output contains the expected status fields
     const parsed = JSON.parse(stdout);
-    expect(parsed.containerized).toBe(true);
+    expect(parsed.isPlatform).toBe(true);
     expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
     expect(parsed.assistantId).toBe("asst-abc-123");
     expect(parsed.hasInternalApiKey).toBe(true);
