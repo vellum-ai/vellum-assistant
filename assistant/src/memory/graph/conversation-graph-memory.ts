@@ -26,16 +26,10 @@ import {
   InContextTracker,
   MAX_CONTEXT_LOAD_IMAGES,
   MAX_PER_TURN_IMAGES,
-  MAX_REFRESH_IMAGES,
   type ResolvedImage,
   resolveInjectionImages,
 } from "./injection.js";
-import {
-  loadContextMemory,
-  REFRESH_INTERVAL_TURNS,
-  refreshContextMemory,
-  retrieveForTurn,
-} from "./retriever.js";
+import { loadContextMemory, retrieveForTurn } from "./retriever.js";
 
 const log = getLogger("graph-conversation-memory");
 
@@ -184,7 +178,6 @@ export class ConversationGraphMemory {
    *
    * Dispatches to the appropriate retrieval mode:
    * - Turn 1 (or after compaction): full context load
-   * - Every 5 turns: periodic refresh
    * - Every other turn: per-turn injection
    *
    * Returns augmented messages with memory context prepended to the last
@@ -199,7 +192,7 @@ export class ConversationGraphMemory {
     runMessages: Message[];
     injectedTokens: number;
     latencyMs: number;
-    mode: "context-load" | "refresh" | "per-turn" | "none";
+    mode: "context-load" | "per-turn" | "none";
     /** The raw text content of the injected block (without XML wrapper), or null if nothing was injected. */
     injectedBlockText: string | null;
   }> {
@@ -243,10 +236,6 @@ export class ConversationGraphMemory {
           abortSignal,
           onEvent,
         );
-      }
-
-      if (this.turnCount % REFRESH_INTERVAL_TURNS === 0) {
-        return await this.runRefresh(messages, config, abortSignal);
       }
 
       return await this.runPerTurn(messages, config, abortSignal);
@@ -339,80 +328,6 @@ export class ConversationGraphMemory {
       latencyMs: result.latencyMs,
       mode: "context-load" as const,
       injectedBlockText: contextBlock,
-    };
-  }
-
-  private async runRefresh(
-    messages: Message[],
-    config: AssistantConfig,
-    signal: AbortSignal,
-  ) {
-    // Build recent turns text from the last ~6 messages
-    const recentTurns = messages
-      .slice(-6)
-      .map((m) => {
-        const textBlocks = m.content.filter(
-          (b): b is Extract<typeof b, { type: "text" }> => b.type === "text",
-        );
-        if (textBlocks.length === 0) return "";
-        return `[${m.role}]: ${textBlocks.map((b) => b.text).join(" ")}`;
-      })
-      .filter((t) => t.length > 0)
-      .join("\n\n");
-
-    const result = await refreshContextMemory({
-      recentTurnsText: recentTurns,
-      scopeId: this.scopeId,
-      config,
-      tracker: this.tracker,
-      signal,
-    });
-
-    if (result.nodes.length === 0) {
-      this.lastInjectedBlock = null;
-      this.lastInjectedNodeIds = [];
-      this.lastInjectedImages = new Map();
-      return {
-        runMessages: messages,
-        injectedTokens: 0,
-        latencyMs: result.latencyMs,
-        mode: "refresh" as const,
-        injectedBlockText: null,
-      };
-    }
-
-    // Track new nodes
-    this.tracker.add(result.nodes.map((n) => n.node.id));
-
-    const injectionBlock = assembleInjectionBlock(result.nodes);
-    if (!injectionBlock) {
-      return {
-        runMessages: messages,
-        injectedTokens: 0,
-        latencyMs: result.latencyMs,
-        mode: "refresh" as const,
-        injectedBlockText: null,
-      };
-    }
-
-    // Resolve images from scored nodes
-    const images = await resolveInjectionImages(
-      result.nodes,
-      MAX_REFRESH_IMAGES,
-    );
-
-    this.lastInjectedBlock = injectionBlock;
-    this.lastInjectedNodeIds = result.nodes.map((n) => n.node.id);
-    this.lastInjectedImages = images;
-
-    return {
-      runMessages: injectMemoryBlock(messages, injectionBlock, images),
-      injectedTokens:
-        estimateTextTokens(injectionBlock) +
-        images.size * ESTIMATED_IMAGE_TOKENS,
-      latencyMs: result.latencyMs,
-      mode: "refresh" as const,
-      injectedBlockText: injectionBlock,
     };
   }
 
