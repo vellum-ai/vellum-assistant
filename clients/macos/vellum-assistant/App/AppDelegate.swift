@@ -774,6 +774,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         pulseTimer?.invalidate()
         pulseTimer = nil
         threadWindowManager?.closeAll()
+        voiceInput?.prepareForTermination()
         voiceInput?.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()

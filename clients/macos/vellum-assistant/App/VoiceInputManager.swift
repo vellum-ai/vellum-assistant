@@ -86,6 +86,20 @@ final class VoiceInputManager {
     /// Used to guard against duplicate registration from deferred startup.
     private(set) var hasStarted = false
 
+    /// True after `beginRecording()` first accesses `audioEngine.inputNode`.
+    /// Accessing `inputNode` before microphone permission has been granted triggers
+    /// the system permission dialog, so teardown paths must not touch it unless
+    /// a recording session actually started.
+    private var hasInstalledTap = false
+
+    /// True when the app is terminating. Audio engine teardown is skipped during
+    /// termination because the OS reclaims all audio hardware resources when the
+    /// process exits, and `AVAudioEngine.stop()` blocks the main thread for 2s+
+    /// waiting for hardware release.
+    /// Ref: Apple's SpokenWord sample has no termination cleanup for the audio engine.
+    /// https://developer.apple.com/documentation/speech/recognizing-speech-in-live-audio
+    private var isTerminating = false
+
     /// All active event monitors, consolidated for clean teardown.
     private var monitors: [Any] = []
 
@@ -178,6 +192,12 @@ final class VoiceInputManager {
         start()
     }
 
+    /// Signal that the app is about to terminate. Audio engine teardown will be
+    /// skipped — the OS reclaims all hardware resources on process exit.
+    func prepareForTermination() {
+        isTerminating = true
+    }
+
     func stop() {
         hasStarted = false
         for monitor in monitors {
@@ -210,9 +230,16 @@ final class VoiceInputManager {
     /// Unconditionally tear down audio engine state (tap, engine, recognition task/request).
     /// Safe to call regardless of `isRecording` — used as the shared cleanup path for all
     /// stop methods and as a recovery mechanism when state becomes inconsistent.
+    ///
+    /// During app termination (`isTerminating`), the blocking `audioEngine.stop()` and
+    /// `inputNode.removeTap()` calls are skipped — the OS reclaims audio hardware when
+    /// the process exits. This avoids a 2s+ main-thread hang from `AVAudioEngine.stop()`
+    /// waiting for hardware release.
     private func tearDownAudioState() {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if hasInstalledTap && !isTerminating {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()
@@ -240,8 +267,10 @@ final class VoiceInputManager {
         Self.amplitudeSubject.send(0)
         onAmplitudeChanged?(0)
 
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if hasInstalledTap {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
@@ -252,8 +281,10 @@ final class VoiceInputManager {
     /// Clears any stale internal buffers or format caches that accumulate
     /// after failed start/stop cycles.
     private func resetAudioEngine() {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if hasInstalledTap {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
         audioEngine.reset()
     }
 
@@ -623,6 +654,7 @@ final class VoiceInputManager {
         // See: https://stackoverflow.com/questions/41805381
         let inputNode = audioEngine.inputNode
         inputNode.removeTap(onBus: 0)
+        hasInstalledTap = true
 
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
@@ -819,8 +851,10 @@ final class VoiceInputManager {
 
         onRecordingStateChanged?(false)
 
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if hasInstalledTap {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
