@@ -139,16 +139,16 @@ Do NOT attach images that are incidental (screenshots of error messages fully de
 Write detailed descriptions — these are used for text-based retrieval when visual search isn't available.
 
 ${(() => {
-    const reconsolidationNodes = activeContextNodeIds?.size
-      ? candidateNodes.filter((n) => activeContextNodeIds.has(n.id))
-      : [];
-    const otherCandidates = activeContextNodeIds?.size
-      ? candidateNodes.filter((n) => !activeContextNodeIds.has(n.id))
-      : candidateNodes;
+  const reconsolidationNodes = activeContextNodeIds?.size
+    ? candidateNodes.filter((n) => activeContextNodeIds.has(n.id))
+    : [];
+  const otherCandidates = activeContextNodeIds?.size
+    ? candidateNodes.filter((n) => !activeContextNodeIds.has(n.id))
+    : candidateNodes;
 
-    const reconsolidationSection =
-      reconsolidationNodes.length > 0
-        ? `## Reconsolidation Window
+  const reconsolidationSection =
+    reconsolidationNodes.length > 0
+      ? `## Reconsolidation Window
 
 These memories were ACTIVELY RECALLED during this conversation — the user and
 assistant both saw them. Recalled memories are in a reconsolidation window and
@@ -168,13 +168,14 @@ and edge connections — enriching it preserves that context graph.
 ${reconsolidationNodes.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}
 
 `
-        : "";
+      : "";
 
-    const candidateHeader = reconsolidationNodes.length > 0
+  const candidateHeader =
+    reconsolidationNodes.length > 0
       ? "## Other Candidate Nodes (existing memories not in this conversation)"
       : "## Candidate Nodes (existing memories)";
 
-    const candidateSection = `${candidateHeader}
+  const candidateSection = `${candidateHeader}
 
 Check these CAREFULLY for overlap before creating any new node:
 
@@ -194,8 +195,8 @@ Common duplicate mistakes to avoid:
 
 ${otherCandidates.length > 0 ? `### Existing memories (candidates for connection/reinforcement)\n${otherCandidates.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}` : "No existing memories found — this may be an early conversation."}`;
 
-    return reconsolidationSection + candidateSection;
-  })()}
+  return reconsolidationSection + candidateSection;
+})()}
 `;
 
   let prompt = instructions;
@@ -643,9 +644,7 @@ export function parseExtractionResponse(
     if (
       node.eventDate != null &&
       (!Array.isArray(raw.triggers) ||
-        !raw.triggers.some(
-          (t) => t.type === "event" && t.event_date != null,
-        ))
+        !raw.triggers.some((t) => t.type === "event" && t.event_date != null))
     ) {
       // Remove any malformed event triggers (type=event but missing event_date)
       const malformedIdx = deferredTriggers.findIndex(
@@ -716,7 +715,8 @@ export function parseExtractionResponse(
       ["vivid", "clear", "faded", "gist"].includes(raw.fidelity)
     )
       changes.fidelity = raw.fidelity;
-    if (raw.event_date !== undefined) changes.eventDate = parseEpochMs(raw.event_date);
+    if (raw.event_date !== undefined)
+      changes.eventDate = parseEpochMs(raw.event_date);
     if (Object.keys(changes).length > 0) {
       diff.updateNodes.push({ id: raw.id, changes });
     }
@@ -815,9 +815,7 @@ export async function runGraphExtraction(
       // from the multimodal message content blocks for candidate search.
       if (imageResult) {
         transcript = imageResult.message.content
-          .filter(
-            (b): b is { type: "text"; text: string } => b.type === "text",
-          )
+          .filter((b): b is { type: "text"; text: string } => b.type === "text")
           .map((b) => b.text)
           .join("\n");
       }
@@ -951,7 +949,7 @@ export async function runGraphExtraction(
   }
 
   // 8. Apply the diff
-  const result = applyDiff(diff);
+  const result = applyDiff(diff, { conversationId });
 
   // 9. Apply deferred edges and triggers using the created node IDs
   const createdNodeIds = result.createdNodeIds;
@@ -1211,11 +1209,8 @@ export function loadTranscriptWithImages(
     for (let i = 0; i < parsed.length; i++) {
       const block = parsed[i];
       if (block?.type === "text") {
-        const rawText =
-          typeof block.text === "string" ? block.text : "";
-        const text = prefixAdded
-          ? rawText
-          : `[${row.role}]: ${rawText}`;
+        const rawText = typeof block.text === "string" ? block.text : "";
+        const text = prefixAdded ? rawText : `[${row.role}]: ${rawText}`;
         prefixAdded = true;
         totalTextLength += text.length;
         contentBlocks.push({ type: "text", text });

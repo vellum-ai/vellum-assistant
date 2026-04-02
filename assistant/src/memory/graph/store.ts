@@ -239,7 +239,9 @@ export function updateNode(
   if (changes.partOfStory !== undefined)
     updates.partOfStory = changes.partOfStory;
   if (changes.imageRefs !== undefined)
-    updates.imageRefs = changes.imageRefs ? JSON.stringify(changes.imageRefs) : null;
+    updates.imageRefs = changes.imageRefs
+      ? JSON.stringify(changes.imageRefs)
+      : null;
   if (changes.scopeId !== undefined) updates.scopeId = changes.scopeId;
   if (changes.eventDate !== undefined) updates.eventDate = changes.eventDate;
 
@@ -441,9 +443,7 @@ export function createTrigger(trigger: NewTrigger): MemoryTrigger {
 
 export function deleteTrigger(id: string): void {
   const db = getDb();
-  db.delete(memoryGraphTriggers)
-    .where(eq(memoryGraphTriggers.id, id))
-    .run();
+  db.delete(memoryGraphTriggers).where(eq(memoryGraphTriggers.id, id)).run();
 }
 
 export function updateTrigger(
@@ -593,7 +593,10 @@ export function supersedeNode(
 /**
  * Apply a MemoryDiff atomically. All operations run in a single transaction.
  */
-export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
+export function applyDiff(
+  diff: MemoryDiff,
+  opts?: { conversationId?: string },
+): ApplyDiffResult {
   const db = getDb();
   const result: ApplyDiffResult = {
     nodesCreated: 0,
@@ -646,6 +649,28 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
       if (c.sourceConversations !== undefined)
         updates.sourceConversations = JSON.stringify(c.sourceConversations);
       if (c.eventDate !== undefined) updates.eventDate = c.eventDate;
+
+      // Record edit history when content changes
+      if (updates.content !== undefined) {
+        const current = tx
+          .select({ content: memoryGraphNodes.content })
+          .from(memoryGraphNodes)
+          .where(eq(memoryGraphNodes.id, update.id))
+          .get();
+        if (current && current.content !== updates.content) {
+          tx.insert(memoryGraphNodeEdits)
+            .values({
+              id: uuid(),
+              nodeId: update.id,
+              previousContent: current.content,
+              newContent: updates.content as string,
+              source: "extraction",
+              conversationId: opts?.conversationId ?? null,
+              created: Date.now(),
+            })
+            .run();
+        }
+      }
 
       if (Object.keys(updates).length > 0) {
         tx.update(memoryGraphNodes)
