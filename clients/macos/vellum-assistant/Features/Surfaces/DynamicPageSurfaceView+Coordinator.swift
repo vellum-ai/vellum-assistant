@@ -1,6 +1,7 @@
 import SwiftUI
 @preconcurrency import WebKit
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DynamicPage")
 

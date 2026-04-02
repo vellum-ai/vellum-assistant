@@ -59,14 +59,6 @@ private class RoundedClipView: NSView {
 }
 
 extension DynamicPageSurfaceView {
-    /// Shared process pool for all DynamicPageSurfaceView WKWebView instances.
-    /// Apple docs: "If your app creates multiple web views, assign the same
-    /// WKProcessPool object to web views that may safely share a process space."
-    /// Without this, each WKWebViewConfiguration spawns a new web content process,
-    /// adding ~30-40ms to every creation.
-    /// Ref: https://developer.apple.com/documentation/webkit/wkprocesspool
-    static let sharedProcessPool = WKProcessPool()
-
     /// CSS design system loaded once from the resource bundle and escaped for JS injection.
     static let designSystemCSS: String = {
         guard let url = ResourceBundle.bundle.url(
@@ -168,16 +160,18 @@ extension DynamicPageSurfaceView {
             forIdentifier: "sandbox-block-external",
             encodedContentRuleList: ruleJSON
         ) { ruleList, error in
-            if let error {
-                log.error("Failed to compile sandbox content rule list: \(error.localizedDescription)")
-                // Leave _sandboxRuleListCompiled false so the next sandboxed
-                // surface retries compilation instead of permanently losing
-                // network-blocking rules.
-            } else {
-                _cachedSandboxRuleList = ruleList
-                _sandboxRuleListCompiled = true
+            DispatchQueue.main.async {
+                if let error {
+                    log.error("Failed to compile sandbox content rule list: \(error.localizedDescription)")
+                    // Leave _sandboxRuleListCompiled false so the next sandboxed
+                    // surface retries compilation instead of permanently losing
+                    // network-blocking rules.
+                } else {
+                    _cachedSandboxRuleList = ruleList
+                    _sandboxRuleListCompiled = true
+                }
+                completion(ruleList)
             }
-            completion(ruleList)
         }
     }
 }
@@ -386,7 +380,6 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()
-        configuration.processPool = Self.sharedProcessPool
         configuration.setURLSchemeHandler(
             VellumAppSchemeHandler(),
             forURLScheme: VellumAppSchemeHandler.scheme
