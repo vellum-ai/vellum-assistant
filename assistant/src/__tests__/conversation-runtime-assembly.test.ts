@@ -2073,6 +2073,6 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     expect(allText).toContain(sampleBlock);
     expect(allText).toContain("<temporal_context>");
     // The channel turn context also uses <turn_context> tags
-    expect(allText).toContain("user_message_channel: telegram");
+    expect(allText).toContain("channel: telegram");
   });
 });
