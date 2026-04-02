@@ -15,8 +15,6 @@ public class VMenuPanel: NSPanel {
     private var managedByCoordinator: Bool = false
     /// Guard to prevent recursive coordinator notification from `close()`.
     private var isClosingFromCoordinator: Bool = false
-    /// Weak reference to the NSHostingView for accessibility hierarchy flattening.
-    private weak var menuHostingView: NSView?
 
     /// Extra padding added around the VMenu content so its shadow can render
     /// without being clipped by the hosting view's bounds.
@@ -76,23 +74,14 @@ public class VMenuPanel: NSPanel {
             .environment(\.vMenuDismiss, { [weak coordinator] in coordinator?.dismissAll() })
             .environment(\.vMenuCoordinator, coordinator)
             .padding(Self.shadowInset)
+        // Use NSHostingView directly as contentView — no FirstMouseView wrapper.
+        // This preserves the natural NSPanel → NSHostingView → SwiftUI accessibility
+        // hierarchy that VoiceOver needs for both navigation and action activation.
+        // The panel is .nonactivatingPanel with canBecomeKey=true, so clicks are
+        // processed immediately without needing acceptsFirstMouse.
         let hostingView = NSHostingView(rootView: paddedContent)
         hostingView.sizingOptions = [.intrinsicContentSize]
-
-        let container = FirstMouseView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = .clear
-
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(hostingView)
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: container.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-        panel.contentView = container
-        panel.menuHostingView = hostingView
+        panel.contentView = hostingView
 
         let fittingSize = hostingView.fittingSize
         let menuSize = CGSize(
@@ -108,9 +97,7 @@ public class VMenuPanel: NSPanel {
         let sourceWindow = NSApp.windows.first(where: { $0.frame.contains(screenPoint) && !($0 is VMenuPanel) })
         coordinator.registerRootPanel(panel, sourceWindow: sourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
 
-        // Notify VoiceOver that a new menu appeared and move focus to the first
-        // accessible child element (not the container). This lets VoiceOver start
-        // reading menu items directly without requiring VO+Shift+Down to drill in.
+        // Notify VoiceOver that a new menu appeared so it navigates into it.
         DispatchQueue.main.async {
             NSAccessibility.post(element: panel, notification: .created)
             if let firstChild = hostingView.accessibilityChildren()?.first {
@@ -167,21 +154,7 @@ public class VMenuPanel: NSPanel {
 
         let hostingView = NSHostingView(rootView: paddedContent)
         hostingView.sizingOptions = [.intrinsicContentSize]
-
-        let container = FirstMouseView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = .clear
-
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(hostingView)
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: container.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-        panel.contentView = container
-        panel.menuHostingView = hostingView
+        panel.contentView = hostingView
 
         let fittingSize = hostingView.fittingSize
         let menuSize = CGSize(
@@ -193,7 +166,7 @@ public class VMenuPanel: NSPanel {
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
         panel.makeKeyAndOrderFront(nil)
 
-        // Notify VoiceOver that a new submenu appeared and move focus to first child.
+        // Notify VoiceOver that a new submenu appeared.
         DispatchQueue.main.async {
             NSAccessibility.post(element: panel, notification: .created)
             if let firstChild = hostingView.accessibilityChildren()?.first {
@@ -319,42 +292,8 @@ public class VMenuPanel: NSPanel {
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { false }
 
-    // MARK: - Accessibility
-
-    /// Flatten the accessibility hierarchy so VoiceOver sees SwiftUI elements as
-    /// direct children of the panel, bypassing the FirstMouseView → NSHostingView
-    /// container chain that VoiceOver cannot traverse in a non-activating panel.
-    public override func accessibilityChildren() -> [Any]? {
-        if let hostingView = menuHostingView {
-            return hostingView.accessibilityChildren()
-        }
-        return super.accessibilityChildren()
-    }
-
-    /// Return the first accessible child as the focused element so VoiceOver
-    /// starts reading menu items immediately when the panel appears.
-    /// In the modern NSAccessibility protocol, this is a settable property, not a method override.
-    public override var accessibilityFocusedUIElement: Any? {
-        if let children = menuHostingView?.accessibilityChildren(), let first = children.first {
-            return first
-        }
-        return super.accessibilityFocusedUIElement
-    }
 }
 
-// MARK: - FirstMouseView
-
-/// Container view that accepts first-mouse clicks so taps work immediately
-/// in a floating panel without requiring a focus click first.
-///
-/// Accessibility: explicitly returns `.group` role and marks itself as non-element
-/// so VoiceOver traverses through to the hosted SwiftUI content (NSHostingView)
-/// without getting stuck on this intermediate container.
-class FirstMouseView: NSView {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func isAccessibilityElement() -> Bool { false }
-    override func accessibilityRole() -> NSAccessibility.Role? { .group }
-}
 
 // MARK: - .vContextMenu modifier
 
