@@ -428,15 +428,24 @@ final class MessageListScrollState {
 
     /// Low-level scroll-to-bottom execution. Does not check mode.
     ///
-    /// Uses both edge-based and ID-based scrolling for robustness:
-    ///   1. `scrollToEdge(.bottom)` — targets the content edge. Fast and
-    ///      reliable when LazyVStack height estimation is accurate, but
-    ///      can overshoot into blank estimated space when it isn't.
-    ///   2. `scrollTo(id: "scroll-bottom-anchor")` — targets the actual
-    ///      anchor view at the end of the LazyVStack. SwiftUI locates
-    ///      the view by ID in the ForEach data and materializes views
-    ///      around it. This bypasses height estimation entirely, catching
-    ///      cases where edge-based scrolling lands in blank space.
+    /// Uses both edge-based and ID-based scrolling in separate
+    /// transactions for true redundancy:
+    ///
+    ///   1. `scrollToEdge(.bottom)` — fires immediately. Targets the
+    ///      content edge; fast and reliable when LazyVStack height
+    ///      estimation is accurate, but can overshoot into blank
+    ///      estimated space when it isn't.
+    ///
+    ///   2. `scrollTo(id: "scroll-bottom-anchor")` — fires on the
+    ///      next run-loop pass via `Task`. Targets the actual anchor
+    ///      view; SwiftUI locates it by ID and materializes views
+    ///      around it, bypassing height estimation entirely.
+    ///
+    /// The two calls MUST run in separate transactions. Within a
+    /// single synchronous block (or `withAnimation` transaction),
+    /// the second `ScrollPosition` mutation overwrites the first —
+    /// only the final value takes effect. By staggering, edge-based
+    /// gets the current frame and ID-based corrects on the next.
     ///
     /// Both are O(1) operations. The combination is intentionally
     /// redundant — each covers failure modes the other misses.
@@ -444,14 +453,25 @@ final class MessageListScrollState {
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
     private func executeScrollToBottom(animated: Bool) {
+        // Transaction 1: edge-based (immediate)
         if animated {
             withAnimation(VAnimation.fast) {
                 scrollToEdge?(.bottom)
-                scrollTo?("scroll-bottom-anchor", .bottom)
             }
         } else {
             scrollToEdge?(.bottom)
-            scrollTo?("scroll-bottom-anchor", .bottom)
+        }
+        // Transaction 2: ID-based (next run-loop pass)
+        // Captures the closure to avoid retaining `self` in the Task.
+        let idScroll = scrollTo
+        Task { @MainActor in
+            if animated {
+                withAnimation(VAnimation.fast) {
+                    idScroll?("scroll-bottom-anchor", .bottom)
+                }
+            } else {
+                idScroll?("scroll-bottom-anchor", .bottom)
+            }
         }
     }
 

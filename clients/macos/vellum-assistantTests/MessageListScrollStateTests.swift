@@ -271,7 +271,7 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertFalse(state.isSuppressed, "Should clear stabilization")
         XCTAssertFalse(state.isPaginationInFlight, "Should clear pagination flag")
         XCTAssertFalse(state.wasPaginationTriggerInRange, "Should clear trigger range flag")
-        XCTAssertTrue(state.isAtBottom, "Should reset isAtBottom to true")
+        XCTAssertFalse(state.isAtBottom, "Should reset isAtBottom to false (geometry hasn't updated for new content)")
         XCTAssertFalse(state.hasBeenInteracted, "Should reset to initialLoad mode")
         XCTAssertEqual(state.currentConversationId, newId, "Should update conversation ID")
         XCTAssertTrue(state.hideScrollIndicators,
