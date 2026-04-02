@@ -208,6 +208,14 @@ final class MessageListScrollState {
     /// Container (viewport) height from scroll geometry.
     @ObservationIgnored var scrollContainerHeight: CGFloat = 0
 
+    /// Deadline until which the persistent bottom-recovery fires
+    /// unconditionally (ignoring `isAtBottom`). Set by `reset()` and
+    /// `handleAppear` to cover the LazyVStack materialization window
+    /// where estimated content height can be wrong, making `isAtBottom`
+    /// unreliable. After the deadline, the recovery falls back to the
+    /// normal `!isAtBottom` check.
+    @ObservationIgnored var recoveryDeadline: Date?
+
     // MARK: - Layout Cache Fields
 
     @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey?
@@ -523,6 +531,9 @@ final class MessageListScrollState {
         lastContentOffsetY = 0
         scrollContentHeight = 0
         scrollContainerHeight = 0
+        // Allow 500ms of unconditional bottom-pinning while LazyVStack
+        // materializes views and converges its height estimates.
+        recoveryDeadline = Date().addingTimeInterval(0.5)
         throttleRecoveryTask?.cancel()
         throttleRecoveryTask = nil
         isThrottled = false

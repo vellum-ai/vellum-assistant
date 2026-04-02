@@ -12,6 +12,9 @@ extension MessageListView {
 
     func handleAppear() {
         configureScrollCallbacks()
+        // Start the recovery window for the initial load — LazyVStack
+        // height estimates are unreliable until views materialize.
+        scrollState.recoveryDeadline = Date().addingTimeInterval(0.5)
         // Seed the confirmation marker on initial mount — conversationSwitched
         // doesn't fire for the initial value, so a conversation already paused
         // in awaiting_confirmation at launch or reconnect needs the marker set here.
