@@ -47,7 +47,46 @@ private struct ScrollGeometrySnapshot: Equatable {
     let visibleRectHeight: CGFloat
 }
 
-struct MessageListView: View {
+struct MessageListView: View, Equatable {
+
+    // MARK: - Equatable
+
+    /// Custom equality skips all closure properties (closures are never equal
+    /// and would force body re-evaluation on every parent body pass). Only
+    /// data properties that affect rendered output are compared.
+    ///
+    /// Requires `.equatable()` at the call site to take effect.
+    /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
+    /// - SeeAlso: [Airbnb — Understanding and Improving SwiftUI Performance](https://airbnb.tech/mobile/understanding-and-improving-swiftui-performance/)
+    static func == (lhs: MessageListView, rhs: MessageListView) -> Bool {
+        lhs.messages == rhs.messages
+            && lhs.isSending == rhs.isSending
+            && lhs.isThinking == rhs.isThinking
+            && lhs.isCompacting == rhs.isCompacting
+            && lhs.assistantActivityPhase == rhs.assistantActivityPhase
+            && lhs.assistantActivityAnchor == rhs.assistantActivityAnchor
+            && lhs.assistantActivityReason == rhs.assistantActivityReason
+            && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.selectedModel == rhs.selectedModel
+            && lhs.configuredProviders == rhs.configuredProviders
+            && lhs.providerCatalog.count == rhs.providerCatalog.count
+            && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName })
+            && lhs.activeSubagents == rhs.activeSubagents
+            && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
+            && lhs.showInspectButton == rhs.showInspectButton
+            && lhs.isTTSEnabled == rhs.isTTSEnabled
+            && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
+            && lhs.subagentDetailStore === rhs.subagentDetailStore
+            && lhs.activePendingRequestId == rhs.activePendingRequestId
+            && lhs.paginatedVisibleMessages == rhs.paginatedVisibleMessages
+            && lhs.displayedMessageCount == rhs.displayedMessageCount
+            && lhs.hasMoreMessages == rhs.hasMoreMessages
+            && lhs.isLoadingMoreMessages == rhs.isLoadingMoreMessages
+            && lhs.conversationId == rhs.conversationId
+            && lhs.isInteractionEnabled == rhs.isInteractionEnabled
+            && lhs.containerWidth == rhs.containerWidth
+    }
+
     let messages: [ChatMessage]
     let isSending: Bool
     let isThinking: Bool
@@ -163,12 +202,10 @@ struct MessageListView: View {
         let currentLastStreaming = visibleMessages.last?.isStreaming ?? false
         let currentIncompleteToolCalls = visibleMessages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
 
-        // O(n) hash of visible message IDs — catches "same count, different
-        // IDs" scenarios where hasRenderableContent changes cause different
-        // messages to pass the visibility filter without changing the count.
-        var idHasher = Hasher()
-        for msg in visibleMessages { idHasher.combine(msg.id) }
-        let currentIdFingerprint = idHasher.finalize()
+        // O(1) boundary check — catches "same count, different IDs" scenarios
+        // by comparing first/last IDs rather than hashing the entire array.
+        let currentFirstId = visibleMessages.first?.id
+        let currentLastId = visibleMessages.last?.id
 
         var changed = false
 
@@ -188,8 +225,10 @@ struct MessageListView: View {
             scrollState.lastKnownIncompleteToolCallCount = currentIncompleteToolCalls
             changed = true
         }
-        if currentIdFingerprint != scrollState.lastKnownVisibleIdFingerprint {
-            scrollState.lastKnownVisibleIdFingerprint = currentIdFingerprint
+        if currentFirstId != scrollState.lastKnownFirstVisibleId
+            || currentLastId != scrollState.lastKnownLastVisibleId {
+            scrollState.lastKnownFirstVisibleId = currentFirstId
+            scrollState.lastKnownLastVisibleId = currentLastId
             changed = true
         }
 
@@ -245,10 +284,9 @@ struct MessageListView: View {
             activeSubagentFingerprint: Self.computeSubagentFingerprint(activeSubagents),
             displayedMessageCount: displayedMessageCount
         )
-        let liveMessageById = Dictionary(
-            liveMessages.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        // liveMessageById dictionary eliminated — ForEach now iterates
+        // directly over liveMessages, avoiding O(n) dictionary allocation
+        // on every body evaluation.
 
         // --- Stage 1: Cached structural metadata ---
         let layout: CachedMessageLayoutMetadata
@@ -377,7 +415,7 @@ struct MessageListView: View {
             subagentsByParent: layout.subagentsByParent,
             orphanSubagents: layout.orphanSubagents,
             effectiveStatusText: layout.effectiveStatusText,
-            displayMessageById: liveMessageById,
+            displayMessages: liveMessages,
             activePendingRequestId: activePendingRequestId,
             nextDecidedConfirmationByIndex: nextDecidedConfirmationByIndex,
             isConfirmationRenderedInlineByIndex: isConfirmationRenderedInlineByIndex,
@@ -666,13 +704,12 @@ struct MessageListView: View {
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
             let state = derivedState
             let catalogHash = MessageCellView.hashCatalog(providerCatalog)
-            ForEach(state.displayMessageIds, id: \.self) { messageId in
-                if let message = state.displayMessageById[messageId] {
-                    let index = state.messageIndexById[messageId] ?? 0
+            ForEach(state.displayMessages, id: \.id) { message in
+                    let index = state.messageIndexById[message.id] ?? 0
                     MessageCellView(
                         message: message,
                         index: index,
-                        showTimestamp: state.showTimestamp.contains(messageId),
+                        showTimestamp: state.showTimestamp.contains(message.id),
                         nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
                         isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
                         hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
@@ -687,7 +724,7 @@ struct MessageListView: View {
                         assistantStatusText: state.effectiveStatusText,
                         dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                         activeSurfaceId: taskProgressManager.activeSurfaceId,
-                        isHighlighted: highlightedMessageId == messageId,
+                        isHighlighted: highlightedMessageId == message.id,
                         mediaEmbedSettings: mediaEmbedSettings,
                         onConfirmationAllow: onConfirmationAllow,
                         onConfirmationDeny: onConfirmationDeny,
@@ -713,7 +750,6 @@ struct MessageListView: View {
                         providerCatalogHash: catalogHash
                     )
                     .equatable()
-                }
             }
 
             ForEach(state.orphanSubagents) { subagent in
@@ -1508,7 +1544,7 @@ struct MessageListDerivedState {
     let effectiveStatusText: String?
 
     // --- Live content-derived state (always fresh) ---
-    let displayMessageById: [UUID: ChatMessage]
+    let displayMessages: [ChatMessage]
     let activePendingRequestId: String?
     let nextDecidedConfirmationByIndex: [Int: ToolConfirmationData]
     let isConfirmationRenderedInlineByIndex: Set<Int>
