@@ -165,8 +165,8 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 
   // Directories to preserve when clearing the workspace (large/regenerable).
   const WORKSPACE_SKIP_DIRS = new Set(["embedding-models", "deprecated"]);
-  // data/qdrant is nested — we skip "qdrant" inside "data/"
-  const DATA_SKIP_DIRS = new Set(["qdrant"]);
+  // data/qdrant and data/db are nested — we skip them inside "data/"
+  const DATA_SKIP_DIRS = new Set(["qdrant", "db"]);
 
   // Step 1b: Clear the workspace directory before restore if the bundle
   // contains new-format workspace/ entries. This ensures an exact-match
