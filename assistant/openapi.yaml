@@ -7859,3 +7859,109 @@ paths:
               required:
                 - path
               additionalProperties: false
+  /v1/x/{path}:
+    delete:
+      operationId: x_by_path_delete
+      summary: User-defined DELETE route
+      description: Dispatches DELETE requests to user-defined handler files in the workspace routes directory.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+    get:
+      operationId: x_by_path_get
+      summary: User-defined GET route
+      description: Dispatches GET requests to user-defined handler files in the workspace routes directory.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+    head:
+      operationId: x_by_path_head
+      summary: User-defined HEAD route
+      description: Dispatches HEAD requests to user-defined handler files in the workspace routes directory.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+    options:
+      operationId: x_by_path_options
+      summary: User-defined OPTIONS route
+      description: Dispatches OPTIONS requests to user-defined handler files in the workspace routes directory.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: x_by_path_patch
+      summary: User-defined PATCH route
+      description: Dispatches PATCH requests to user-defined handler files in the workspace routes directory.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+    post:
+      operationId: x_by_path_post
+      summary: User-defined POST route
+      description: Dispatches POST requests to user-defined handler files in the workspace routes directory.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+    put:
+      operationId: x_by_path_put
+      summary: User-defined PUT route
+      description: Dispatches PUT requests to user-defined handler files in the workspace routes directory.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
