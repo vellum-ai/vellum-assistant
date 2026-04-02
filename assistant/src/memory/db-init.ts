@@ -566,8 +566,7 @@ export function initializeDb(): void {
 
   // 101a. Add nullable image_refs TEXT column to memory_graph_nodes.
   // MUST run before migrateToolCreatedItems (101b) because that migration
-  // inserts rows into memory_graph_nodes and the INSERT covers all columns
-  // in the Drizzle schema, including image_refs.
+  // inserts rows into memory_graph_nodes including the image_refs column.
   migrateMemoryGraphImageRefs(database);
 
   // 101b. Migrate tool-created items from legacy memory_items → graph nodes.
