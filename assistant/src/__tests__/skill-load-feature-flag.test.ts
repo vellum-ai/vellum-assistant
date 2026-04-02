@@ -39,6 +39,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
+  deepMergeOverwrite: (a: unknown) => a,
   API_KEY_PROVIDERS: [
     "anthropic",
     "openai",
