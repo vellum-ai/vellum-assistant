@@ -9,8 +9,12 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Audio
 /// `AVAudioEngine.inputNode` internally performs a synchronous dispatch to an
 /// audio-subsystem queue. When that queue is contended (hardware state changes,
 /// Bluetooth negotiation, coreaudiod latency), the wait can exceed 2 seconds.
-/// By routing every engine operation through a private serial queue, the main
-/// thread is never blocked.
+///
+/// Fire-and-forget operations (`installTap`, `removeTap`, `stop`, `reset`,
+/// `tearDown`, `stopAndRemoveTap`) use `queue.async` so the caller never blocks.
+/// Methods that return a value (`inputNodeFormat`, `prepareAndStart`) use
+/// `queue.sync`; callers should ensure `prewarm()` has run first so `inputNode`
+/// is already initialized and these complete in sub-milliseconds.
 ///
 /// See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
 final class AudioEngineController: @unchecked Sendable {
@@ -44,12 +48,14 @@ final class AudioEngineController: @unchecked Sendable {
     // MARK: - Tap Management
 
     /// Remove any existing tap on bus 0, then install a new one.
+    /// Uses `async` — the next `queue.sync` call (e.g. `prepareAndStart`) will
+    /// wait for this to complete thanks to serial queue ordering.
     func installTap(
         bufferSize: AVAudioFrameCount,
         format: AVAudioFormat?,
         block: @escaping AVAudioNodeTapBlock
     ) {
-        queue.sync { [weak self] in
+        queue.async { [weak self] in
             guard let self else { return }
             let inputNode = self.audioEngine.inputNode
             inputNode.removeTap(onBus: 0)
@@ -59,7 +65,7 @@ final class AudioEngineController: @unchecked Sendable {
 
     /// Remove the tap on bus 0 from the input node.
     func removeTap() {
-        queue.sync { [weak self] in
+        queue.async { [weak self] in
             guard let self else { return }
             self.audioEngine.inputNode.removeTap(onBus: 0)
         }
@@ -68,7 +74,7 @@ final class AudioEngineController: @unchecked Sendable {
     // MARK: - Engine Lifecycle
 
     func prepare() {
-        queue.sync { [weak self] in
+        queue.async { [weak self] in
             self?.audioEngine.prepare()
         }
     }
@@ -80,7 +86,7 @@ final class AudioEngineController: @unchecked Sendable {
     }
 
     func stop() {
-        queue.sync { [weak self] in
+        queue.async { [weak self] in
             guard let self else { return }
             if self.audioEngine.isRunning {
                 self.audioEngine.stop()
@@ -90,7 +96,7 @@ final class AudioEngineController: @unchecked Sendable {
 
     /// Stop the engine, remove tap, and reset internal state.
     func reset() {
-        queue.sync { [weak self] in
+        queue.async { [weak self] in
             guard let self else { return }
             self.audioEngine.stop()
             self.audioEngine.inputNode.removeTap(onBus: 0)
@@ -100,7 +106,7 @@ final class AudioEngineController: @unchecked Sendable {
 
     /// Stop the engine and remove the input tap.
     func tearDown() {
-        queue.sync { [weak self] in
+        queue.async { [weak self] in
             guard let self else { return }
             self.audioEngine.stop()
             self.audioEngine.inputNode.removeTap(onBus: 0)
@@ -129,7 +135,7 @@ final class AudioEngineController: @unchecked Sendable {
 
     /// Stop the engine and remove the input tap (if running).
     func stopAndRemoveTap() {
-        queue.sync { [weak self] in
+        queue.async { [weak self] in
             guard let self else { return }
             if self.audioEngine.isRunning {
                 self.audioEngine.stop()
