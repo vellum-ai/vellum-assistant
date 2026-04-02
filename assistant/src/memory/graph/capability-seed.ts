@@ -108,9 +108,12 @@ export function seedSkillGraphNodes(): void {
       seenKeys.add(`${SKILL_SOURCE_PREFIX}${summary.id}`);
     }
 
-    // Include catalog skill keys so pruning doesn't remove them
+    // Include enabled catalog skill keys so pruning doesn't remove them
+    const enabledIds = new Set(enabled.map((r) => r.summary.id));
     for (const entry of getCachedCatalogSync()) {
-      seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
+      if (enabledIds.has(entry.id)) {
+        seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
+      }
     }
 
     pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
