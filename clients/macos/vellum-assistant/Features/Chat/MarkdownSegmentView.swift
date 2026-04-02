@@ -295,7 +295,7 @@ struct MarkdownSegmentView: View, Equatable {
     /// for a selectable text run.  `internal` so `@testable import` tests can
     /// exercise the cache directly (SwiftUI `body` evaluation does not force
     /// `ForEach` row closures to execute in a unit-test context).
-    func resolveSelectableRunMeasurement(
+    @MainActor func resolveSelectableRunMeasurement(
         _ runSegments: [MarkdownSegment]
     ) -> (NSAttributedString, CGSize) {
         var hasher = Hasher()
