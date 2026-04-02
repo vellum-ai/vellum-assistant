@@ -227,7 +227,7 @@ public struct VMenuItem<Trailing: View>: View {
             .accessibilityAddTraits(isActive ? [.isSelected] : [])
             .accessibilityRemoveTraits(isEnabled ? [] : [.isButton])
             .accessibilityValue(accessibilityValueText ?? "")
-            .accessibilityAction { dismissMenu?(); action() }
+            .accessibilityAction { guard isEnabled else { return }; dismissMenu?(); action() }
         }
     }
 }
