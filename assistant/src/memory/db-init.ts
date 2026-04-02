@@ -129,6 +129,7 @@ import {
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
   migrateSchemaIndexesAndColumns,
+  migrateScrubCorruptedImageAttachments,
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
@@ -581,6 +582,9 @@ export function initializeDb(): void {
 
   // 104. Memory graph node edit history
   migrateCreateMemoryGraphNodeEdits(database);
+
+  // 105. Remove image attachments containing HTML error pages instead of image data
+  migrateScrubCorruptedImageAttachments(database);
 
   validateMigrationState(database);
 
