@@ -438,14 +438,12 @@ export class ConversationGraphMemory {
       if (msg.role === "user") {
         if (userLastBlocks.length === 0) {
           userLastBlocks = msg.content;
-        }
-        if (!userLast) {
           userLast = text;
         }
       } else if (msg.role === "assistant" && !assistantLast) {
         assistantLast = text;
       }
-      if (userLast && assistantLast) break;
+      if (userLastBlocks.length > 0 && assistantLast) break;
     }
 
     const result = await retrieveForTurn({
