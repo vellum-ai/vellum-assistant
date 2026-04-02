@@ -1293,7 +1293,7 @@ describe("applyRuntimeInjections — injection mode", () => {
 
   const fullOptions = {
     workspaceTopLevelContext:
-      "<workspace_top_level>\nRoot: /sandbox\n</workspace_top_level>",
+      "<workspace>\nRoot: /sandbox\n</workspace>",
     temporalContext:
       "<temporal_context>\nToday: 2026-03-04 (Tue) 12:00 +00:00\nTZ: UTC\n</temporal_context>",
     channelCommandContext: { type: "start" } as const,
@@ -1334,7 +1334,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       .map((b) => b.text)
       .join("\n");
 
-    expect(allText).toContain("<workspace_top_level>");
+    expect(allText).toContain("<workspace>");
     expect(allText).toContain("<temporal_context>");
     expect(allText).toContain("<channel_command_context>");
     expect(allText).toContain("<active_workspace>");
@@ -1356,7 +1356,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       .map((b) => b.text)
       .join("\n");
 
-    expect(allText).toContain("<workspace_top_level>");
+    expect(allText).toContain("<workspace>");
     expect(allText).toContain("<temporal_context>");
     expect(allText).toContain("<channel_command_context>");
     expect(allText).toContain("<active_workspace>");
@@ -1374,7 +1374,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       .join("\n");
 
     // Skipped in minimal mode
-    expect(allText).not.toContain("<workspace_top_level>");
+    expect(allText).not.toContain("<workspace>");
     expect(allText).not.toContain("<temporal_context>");
     expect(allText).not.toContain("<channel_command_context>");
     expect(allText).not.toContain("<active_workspace>");

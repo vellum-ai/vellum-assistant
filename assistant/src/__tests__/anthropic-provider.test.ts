@@ -402,7 +402,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: [
         {
           type: "text",
-          text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>",
+          text: "<workspace>\nRoot: /sandbox\nDirectories: src, tests\n</workspace>",
         },
         { type: "text", text: "What files are in src?" },
       ],
@@ -432,7 +432,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: [
         {
           type: "text",
-          text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>",
+          text: "<workspace>\nRoot: /sandbox\nDirectories: src, tests\n</workspace>",
         },
         { type: "text", text: "Help me debug this" },
         {
@@ -550,7 +550,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         content: [
           {
             type: "text",
-            text: "<workspace_top_level>\nRoot: /sandbox\n</workspace_top_level>",
+            text: "<workspace>\nRoot: /sandbox\n</workspace>",
           },
           {
             type: "tool_result",
@@ -1338,7 +1338,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         content: [
           {
             type: "text",
-            text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src\n</workspace_top_level>",
+            text: "<workspace>\nRoot: /sandbox\nDirectories: src\n</workspace>",
           },
           { type: "text", text: "Turn 1" },
         ],
@@ -1350,7 +1350,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         content: [
           {
             type: "text",
-            text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib\n</workspace_top_level>",
+            text: "<workspace>\nRoot: /sandbox\nDirectories: src, lib\n</workspace>",
           },
           { type: "text", text: "Turn 2" },
         ],
@@ -1362,7 +1362,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         content: [
           {
             type: "text",
-            text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib, docs\n</workspace_top_level>",
+            text: "<workspace>\nRoot: /sandbox\nDirectories: src, lib, docs\n</workspace>",
           },
           { type: "text", text: "Turn 3" },
         ],
