@@ -56,6 +56,14 @@ private enum MemoryStatusFilter: String, CaseIterable {
         case .all: return .circle
         }
     }
+
+    var accessibilityDescription: String {
+        switch self {
+        case .active: return "Show currently referenced memories"
+        case .inactive: return "Show archived or superseded memories"
+        case .all: return "Show all memories including inactive"
+        }
+    }
 }
 
 // MARK: - Memories Panel
@@ -83,7 +91,48 @@ struct MemoriesPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Memory count header
+            HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
+                Text("\(store.total)")
+                    .font(VFont.brandSmall)
+                    .foregroundStyle(VColor.contentEmphasized)
+                Text(store.total == 1 ? "memory" : "memories")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, VSpacing.xs)
+
             filterBar
+
+            // Active filter pills
+            let hasActiveFilters = selectedKind != nil || statusFilter != .active || !store.searchText.isEmpty
+            if hasActiveFilters {
+                HStack(spacing: VSpacing.xs) {
+                    if let kind = selectedKind {
+                        filterPill(label: kind.label, color: kind.color) {
+                            withAnimation(VAnimation.fast) { selectedKind = nil }
+                            store.kindFilter = nil
+                            Task { await store.loadItems() }
+                        }
+                    }
+                    if statusFilter != .active {
+                        filterPill(label: statusFilter.rawValue, color: VColor.contentSecondary) {
+                            statusFilter = .active
+                            store.statusFilter = statusFilter.apiValue
+                            Task { await store.loadItems() }
+                        }
+                    }
+                    if !store.searchText.isEmpty {
+                        filterPill(label: "\"\(store.searchText)\"", color: VColor.contentSecondary) {
+                            store.searchText = ""
+                            Task { await store.loadItems() }
+                        }
+                    }
+                }
+                .padding(.top, VSpacing.xs)
+            }
+
             HStack(alignment: .top, spacing: VSpacing.xxl) {
                 kindSidebar
                     .frame(width: 220)
@@ -156,6 +205,7 @@ struct MemoriesPanel: View {
                     Task { await store.loadItems() }
                 }
             )
+            .accessibilityHint(statusFilter.accessibilityDescription)
 
             VDropdown(
                 options: MemorySortOption.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
@@ -207,6 +257,25 @@ struct MemoriesPanel: View {
             return store.kindCounts.values.reduce(0, +)
         }
         return store.kindCounts[kind.rawValue] ?? 0
+    }
+
+    // MARK: - Filter Pill
+
+    private func filterPill(label: String, color: Color, onRemove: @escaping () -> Void) -> some View {
+        HStack(spacing: VSpacing.xxs) {
+            Text(label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(color)
+            Button(action: onRemove) {
+                VIconView(.x, size: 9)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xxs)
+        .background(color.opacity(0.1))
+        .clipShape(Capsule())
     }
 
     // MARK: - Escape Key
