@@ -384,6 +384,10 @@ const KIND_TO_PREFIX: Record<string, string> = {
  * schema. ORM-based inserts include every column in the schema definition,
  * so adding a column in a later migration would cause this migration to
  * fail with "table has no column named …" on upgrade paths.
+ *
+ * The INSERT intentionally omits columns added by later migrations (e.g.
+ * `image_refs` from migration 205) since they default to NULL and
+ * including them would couple this migration to those later schema changes.
  */
 export function migrateToolCreatedItems(): void {
   if (getMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT)) return;
@@ -446,8 +450,8 @@ export function migrateToolCreatedItems(): void {
         event_date, emotional_charge, fidelity, confidence, significance,
         stability, reinforcement_count, last_reinforced,
         source_conversations, source_type, narrative_role, part_of_story,
-        image_refs, scope_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        scope_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       content,
       "semantic",
@@ -464,7 +468,6 @@ export function migrateToolCreatedItems(): void {
       now,
       JSON.stringify([sourceKey]),
       "direct",
-      null,
       null,
       null,
       row.scope_id || "default",
