@@ -550,6 +550,7 @@ struct MainWindowView: View {
 
     private var coreLayoutDecoratedView: some View {
         coreLayoutGeometryView
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .frame(minWidth: 800, minHeight: 600)
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
