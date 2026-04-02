@@ -95,6 +95,17 @@ async function handleMemoryRecall(
   // Generate sparse embedding for hybrid search (dense + sparse with RRF fusion)
   const sparseVector = generateSparseEmbedding(input.query);
 
+  // Build date range filter for Qdrant-level filtering
+  const dateRange: { afterMs?: number; beforeMs?: number } = {};
+  if (input.filters?.after) {
+    const afterMs = new Date(input.filters.after).getTime();
+    if (!isNaN(afterMs)) dateRange.afterMs = afterMs;
+  }
+  if (input.filters?.before) {
+    const beforeMs = new Date(input.filters.before).getTime();
+    if (!isNaN(beforeMs)) dateRange.beforeMs = beforeMs;
+  }
+
   // Search graph nodes
   const limit = Math.max(1, Math.min(input.num_results ?? 20, 50));
   const searchResults = await searchGraphNodes(
@@ -102,6 +113,9 @@ async function handleMemoryRecall(
     limit,
     [scopeId],
     sparseVector,
+    dateRange.afterMs != null || dateRange.beforeMs != null
+      ? dateRange
+      : undefined,
   );
   if (searchResults.length === 0) {
     return { results: [], mode: "memory", query: input.query };
@@ -119,16 +133,6 @@ async function handleMemoryRecall(
     // Type filter
     if (input.filters?.types && input.filters.types.length > 0) {
       if (!input.filters.types.includes(node.type)) return [];
-    }
-
-    // Date filters
-    if (input.filters?.after) {
-      const afterMs = new Date(input.filters.after).getTime();
-      if (!isNaN(afterMs) && node.created < afterMs) return [];
-    }
-    if (input.filters?.before) {
-      const beforeMs = new Date(input.filters.before).getTime();
-      if (!isNaN(beforeMs) && node.created > beforeMs) return [];
     }
 
     return [
