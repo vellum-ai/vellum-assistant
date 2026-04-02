@@ -39,30 +39,27 @@ struct SidebarSectionView: View {
 
     /// Schedule sub-group expand/collapse state.
     var expandedScheduleGroups: Binding<Set<String>>?
+    /// Optional label provider for sub-groups. When set, overrides the default
+    /// title-parsing logic in `buildSubGroups`. Receives the group key and its
+    /// conversations, returns the display label.
+    var subGroupLabelProvider: ((String, [ConversationModel]) -> String)?
     /// Drop delegate plumbing.
     var sidebar: SidebarInteractionState?
     var conversationManager: ConversationManager?
+
+    /// Tracks which sub-groups have been toggled to show all conversations
+    /// (mirrors showAll at the section level but per sub-group key).
+    @State private var showAllInSubGroup: Set<String> = []
 
     enum CountMode {
         case items
         case subGroups(grouper: (ConversationModel) -> String?)
     }
 
-    /// Auto-show-all when hidden items beyond the truncation cutoff have unread messages.
-    private var effectiveShowAll: Bool {
-        if showAll { return true }
-        switch countMode {
-        case .items:
-            let hidden = conversations.dropFirst(maxCollapsed)
-            return hidden.contains(where: \.hasUnseenLatestAssistantMessage)
-        case .subGroups(let grouper):
-            let subGroups = buildSubGroups(grouper: grouper)
-            let hidden = subGroups.dropFirst(maxCollapsed)
-            return hidden.contains(where: { sg in
-                sg.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
-            })
-        }
-    }
+    /// Whether the section is manually expanded to show all items.
+    /// The collapsed section header already shows an unread indicator dot,
+    /// so we no longer auto-expand for unread messages.
+    private var effectiveShowAll: Bool { showAll }
 
     private var unreadCount: Int {
         conversations.filter(\.hasUnseenLatestAssistantMessage).count
@@ -224,8 +221,7 @@ struct SidebarSectionView: View {
     @ViewBuilder
     private func scheduleSubGroupDisclosure(_ subGroup: ScheduleSubGroup) -> some View {
         let isSubGroupExpanded = expandedScheduleGroups?.wrappedValue.contains(subGroup.key) ?? false
-        let hasUnread = !isSubGroupExpanded &&
-            subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+        let hasUnread = subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
 
         // Disclosure header — layout matches SidebarConversationItem's skeleton
         // so the chevron aligns with the pin icon and the badge aligns with the ellipsis.
@@ -240,20 +236,11 @@ struct SidebarSectionView: View {
         } label: {
             HStack(spacing: VSpacing.xs) {
                 // Leading 20x20 slot — chevron centered, matching pin icon position
-                ZStack {
-                    VIconView(.chevronRight, size: 10)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
-                        .animation(VAnimation.fast, value: isSubGroupExpanded)
-                    if hasUnread {
-                        Circle()
-                            .fill(VColor.systemMidStrong)
-                            .frame(width: 6, height: 6)
-                            .offset(x: 7, y: -7)
-                            .transition(.opacity)
-                    }
-                }
-                .frame(width: 20, height: 20)
+                VIconView(.chevronRight, size: 10)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
+                    .animation(VAnimation.fast, value: isSubGroupExpanded)
+                    .frame(width: 20, height: 20)
 
                 Text(subGroup.label)
                     .font(VFont.menuCompact)
@@ -261,6 +248,10 @@ struct SidebarSectionView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer()
+                if hasUnread {
+                    VBadge(style: .dot, color: VColor.systemMidStrong)
+                        .transition(.opacity)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
@@ -286,12 +277,38 @@ struct SidebarSectionView: View {
         .pointerCursor()
 
         if isSubGroupExpanded {
+            let subGroupShowAll = showAllInSubGroup.contains(subGroup.key)
+            let displayedInSubGroup = subGroupShowAll
+                ? subGroup.conversations
+                : Array(subGroup.conversations.prefix(maxCollapsed))
+
             VStack(spacing: 0) {
-                ForEach(subGroup.conversations) { conversation in
+                ForEach(displayedInSubGroup) { conversation in
                     makeRow(conversation)
                         .equatable()
                         .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                         .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                }
+
+                if subGroup.conversations.count > maxCollapsed {
+                    HStack {
+                        VButton(
+                            label: subGroupShowAll ? "Show less" : "Show more",
+                            style: .ghost,
+                            size: .compact
+                        ) {
+                            withAnimation(VAnimation.fast) {
+                                if subGroupShowAll {
+                                    showAllInSubGroup.remove(subGroup.key)
+                                } else {
+                                    showAllInSubGroup.insert(subGroup.key)
+                                }
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
+                    .padding(.bottom, VSpacing.xs)
                 }
             }
             .padding(.vertical, VSpacing.xxs)
@@ -314,7 +331,7 @@ struct SidebarSectionView: View {
 
     @ViewBuilder
     private var showMoreLessButton: some View {
-        if conversations.count > maxCollapsed, showAll || !effectiveShowAll {
+        if conversations.count > maxCollapsed {
             HStack {
                 VButton(
                     label: showAll ? "Show less" : "Show more",
@@ -322,6 +339,9 @@ struct SidebarSectionView: View {
                     size: .compact
                 ) {
                     withAnimation(VAnimation.fast) { onToggleShowAll() }
+                    if !showAll {
+                        conversationManager?.loadAllRemainingConversations()
+                    }
                 }
                 Spacer()
             }
@@ -350,7 +370,9 @@ struct SidebarSectionView: View {
         return order.compactMap { key in
             guard let conversations = grouped[key], let first = conversations.first else { return nil }
             let label: String
-            if conversations.count > 1 {
+            if let provider = subGroupLabelProvider {
+                label = provider(key, conversations)
+            } else if conversations.count > 1 {
                 let base = first.title
                 if let colonRange = base.range(of: ":") {
                     label = String(base[base.startIndex..<colonRange.lowerBound])

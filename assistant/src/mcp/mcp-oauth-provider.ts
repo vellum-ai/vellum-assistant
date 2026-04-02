@@ -22,8 +22,8 @@ import {
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
+import { openInHostBrowser } from "../util/browser.js";
 import { getLogger } from "../util/logger.js";
-import { isLinux, isMacOS } from "../util/platform.js";
 
 const log = getLogger("mcp-oauth");
 
@@ -208,28 +208,8 @@ export class McpOAuthProvider implements OAuthClientProvider {
       `[MCP] Opening browser for OAuth authorization of "${this.serverId}"...`,
     );
 
-    try {
-      const { execFile } = await import("node:child_process");
-      const onError = (err: Error | null) => {
-        if (err) {
-          log.warn({ err }, "Failed to open browser");
-          console.log(`[MCP] Please open this URL in your browser:\n${url}`);
-        }
-      };
-      if (isMacOS()) {
-        execFile("open", [url], onError);
-      } else if (isLinux()) {
-        execFile("xdg-open", [url], onError);
-      } else {
-        log.warn(
-          "Unsupported platform for browser open — please visit the URL manually",
-        );
-        console.log(`[MCP] Please open this URL in your browser:\n${url}`);
-      }
-    } catch (err) {
-      log.warn({ err }, "Failed to open browser");
-      console.log(`[MCP] Please open this URL in your browser:\n${url}`);
-    }
+    await openInHostBrowser(url);
+    console.log(`[MCP] If the browser did not open, visit this URL:\n${url}`);
   }
 
   // --- Invalidate Credentials ---

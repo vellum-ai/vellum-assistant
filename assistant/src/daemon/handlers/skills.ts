@@ -21,6 +21,11 @@ import {
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../../config/skills.js";
 import {
+  deleteSkillCapabilityNode,
+  seedSkillGraphNodes,
+  seedUninstalledCatalogSkillMemories,
+} from "../../memory/graph/capability-seed.js";
+import {
   createTimeout,
   extractText,
   getConfiguredProvider,
@@ -42,21 +47,25 @@ import {
   clawhubUpdate,
 } from "../../skills/clawhub.js";
 import {
+  readInstallMeta,
+  type SkillInstallMeta,
+} from "../../skills/install-meta.js";
+import {
   createManagedSkill,
   deleteManagedSkill,
   removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
 import {
-  deleteSkillCapabilityMemory,
-  seedCatalogSkillMemories,
-} from "../../skills/skill-memory.js";
-import {
   installExternalSkill,
   resolveSkillSource,
   searchSkillsRegistry,
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
+import type {
+  SkillDetailResponse,
+  SlimSkillResponse,
+} from "../message-types/skills.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   ensureSkillEntry,
@@ -80,52 +89,6 @@ export interface SkillOperationContext {
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
   broadcast: HandlerContext["broadcast"];
-}
-
-// ─── Provenance resolution ──────────────────────────────────────────────────
-
-interface SkillProvenance {
-  kind: "first-party" | "third-party" | "local";
-  provider?: string;
-  originId?: string;
-  sourceUrl?: string;
-}
-
-const CLAWHUB_BASE_URL = "https://skills.sh";
-
-function resolveProvenance(summary: SkillSummary): SkillProvenance {
-  // Bundled skills are always first-party (shipped with Vellum)
-  if (summary.source === "bundled") {
-    return { kind: "first-party", provider: "Vellum" };
-  }
-
-  // Managed skills are third-party (installed from clawhub). The homepage field
-  // confirms provenance.
-  if (summary.source === "managed") {
-    if (
-      summary.homepage?.includes("skills.sh") ||
-      summary.homepage?.includes("clawhub")
-    ) {
-      return {
-        kind: "third-party",
-        provider: "skills.sh",
-        originId: summary.id,
-        sourceUrl:
-          summary.homepage ??
-          `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
-      };
-    }
-    // No positive evidence of clawhub origin -- likely user-authored.
-    // Default to "local" to avoid mislabeling.
-    return { kind: "local" };
-  }
-
-  // Workspace and extra skills are user-provided
-  if (summary.source === "workspace" || summary.source === "extra") {
-    return { kind: "local" };
-  }
-
-  return { kind: "local" };
 }
 
 // ─── Frontmatter parsing ─────────────────────────────────────────────────────
@@ -279,55 +242,111 @@ export function postInstallSkill(
   }
 
   // Seed skill memories
-  seedCatalogSkillMemories();
+  seedSkillGraphNodes();
+  void seedUninstalledCatalogSkillMemories().catch(() => {});
 }
 
-export interface SkillListItem {
-  id: string;
-  name: string;
-  description: string;
-  emoji?: string;
-  homepage?: string;
-  source: "bundled" | "managed" | "workspace" | "clawhub" | "extra" | "catalog";
-  state: "enabled" | "disabled";
-  installStatus: "bundled" | "installed" | "available";
-  updateAvailable: boolean;
-  provenance: SkillProvenance;
+// ─── Kind / origin / status derivation ───────────────────────────────────────
+
+/** Map the old `source` field to the new `kind` axis. */
+function deriveKind(
+  source: "bundled" | "managed" | "workspace" | "extra" | "catalog",
+): SlimSkillResponse["kind"] {
+  if (source === "bundled") return "bundled";
+  if (source === "catalog") return "catalog";
+  return "installed"; // managed, workspace, extra
 }
 
-/** Sorting rank for provenance-based ordering: first-party first, local last. */
-function provenanceSortRank(p: SkillProvenance): number {
-  if (p.kind === "first-party") return 0;
-  if (p.kind === "third-party" && p.provider) return 1;
-  if (p.kind === "third-party") return 2;
-  return 3; // local
+/** Map a resolved skill to its `origin`, using install-meta.json when available. */
+function deriveOrigin(
+  kind: SlimSkillResponse["kind"],
+  directoryPath: string,
+  installMeta?: SkillInstallMeta | null,
+): SlimSkillResponse["origin"] {
+  if (kind === "bundled") return "vellum";
+  if (kind === "catalog") return "vellum";
+  // For installed skills, use provided install-meta or read from disk.
+  // null means "already read, nothing found" — don't re-read.
+  const meta =
+    installMeta !== undefined ? installMeta : readInstallMeta(directoryPath);
+  return meta?.origin ?? "custom";
 }
 
-export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
+/** Sort rank by kind: bundled first, then catalog, then installed. */
+function kindSortRank(kind: SlimSkillResponse["kind"]): number {
+  if (kind === "bundled") return 0;
+  if (kind === "catalog") return 1;
+  return 2; // installed
+}
+
+/** Convert a resolved skill to a SlimSkillResponse. */
+function toSlimSkillResponse(
+  summary: SkillSummary,
+  state: "enabled" | "disabled",
+): SlimSkillResponse {
+  const kind = deriveKind(summary.source);
+  // Read install-meta once and pass it through to avoid redundant file I/O.
+  // Use undefined to mean "not yet read"; null means "read but no metadata found".
+  const installMeta =
+    kind === "installed" ? readInstallMeta(summary.directoryPath) : undefined;
+  const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
+  const status: SlimSkillResponse["status"] = state;
+
+  const base = {
+    id: summary.id,
+    name: summary.displayName,
+    description: summary.description,
+    emoji: summary.emoji,
+    kind,
+    status,
+  } as const;
+
+  switch (origin) {
+    case "vellum":
+      return { ...base, origin };
+    case "clawhub": {
+      const meta =
+        installMeta !== undefined
+          ? installMeta
+          : readInstallMeta(summary.directoryPath);
+      return {
+        ...base,
+        origin,
+        slug: meta?.slug ?? summary.id,
+        author: "",
+        stars: 0,
+        installs: 0,
+        reports: 0,
+      };
+    }
+    case "skillssh": {
+      const meta =
+        installMeta !== undefined
+          ? installMeta
+          : readInstallMeta(summary.directoryPath);
+      return {
+        ...base,
+        origin,
+        slug: meta?.slug ?? summary.id,
+        sourceRepo: meta?.sourceRepo ?? "",
+        installs: 0,
+      };
+    }
+    case "custom":
+      return { ...base, origin };
+  }
+}
+
+export function listSkills(_ctx: SkillOperationContext): SlimSkillResponse[] {
   const config = getConfig();
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);
 
-  const items = resolved.map((r) => ({
-    id: r.summary.id,
-    name: r.summary.displayName,
-    description: r.summary.description,
-    emoji: r.summary.emoji,
-    homepage: r.summary.homepage,
-    source: r.summary.source,
-    state: r.state,
-    installStatus: (r.summary.source === "bundled"
-      ? "bundled"
-      : "installed") as SkillListItem["installStatus"],
-    updateAvailable: false,
-    provenance: resolveProvenance(r.summary),
-  }));
+  const items = resolved.map((r) => toSlimSkillResponse(r.summary, r.state));
 
-  // Sort: first-party > third-party with provider > third-party without > local,
-  // alphabetical by name within each tier.
+  // Sort by kind rank, then alphabetical by name within each tier.
   items.sort((a, b) => {
-    const rankDiff =
-      provenanceSortRank(a.provenance) - provenanceSortRank(b.provenance);
+    const rankDiff = kindSortRank(a.kind) - kindSortRank(b.kind);
     if (rankDiff !== 0) return rankDiff;
     return a.name.localeCompare(b.name);
   });
@@ -341,7 +360,7 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
  */
 export async function listSkillsWithCatalog(
   ctx: SkillOperationContext,
-): Promise<SkillListItem[]> {
+): Promise<SlimSkillResponse[]> {
   const installed = listSkills(ctx);
   const installedIds = new Set(installed.map((s) => s.id));
 
@@ -354,28 +373,24 @@ export async function listSkillsWithCatalog(
   }
 
   // All entries from the Vellum platform API are first-party.
-  // Create SkillListItems for catalog skills not already installed.
-  const available: SkillListItem[] = catalogSkills
+  // Create SlimSkillResponses for catalog skills not already installed.
+  const available: SlimSkillResponse[] = catalogSkills
     .filter((cs) => !installedIds.has(cs.id))
     .map((cs) => ({
       id: cs.id,
       name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
       description: cs.description,
       emoji: cs.emoji,
-      homepage: undefined,
-      source: "catalog" as const,
-      state: "disabled" as const,
-      installStatus: "available" as const,
-      updateAvailable: false,
-      provenance: { kind: "first-party" as const, provider: "Vellum" },
+      kind: "catalog" as const,
+      origin: "vellum" as const,
+      status: "available" as const,
     }));
 
   const merged = [...installed, ...available];
 
-  // Sort using the same provenance sort + alphabetical
+  // Sort by kind rank, then alphabetical by name
   merged.sort((a, b) => {
-    const rankDiff =
-      provenanceSortRank(a.provenance) - provenanceSortRank(b.provenance);
+    const rankDiff = kindSortRank(a.kind) - kindSortRank(b.kind);
     if (rankDiff !== 0) return rankDiff;
     return a.name.localeCompare(b.name);
   });
@@ -383,10 +398,10 @@ export async function listSkillsWithCatalog(
   return merged;
 }
 
-/** Look up a single skill by ID from the resolved catalog, returning its SkillListItem. */
+/** Look up a single skill by ID from the resolved catalog, returning its SlimSkillResponse. */
 function findSkillById(
   skillId: string,
-): { item: SkillListItem; summary: SkillSummary } | undefined {
+): { item: SlimSkillResponse; summary: SkillSummary } | undefined {
   const config = getConfig();
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);
@@ -394,30 +409,87 @@ function findSkillById(
   if (!match) return undefined;
 
   const r = match;
-  const item: SkillListItem = {
-    id: r.summary.id,
-    name: r.summary.displayName,
-    description: r.summary.description,
-    emoji: r.summary.emoji,
-    homepage: r.summary.homepage,
-    source: r.summary.source,
-    state: r.state,
-    installStatus: r.summary.source === "bundled" ? "bundled" : "installed",
-    updateAvailable: false,
-    provenance: resolveProvenance(r.summary),
-  };
+  const item = toSlimSkillResponse(r.summary, r.state);
   return { item, summary: r.summary };
 }
 
-export function getSkill(
+export async function getSkill(
   skillId: string,
   _ctx: SkillOperationContext,
-): { skill: SkillListItem } | { error: string; status: number } {
+): Promise<{ skill: SkillDetailResponse } | { error: string; status: number }> {
   const found = findSkillById(skillId);
   if (!found) {
     return { error: `Skill "${skillId}" not found`, status: 404 };
   }
-  return { skill: found.item };
+
+  const slim = found.item;
+
+  // Build the detail response as a flat discriminated union on origin.
+  // Origin-specific fields are spread directly at the top level.
+  if (slim.origin === "clawhub") {
+    // Start with slim clawhub fields, then enrich with inspect data.
+    const detail: SkillDetailResponse = {
+      id: slim.id,
+      name: slim.name,
+      description: slim.description,
+      emoji: slim.emoji,
+      kind: slim.kind,
+      origin: slim.origin,
+      status: slim.status,
+      slug: slim.slug,
+      author: slim.author,
+      stars: slim.stars,
+      installs: slim.installs,
+      reports: slim.reports,
+      publishedAt: slim.publishedAt,
+    };
+    try {
+      const inspectResult = await clawhubInspect(slim.slug);
+      if (inspectResult.data) {
+        const data = inspectResult.data;
+        (detail as { owner?: typeof data.owner }).owner = data.owner;
+        (detail as { stats?: typeof data.stats }).stats = data.stats;
+        (
+          detail as { latestVersion?: typeof data.latestVersion }
+        ).latestVersion = data.latestVersion;
+        (detail as { createdAt?: typeof data.createdAt }).createdAt =
+          data.createdAt;
+        (detail as { updatedAt?: typeof data.updatedAt }).updatedAt =
+          data.updatedAt;
+      }
+    } catch (err) {
+      log.warn({ err, skillId }, "Failed to enrich clawhub skill detail");
+    }
+    return { skill: detail };
+  }
+
+  if (slim.origin === "skillssh") {
+    const detail: SkillDetailResponse = {
+      id: slim.id,
+      name: slim.name,
+      description: slim.description,
+      emoji: slim.emoji,
+      kind: slim.kind,
+      origin: slim.origin,
+      status: slim.status,
+      slug: slim.slug,
+      sourceRepo: slim.sourceRepo,
+      installs: slim.installs,
+    };
+    return { skill: detail };
+  }
+
+  // vellum or custom origin — base fields only
+  const detail: SkillDetailResponse = {
+    id: slim.id,
+    name: slim.name,
+    description: slim.description,
+    emoji: slim.emoji,
+    kind: slim.kind,
+    origin: slim.origin,
+    status: slim.status,
+  };
+  return { skill: detail };
 }
 
 // ─── Skill file listing ──────────────────────────────────────────────────────
@@ -500,7 +572,7 @@ export function getSkillFiles(
   skillId: string,
   _ctx: SkillOperationContext,
 ):
-  | { skill: SkillListItem; files: SkillFileEntry[] }
+  | { skill: SlimSkillResponse; files: SkillFileEntry[] }
   | { error: string; status: number } {
   const found = findSkillById(skillId);
   if (!found) {
@@ -531,7 +603,8 @@ export function enableSkill(
       name: skillId,
       state: "enabled",
     });
-    seedCatalogSkillMemories();
+    seedSkillGraphNodes();
+    void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -553,7 +626,8 @@ export function disableSkill(
       name: skillId,
       state: "disabled",
     });
-    seedCatalogSkillMemories();
+    seedSkillGraphNodes();
+    void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -645,7 +719,8 @@ export async function installSkill(
           "Failed to auto-enable bundled skill",
         );
       }
-      seedCatalogSkillMemories();
+      seedSkillGraphNodes();
+      void seedUninstalledCatalogSkillMemories().catch(() => {});
       return { success: true };
     }
 
@@ -772,14 +847,7 @@ export async function uninstallSkill(
       }
       // Best-effort cleanup of capability memory for uninstalled skill
       // (managed path handles this internally via deleteManagedSkill)
-      deleteSkillCapabilityMemory(skillId);
-      try {
-        const { deleteSkillCapabilityNode } =
-          await import("../../memory/graph/capability-seed.js");
-        deleteSkillCapabilityNode(skillId);
-      } catch {
-        /* best effort */
-      }
+      deleteSkillCapabilityNode(skillId);
     }
 
     // Clean config entry
@@ -843,44 +911,42 @@ export async function searchSkills(
   query: string,
   _ctx: SkillOperationContext,
 ): Promise<
-  { success: true; data: unknown } | { success: false; error: string }
+  | { success: true; skills: SlimSkillResponse[] }
+  | { success: false; error: string }
 > {
   try {
-    // Search the loaded skill catalog (bundled + installed) for matches
+    // Search the loaded skill catalog (bundled + installed) for matches.
+    // Use resolveSkillStates + toSlimSkillResponse so that already-installed
+    // or bundled skills get their correct kind/origin/status instead of being
+    // hard-coded as catalog/available.
     const catalog = loadSkillCatalog();
+    const config = getConfig();
+    const resolved = resolveSkillStates(catalog, config);
+    const resolvedById = new Map(resolved.map((r) => [r.summary.id, r]));
+
     const catalogMatches = filterByQuery(catalog, query, [
       (s) => s.id,
       (s) => s.displayName,
       (s) => s.description,
     ]);
 
-    // Shape that matches ClawhubSearchResultItem so the client
-    // (Swift ClawhubSkillItem) can decode results uniformly.
-    interface SearchItem {
-      name: string;
-      slug: string;
-      description: string;
-      author: string;
-      stars: number;
-      installs: number;
-      version: string;
-      createdAt: number;
-      source: "vellum" | "clawhub" | "skillssh";
-      origin: "vellum" | "clawhub" | "skillssh";
-    }
-
-    const catalogItems: SearchItem[] = catalogMatches.map((s) => ({
-      name: s.displayName,
-      slug: s.id,
-      description: s.description,
-      author: "Vellum",
-      stars: 0,
-      installs: 0,
-      version: "",
-      createdAt: 0,
-      source: "vellum" as const,
-      origin: "vellum" as const,
-    }));
+    const catalogItems: SlimSkillResponse[] = catalogMatches.map((s) => {
+      const r = resolvedById.get(s.id);
+      if (r) {
+        return toSlimSkillResponse(r.summary, r.state);
+      }
+      // Fallback for catalog entries not in resolvedSkillStates (shouldn't
+      // normally happen, but defensive)
+      return {
+        id: s.id,
+        name: s.displayName,
+        description: s.description,
+        emoji: s.emoji,
+        kind: "catalog" as const,
+        origin: "vellum" as const,
+        status: "available" as const,
+      };
+    });
 
     // Search both community registries in parallel (non-fatal on failure)
     const [clawhubResult, skillsshResult] = await Promise.allSettled([
@@ -888,11 +954,23 @@ export async function searchSkills(
       searchSkillsRegistry(query, 25),
     ]);
 
-    let clawhubSkills: SearchItem[] = [];
+    let clawhubSkills: SlimSkillResponse[] = [];
     if (clawhubResult.status === "fulfilled") {
       clawhubSkills = clawhubResult.value.skills.map((s) => ({
-        ...s,
+        id: s.slug,
+        name: s.name,
+        description: s.description,
+        kind: "catalog" as const,
         origin: "clawhub" as const,
+        status: "available" as const,
+        slug: s.slug,
+        author: s.author,
+        stars: s.stars,
+        installs: s.installs,
+        reports: 0,
+        publishedAt: s.createdAt
+          ? new Date(s.createdAt * 1000).toISOString()
+          : undefined,
       }));
     } else {
       log.warn(
@@ -901,19 +979,18 @@ export async function searchSkills(
       );
     }
 
-    let skillsshSkills: SearchItem[] = [];
+    let skillsshSkills: SlimSkillResponse[] = [];
     if (skillsshResult.status === "fulfilled") {
       skillsshSkills = skillsshResult.value.map((r) => ({
+        id: r.id,
         name: r.name,
-        slug: r.id,
         description: "",
-        author: "",
-        stars: 0,
-        installs: r.installs,
-        version: "",
-        createdAt: 0,
-        source: "skillssh" as const,
+        kind: "catalog" as const,
         origin: "skillssh" as const,
+        status: "available" as const,
+        slug: r.id,
+        sourceRepo: r.source,
+        installs: r.installs,
       }));
     } else {
       log.warn(
@@ -923,25 +1000,23 @@ export async function searchSkills(
     }
 
     // Deduplicate: catalog > clawhub > skills.sh (first occurrence wins)
-    const seenSlugs = new Set(catalogItems.map((s) => s.slug));
+    const seenSlugs = new Set(catalogItems.map((s) => s.id));
 
     const dedupedClawhub = clawhubSkills.filter((s) => {
-      if (seenSlugs.has(s.slug)) return false;
-      seenSlugs.add(s.slug);
+      if (seenSlugs.has(s.id)) return false;
+      seenSlugs.add(s.id);
       return true;
     });
 
     const dedupedSkillssh = skillsshSkills.filter((s) => {
-      if (seenSlugs.has(s.slug)) return false;
-      seenSlugs.add(s.slug);
+      if (seenSlugs.has(s.id)) return false;
+      seenSlugs.add(s.id);
       return true;
     });
 
     return {
       success: true,
-      data: {
-        skills: [...catalogItems, ...dedupedClawhub, ...dedupedSkillssh],
-      },
+      skills: [...catalogItems, ...dedupedClawhub, ...dedupedSkillssh],
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1173,7 +1248,8 @@ export async function createSkill(
       );
     }
 
-    seedCatalogSkillMemories();
+    seedSkillGraphNodes();
+    void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

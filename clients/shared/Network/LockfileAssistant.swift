@@ -196,6 +196,13 @@ public struct LockfileAssistant {
         }
     }
 
+    /// Reads the `activeAssistant` field from the lockfile, returning
+    /// the assistant ID string the CLI designated as currently active.
+    public static func loadActiveAssistantId() -> String? {
+        guard let json = LockfilePaths.read() else { return nil }
+        return json["activeAssistant"] as? String
+    }
+
     /// Find an assistant by its ID in the lockfile.
     public static func loadByName(_ name: String) -> LockfileAssistant? {
         loadAll().first { $0.assistantId == name }

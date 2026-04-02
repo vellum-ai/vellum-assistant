@@ -40,6 +40,7 @@ import { migrateBackfillAudioAttachmentMimeTypesDown } from "./191-backfill-audi
 import { migrateAddSourceTypeColumnsDown } from "./193-add-source-type-columns.js";
 import { migrateStripIntegrationPrefixFromProviderKeysDown } from "./196-strip-integration-prefix-from-provider-keys.js";
 import { migrateRenameMemoryGraphTypeValuesDown } from "./204-rename-memory-graph-type-values.js";
+import { migrateScrubCorruptedImageAttachmentsDown } from "./206-scrub-corrupted-image-attachments.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -348,6 +349,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Rename legacy memory graph node type values: style → behavioral, relationship → semantic",
     down: migrateRenameMemoryGraphTypeValuesDown,
+  },
+  {
+    key: "migration_scrub_corrupted_image_attachments_v1",
+    version: 40,
+    description:
+      "Remove image attachments containing HTML error pages instead of image data",
+    down: migrateScrubCorruptedImageAttachmentsDown,
   },
 ];
 

@@ -164,6 +164,10 @@ extension AppDelegate {
     }
 
     @objc public func performLogout() {
+        // Cancel any in-flight managed switch so it doesn't reconnect after logout.
+        managedSwitchTask?.cancel()
+        managedSwitchTask = nil
+
         Task {
             // Capture assistant ID before logout clears UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
@@ -406,8 +410,10 @@ extension AppDelegate {
     /// 1. Clear assistant-scoped runtime state (recording, windows, callbacks)
     /// 2. Disconnect transport (leave old assistant running)
     /// 3. Persist the new assistant selection
-    /// 4. Reconfigure transport and reconnect
-    /// 5. Resume credential bootstrap
+    /// 4. For managed assistants, bootstrap via the platform API to re-resolve
+    ///    the organization ID (cleared in step 3) before connecting
+    /// 5. Reconfigure transport and reconnect
+    /// 6. Resume credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
         // If switching to a managed assistant while logged out, prompt login first.
         if assistant.isManaged && !authManager.isAuthenticated {
@@ -444,11 +450,73 @@ extension AppDelegate {
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
-        // 4. Reconfigure transport and reconnect
+        // 4. For managed assistants, bootstrap via the platform API to
+        //    re-resolve the organization ID before connecting. The org ID was
+        //    cleared in step 3; without it the health check's
+        //    Vellum-Organization-Id header would be missing and the connection
+        //    would fail.
+        managedSwitchTask?.cancel()
+        managedSwitchTask = nil
+        if assistant.isManaged {
+            let targetId = assistant.assistantId
+            managedSwitchTask = Task {
+                // Use ensureManagedAssistant() directly instead of the
+                // coordinator's activateManagedAssistant() — the coordinator
+                // calls persistManagedAssistant() which overwrites
+                // connectedAssistantId as a side effect, creating a race
+                // when a second switch fires before this task completes.
+                // We only need the org ID resolution from ensureManagedAssistant().
+                do {
+                    _ = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+                } catch is CancellationError {
+                    log.info("Managed switch to \(targetId, privacy: .public) cancelled")
+                    return
+                } catch {
+                    log.error("Managed bootstrap failed during switch: \(error.localizedDescription, privacy: .public)")
+                    // If resolveOrganizationId() failed, connectedOrganizationId
+                    // is still nil and the connection would fail for the same
+                    // reason this fix exists. Only proceed if the org ID was
+                    // actually resolved (it's set as a side effect of
+                    // resolveOrganizationId() inside ensureManagedAssistant()).
+                    if UserDefaults.standard.string(forKey: "connectedOrganizationId") == nil {
+                        log.error("Organization ID not resolved — aborting managed switch to \(targetId, privacy: .public)")
+                        // The main window was already closed in step 2.
+                        // Re-show it so the user isn't stranded without UI.
+                        self.showMainWindow()
+                        return
+                    }
+                }
+                // ensureManagedAssistant() clears connectedAssistantId when the
+                // platform returns 404 (deleted) or 403 (revoked). Restore it
+                // so the guard below doesn't confuse this with a concurrent
+                // switch that wrote a different assistant ID.
+                if UserDefaults.standard.string(forKey: "connectedAssistantId") == nil, !Task.isCancelled {
+                    UserDefaults.standard.set(targetId, forKey: "connectedAssistantId")
+                }
+                // Guard against a second switch that started while we were
+                // awaiting the bootstrap — only finish if this task hasn't
+                // been cancelled and this assistant is still the selected
+                // target.
+                guard !Task.isCancelled,
+                      UserDefaults.standard.string(forKey: "connectedAssistantId") == targetId else {
+                    log.info("Managed switch to \(targetId, privacy: .public) superseded — skipping finishSwitchAssistant")
+                    return
+                }
+                self.finishSwitchAssistant(assistant)
+            }
+        } else {
+            finishSwitchAssistant(assistant)
+        }
+    }
+
+    /// Steps 5-6 of the switch sequence: reconfigure transport, resume
+    /// credential bootstrap, sync keys, reload flags/avatar, and show UI.
+    private func finishSwitchAssistant(_ assistant: LockfileAssistant) {
+        // 5. Reconfigure transport and reconnect
         hasSetupDaemon = false
         setupGatewayConnectionManager()
 
-        // 5. Resume credential bootstrap and show UI
+        // 6. Resume credential bootstrap and show UI
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
@@ -458,11 +526,16 @@ extension AppDelegate {
         localBootstrapDidComplete = false
         ensureLocalAssistantApiKey()
 
-        // 6. Sync locally-stored API keys to the new assistant. The assistant may
-        //    have started without ANTHROPIC_API_KEY in its environment (e.g.
-        //    when the app was launched via Finder/open). Push keys from
-        //    UserDefaults so the assistant can initialize its LLM providers.
+        // Sync locally-stored API keys to the new assistant. The assistant may
+        // have started without ANTHROPIC_API_KEY in its environment (e.g.
+        // when the app was launched via Finder/open). Push keys from
+        // UserDefaults so the assistant can initialize its LLM providers.
         syncApiKeysToAssistant(assistant)
+
+        // Clear the UserDefaults feature-flag cache before reloading so
+        // that stale cached values from the previous assistant do not
+        // override the new assistant's remote/persisted flags.
+        AssistantFeatureFlagResolver.clearCachedFlags()
 
         // Reload cached feature flags so SoundManager reads the new
         // assistant's resolved values instead of stale ones from the
@@ -517,6 +590,9 @@ extension AppDelegate {
     }
 
     @objc func performRetire() {
+        // Cancel any in-flight managed switch so it doesn't reconnect after retire.
+        managedSwitchTask?.cancel()
+        managedSwitchTask = nil
         Task { await performRetireAsync() }
     }
 
@@ -613,6 +689,7 @@ extension AppDelegate {
         SentryDeviceInfo.updateUserTag(nil)
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
         UserDefaults.standard.removeObject(forKey: "managedServiceModesInitialized")
+        AssistantFeatureFlagResolver.clearCachedFlags()
 
         connectionManager.disconnect()
         actorTokenBootstrapTask?.cancel()

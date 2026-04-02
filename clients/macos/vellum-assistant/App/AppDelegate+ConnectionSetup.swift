@@ -30,6 +30,9 @@ extension AppDelegate {
 
         if let storedId, let found = LockfileAssistant.loadByName(storedId) {
             assistant = found
+        } else if let activeId = LockfileAssistant.loadActiveAssistantId(),
+                  let active = LockfileAssistant.loadByName(activeId) {
+            assistant = active
         } else {
             assistant = LockfileAssistant.loadLatest()
         }
@@ -47,11 +50,15 @@ extension AppDelegate {
         // If the assistant changed (e.g. user hatched a new one via CLI),
         // clear the stale actor token so ensureActorCredentials() triggers
         // a fresh bootstrap against the new assistant's JWT secret.
-        if let storedId, storedId != assistant.assistantId, ActorTokenManager.hasToken {
+        if let storedId, storedId != assistant.assistantId {
             log.info("Assistant changed from \(storedId, privacy: .public) to \(assistant.assistantId, privacy: .public) — clearing stale actor token")
-            actorTokenBootstrapTask?.cancel()
-            actorTokenBootstrapTask = nil
-            ActorTokenManager.deleteToken()
+            if ActorTokenManager.hasToken {
+                actorTokenBootstrapTask?.cancel()
+                actorTokenBootstrapTask = nil
+                ActorTokenManager.deleteToken()
+            }
+            AssistantFeatureFlagResolver.clearCachedFlags()
+            featureFlagStore.reloadFromDisk()
         }
 
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")

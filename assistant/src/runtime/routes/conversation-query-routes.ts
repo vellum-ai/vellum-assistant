@@ -43,7 +43,10 @@ import {
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
 import { getAssistantMessageIdsInTurn } from "../../memory/conversation-crud.js";
-import { getRequestLogsByMessageId } from "../../memory/llm-request-log-store.js";
+import {
+  getRequestLogById,
+  getRequestLogsByMessageId,
+} from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
 import { httpError } from "../http-errors.js";
@@ -487,13 +490,56 @@ export function conversationQueryRouteDefinitions(
             );
             return {
               id: log.id,
-              requestPayload,
-              responsePayload,
+              requestPayload: null,
+              responsePayload: null,
               createdAt: log.createdAt,
               ...result,
             };
           }),
           memoryRecall: memoryRecallLog ?? null,
+        });
+      },
+    },
+
+    // ── Raw payload for a single LLM request log ─────────────────────
+    {
+      endpoint: "llm-request-logs/:id/payload",
+      method: "GET",
+      policyKey: "llm-request-logs/payload",
+      summary: "Get raw payload for a single LLM request log",
+      description:
+        "Return the full request and response payloads for a specific log entry.",
+      tags: ["messages"],
+      responseBody: z.object({
+        id: z.string(),
+        requestPayload: z.unknown(),
+        responsePayload: z.unknown(),
+      }),
+      handler: ({ params }) => {
+        const logId = params.id;
+        if (!logId) {
+          return httpError("BAD_REQUEST", "log id is required", 400);
+        }
+        const log = getRequestLogById(logId);
+        if (!log) {
+          return httpError("NOT_FOUND", "log not found", 404);
+        }
+        let requestPayload: unknown;
+        try {
+          requestPayload = JSON.parse(log.requestPayload);
+        } catch {
+          requestPayload = log.requestPayload;
+        }
+        let responsePayload: unknown;
+        try {
+          responsePayload = JSON.parse(log.responsePayload);
+        } catch {
+          responsePayload = log.responsePayload;
+        }
+        return Response.json({
+          id: log.id,
+          requestPayload,
+          responsePayload,
         });
       },
     },

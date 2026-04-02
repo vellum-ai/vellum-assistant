@@ -904,6 +904,24 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
+    /// Load all remaining conversations from the daemon in a loop until none remain.
+    func loadAllRemainingConversations() {
+        guard !isLoadingMoreConversations, hasMoreConversations else { return }
+        isLoadingMoreConversations = true
+        Task { [weak self] in
+            guard let self else { return }
+            while self.hasMoreConversations {
+                let response = await self.conversationListClient.fetchConversationList(
+                    offset: self.serverOffset, limit: 200, conversationType: nil
+                )
+                guard let response else { break }
+                self.appendConversations(from: response)
+                self.isLoadingMoreConversations = true
+            }
+            self.isLoadingMoreConversations = false
+        }
+    }
+
     /// Handle appended conversations from a "load more" response.
     func appendConversations(from response: ConversationListResponseMessage) {
         // Increment offset by the unfiltered count so pagination stays aligned
@@ -1469,6 +1487,82 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             updated[i].displayOrder = nil
         }
         conversations = updated
+        groups.remove(at: idx)
+        _ = await groupClient.deleteGroup(groupId: groupId)
+        sendReorderConversations()
+    }
+
+    func deleteGroupAndArchiveConversations(_ groupId: String) async {
+        guard let idx = groups.firstIndex(where: { $0.id == groupId }),
+              !groups[idx].isSystemGroup else { return }
+
+        // Collect the local IDs of conversations to archive before mutating state.
+        let idsToArchive = conversations
+            .filter { $0.groupId == groupId }
+            .map(\.id)
+
+        // Batch-mutate a copy to avoid per-element SwiftUI re-renders.
+        var updated = conversations
+        var newlyArchivedServerIds = Set<String>()
+        for i in updated.indices where updated[i].groupId == groupId {
+            updated[i].isArchived = true
+            updated[i].displayOrder = nil
+            updated[i].groupId = nil
+            if let cid = updated[i].conversationId {
+                newlyArchivedServerIds.insert(cid)
+            }
+        }
+        conversations = updated
+
+        // Persist archived IDs in one shot.
+        if !newlyArchivedServerIds.isEmpty {
+            var archived = archivedConversationIds
+            archived.formUnion(newlyArchivedServerIds)
+            archivedConversationIds = archived
+        }
+
+        // Tear down view models / pop-out windows for each archived conversation.
+        for id in idsToArchive {
+            AppDelegate.shared?.threadWindowManager?.closeThread(conversationLocalId: id)
+            pinnedViewModelIds.remove(id)
+
+            if let convIndex = conversations.firstIndex(where: { $0.id == id }) {
+                if conversations[convIndex].conversationId != nil {
+                    chatViewModels[id]?.stopGenerating()
+                    chatViewModels.removeValue(forKey: id)
+                    unsubscribeAllForConversation(id: id)
+                    if let accessIdx = vmAccessOrder.firstIndex(of: id) {
+                        vmAccessOrder.remove(at: accessIdx)
+                    }
+                } else if chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
+                            && chatViewModels[id]?.isBootstrapping != true {
+                    chatViewModels[id]?.stopGenerating()
+                    chatViewModels.removeValue(forKey: id)
+                    unsubscribeAllForConversation(id: id)
+                    if let accessIdx = vmAccessOrder.firstIndex(of: id) {
+                        vmAccessOrder.remove(at: accessIdx)
+                    }
+                } else {
+                    chatViewModels[id]?.cancelPendingMessage()
+                }
+            }
+        }
+
+        // Handle active conversation switching if the active one was archived.
+        if let activeId = activeConversationId, idsToArchive.contains(activeId) {
+            if visibleConversations.isEmpty {
+                enterDraftMode()
+            } else {
+                activeConversationId = visibleConversations.first?.id
+            }
+        } else if visibleConversations.isEmpty {
+            enterDraftMode()
+        }
+
+        Self.clearRenderCaches()
+
+        // Remove the group and fire the server delete — idx captured before mutations,
+        // but groups array is untouched so it is still valid.
         groups.remove(at: idx)
         _ = await groupClient.deleteGroup(groupId: groupId)
         sendReorderConversations()

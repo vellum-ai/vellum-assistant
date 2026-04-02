@@ -11,7 +11,11 @@ import { asString } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { isQdrantBreakerOpen } from "../qdrant-circuit-breaker.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
-import { getQdrantClient, type QdrantSearchResult } from "../qdrant-client.js";
+import {
+  getQdrantClient,
+  type QdrantSearchResult,
+  type QdrantSparseVector,
+} from "../qdrant-client.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import { getNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
@@ -38,6 +42,8 @@ export async function searchGraphNodes(
   queryVector: number[],
   limit: number,
   scopeIds?: string[],
+  sparseVector?: QdrantSparseVector,
+  dateRange?: { afterMs?: number; beforeMs?: number },
 ): Promise<GraphSearchResult[]> {
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping graph search");
@@ -46,21 +52,65 @@ export async function searchGraphNodes(
 
   const client = getQdrantClient();
 
-  const filter: Record<string, unknown> = {
-    must: [
-      {
-        key: "target_type",
-        match: { value: "graph_node" },
-      },
-    ],
-  };
+  // Use hybrid search (dense + sparse with RRF fusion) when a non-empty
+  // sparse vector is available; otherwise fall back to dense-only search.
+  if (sparseVector && sparseVector.indices.length > 0) {
+    const must: Record<string, unknown>[] = [
+      { key: "target_type", match: { value: "graph_node" } },
+      ...(scopeIds && scopeIds.length > 0
+        ? [{ key: "memory_scope_id", match: { any: scopeIds } }]
+        : []),
+    ];
+    if (dateRange?.afterMs != null) {
+      must.push({ key: "created_at", range: { gte: dateRange.afterMs } });
+    }
+    if (dateRange?.beforeMs != null) {
+      must.push({ key: "created_at", range: { lte: dateRange.beforeMs } });
+    }
+    const filter = {
+      must,
+      must_not: [{ key: "_meta", match: { value: true } }],
+    };
+
+    const results: QdrantSearchResult[] = await withQdrantBreaker(() =>
+      client.hybridSearch({
+        denseVector: queryVector,
+        sparseVector,
+        filter,
+        limit,
+        prefetchLimit: limit * 3,
+      }),
+    );
+
+    return results.map((r) => ({
+      nodeId: r.payload.target_id,
+      score: r.score,
+      text: r.payload.text,
+    }));
+  }
+
+  // Dense-only fallback
+  const denseMusts: Record<string, unknown>[] = [
+    {
+      key: "target_type",
+      match: { value: "graph_node" },
+    },
+  ];
 
   if (scopeIds && scopeIds.length > 0) {
-    (filter.must as unknown[]).push({
+    denseMusts.push({
       key: "memory_scope_id",
       match: { any: scopeIds },
     });
   }
+  if (dateRange?.afterMs != null) {
+    denseMusts.push({ key: "created_at", range: { gte: dateRange.afterMs } });
+  }
+  if (dateRange?.beforeMs != null) {
+    denseMusts.push({ key: "created_at", range: { lte: dateRange.beforeMs } });
+  }
+
+  const filter: Record<string, unknown> = { must: denseMusts };
 
   const results: QdrantSearchResult[] = await withQdrantBreaker(async () => {
     return client.search(queryVector, limit, filter);
@@ -121,8 +171,7 @@ export async function embedGraphNodeDirect(
   };
 
   if (node.imageRefs && node.imageRefs.length > 0) {
-    const multimodalAvailable =
-      await selectedBackendSupportsMultimodal(config);
+    const multimodalAvailable = await selectedBackendSupportsMultimodal(config);
     if (multimodalAvailable) {
       const imageData = await loadImageRefData(node.imageRefs[0]);
       if (imageData) {
@@ -148,9 +197,7 @@ export async function embedGraphNodeDirect(
     }
 
     // Fallback: text embedding with image description suffix
-    const descSuffix = node.imageRefs
-      .map((r) => r.description)
-      .join("; ");
+    const descSuffix = node.imageRefs.map((r) => r.description).join("; ");
     const textWithImages = `${text}\n[images: ${descSuffix}]`;
     await embedAndUpsert(
       config,

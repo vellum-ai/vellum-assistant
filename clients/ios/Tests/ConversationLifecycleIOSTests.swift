@@ -148,8 +148,9 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.messages.count, 2)
         XCTAssertEqual(vm.messages[1].role, .assistant)
 
-        // Step 3: Message completes
-        vm.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        // Step 3: Message completes (messageId must be non-nil; the guard in
+        // ChatActionHandler skips message_complete without messageId while isSending)
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(messageId: "msg-1")))
         XCTAssertFalse(vm.isSending)
         XCTAssertFalse(vm.messages[1].isStreaming)
     }
@@ -163,14 +164,14 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         vm.sendMessage()
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "First answer")))
         vm.flushStreamingBuffer()
-        vm.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(messageId: "msg-1")))
 
         // Second exchange
         vm.inputText = "Second question"
         vm.sendMessage()
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Second answer")))
         vm.flushStreamingBuffer()
-        vm.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(messageId: "msg-2")))
 
         XCTAssertEqual(vm.messages.count, 4)
         XCTAssertEqual(vm.messages[0].role, .user)

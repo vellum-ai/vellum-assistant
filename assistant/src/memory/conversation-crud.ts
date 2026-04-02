@@ -1303,6 +1303,27 @@ export function updateMessageContent(
 }
 
 /**
+ * Merge `updates` into the metadata JSON of an existing message.
+ * Reads the current metadata, shallow-merges the new fields, and writes back.
+ */
+export function updateMessageMetadata(
+  messageId: string,
+  updates: Record<string, unknown>,
+): void {
+  const db = getDb();
+  const row = db
+    .select({ metadata: messages.metadata })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  const existing = row?.metadata ? JSON.parse(row.metadata) : {};
+  db.update(messages)
+    .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
+    .where(eq(messages.id, messageId))
+    .run();
+}
+
+/**
  * Re-link all attachments from a set of source messages to a target message.
  * Used during message consolidation so that attachments linked to deleted
  * messages survive the ON DELETE CASCADE on message_attachments.

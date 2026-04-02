@@ -61,7 +61,7 @@ export interface OAuth2TokenResult {
 
 export interface OAuth2FlowCallbacks {
   /** Open a URL in the user's browser (e.g. via `open_url` message). */
-  openUrl: (url: string) => void;
+  openUrl: (url: string) => void | Promise<void>;
 }
 
 export interface OAuth2FlowOptions {

@@ -74,11 +74,17 @@ struct ComposerView: View {
     @State private var isComposerFocused = false
     @State private var measuredTextHeight: CGFloat = 32
     @State private var textViewIsFocused: Bool = false
+    @State var cursorPosition: Int = 0
 
     @State var showSlashMenu = false
     @State var slashFilter = ""
     @State var slashSelectedIndex = 0
     @State var suppressSlashReopen = false
+    @State var suppressEmojiReopen = false
+    @State var showEmojiMenu = false
+    @State var emojiFilter = ""
+    @State var emojiSelectedIndex = 0
+    @State var textReplacer = TextReplacementProxy()
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
@@ -109,6 +115,15 @@ struct ComposerView: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
+            if showEmojiMenu {
+                EmojiPickerPopup(
+                    entries: filteredEmoji(emojiFilter),
+                    selectedIndex: emojiSelectedIndex,
+                    onSelect: { entry in selectEmoji(entry) }
+                )
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
             // Composer box — switches on the three-mode state machine
             switch currentMode {
             case .voiceConversation:
@@ -128,6 +143,7 @@ struct ComposerView: View {
         #endif
         .fixedSize(horizontal: false, vertical: true)
         .animation(VAnimation.fast, value: showSlashMenu)
+        .animation(VAnimation.fast, value: showEmojiMenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
@@ -164,7 +180,9 @@ struct ComposerView: View {
             } else if !enabled {
                 composerFocus = false
                 showSlashMenu = false
+                showEmojiMenu = false
                 suppressSlashReopen = false
+                suppressEmojiReopen = false
             }
         }
         .onChange(of: hasPendingConfirmation) { _, pending in
@@ -234,22 +252,31 @@ struct ComposerView: View {
                 onSubmit: { performSendAction() },
                 onTab: {
                     if showSlashMenu { handleSlashNavigation(.tab); return true }
+                    if showEmojiMenu { handleEmojiNavigation(.tab); return true }
                     if ghostSuffix != nil { onAcceptSuggestion(); return true }
                     return false
                 },
                 onUpArrow: {
                     if showSlashMenu { handleSlashNavigation(.up); return true }
+                    if showEmojiMenu { handleEmojiNavigation(.up); return true }
                     return false
                 },
                 onDownArrow: {
                     if showSlashMenu { handleSlashNavigation(.down); return true }
+                    if showEmojiMenu { handleEmojiNavigation(.down); return true }
                     return false
                 },
                 onEscape: {
                     if showSlashMenu { handleSlashNavigation(.dismiss); return true }
+                    if showEmojiMenu { handleEmojiNavigation(.dismiss); return true }
                     return false
                 },
-                onPasteImage: onPaste
+                onPasteImage: onPaste,
+                shouldOverrideReturn: {
+                    showSlashMenu || showEmojiMenu
+                },
+                cursorPosition: $cursorPosition,
+                textReplacer: textReplacer
             )
             .fixedSize(horizontal: false, vertical: true)
             // Prevent inherited .animation() modifiers from creating animation
@@ -300,9 +327,15 @@ struct ComposerView: View {
         }
         .onChange(of: inputText) {
             if inputText.isEmpty {
-                withAnimation(VAnimation.fast) { showSlashMenu = false }
+                withAnimation(VAnimation.fast) { showSlashMenu = false; showEmojiMenu = false }
             } else {
                 updateSlashState()
+                updateEmojiState()
+            }
+        }
+        .onChange(of: cursorPosition) {
+            if !inputText.isEmpty {
+                updateEmojiState()
             }
         }
     }
@@ -315,6 +348,9 @@ struct ComposerView: View {
         if showSlashMenu {
             sendPath = "slashSelection"
             handleSlashNavigation(.select)
+        } else if showEmojiMenu {
+            sendPath = "emojiSelection"
+            handleEmojiNavigation(.select)
         } else if canSend {
             sendPath = "normalSend"
             onSend()
@@ -345,10 +381,10 @@ struct ComposerView: View {
         .padding(.horizontal, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.window)
-                .fill(VColor.surfaceOverlay)
+                .fill(VColor.surfaceLift)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.window))
-        .shadow(color: VColor.auxBlack.opacity(0.05), radius: 2, x: 0, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.05), radius: 4, x: 0, y: 2)
     }
 
     @ViewBuilder

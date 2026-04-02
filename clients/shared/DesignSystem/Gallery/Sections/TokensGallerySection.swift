@@ -98,6 +98,8 @@ struct TokensGallerySection: View {
                         typeMatrixDivider()
                         typeMatrixRow(group: "", size: "22", regular: ("Brand/Small", VFont.brandSmall), medium: nil, semiBold: nil)
                         typeMatrixDivider()
+                        typeMatrixRow(group: "", size: "16", regular: ("Brand/Mini", VFont.brandMini), medium: nil, semiBold: nil)
+                        typeMatrixDivider()
 
                         typeMatrixRow(group: "TITLE", size: "24", regular: nil, medium: ("Title/Large", VFont.titleLarge), semiBold: nil)
                         typeMatrixDivider()
@@ -133,6 +135,7 @@ struct TokensGallerySection: View {
                         let tokens: [(String, String, String, Font)] = [
                             ("brandMedium", "Regular 32 (Instrument Serif)", "Brand headings", VFont.brandMedium),
                             ("brandSmall", "Regular 22 (Instrument Serif)", "Brand subheadings", VFont.brandSmall),
+                            ("brandMini", "Regular 16 (Instrument Serif)", "Brand inline accents", VFont.brandMini),
                             ("titleLarge", "Medium 24", "Headings, page titles", VFont.titleLarge),
                             ("titleMedium", "Medium 20", "Section headings", VFont.titleMedium),
                             ("titleSmall", "Medium 16", "Card titles, subheadings", VFont.titleSmall),

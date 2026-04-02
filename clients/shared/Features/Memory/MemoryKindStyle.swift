@@ -57,6 +57,12 @@ public enum MemoryKind: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Subtle background tint derived from the kind's accent color.
+    /// Use for card backgrounds and sidebar active states.
+    public var backgroundTint: Color {
+        color.opacity(0.06)
+    }
+
     /// Lucide icon raw value matching `VIcon` cases.
     public var icon: String {
         switch self {

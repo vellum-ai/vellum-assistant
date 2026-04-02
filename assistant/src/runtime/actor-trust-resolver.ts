@@ -48,7 +48,11 @@ export type TrustClass = "guardian" | "trusted_contact" | "unknown";
 export function isUntrustedTrustClass(
   trustClass: TrustClass | undefined,
 ): boolean {
-  return trustClass === "trusted_contact" || trustClass === "unknown";
+  return (
+    trustClass === "trusted_contact" ||
+    trustClass === "unknown" ||
+    trustClass === undefined
+  );
 }
 
 /**

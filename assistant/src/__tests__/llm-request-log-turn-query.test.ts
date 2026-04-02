@@ -301,6 +301,168 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     expect(logs[2]?.id).toBe("log-surviving");
   });
 
+  test("recovers unlinked logs (messageId IS NULL) within the turn time range", () => {
+    // Simulate the race: logs recorded with NULL messageId, backfill hasn't run yet.
+    const T = 1_700_000_000_000;
+    const db = getDb();
+    const conv = createConversation("unlinked-test");
+
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u1-ul', ${conv.id}, 'user', '"Do the task"', ${T})`,
+    );
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-ul', ${conv.id}, 'assistant', '"Done!"', ${T + 30000})`,
+    );
+
+    // Unlinked log: messageId is NULL (backfill hasn't run yet)
+    db.insert(llmRequestLogs)
+      .values({
+        id: "log-unlinked-1",
+        conversationId: conv.id,
+        messageId: null,
+        provider: "anthropic",
+        requestPayload: '{"step":1}',
+        responsePayload: '{"tool":"bash"}',
+        createdAt: T + 5000,
+      })
+      .run();
+
+    // Linked log: already backfilled to the assistant message
+    db.insert(llmRequestLogs)
+      .values({
+        id: "log-linked-1",
+        conversationId: conv.id,
+        messageId: "a1-ul",
+        provider: "anthropic",
+        requestPayload: '{"step":2}',
+        responsePayload: '{"text":"Done!"}',
+        createdAt: T + 29_000,
+      })
+      .run();
+
+    const logs = getRequestLogsByMessageId("a1-ul");
+    expect(logs).toHaveLength(2);
+    expect(logs[0]?.id).toBe("log-unlinked-1");
+    expect(logs[1]?.id).toBe("log-linked-1");
+
+    // Verify opportunistic backfill ran: the unlinked log should now have a messageId
+    const backfilledLog = db
+      .select({ messageId: llmRequestLogs.messageId })
+      .from(llmRequestLogs)
+      .where(sql`${llmRequestLogs.id} = 'log-unlinked-1'`)
+      .get();
+    expect(backfilledLog?.messageId).toBe("a1-ul");
+  });
+
+  test("unlinked logs from different conversations don't bleed", () => {
+    const T = 1_700_000_000_000;
+    const db = getDb();
+    const convA = createConversation("conv-a");
+    const convB = createConversation("conv-b");
+
+    // Conversation A: user + assistant + unlinked log
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u1-a', ${convA.id}, 'user', '"Hello A"', ${T})`,
+    );
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-a', ${convA.id}, 'assistant', '"Hi A"', ${T + 10000})`,
+    );
+    db.insert(llmRequestLogs)
+      .values({
+        id: "log-conv-a",
+        conversationId: convA.id,
+        messageId: null,
+        provider: "anthropic",
+        requestPayload: '{"conv":"A"}',
+        responsePayload: '{"r":"A"}',
+        createdAt: T + 5000,
+      })
+      .run();
+
+    // Conversation B: user + assistant + unlinked log (overlapping timestamps)
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u1-b', ${convB.id}, 'user', '"Hello B"', ${T})`,
+    );
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-b', ${convB.id}, 'assistant', '"Hi B"', ${T + 10000})`,
+    );
+    db.insert(llmRequestLogs)
+      .values({
+        id: "log-conv-b",
+        conversationId: convB.id,
+        messageId: null,
+        provider: "anthropic",
+        requestPayload: '{"conv":"B"}',
+        responsePayload: '{"r":"B"}',
+        createdAt: T + 5000,
+      })
+      .run();
+
+    // Query from conv A → should only find conv A's log
+    const logsA = getRequestLogsByMessageId("a1-a");
+    expect(logsA).toHaveLength(1);
+    expect(logsA[0]?.id).toBe("log-conv-a");
+
+    // Query from conv B → should only find conv B's log
+    const logsB = getRequestLogsByMessageId("a1-b");
+    expect(logsB).toHaveLength(1);
+    expect(logsB[0]?.id).toBe("log-conv-b");
+  });
+
+  test("unlinked logs from different turns don't bleed", () => {
+    const T = 1_700_000_000_000;
+    const db = getDb();
+    const conv = createConversation("two-turn-unlinked");
+
+    // Turn 1: user → assistant (with linked log)
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u1-t', ${conv.id}, 'user', '"Turn 1"', ${T})`,
+    );
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-t', ${conv.id}, 'assistant', '"Answer 1"', ${T + 10000})`,
+    );
+    db.insert(llmRequestLogs)
+      .values({
+        id: "log-turn1-unlinked",
+        conversationId: conv.id,
+        messageId: null,
+        provider: "anthropic",
+        requestPayload: '{"turn":1}',
+        responsePayload: '{"r":1}',
+        createdAt: T + 5000,
+      })
+      .run();
+
+    // Turn 2: user → assistant (with unlinked log)
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u2-t', ${conv.id}, 'user', '"Turn 2"', ${T + 60000})`,
+    );
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a2-t', ${conv.id}, 'assistant', '"Answer 2"', ${T + 70000})`,
+    );
+    db.insert(llmRequestLogs)
+      .values({
+        id: "log-turn2-unlinked",
+        conversationId: conv.id,
+        messageId: null,
+        provider: "anthropic",
+        requestPayload: '{"turn":2}',
+        responsePayload: '{"r":2}',
+        createdAt: T + 65000,
+      })
+      .run();
+
+    // Query turn 2 → should only find turn 2's unlinked log
+    const turn2Logs = getRequestLogsByMessageId("a2-t");
+    expect(turn2Logs).toHaveLength(1);
+    expect(turn2Logs[0]?.id).toBe("log-turn2-unlinked");
+
+    // Query turn 1 → should only find turn 1's unlinked log
+    const turn1Logs = getRequestLogsByMessageId("a1-t");
+    expect(turn1Logs).toHaveLength(1);
+    expect(turn1Logs[0]?.id).toBe("log-turn1-unlinked");
+  });
+
   test("relinkLlmRequestLogs moves logs from deleted messages to consolidated message", async () => {
     const conv = createConversation("relink-test");
 

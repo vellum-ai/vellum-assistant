@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
@@ -53,22 +53,15 @@ export function loadIntegrityManifest(): IntegrityManifest {
   }
 }
 
-function saveIntegrityManifest(manifest: IntegrityManifest): void {
-  writeFileSync(
-    getIntegrityPath(),
-    JSON.stringify(manifest, null, 2) + "\n",
-    "utf-8",
-  );
-}
-
 /**
  * Record or verify the content hash of an installed skill.
  * On first install: stores the hash (trust-on-first-use).
  * On subsequent installs: compares with stored hash and warns on mismatch.
  *
- * Reads/writes `contentHash` from `install-meta.json` when available,
- * falling back to the legacy `.integrity.json` manifest for skills that
- * haven't been migrated yet.
+ * Always writes to `install-meta.json`. For skills that don't have one yet,
+ * creates a new `install-meta.json` with minimal metadata. Reads from the
+ * legacy `.integrity.json` manifest as a read-only fallback for stored hashes
+ * from skills that haven't been migrated yet.
  */
 export function verifyAndRecordSkillHash(slug: string): void {
   const skillDir = join(getManagedSkillsDir(), slug);
@@ -126,13 +119,17 @@ export function verifyAndRecordSkillHash(slug: string): void {
     );
   }
 
-  // Write to install-meta.json if it exists (preferred), otherwise legacy manifest
+  // Write to install-meta.json (preferred). If no install-meta exists yet,
+  // create one with minimal metadata.
   if (installMeta) {
     writeInstallMeta(skillDir, { ...installMeta, contentHash: hash });
   } else {
-    const manifest = loadIntegrityManifest();
-    manifest[slug] = { sha256: hash, installedAt: new Date().toISOString() };
-    saveIntegrityManifest(manifest);
+    writeInstallMeta(skillDir, {
+      origin: "clawhub",
+      installedAt: new Date().toISOString(),
+      slug,
+      contentHash: hash,
+    });
   }
 }
 

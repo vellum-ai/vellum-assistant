@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 
 import type { Command } from "commander";
 
+import { getIsContainerized } from "../../../config/env-registry.js";
 import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
 import {
   getAppByProviderAndClientId,
@@ -9,7 +10,7 @@ import {
   getProvider,
 } from "../../../oauth/oauth-store.js";
 import { renderOAuthCompletionPage } from "../../../security/oauth-completion-page.js";
-import { openInBrowser } from "../../../util/browser.js";
+import { openInHostBrowser } from "../../../util/browser.js";
 import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -178,15 +179,23 @@ Examples:
 
             // When opening the browser, start a local server to show a nice
             // completion page instead of redirecting to the platform website.
+            //
+            // In containerized mode the loopback server is unreachable from
+            // the host browser, so redirect to the platform's own completion
+            // page instead.
             let redirectServer:
               | { redirectUrl: string; cleanup: () => void }
               | undefined;
             if (opts.browser !== false) {
-              try {
-                redirectServer = await startManagedRedirectServer(provider);
-                body.redirect_after_connect = redirectServer.redirectUrl;
-              } catch {
-                // Non-fatal — fall back to platform default redirect
+              if (getIsContainerized()) {
+                body.redirect_after_connect = "/account/oauth/desktop-complete";
+              } else {
+                try {
+                  redirectServer = await startManagedRedirectServer(provider);
+                  body.redirect_after_connect = redirectServer.redirectUrl;
+                } catch {
+                  // Non-fatal — fall back to platform default redirect
+                }
               }
             }
 
@@ -234,7 +243,7 @@ Examples:
                 }
                 const snapshotIds = new Set(snapshotEntries.map((e) => e.id));
 
-                openInBrowser(result.connect_url);
+                await openInHostBrowser(result.connect_url);
 
                 if (!jsonMode) {
                   log.info(
@@ -379,7 +388,7 @@ Examples:
               clientSecret,
               callbackTransport: opts.callbackTransport,
               isInteractive: opts.browser !== false,
-              openUrl: opts.browser !== false ? openInBrowser : undefined,
+              openUrl: opts.browser !== false ? openInHostBrowser : undefined,
               ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
             });
 

@@ -53,14 +53,27 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - Connection State (internal)
 
     /// Whether auto-wake should be attempted on disconnect.
-    /// Only applies to local assistants (not remote, Docker, or managed).
+    /// Applies to local and Docker assistants (not remote or managed).
     private var isLocal: Bool {
         #if os(macOS)
         guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"),
               let assistant = LockfileAssistant.loadByName(id) else {
             return false
         }
-        return !assistant.isRemote && !assistant.isManaged
+        return (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the connected assistant is a managed (platform-hosted) assistant.
+    private var isManaged: Bool {
+        #if os(macOS)
+        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              let assistant = LockfileAssistant.loadByName(id) else {
+            return false
+        }
+        return assistant.isManaged
         #else
         return false
         #endif
@@ -363,9 +376,7 @@ public final class GatewayConnectionManager: ObservableObject {
               let parsedB = VersionCompat.parse(b) else {
             return a == b
         }
-        return parsedA.major == parsedB.major
-            && parsedA.minor == parsedB.minor
-            && parsedA.patch == parsedB.patch
+        return parsedA.coreEquals(parsedB)
     }
 
     // MARK: - Version Change Handling
@@ -577,11 +588,11 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - Background Reconnection Loop
 
     /// Retries connection with increasing delays after the initial `connect()` fails.
-    /// Only applies to local assistants on macOS. Uses health checks and auto-wake
-    /// to reconnect without calling `connectImpl()` (which would interfere via
+    /// Applies to local and managed assistants on macOS. Uses health checks and auto-wake
+    /// (local only) to reconnect without calling `connectImpl()` (which would interfere via
     /// `disconnectInternal()`). Cancelled on explicit `disconnect()` or `reconfigure()`.
     private func startReconnectionLoop() {
-        guard isLocal, shouldReconnect else { return }
+        guard (isLocal || isManaged), shouldReconnect else { return }
         reconnectionTask?.cancel()
         reconnectionGeneration += 1
         let generation = reconnectionGeneration
@@ -611,6 +622,12 @@ public final class GatewayConnectionManager: ObservableObject {
                 do {
                     try await self.performHealthCheck()
                 } catch {
+                    // Managed assistants have no local gateway to wake — just retry
+                    if self.isManaged {
+                        log.warning("reconnect-loop: health check failed for managed assistant: \(error)")
+                        continue
+                    }
+
                     // Health check failed — try auto-wake if gateway unreachable
                     if let wakeHandler = self.wakeHandler {
                         let reachable = await HealthCheckClient.isReachable()

@@ -54,9 +54,7 @@ struct MainWindowVersionMismatchBanner: View {
               let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
               let daemonParsed = VersionCompat.parse(daemonVersion),
               let clientParsed = VersionCompat.parse(clientVersion) else { return false }
-        if daemonParsed.major != clientParsed.major { return daemonParsed.major < clientParsed.major }
-        if daemonParsed.minor != clientParsed.minor { return daemonParsed.minor < clientParsed.minor }
-        return daemonParsed.patch < clientParsed.patch
+        return daemonParsed < clientParsed
     }
 
     /// Contextual message for version mismatch: tells user which side is behind.
@@ -67,11 +65,7 @@ struct MainWindowVersionMismatchBanner: View {
               let clientParsed = VersionCompat.parse(clientVersion) else {
             return "Your app and assistant versions don't match."
         }
-        let daemonBehind: Bool = {
-            if daemonParsed.major != clientParsed.major { return daemonParsed.major < clientParsed.major }
-            if daemonParsed.minor != clientParsed.minor { return daemonParsed.minor < clientParsed.minor }
-            return daemonParsed.patch < clientParsed.patch
-        }()
+        let daemonBehind = daemonParsed < clientParsed
         if daemonBehind {
             return "Your assistant (\(daemonVersion)) doesn't match this app (\(clientVersion)). Update your assistant to match."
         } else {

@@ -42,7 +42,7 @@ import {
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
-import { parseVersion } from "../lib/version-compat.js";
+import { compareVersions } from "../lib/version-compat.js";
 
 interface UpgradeArgs {
   name: string | null;
@@ -193,21 +193,12 @@ async function upgradeDocker(
   // Users should use `vellum rollback --version <version>` for downgrades.
   const currentVersion = entry.serviceGroupVersion;
   if (currentVersion && versionTag) {
-    const current = parseVersion(currentVersion);
-    const target = parseVersion(versionTag);
-    if (current && target) {
-      const isOlder =
-        target.major < current.major ||
-        (target.major === current.major && target.minor < current.minor) ||
-        (target.major === current.major &&
-          target.minor === current.minor &&
-          target.patch < current.patch);
-      if (isOlder) {
-        const msg = `Cannot upgrade to an older version (${versionTag} < ${currentVersion}). Use \`vellum rollback --version ${versionTag}\` instead.`;
-        console.error(msg);
-        emitCliError("VERSION_DIRECTION", msg);
-        process.exit(1);
-      }
+    const cmp = compareVersions(versionTag, currentVersion);
+    if (cmp !== null && cmp < 0) {
+      const msg = `Cannot upgrade to an older version (${versionTag} < ${currentVersion}). Use \`vellum rollback --version ${versionTag}\` instead.`;
+      console.error(msg);
+      emitCliError("VERSION_DIRECTION", msg);
+      process.exit(1);
     }
   }
 
@@ -694,21 +685,12 @@ async function upgradePlatform(
   // we must not block the request based on the local CLI version.
   const currentVersion = entry.serviceGroupVersion;
   if (version && currentVersion) {
-    const current = parseVersion(currentVersion);
-    const target = parseVersion(version);
-    if (current && target) {
-      const isOlder =
-        target.major < current.major ||
-        (target.major === current.major && target.minor < current.minor) ||
-        (target.major === current.major &&
-          target.minor === current.minor &&
-          target.patch < current.patch);
-      if (isOlder) {
-        const msg = `Cannot upgrade to an older version (${version} < ${currentVersion}). Use \`vellum rollback --version ${version}\` instead.`;
-        console.error(msg);
-        emitCliError("VERSION_DIRECTION", msg);
-        process.exit(1);
-      }
+    const cmp = compareVersions(version, currentVersion);
+    if (cmp !== null && cmp < 0) {
+      const msg = `Cannot upgrade to an older version (${version} < ${currentVersion}). Use \`vellum rollback --version ${version}\` instead.`;
+      console.error(msg);
+      emitCliError("VERSION_DIRECTION", msg);
+      process.exit(1);
     }
   }
 

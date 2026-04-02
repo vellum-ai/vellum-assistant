@@ -9,14 +9,13 @@ import type { ToolDefinition } from "../../providers/types.js";
 /**
  * Explicit memory search across the living graph or raw archive.
  *
- * Auto-injected context handles most cases. This tool is for when
- * the assistant needs deeper recall — e.g. the user references a
- * past conversation, or the assistant needs to verify a memory.
+ * Auto-injected context covers common cases, but the assistant should
+ * proactively recall when uncertain — search first, ask second.
  */
 export const graphRecallDefinition: ToolDefinition = {
   name: "recall",
   description:
-    "Search your memory for specific information. Relevant memories are auto-injected each turn, so only call this when the auto-injected context doesn't contain what you need — e.g. the user references a past conversation, you need to verify a memory against the raw archive, or you want to search by a specific feeling, time period, or person. Be specific in your query for best results.",
+    "Search your memory for specific information. Use this proactively — if you're uncertain about something, look it up before asking. Auto-injected context covers common cases, but actively recall when: you're about to ask a question that memory might answer, the user references something you should already know, you need details about a past conversation or event, or you want to search by a specific feeling, time period, or person. When in doubt, search first, ask second. Be specific in your query for best results.",
   input_schema: {
     type: "object",
     properties: {
@@ -25,11 +24,16 @@ export const graphRecallDefinition: ToolDefinition = {
         description:
           "What you're looking for — be specific and descriptive. Can be a topic, feeling, time period, or person.",
       },
+      num_results: {
+        type: "integer",
+        description:
+          "Maximum number of results to return (default 20, max 50).",
+      },
       mode: {
         type: "string",
         enum: ["memory", "archive"],
         description:
-          '"memory" searches the living memory graph (default). "archive" searches raw conversation transcripts for exact words and full context.',
+          '"memory" searches the living memory graph using semantic similarity (default). "archive" searches raw conversation transcripts using keyword matching. Supports FTS5 syntax: use "quoted phrases" for exact matching, AND/OR for boolean logic, NEAR(word1 word2, N) for proximity. Without operators, all keywords must appear (implicit AND). Short words like "I" and "a" are ignored. Prefer "memory" for conceptual/emotional queries, "archive" for finding specific wording.',
       },
       filters: {
         type: "object",
@@ -61,10 +65,6 @@ export const graphRecallDefinition: ToolDefinition = {
             type: "string",
             description:
               "Only return memories created before this date (ISO 8601)",
-          },
-          min_confidence: {
-            type: "number",
-            description: "Minimum confidence threshold (0-1)",
           },
         },
       },

@@ -180,7 +180,7 @@ describe("CES flags do not affect unrelated flags", () => {
     expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(true);
   });
 
-  test("enabling all CES flags does not change contacts flag (defaultEnabled: true)", () => {
+  test("enabling all CES flags does not change sounds flag (defaultEnabled: true)", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
@@ -188,7 +188,7 @@ describe("CES flags do not affect unrelated flags", () => {
     _setOverridesForTesting(overrides);
     const config = makeConfig();
 
-    // contacts defaults to true in the registry and should stay true
-    expect(isAssistantFeatureFlagEnabled("contacts", config)).toBe(true);
+    // sounds defaults to true in the registry and should stay true
+    expect(isAssistantFeatureFlagEnabled("sounds", config)).toBe(true);
   });
 });

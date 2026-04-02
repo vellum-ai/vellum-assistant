@@ -1,4 +1,5 @@
 import { fileTypeFromBuffer } from "file-type";
+import { validateDownloadedContent } from "../download-validation.js";
 import { fetchImpl } from "../fetch.js";
 import type { SlackFile } from "./normalize.js";
 
@@ -42,6 +43,8 @@ export async function downloadSlackFile(
     detected?.mime ||
     response.headers.get("Content-Type")?.split(";")[0].trim() ||
     "application/octet-stream";
+
+  await validateDownloadedContent(new Uint8Array(buffer), mimeType, file.id);
 
   const filename = file.name || `slack_file_${file.id}`;
   const data = Buffer.from(buffer).toString("base64");

@@ -16,7 +16,7 @@ import { loadGuardianToken } from "./guardian-token.js";
 import { getPlatformUrl } from "./platform-client.js";
 import { resolveImageRefs } from "./platform-releases.js";
 import { exec, execOutput } from "./step-runner.js";
-import { parseVersion } from "./version-compat.js";
+import { compareVersions } from "./version-compat.js";
 
 // ---------------------------------------------------------------------------
 // Shared constants & builders for upgrade / rollback lifecycle events
@@ -318,26 +318,16 @@ export async function performDockerRollback(
 
   // Validate target version < current version
   if (currentVersion) {
-    const current = parseVersion(currentVersion);
-    const target = parseVersion(targetVersion);
-    if (current && target) {
-      const isNewer = (() => {
-        if (target.major !== current.major) return target.major > current.major;
-        if (target.minor !== current.minor) return target.minor > current.minor;
-        return target.patch > current.patch;
-      })();
-      if (isNewer) {
+    const cmp = compareVersions(targetVersion, currentVersion);
+    if (cmp !== null) {
+      if (cmp > 0) {
         const msg =
           "Cannot roll back to a newer version. Use `vellum upgrade` instead.";
         console.error(msg);
         emitCliError("VERSION_DIRECTION", msg);
         process.exit(1);
       }
-      const isSame =
-        target.major === current.major &&
-        target.minor === current.minor &&
-        target.patch === current.patch;
-      if (isSame) {
+      if (cmp === 0) {
         const msg = `Already on version ${targetVersion}. Nothing to roll back to.`;
         console.error(msg);
         emitCliError("VERSION_DIRECTION", msg);

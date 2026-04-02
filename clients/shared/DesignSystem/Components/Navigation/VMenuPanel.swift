@@ -45,11 +45,23 @@ public class VMenuPanel: NSPanel {
             backing: .buffered,
             defer: true
         )
+        // isFloatingPanel sets level to .floating by default — do not
+        // override with .popUpMenu, which is level 101 and causes the panel
+        // to render above *all* windows on the desktop, including other apps.
+        // See: https://developer.apple.com/documentation/appkit/nswindow/level
         panel.isFloatingPanel = true
-        panel.level = .popUpMenu
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+
+        // Accessibility: configure the panel so VoiceOver can navigate its SwiftUI content.
+        // - Role description "menu" preserves the announcement without the behavioral
+        //   implications of setAccessibilityRole(.menu), which expects native NSMenu-style
+        //   .menuItem children that SwiftUI can't provide.
+        // - Subrole .standardWindow prevents VoiceOver from treating it as "system dialog"
+        //   which blocks direct item navigation.
+        panel.setAccessibilityRoleDescription(NSLocalizedString("menu", comment: "Accessibility role description for VMenu panel"))
+        panel.setAccessibilitySubrole(.standardWindow)
 
         // Create coordinator for this panel tree
         let coordinator = VMenuCoordinator()
@@ -65,22 +77,14 @@ public class VMenuPanel: NSPanel {
             .environment(\.vMenuDismiss, { [weak coordinator] in coordinator?.dismissAll() })
             .environment(\.vMenuCoordinator, coordinator)
             .padding(Self.shadowInset)
+        // Use NSHostingView directly as contentView — no FirstMouseView wrapper.
+        // This preserves the natural NSPanel → NSHostingView → SwiftUI accessibility
+        // hierarchy that VoiceOver needs for both navigation and action activation.
+        // The panel is .nonactivatingPanel with canBecomeKey=true, so clicks are
+        // processed immediately without needing acceptsFirstMouse.
         let hostingView = NSHostingView(rootView: paddedContent)
         hostingView.sizingOptions = [.intrinsicContentSize]
-
-        let container = FirstMouseView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = .clear
-
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(hostingView)
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: container.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-        panel.contentView = container
+        panel.contentView = hostingView
 
         let fittingSize = hostingView.fittingSize
         let menuSize = CGSize(
@@ -90,11 +94,32 @@ public class VMenuPanel: NSPanel {
 
         let origin = clampedOrigin(for: menuSize, cursorAt: screenPoint)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
+
+        // Detect the source window before ordering the panel to avoid
+        // picking up the panel itself in the window list.
+        let sourceWindow = NSApp.windows.first(where: { $0.frame.contains(screenPoint) && !($0 is VMenuPanel) })
+
         panel.makeKeyAndOrderFront(nil)
 
+        // Attach as a child window so the menu stays grouped with its
+        // parent and doesn't float above unrelated windows from other apps.
+        // See: https://developer.apple.com/documentation/appkit/nswindow/addchildwindow(_:ordered:)
+        if let sourceWindow {
+            sourceWindow.addChildWindow(panel, ordered: .above)
+        }
+
         // Register with coordinator — it installs the unified click monitor
-        let sourceWindow = NSApp.windows.first(where: { $0.frame.contains(screenPoint) && !($0 is VMenuPanel) })
         coordinator.registerRootPanel(panel, sourceWindow: sourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
+
+        // Notify VoiceOver that a new menu appeared so it navigates into it.
+        DispatchQueue.main.async {
+            NSAccessibility.post(element: panel, notification: .created)
+            if let firstChild = hostingView.accessibilityChildren()?.first {
+                NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
+            } else {
+                NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+            }
+        }
 
         return panel
     }
@@ -116,10 +141,11 @@ public class VMenuPanel: NSPanel {
             defer: true
         )
         panel.isFloatingPanel = true
-        panel.level = .popUpMenu
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.setAccessibilityRoleDescription(NSLocalizedString("menu", comment: "Accessibility role description for VMenu panel"))
+        panel.setAccessibilitySubrole(.standardWindow)
         panel.coordinator = coordinator
         panel.managedByCoordinator = true
 
@@ -141,20 +167,7 @@ public class VMenuPanel: NSPanel {
 
         let hostingView = NSHostingView(rootView: paddedContent)
         hostingView.sizingOptions = [.intrinsicContentSize]
-
-        let container = FirstMouseView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = .clear
-
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(hostingView)
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: container.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-        panel.contentView = container
+        panel.contentView = hostingView
 
         let fittingSize = hostingView.fittingSize
         let menuSize = CGSize(
@@ -165,6 +178,16 @@ public class VMenuPanel: NSPanel {
         let origin = anchoredOrigin(for: menuSize, anchorRect: itemRect)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
         panel.makeKeyAndOrderFront(nil)
+
+        // Notify VoiceOver that a new submenu appeared.
+        DispatchQueue.main.async {
+            NSAccessibility.post(element: panel, notification: .created)
+            if let firstChild = hostingView.accessibilityChildren()?.first {
+                NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
+            } else {
+                NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+            }
+        }
 
         return panel
     }
@@ -246,6 +269,12 @@ public class VMenuPanel: NSPanel {
         clickMonitor.flatMap(NSEvent.removeMonitor)
         clickMonitor = nil
 
+        // Detach from parent window before closing so the parent's
+        // child window list stays clean.
+        if let parentWindow = parent {
+            parentWindow.removeChildWindow(self)
+        }
+
         let handler = dismissHandler
         dismissHandler = nil
 
@@ -281,15 +310,9 @@ public class VMenuPanel: NSPanel {
 
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { false }
+
 }
 
-// MARK: - FirstMouseView
-
-/// Container view that accepts first-mouse clicks so taps work immediately
-/// in a floating panel without requiring a focus click first.
-class FirstMouseView: NSView {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
 
 // MARK: - .vContextMenu modifier
 

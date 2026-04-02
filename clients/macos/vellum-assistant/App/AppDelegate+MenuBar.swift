@@ -233,8 +233,9 @@ extension AppDelegate {
     /// Builds the status item tooltip, appending PTT key info when enabled.
     private func menuBarTooltip() -> String {
         let activator = PTTActivator.cached
-        guard activator.kind != .none else { return "Vellum" }
-        return "Vellum — hold \(activator.displayName) to talk"
+        let name = Self.appName
+        guard activator.kind != .none else { return name }
+        return "\(name) — hold \(activator.displayName) to talk"
     }
 
     func configureMenuBarIcon(_ button: NSStatusBarButton) {
@@ -341,7 +342,7 @@ extension AppDelegate {
         menu.autoenablesItems = false
 
         let status = currentAssistantStatus
-        let name = AssistantDisplayName.resolve(IdentityInfo.load()?.name)
+        let name = AssistantDisplayName.resolve(IdentityInfo.current?.name)
         let statusItem = NSMenuItem(title: status.menuTitle(assistantName: name), action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         statusItem.image = status.statusIcon

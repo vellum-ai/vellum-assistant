@@ -13,7 +13,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parseImageDimensions } from "../context/image-dimensions.js";
-import { getWorkspaceDir } from "../util/platform.js";
 
 // Anthropic's documented max dimension — images larger than this are scaled
 // down server-side anyway, so pre-scaling is zero quality loss.
@@ -25,11 +24,10 @@ const OPTIMIZE_THRESHOLD_BYTES = 300 * 1024; // 300 KB
 const JPEG_QUALITY = 80;
 
 // Content-addressed disk cache to avoid re-running sips on the same image.
-const CACHE_SUBDIR = "cache/optimized-images";
 const CACHE_MAX_ENTRIES = 500;
 
 function getCacheDir(): string {
-  return join(getWorkspaceDir(), CACHE_SUBDIR);
+  return join(tmpdir(), "vellum-optimized-images");
 }
 
 function readFromCache(

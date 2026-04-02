@@ -864,7 +864,7 @@ async function main() {
       handler: (req) => handleFeatureFlagsGet(req),
     },
     {
-      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/$/,
+      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/?$/,
       method: "GET",
       auth: "edge-scoped",
       scope: "feature_flags.read",
@@ -1240,6 +1240,7 @@ async function main() {
               !isCallback
             ) {
               attachmentIds = [];
+              const failedAttachmentNames: string[] = [];
               const maxBytes =
                 config.maxAttachmentBytes.slack ??
                 config.maxAttachmentBytes.default;
@@ -1290,23 +1291,35 @@ async function main() {
                     });
                   }),
                 );
-                for (const result of results) {
+                for (let j = 0; j < results.length; j++) {
+                  const result = results[j];
                   if (result.status === "fulfilled") {
                     attachmentIds.push(result.value.id);
                   } else if (
                     result.reason instanceof AttachmentValidationError
                   ) {
+                    const att = batch[j];
+                    failedAttachmentNames.push(att.fileName || att.fileId);
                     log.warn(
                       { err: result.reason },
                       "Skipping Slack attachment with validation error",
                     );
                   } else {
+                    const att = batch[j];
+                    failedAttachmentNames.push(att.fileName || att.fileId);
                     log.warn(
                       { err: result.reason },
                       "Skipping Slack attachment due to download/upload failure",
                     );
                   }
                 }
+              }
+
+              if (failedAttachmentNames.length > 0) {
+                const nameList = failedAttachmentNames
+                  .map((n) => `"${n}"`)
+                  .join(", ");
+                normalized.event.message.content += `\n\n[The user attached file(s) that could not be retrieved: ${nameList}. Ask them to re-send if the content is important.]`;
               }
             }
 

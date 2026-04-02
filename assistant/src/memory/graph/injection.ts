@@ -6,14 +6,14 @@ import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { getLogger } from "../../util/logger.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import type { MemoryNode, ScoredNode } from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Image injection budgets
 // ---------------------------------------------------------------------------
 
 export const MAX_CONTEXT_LOAD_IMAGES = 3;
-export const MAX_PER_TURN_IMAGES = 1;
-export const MAX_REFRESH_IMAGES = 2;
+export const MAX_PER_TURN_IMAGES = 2;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -165,8 +165,13 @@ export function formatEventDate(epochMs: number): string {
   const monthName = monthNames[date.getMonth()];
   const dayOfMonth = date.getDate();
 
-  // Include time only when hours/minutes are non-zero (midnight = date-only event)
-  const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+  // Heuristic: date-only events are stored as midnight UTC, so we treat
+  // midnight-UTC epochs as "no time component".  This is lossy — a timed event
+  // genuinely scheduled at 00:00 UTC will have its time display silently dropped.
+  // Fixing this properly requires the event storage layer to carry an explicit
+  // `hasTime` flag; until then this is the best available approximation.
+  // Use UTC methods so west-of-UTC local offsets don't defeat the check.
+  const hasTime = date.getUTCHours() !== 0 || date.getUTCMinutes() !== 0;
   let datePart = `${dayName} ${monthName} ${dayOfMonth}`;
   if (hasTime) {
     const hours = date.getHours();
@@ -192,9 +197,12 @@ export function formatEventDate(epochMs: number): string {
   );
 
   let relative: string;
-  if (diffDays === 0 || diffDays === -1) {
-    // Same calendar day, or just crossed midnight — treat as "today"
+  if (diffDays === 0) {
     relative = "today";
+  } else if (diffDays === -1) {
+    // For date-only inputs (no time component), -1 day can be UTC midnight drift — treat as "today".
+    // For timed events, -1 day is genuinely yesterday.
+    relative = hasTime ? "yesterday" : "today";
   } else if (diffDays < -1) {
     // Past dates
     const absDays = -diffDays;
@@ -258,6 +266,7 @@ export function assembleContextBlock(
   const threads: ScoredNode[] = [];
   const triggered: ScoredNode[] = [];
   const upcoming: ScoredNode[] = [];
+  const capabilities: ScoredNode[] = [];
   const onMyMind: ScoredNode[] = [];
 
   for (const scored of nodes) {
@@ -270,6 +279,8 @@ export function assembleContextBlock(
       upcoming.push(scored);
     } else if (node.type === "prospective") {
       threads.push(scored);
+    } else if (isCapabilityNode(node)) {
+      capabilities.push(scored);
     } else if (node.type === "emotional" && isRecent(node)) {
       // Recent emotional nodes go in "Right Now" — present-tense state
       rightNow.push(scored);
@@ -300,6 +311,15 @@ export function assembleContextBlock(
     if (entries.length > 0) {
       parts.push(`### Active Threads\n${entries.join("\n")}`);
     }
+  }
+
+  // --- Skills You Can Use ---
+  if (capabilities.length > 0) {
+    const entries = capabilities.slice(0, 5).map((scored) => {
+      const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
+      return `- ${content} → use skill_load to activate`;
+    });
+    parts.push(`### Skills You Can Use\n${entries.join("\n")}`);
   }
 
   // --- Upcoming ---
@@ -351,6 +371,10 @@ export function assembleInjectionBlock(nodes: ScoredNode[]): string {
   if (nodes.length === 0) return "";
   return nodes
     .map((scored) => {
+      if (isCapabilityNode(scored.node)) {
+        const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
+        return `- [skill] ${content} → use skill_load to activate`;
+      }
       if (scored.node.eventDate != null) {
         return formatUpcomingEntry(scored);
       }

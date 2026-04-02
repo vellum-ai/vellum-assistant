@@ -151,6 +151,10 @@ export interface DisposeContext extends AbortContext {
   lastSurfaceAction: Map<string, unknown>;
   workspaceTopLevelContext: string | null;
   trustContext?: { trustClass: TrustClass };
+  /** Active memory node IDs snapshotted from the conversation's InContextTracker before disposal. */
+  activeContextNodeIds?: string[];
+  /** Memory scope for extraction — defaults to "default" if omitted. */
+  memoryScopeId?: string;
   abort(): void;
 }
 
@@ -199,6 +203,25 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
       }
 
       content = reinjectImageSourcePaths(content, role, m.metadata);
+
+      // Re-inject persisted memory block from metadata so it survives
+      // conversation reloads (eviction, restart, fork).
+      if (role === "user" && m.metadata) {
+        try {
+          const meta = JSON.parse(m.metadata);
+          if (typeof meta.memoryInjectedBlock === "string") {
+            content = [
+              {
+                type: "text" as const,
+                text: `<memory __injected>\n${meta.memoryInjectedBlock}\n</memory>`,
+              },
+              ...content,
+            ];
+          }
+        } catch {
+          /* ignore parse errors — metadata may be malformed */
+        }
+      }
 
       return { role, content };
     });
@@ -290,6 +313,10 @@ export function disposeConversation(ctx: DisposeContext): void {
     try {
       enqueueMemoryJob("graph_extract", {
         conversationId: ctx.conversationId,
+        scopeId: ctx.memoryScopeId ?? "default",
+        ...(ctx.activeContextNodeIds?.length
+          ? { activeContextNodeIds: ctx.activeContextNodeIds }
+          : {}),
       });
     } catch {
       // Best-effort — don't block conversation disposal

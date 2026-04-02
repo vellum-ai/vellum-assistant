@@ -28,16 +28,16 @@ import { parseFrontmatterFields } from "../skills/frontmatter.js";
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** A SKILL.md with `feature-flag: contacts` declared in its vellum metadata. */
+/** A SKILL.md with `feature-flag: email-channel` declared in its vellum metadata. */
 const SKILL_MD_WITH_FLAG = `---
-name: "Contacts"
-description: "View and manage contacts"
+name: "Email Setup"
+description: "Set up email integration"
 metadata:
   vellum:
-    feature-flag: contacts
+    feature-flag: email-channel
 ---
 
-Instructions for the contacts skill.
+Instructions for the email setup skill.
 `;
 
 /** A SKILL.md with no feature-flag field at all. */
@@ -128,16 +128,16 @@ describe("frontmatter feature-flag integration", () => {
     expect(metadataObj).toBeTruthy();
 
     const vellum = metadataObj.vellum as Record<string, unknown>;
-    expect(vellum["feature-flag"]).toBe("contacts");
+    expect(vellum["feature-flag"]).toBe("email-channel");
   });
 
   test("skillFlagKey returns correct key for parsed skill", () => {
-    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG);
+    const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG);
     expect(skill).not.toBeNull();
-    expect(skill!.featureFlag).toBe("contacts");
+    expect(skill!.featureFlag).toBe("email-channel");
 
     const key = skillFlagKey(skill!);
-    expect(key).toBe("contacts");
+    expect(key).toBe("email-channel");
   });
 
   test("skillFlagKey returns undefined for skill without feature-flag", () => {
@@ -149,27 +149,26 @@ describe("frontmatter feature-flag integration", () => {
     expect(key).toBeUndefined();
   });
 
-  test("resolveSkillStates includes skill with featureFlag when flag defaults to ON", () => {
-    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
-    // "contacts" is in the registry with defaultEnabled: true
-    const config = makeConfig();
-
-    const resolved = resolveSkillStates([skill], config);
-    // Flag defaults to true → skill passes through
-    expect(resolved.length).toBe(1);
-    expect(resolved[0].summary.id).toBe("contacts");
-  });
-
   test("resolveSkillStates includes skill with featureFlag when flag is ON", () => {
     _setOverridesForTesting({
-      contacts: true,
+      "email-channel": true,
     });
-    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
+    const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
     const config = makeConfig();
 
     const resolved = resolveSkillStates([skill], config);
     expect(resolved.length).toBe(1);
-    expect(resolved[0].summary.id).toBe("contacts");
+    expect(resolved[0].summary.id).toBe("email-setup");
+  });
+
+  test("resolveSkillStates excludes skill with featureFlag when flag defaults to OFF", () => {
+    const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
+    // "email-channel" is in the registry with defaultEnabled: false
+    const config = makeConfig();
+
+    const resolved = resolveSkillStates([skill], config);
+    // Flag defaults to false → skill is filtered out
+    expect(resolved.length).toBe(0);
   });
 
   test("resolveSkillStates never gates skill without featureFlag", () => {
@@ -192,26 +191,34 @@ describe("frontmatter feature-flag integration", () => {
     const metadataObj = parsed!.fields.metadata as Record<string, unknown>;
     const vellum = metadataObj.vellum as Record<string, unknown>;
     const flagId = vellum["feature-flag"];
-    expect(flagId).toBe("contacts");
+    expect(flagId).toBe("email-channel");
 
     // Step 2: Build SkillSummary (as the catalog loader would)
-    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
-    expect(skill.featureFlag).toBe("contacts");
+    const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
+    expect(skill.featureFlag).toBe("email-channel");
 
     // Step 3: Derive the flag key
     const key = skillFlagKey(skill);
-    expect(key).toBe("contacts");
+    expect(key).toBe("email-channel");
 
-    // Step 4: Check flag state — "contacts" has defaultEnabled: true in registry
+    // Step 4: Check flag state — "email-channel" has defaultEnabled: false in registry
     const configDefault = makeConfig();
-    expect(isAssistantFeatureFlagEnabled(key!, configDefault)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled(key!, configDefault)).toBe(false);
 
-    // Step 5: resolveSkillStates includes it by default
+    // Step 5: resolveSkillStates excludes it by default (flag is off)
     const resolvedDefault = resolveSkillStates([skill], configDefault);
-    expect(resolvedDefault.length).toBe(1);
-    expect(resolvedDefault[0].summary.id).toBe("contacts");
+    expect(resolvedDefault.length).toBe(0);
 
-    // Step 6: With override disabled, skill is filtered out
+    // Step 6: With override enabled, skill passes through
+    _setOverridesForTesting({ [key!]: true });
+    const configOn = makeConfig();
+    expect(isAssistantFeatureFlagEnabled(key!, configOn)).toBe(true);
+
+    const resolvedOn = resolveSkillStates([skill], configOn);
+    expect(resolvedOn.length).toBe(1);
+    expect(resolvedOn[0].summary.id).toBe("email-setup");
+
+    // Step 7: With override disabled, skill is filtered out
     _setOverridesForTesting({ [key!]: false });
     const configOff = makeConfig();
     expect(isAssistantFeatureFlagEnabled(key!, configOff)).toBe(false);

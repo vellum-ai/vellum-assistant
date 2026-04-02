@@ -5,6 +5,9 @@ import Foundation
 @MainActor @Observable
 public final class MemoryItemsStore {
     public var items: [MemoryItemPayload] = []
+    /// Superset of `items` — accumulates entries across filter/search/page loads
+    /// so cross-reference features (e.g. "Possibly Related") have a wider pool.
+    public private(set) var allLoadedItems: [MemoryItemPayload] = []
     public var total: Int = 0
     public var kindCounts: [String: Int] = [:]
     public var isLoading = false
@@ -39,6 +42,7 @@ public final class MemoryItemsStore {
         )
         if let response {
             items = response.items
+            mergeIntoAllLoaded(response.items)
             total = response.total
             if let serverCounts = response.kindCounts {
                 kindCounts = serverCounts
@@ -70,6 +74,7 @@ public final class MemoryItemsStore {
         )
         if let response {
             items.append(contentsOf: response.items)
+            mergeIntoAllLoaded(response.items)
             total = response.total
         }
         isLoading = false
@@ -131,5 +136,15 @@ public final class MemoryItemsStore {
         let success = await memoryItemClient.deleteMemoryItem(id: id)
         if success { await loadItems() }
         return success
+    }
+
+    private func mergeIntoAllLoaded(_ newItems: [MemoryItemPayload]) {
+        for item in newItems {
+            if let idx = allLoadedItems.firstIndex(where: { $0.id == item.id }) {
+                allLoadedItems[idx] = item
+            } else {
+                allLoadedItems.append(item)
+            }
+        }
     }
 }

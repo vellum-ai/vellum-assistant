@@ -24,6 +24,7 @@ import { packageApp } from "../../bundler/app-bundler.js";
 import { compileApp } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
+import { compareSemver } from "../../daemon/handlers/shared.js";
 import { defaultGallery } from "../../gallery/default-gallery.js";
 import {
   getAppDiff,
@@ -66,17 +67,6 @@ function getSharedAppsDir(): string {
     "vellum-assistant",
     "shared-apps",
   );
-}
-
-/** Compare two semver strings. Returns negative if a < b, 0 if equal, positive if a > b. */
-function compareSemver(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 // ---------------------------------------------------------------------------

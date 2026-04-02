@@ -71,18 +71,11 @@ public struct VInputChromeModifier: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         content
-            .background(shape.fill(isDisabled ? VColor.surfaceOverlay : VColor.surfaceBase))
+            .background(shape.fill(VColor.surfaceLift))
             .overlay(
-                shape.strokeBorder(
-                    borderColor,
-                    lineWidth: (isFocused || isError) ? 1.5 : 1
-                )
+                shape.strokeBorder(borderColor, lineWidth: 1)
             )
             .clipShape(shape)
-            .shadow(
-                color: isFocused && !isError ? VColor.primaryBase.opacity(0.10) : .clear,
-                radius: 4
-            )
             .opacity(isDisabled ? 0.6 : 1.0)
     }
 
@@ -93,7 +86,7 @@ public struct VInputChromeModifier: ViewModifier {
         if isFocused {
             return VColor.borderActive
         }
-        return VColor.borderBase.opacity(0.72)
+        return VColor.borderElement
     }
 }
 

@@ -28,7 +28,6 @@ import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getConversationDirPath } from "../conversation-disk-view.js";
 import { getDb } from "../db.js";
-import { hasImageBlocks } from "../message-content.js";
 import { conversations, messages } from "../schema.js";
 import {
   enqueueGraphNodeEmbed,
@@ -61,6 +60,7 @@ const EXTRACTION_SYSTEM_PROMPT_CHAR_BUDGET = 24_000;
 function buildGraphExtractionSystemPrompt(
   candidateNodes: Array<{ id: string; type: string; content: string }>,
   identityContext: string | null,
+  activeContextNodeIds?: Set<string>,
 ): string {
   const instructions = `You are the memory consolidation process for an AI assistant. A conversation just ended.
 Your job is to extract memories worth keeping and produce a structured diff.
@@ -70,6 +70,8 @@ Your job is to extract memories worth keeping and produce a structured diff.
 Call the \`extract_graph_diff\` tool with the diff. Each node needs:
 
 - **content**: First-person prose — how the assistant naturally remembers this. Write naturally, not as a database entry. E.g. "He mentioned his mom used to make amazing Sunday dinners — he still misses them" not "User's mother cooked Sunday dinners."
+
+Be concise — most memories should be 1-3 sentences capturing the essential detail and emotional weight. Don't narrate every nuance; write a vivid snapshot, not a journal entry. Higher-significance (0.7+) memories can use a short paragraph, but even those should stay focused.
 
 - **type**: Classify by WHAT the memory IS, not how it FEELS. Almost every memory has emotional weight — that goes in emotionalCharge, not the type.
 
@@ -136,7 +138,44 @@ Do NOT attach images that are incidental (screenshots of error messages fully de
 
 Write detailed descriptions — these are used for text-based retrieval when visual search isn't available.
 
-## Candidate Nodes (existing memories)
+${(() => {
+  const reconsolidationNodes = activeContextNodeIds?.size
+    ? candidateNodes.filter((n) => activeContextNodeIds.has(n.id))
+    : [];
+  const otherCandidates = activeContextNodeIds?.size
+    ? candidateNodes.filter((n) => !activeContextNodeIds.has(n.id))
+    : candidateNodes;
+
+  const reconsolidationSection =
+    reconsolidationNodes.length > 0
+      ? `## Reconsolidation Window
+
+These memories were ACTIVELY RECALLED during this conversation — the user and
+assistant both saw them. Recalled memories are in a reconsolidation window and
+should be the FIRST candidates for updating with new information.
+
+When a recalled memory relates to what was discussed:
+- Conversation CONFIRMS what the memory says → REINFORCE it
+- Conversation adds new detail or nuance → UPDATE it with richer content
+- Conversation reveals the memory is outdated or wrong → UPDATE it or create a superseding node
+- Conversation is unrelated to this memory → leave it alone
+
+STRONG PREFERENCE: Update a recalled memory rather than creating a new node that
+partially overlaps. The recalled memory already has history, reinforcement count,
+and edge connections — enriching it preserves that context graph.
+
+### Recalled memories
+${reconsolidationNodes.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}
+
+`
+      : "";
+
+  const candidateHeader =
+    reconsolidationNodes.length > 0
+      ? "## Other Candidate Nodes (existing memories not in this conversation)"
+      : "## Candidate Nodes (existing memories)";
+
+  const candidateSection = `${candidateHeader}
 
 Check these CAREFULLY for overlap before creating any new node:
 
@@ -154,7 +193,10 @@ Common duplicate mistakes to avoid:
 - Same fact restated in a later conversation → REINFORCE, don't create
 - An update to an existing situation (e.g. "project is now done") → UPDATE the existing node, don't create a parallel one
 
-${candidateNodes.length > 0 ? `### Existing memories (candidates for connection/reinforcement)\n${candidateNodes.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}` : "No existing memories found — this may be an early conversation."}
+${otherCandidates.length > 0 ? `### Existing memories (candidates for connection/reinforcement)\n${otherCandidates.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}` : reconsolidationNodes.length > 0 ? "All existing memories are shown in the reconsolidation section above." : "No existing memories found — this may be an early conversation."}`;
+
+  return reconsolidationSection + candidateSection;
+})()}
 `;
 
   let prompt = instructions;
@@ -231,7 +273,7 @@ const EXTRACT_TOOL_SCHEMA = {
               enum: ["direct", "inferred", "observed", "told-by-other"],
             },
             event_date: {
-              type: "number",
+              type: ["number", "null"],
               description:
                 "Epoch ms of the event date for calendar-anchored events (flights, appointments, birthdays, deadlines). Null for non-event memories.",
             },
@@ -325,9 +367,9 @@ const EXTRACT_TOOL_SCHEMA = {
                 "Downgrade fidelity when a transient event has resolved",
             },
             event_date: {
-              type: "number",
+              type: ["number", "null"],
               description:
-                "Epoch ms of the event date. Use to update when an event is rescheduled.",
+                "Epoch ms of the event date. Use to update when an event is rescheduled. Set to null to clear.",
             },
           },
           required: ["id"],
@@ -402,7 +444,7 @@ interface RawUpdateNode {
   significance?: number;
   confidence?: number;
   fidelity?: string;
-  event_date?: number;
+  event_date?: number | null;
 }
 
 interface RawNewEdge {
@@ -597,12 +639,25 @@ export function parseExtractionResponse(
       }
     }
 
-    // Auto-create event trigger when event_date is set but LLM didn't include one
+    // Auto-create event trigger when event_date is set but LLM didn't include one,
+    // or replace a malformed event trigger (event_date unset) with a valid one.
     if (
       node.eventDate != null &&
       (!Array.isArray(raw.triggers) ||
-        !raw.triggers.some((t) => t.type === "event"))
+        !raw.triggers.some((t) => t.type === "event" && t.event_date != null))
     ) {
+      // Remove all malformed event triggers (type=event but missing event_date)
+      for (let i = deferredTriggers.length - 1; i >= 0; i--) {
+        const dt = deferredTriggers[i];
+        if (
+          dt.newNodeIndex === nodeIndex &&
+          dt.trigger.type === "event" &&
+          dt.trigger.eventDate == null
+        ) {
+          deferredTriggers.splice(i, 1);
+        }
+      }
+
       deferredTriggers.push({
         newNodeIndex: nodeIndex,
         trigger: {
@@ -633,6 +688,7 @@ export function parseExtractionResponse(
         const mimeType = resolveImageRefMimeType(
           ref.message_id,
           ref.block_index,
+          conversationId,
         );
         if (!mimeType) continue;
         validRefs.push({
@@ -660,7 +716,8 @@ export function parseExtractionResponse(
       ["vivid", "clear", "faded", "gist"].includes(raw.fidelity)
     )
       changes.fidelity = raw.fidelity;
-    if (raw.event_date !== undefined) changes.eventDate = parseEpochMs(raw.event_date);
+    if (raw.event_date !== undefined)
+      changes.eventDate = parseEpochMs(raw.event_date);
     if (Object.keys(changes).length > 0) {
       diff.updateNodes.push({ id: raw.id, changes });
     }
@@ -759,11 +816,9 @@ export async function runGraphExtraction(
       // from the multimodal message content blocks for candidate search.
       if (imageResult) {
         transcript = imageResult.message.content
-          .filter(
-            (b): b is { type: "text"; text: string } => b.type === "text",
-          )
+          .filter((b): b is { type: "text"; text: string } => b.type === "text")
           .map((b) => b.text)
-          .join("");
+          .join("\n");
       }
       if (!transcript) {
         log.warn(
@@ -804,9 +859,14 @@ export async function runGraphExtraction(
     userPersona: userPersona ?? undefined,
   });
 
+  const activeSet = opts?.activeContextNodeIds
+    ? new Set(opts.activeContextNodeIds)
+    : undefined;
+
   const systemPrompt = buildGraphExtractionSystemPrompt(
     candidateNodes.map((n) => ({ id: n.id, type: n.type, content: n.content })),
     identityContext,
+    activeSet,
   );
 
   // 5. Resolve conversation timestamp before the LLM call so we can include
@@ -890,7 +950,7 @@ export async function runGraphExtraction(
   }
 
   // 8. Apply the diff
-  const result = applyDiff(diff);
+  const result = applyDiff(diff, { conversationId });
 
   // 9. Apply deferred edges and triggers using the created node IDs
   const createdNodeIds = result.createdNodeIds;
@@ -1002,12 +1062,18 @@ function resolveConversationTimestamp(conversationId: string): number | null {
 function resolveImageRefMimeType(
   messageId: string,
   blockIndex: number,
+  conversationId: string,
 ): string | null {
   const db = getDb();
   const msg = db
     .select({ content: messages.content })
     .from(messages)
-    .where(eq(messages.id, messageId))
+    .where(
+      and(
+        eq(messages.id, messageId),
+        eq(messages.conversationId, conversationId),
+      ),
+    )
     .get();
   if (!msg) return null;
 
@@ -1139,44 +1205,35 @@ export function loadTranscriptWithImages(
       parsed = [{ type: "text", text: row.content }];
     }
 
-    // Extract text blocks for the transcript line
-    const textParts: string[] = [];
-    for (const block of parsed) {
-      if (block.type === "text") {
-        textParts.push(block.text);
-      }
-    }
-
-    if (textParts.length > 0) {
-      const textLine = `[${row.role}]: ${textParts.join("\n")}`;
-      totalTextLength += textLine.length;
-      contentBlocks.push({ type: "text", text: textLine });
-    }
-
-    // Check for image blocks and interleave them
-    if (hasImageBlocks(row.content)) {
-      for (let i = 0; i < parsed.length; i++) {
-        const block = parsed[i];
-        if (block?.type === "image") {
-          if (imageCount < MAX_IMAGES) {
-            const imgBlock = block as ImageContent;
-            // Add annotation so the extraction LLM knows the image's reference coordinates
-            contentBlocks.push({
-              type: "text",
-              text: `<image message_id="${row.id}" block_index="${i}" type="${imgBlock.source.media_type}" />`,
-            });
-            contentBlocks.push(imgBlock);
-            imageCount++;
-            hasImagesFlag = true;
-          }
-          // After cap, skip image blocks but continue processing text
+    // Build content blocks preserving original text/image interleaving
+    let prefixAdded = false;
+    for (let i = 0; i < parsed.length; i++) {
+      const block = parsed[i];
+      if (block?.type === "text") {
+        const rawText = typeof block.text === "string" ? block.text : "";
+        const text = prefixAdded ? rawText : `[${row.role}]: ${rawText}`;
+        prefixAdded = true;
+        totalTextLength += text.length;
+        contentBlocks.push({ type: "text", text });
+      } else if (block?.type === "image") {
+        if (imageCount < MAX_IMAGES) {
+          const imgBlock = block as ImageContent;
+          // Add annotation so the extraction LLM knows the image's reference coordinates
+          contentBlocks.push({
+            type: "text",
+            text: `<image message_id="${row.id}" block_index="${i}" type="${imgBlock.source.media_type}" />`,
+          });
+          contentBlocks.push(imgBlock);
+          imageCount++;
+          hasImagesFlag = true;
         }
+        // After cap, skip image blocks but continue processing text
       }
     }
   }
 
-  // Skip if transcript is too short
-  if (totalTextLength < 100) return null;
+  // Skip if transcript is too short (images count toward the threshold)
+  if (totalTextLength < 100 && !hasImagesFlag) return null;
 
   const message: Message = {
     role: "user",

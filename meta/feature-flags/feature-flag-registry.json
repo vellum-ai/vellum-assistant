@@ -26,14 +26,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "contacts",
-      "scope": "assistant",
-      "key": "contacts",
-      "label": "Contacts",
-      "description": "Show the Contacts tab in Settings for viewing and managing contacts",
-      "defaultEnabled": true
-    },
-    {
       "id": "email-channel",
       "scope": "assistant",
       "key": "email-channel",
@@ -178,6 +170,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "settings-integrations-grid",
+      "scope": "assistant",
+      "key": "settings-integrations-grid",
+      "label": "Integrations Grid",
+      "description": "Show the Integrations grid in Models & Services settings, replacing individual OAuth provider cards",
+      "defaultEnabled": false
+    },
+    {
       "id": "quick-input",
       "scope": "macos",
       "key": "quick-input",
@@ -242,14 +242,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "show-background-conversations",
-      "scope": "assistant",
-      "key": "show-background-conversations",
-      "label": "Show Background Conversations",
-      "description": "Include background conversations (heartbeat, tasks) in the sidebar conversation list",
-      "defaultEnabled": false
-    },
-    {
       "id": "voice-mode",
       "scope": "assistant",
       "key": "voice-mode",
@@ -283,3 +275,4 @@
     }
   ]
 }
+

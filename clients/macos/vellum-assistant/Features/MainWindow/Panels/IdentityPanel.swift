@@ -311,7 +311,7 @@ struct IdentityPanel: View {
         Task {
             let response = await SkillsClient().fetchSkillsList(includeCatalog: false)
             if let response {
-                let enabled = response.skills.filter { $0.state == "enabled" }
+                let enabled = response.skills.filter { $0.status == "enabled" }
                 skills = enabled
                 var map: [String: SkillCategory] = [:]
                 map.reserveCapacity(enabled.count)

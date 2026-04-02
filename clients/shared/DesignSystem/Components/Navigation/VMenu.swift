@@ -135,6 +135,7 @@ public struct VMenuItem<Trailing: View>: View {
     public let isActive: Bool
     public let variant: VMenuItemVariant
     public let size: VMenuItemSize
+    public let accessibilityValueText: String?
     public let action: () -> Void
     public let trailing: Trailing
 
@@ -148,6 +149,7 @@ public struct VMenuItem<Trailing: View>: View {
         isActive: Bool = false,
         variant: VMenuItemVariant = .default,
         size: VMenuItemSize = .compact,
+        accessibilityValue: String? = nil,
         action: @escaping () -> Void,
         @ViewBuilder trailing: () -> Trailing
     ) {
@@ -156,6 +158,7 @@ public struct VMenuItem<Trailing: View>: View {
         self.isActive = isActive
         self.variant = variant
         self.size = size
+        self.accessibilityValueText = accessibilityValue
         self.action = action
         self.trailing = trailing()
     }
@@ -186,6 +189,7 @@ public struct VMenuItem<Trailing: View>: View {
             ) {
                 trailing
             }
+            .accessibilityValue(accessibilityValueText ?? "")
         } else {
             HStack(spacing: VSpacing.xs) {
                 if let icon {
@@ -218,6 +222,13 @@ public struct VMenuItem<Trailing: View>: View {
             .onTapGesture { guard isEnabled else { return }; dismissMenu?(); action() }
             .onHover { isHovered = $0 }
             .pointerCursor()
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAddTraits(isActive ? [.isSelected] : [])
+            .accessibilityRemoveTraits(isEnabled ? [] : [.isButton])
+            .accessibilityValue(accessibilityValueText ?? "")
+            .accessibilityAction { guard isEnabled else { return }; dismissMenu?(); action() }
         }
     }
 }
@@ -232,9 +243,10 @@ public extension VMenuItem where Trailing == EmptyView {
         isActive: Bool = false,
         variant: VMenuItemVariant = .default,
         size: VMenuItemSize = .compact,
+        accessibilityValue: String? = nil,
         action: @escaping () -> Void
     ) {
-        self.init(icon: icon, label: label, isActive: isActive, variant: variant, size: size, action: action) {
+        self.init(icon: icon, label: label, isActive: isActive, variant: variant, size: size, accessibilityValue: accessibilityValue, action: action) {
             EmptyView()
         }
     }
@@ -352,6 +364,11 @@ public struct VSubMenuItem<Content: View>: View {
         .accessibilityLabel(label)
         .accessibilityHint("Opens submenu")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            guard isEnabled else { return }
+            hoverTimer?.cancel()
+            showChild(coordinator: coordinator)
+        }
     }
 
     @State private var screenRect: CGRect = .zero
@@ -457,10 +474,12 @@ public struct VMenuSection<Content: View>: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.sm)
                 .padding(.bottom, VSpacing.xs)
+                .accessibilityAddTraits(.isHeader)
         }
 
         VColor.surfaceBase.frame(height: 1)
             .padding(.horizontal, VSpacing.xs)
+            .accessibilityHidden(true)
 
         content
     }
@@ -476,6 +495,7 @@ public struct VMenuDivider: View {
         VColor.surfaceBase.frame(height: 1)
             .padding(.horizontal, VSpacing.xs)
             .padding(.vertical, VSpacing.xs)
+            .accessibilityHidden(true)
     }
 }
 

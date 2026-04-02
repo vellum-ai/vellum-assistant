@@ -8,8 +8,10 @@
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
+import { buildExcerpt, buildFtsMatchQuery } from "../conversation-queries.js";
 import { embedWithRetry } from "../embed.js";
-import { enqueueGraphNodeEmbed,searchGraphNodes } from "./graph-search.js";
+import { generateSparseEmbedding } from "../embedding-backend.js";
+import { enqueueGraphNodeEmbed, searchGraphNodes } from "./graph-search.js";
 import {
   createNode,
   deleteNode,
@@ -35,11 +37,11 @@ const log = getLogger("graph-tool-handlers");
 export interface RecallInput {
   query: string;
   mode?: "memory" | "archive";
+  num_results?: number;
   filters?: {
     types?: string[];
     after?: string;
     before?: string;
-    min_confidence?: number;
   };
 }
 
@@ -51,6 +53,7 @@ export interface RecallResult {
     confidence: number;
     significance: number;
     score: number;
+    created: number;
   }>;
   mode: "memory" | "archive";
   query: string;
@@ -89,8 +92,31 @@ async function handleMemoryRecall(
     return { results: [], mode: "memory", query: input.query };
   }
 
+  // Generate sparse embedding for hybrid search (dense + sparse with RRF fusion)
+  const sparseVector = generateSparseEmbedding(input.query);
+
+  // Build date range filter for Qdrant-level filtering
+  const dateRange: { afterMs?: number; beforeMs?: number } = {};
+  if (input.filters?.after) {
+    const afterMs = new Date(input.filters.after).getTime();
+    if (!isNaN(afterMs)) dateRange.afterMs = afterMs;
+  }
+  if (input.filters?.before) {
+    const beforeMs = new Date(input.filters.before).getTime();
+    if (!isNaN(beforeMs)) dateRange.beforeMs = beforeMs;
+  }
+
   // Search graph nodes
-  const searchResults = await searchGraphNodes(queryVector, 20, [scopeId]);
+  const limit = Math.max(1, Math.min(input.num_results ?? 20, 50));
+  const searchResults = await searchGraphNodes(
+    queryVector,
+    limit,
+    [scopeId],
+    sparseVector,
+    dateRange.afterMs != null || dateRange.beforeMs != null
+      ? dateRange
+      : undefined,
+  );
   if (searchResults.length === 0) {
     return { results: [], mode: "memory", query: input.query };
   }
@@ -109,24 +135,6 @@ async function handleMemoryRecall(
       if (!input.filters.types.includes(node.type)) return [];
     }
 
-    // Date filters
-    if (input.filters?.after) {
-      const afterMs = new Date(input.filters.after).getTime();
-      if (!isNaN(afterMs) && node.created < afterMs) return [];
-    }
-    if (input.filters?.before) {
-      const beforeMs = new Date(input.filters.before).getTime();
-      if (!isNaN(beforeMs) && node.created > beforeMs) return [];
-    }
-
-    // Confidence filter
-    if (
-      input.filters?.min_confidence != null &&
-      node.confidence < input.filters.min_confidence
-    ) {
-      return [];
-    }
-
     return [
       {
         id: node.id,
@@ -135,6 +143,7 @@ async function handleMemoryRecall(
         confidence: node.confidence,
         significance: node.significance,
         score: r.score,
+        created: node.created,
       },
     ];
   });
@@ -151,37 +160,92 @@ async function handleArchiveRecall(
   const { rawAll } = await import("../db.js");
 
   try {
-    // Use SQLite FTS on messages table, scoped to the active memory scope
-    const rows = rawAll(
-      `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
-       FROM messages_fts fts
-       JOIN messages m ON m.rowid = fts.rowid
-       JOIN conversations c ON c.id = m.conversation_id
-       WHERE messages_fts MATCH ?
-         AND c.memory_scope_id = ?
-       ORDER BY rank
-       LIMIT 20`,
-      input.query,
-      scopeId,
-    ) as Array<{
+    const limit = Math.max(1, Math.min(input.num_results ?? 20, 50));
+    const ftsMatch = buildFtsMatchQuery(input.query.trim(), {
+      allowFts5Syntax: true,
+    });
+
+    const afterMs = input.filters?.after
+      ? new Date(input.filters.after).getTime()
+      : NaN;
+    const beforeMs = input.filters?.before
+      ? new Date(input.filters.before).getTime()
+      : NaN;
+    const dateConditions: string[] = [];
+    const dateParams: number[] = [];
+    if (!isNaN(afterMs)) {
+      dateConditions.push("m.created_at >= ?");
+      dateParams.push(afterMs);
+    }
+    if (!isNaN(beforeMs)) {
+      dateConditions.push("m.created_at <= ?");
+      dateParams.push(beforeMs);
+    }
+    const dateClause =
+      dateConditions.length > 0
+        ? " AND " + dateConditions.join(" AND ")
+        : "";
+
+    type ArchiveRow = {
       id: string;
       content: string;
       role: string;
       created_at: number;
       conversation_id: string;
-    }>;
+    };
+
+    let rows: ArchiveRow[];
+
+    if (ftsMatch) {
+      // Use SQLite FTS on messages table, scoped to the active memory scope
+      rows = rawAll<ArchiveRow>(
+        `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
+         FROM messages_fts fts
+         JOIN messages m ON m.id = fts.message_id
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE messages_fts MATCH ?
+           AND c.memory_scope_id = ?${dateClause}
+         ORDER BY rank
+         LIMIT ?`,
+        ftsMatch,
+        scopeId,
+        ...dateParams,
+        limit,
+      );
+    } else if (!input.query.trim()) {
+      // Empty or whitespace-only query — return nothing rather than matching
+      // every message via a `%%` LIKE pattern.
+      rows = [];
+    } else {
+      // All FTS tokens dropped (non-ASCII, single-char, etc.) — fall back to
+      // LIKE-based search so queries like CJK characters still match.
+      const likePattern = `%${input.query
+        .replace(/\\/g, "\\\\")
+        .replace(/%/g, "\\%")
+        .replace(/_/g, "\\_")}%`;
+      rows = rawAll<ArchiveRow>(
+        `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
+         FROM messages m
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.content LIKE ? ESCAPE '\\' AND c.memory_scope_id = ?${dateClause}
+         ORDER BY m.created_at DESC
+         LIMIT ?`,
+        likePattern,
+        scopeId,
+        ...dateParams,
+        limit,
+      );
+    }
 
     return {
       results: rows.map((r) => ({
         id: r.id,
-        content:
-          typeof r.content === "string"
-            ? r.content.slice(0, 500)
-            : String(r.content).slice(0, 500),
+        content: buildExcerpt(r.content, input.query),
         type: "archive",
-        confidence: 1.0,
+        confidence: 0,
         significance: 0,
-        score: 1.0,
+        score: 0,
+        created: r.created_at,
       })),
       mode: "archive",
       query: input.query,

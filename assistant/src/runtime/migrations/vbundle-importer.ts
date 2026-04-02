@@ -163,15 +163,16 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     entryMap = validation.entries;
   }
 
-  // Directories to preserve when clearing the workspace (large/regenerable).
+  // Directories to preserve when clearing the workspace.
   const WORKSPACE_SKIP_DIRS = new Set(["embedding-models", "deprecated"]);
-  // data/qdrant is nested — we skip "qdrant" inside "data/"
-  const DATA_SKIP_DIRS = new Set(["qdrant"]);
+  // data/qdrant and data/db are nested — we skip them inside "data/"
+  const DATA_SKIP_DIRS = new Set(["qdrant", "db"]);
 
   // Step 1b: Clear the workspace directory before restore if the bundle
   // contains new-format workspace/ entries. This ensures an exact-match
-  // restore with no stale files left behind. Skips embedding-models/ and
-  // data/qdrant/ (large, regenerable).
+  // restore with no stale files left behind. Skips embedding-models/,
+  // data/qdrant/ (large, regenerable), and data/db/ (critical — prevents
+  // data loss if the import fails partway or the archive omits the DB).
   //
   // Only new-format bundles (workspace/ prefix) trigger clearing. Old-format
   // bundles (skills/, hooks/, data/db/*, config/*) wrote specific files
@@ -195,7 +196,8 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 
         const entryPath = join(workspaceDir, entry.name);
         if (entry.name === "data" && entry.isDirectory()) {
-          // Inside data/, preserve qdrant/ but clear everything else
+          // Inside data/, preserve qdrant/ (large, regenerable) and db/
+          // (critical user data) but clear everything else
           const dataEntries = readdirSync(entryPath, { withFileTypes: true });
           for (const dataEntry of dataEntries) {
             if (DATA_SKIP_DIRS.has(dataEntry.name)) continue;

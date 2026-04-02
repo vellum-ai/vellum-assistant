@@ -90,6 +90,37 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
     }
 
+    func testActivateManagedAssistantRePopulatesOrgIdAfterCleared() async throws {
+        // Simulate performSwitchAssistant clearing the org ID
+        defaults.removeObject(forKey: "connectedOrganizationId")
+        XCTAssertNil(defaults.string(forKey: "connectedOrganizationId"))
+
+        let defaults = self.defaults!
+        let coordinator = ManagedAssistantConnectionCoordinator(
+            bootstrapService: MockManagedAssistantBootstrapService(
+                outcome: .createdNew(PlatformAssistant(id: "managed-switch")),
+                onEnsureManagedAssistant: {
+                    // The real ManagedAssistantBootstrapService.ensureManagedAssistant()
+                    // calls resolveOrganizationId() which sets connectedOrganizationId.
+                    // Simulate that behavior here to verify the coordinator contract.
+                    defaults.set("org-resolved-123", forKey: "connectedOrganizationId")
+                }
+            ),
+            userDefaults: defaults,
+            runtimeURLProvider: { "https://platform.example.com" },
+            updateAssistantTag: { _ in },
+            lockfilePath: lockfilePath
+        )
+
+        let result = try await coordinator.activateManagedAssistant()
+
+        XCTAssertEqual(result.assistant.id, "managed-switch")
+        // Verify the org ID was re-populated by the bootstrap (via resolveOrganizationId)
+        XCTAssertEqual(defaults.string(forKey: "connectedOrganizationId"), "org-resolved-123")
+        // Verify the assistant ID was persisted by the coordinator
+        XCTAssertEqual(defaults.string(forKey: "connectedAssistantId"), "managed-switch")
+    }
+
     func testActivateManagedAssistantAfterReauthClearsPersistedOrganizationBeforeBootstrap() async throws {
         defaults.set("stale-org", forKey: "connectedOrganizationId")
         var orgIdSeenDuringEnsure: String?

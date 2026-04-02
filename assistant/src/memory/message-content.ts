@@ -121,21 +121,6 @@ export function extractMediaBlockMeta(
   }
 }
 
-/**
- * Lightweight check for whether stored message content contains image blocks.
- * Does NOT decode base64 data — only checks for `"type":"image"` in the JSON.
- */
-export function hasImageBlocks(raw: string): boolean {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return false;
-    return parsed.some(
-      (block: { type?: string }) => block.type === "image",
-    );
-  } catch {
-    return false;
-  }
-}
 
 function stableJson(value: unknown): string {
   try {

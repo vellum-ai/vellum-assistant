@@ -18,10 +18,13 @@ public final class VMenuCoordinator {
     private(set) var panels: [NSPanel] = []
     private var clickMonitor: Any?
     private var windowObserver: Any?
+    private var appDeactivationObserver: Any?
     private var graceTimer: DispatchWorkItem?
     private var rootDismissHandler: (() -> Void)?
     /// Screen rect to exclude from click-outside dismiss (e.g., the trigger button).
     private var excludeRect: CGRect?
+    /// The window the menu was opened from, used to attach child panels.
+    private weak var sourceWindow: NSWindow?
 
     /// Max depth: root + one submenu.
     static let maxDepth = 2
@@ -43,6 +46,7 @@ public final class VMenuCoordinator {
         panels = [panel]
         rootDismissHandler = onDismiss
         self.excludeRect = excludeRect
+        self.sourceWindow = sourceWindow
         focusedIndex = [:]
         itemCounts = [:]
         installClickMonitor()
@@ -56,6 +60,17 @@ public final class VMenuCoordinator {
                 Task { @MainActor [weak self] in
                     self?.dismissAll()
                 }
+            }
+        }
+
+        // Dismiss menus when the app loses focus, matching native NSMenu behavior.
+        appDeactivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.dismissAll()
             }
         }
     }
@@ -82,6 +97,13 @@ public final class VMenuCoordinator {
             coordinator: self,
             content: content
         )
+
+        // Attach the child panel to the source window so it stays
+        // grouped with the app and doesn't float above other apps.
+        if let sourceWindow {
+            sourceWindow.addChildWindow(childPanel, ordered: .above)
+        }
+
         panels.append(childPanel)
         // Reset focus for the new child level
         focusedIndex.removeValue(forKey: panels.count - 1)
@@ -104,6 +126,7 @@ public final class VMenuCoordinator {
         itemCounts.removeAll()
         removeClickMonitor()
         removeWindowObserver()
+        removeAppDeactivationObserver()
         handler?()
     }
 
@@ -138,6 +161,7 @@ public final class VMenuCoordinator {
         if panels.isEmpty {
             removeClickMonitor()
             removeWindowObserver()
+            removeAppDeactivationObserver()
             let handler = rootDismissHandler
             rootDismissHandler = nil
             handler?()
@@ -264,11 +288,21 @@ public final class VMenuCoordinator {
         }
     }
 
+    private func removeAppDeactivationObserver() {
+        if let observer = appDeactivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            appDeactivationObserver = nil
+        }
+    }
+
     deinit {
         if let monitor = clickMonitor {
             NSEvent.removeMonitor(monitor)
         }
         if let observer = windowObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = appDeactivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }

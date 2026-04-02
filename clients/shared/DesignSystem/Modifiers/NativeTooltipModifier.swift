@@ -100,6 +100,7 @@ private final class VTooltipTrackerView: NSView {
     private var panel: NSPanel?
     private var scrollObserver: NSObjectProtocol?
     private var scrollEndObserver: NSObjectProtocol?
+    private var appDeactivationObserver: NSObjectProtocol?
 
     /// Suppresses synthetic mouseEntered events during and briefly after scroll.
     /// Static because the re-entry can hit a different VTooltipTrackerView instance
@@ -135,6 +136,7 @@ private final class VTooltipTrackerView: NSView {
     override func removeFromSuperview() {
         showTimer?.invalidate()
         stopObservingScroll()
+        stopObservingAppDeactivation()
         hideTooltip()
         super.removeFromSuperview()
     }
@@ -143,9 +145,11 @@ private final class VTooltipTrackerView: NSView {
         super.viewDidMoveToWindow()
         if window != nil {
             startObservingScroll()
+            startObservingAppDeactivation()
         } else {
             showTimer?.invalidate()
             stopObservingScroll()
+            stopObservingAppDeactivation()
             hideTooltip()
         }
     }
@@ -188,6 +192,26 @@ private final class VTooltipTrackerView: NSView {
         }
     }
 
+    private func startObservingAppDeactivation() {
+        guard appDeactivationObserver == nil else { return }
+        appDeactivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+        }
+    }
+
+    private func stopObservingAppDeactivation() {
+        if let observer = appDeactivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            appDeactivationObserver = nil
+        }
+    }
+
     private func showTooltip() {
         guard panel == nil, let window else { return }
 
@@ -221,7 +245,10 @@ private final class VTooltipTrackerView: NSView {
         p.setFrameOrigin(NSPoint(x: x, y: y))
 
         p.alphaValue = 0
-        p.orderFront(nil)
+
+        // Attach as a child window so the tooltip stays grouped with
+        // its source window and doesn't float above unrelated windows.
+        window.addChildWindow(p, ordered: .above)
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
             p.animator().alphaValue = 1
@@ -232,6 +259,10 @@ private final class VTooltipTrackerView: NSView {
     private func hideTooltip() {
         guard let p = panel else { return }
         panel = nil
+        // Detach from parent window before hiding.
+        if let parentWindow = p.parent {
+            parentWindow.removeChildWindow(p)
+        }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.08
             p.animator().alphaValue = 0

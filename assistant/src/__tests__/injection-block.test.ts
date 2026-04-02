@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { assembleInjectionBlock } from "../memory/graph/injection.js";
+import {
+  assembleContextBlock,
+  assembleInjectionBlock,
+} from "../memory/graph/injection.js";
 import type { MemoryNode, ScoredNode } from "../memory/graph/types.js";
 
 function makeScoredNode(
@@ -110,5 +113,42 @@ describe("assembleInjectionBlock", () => {
     expect(result).toMatch(/\(\d+d ago\)/);
     // The line should use the event date format (date — content) not age format ((age) content)
     expect(result).toContain(" — Team standup");
+  });
+
+  test("assembleInjectionBlock formats procedural nodes with [skill] prefix", () => {
+    const node = makeScoredNode({
+      type: "procedural",
+      content:
+        'skill:telegram-setup\nThe "Telegram Setup" skill (telegram-setup) is available.',
+    });
+    const result = assembleInjectionBlock([node]);
+    expect(result).toContain("[skill]");
+    expect(result).toContain("→ use skill_load to activate");
+  });
+});
+
+describe("assembleContextBlock — procedural nodes", () => {
+  test("puts procedural nodes under Skills You Can Use", () => {
+    const node = makeScoredNode({
+      type: "procedural",
+      content:
+        'skill:telegram-setup\nThe "Telegram Setup" skill (telegram-setup) is available.',
+    });
+    const result = assembleContextBlock([node]);
+    expect(result).toContain("### Skills You Can Use");
+    expect(result).toContain("use skill_load to activate");
+  });
+
+  test("strips skill: prefix from old-format content", () => {
+    const node = makeScoredNode({
+      type: "procedural",
+      content:
+        'skill:telegram-setup\nThe "Telegram Setup" skill (telegram-setup) is available.',
+    });
+    const result = assembleContextBlock([node]);
+    // The "skill:telegram-setup" prefix line should be stripped from the rendered output
+    expect(result).not.toContain("skill:telegram-setup\n");
+    // But the skill name in the description should remain
+    expect(result).toContain('The "Telegram Setup" skill');
   });
 });

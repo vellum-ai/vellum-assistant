@@ -33,6 +33,27 @@ function dispatchLlmContext(messageId: string): Promise<Response> | Response {
   });
 }
 
+function dispatchLogPayload(logId: string): Promise<Response> | Response {
+  const url = new URL(
+    `http://localhost/v1/llm-request-logs/${logId}/payload`,
+  );
+  const route = routes.find(
+    (r) =>
+      r.method === "GET" && r.endpoint === "llm-request-logs/:id/payload",
+  );
+  if (!route) {
+    throw new Error("No llm-request-logs payload route found");
+  }
+
+  return route.handler({
+    req: new Request(url.toString(), { method: "GET" }),
+    url,
+    server: null as never,
+    authContext: {} as never,
+    params: { id: logId },
+  });
+}
+
 function clearRequestLogs(): void {
   getDb().delete(llmRequestLogs).run();
 }
@@ -188,5 +209,85 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
 
     expect(body.logs).toHaveLength(1);
     expect(body.logs[0]?.summary).toEqual({ provider: "ollama" });
+  });
+
+  test("returns null payloads to keep the initial response lightweight", async () => {
+    seedRequestLog({
+      id: "log-null-payload",
+      messageId: "msg-null-payload",
+      provider: "openrouter",
+      requestPayload: openAiRequestPayload,
+      responsePayload: openAiResponsePayload,
+    });
+
+    const response = await dispatchLlmContext("msg-null-payload");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      logs: Array<{
+        requestPayload: unknown;
+        responsePayload: unknown;
+      }>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    expect(body.logs[0]?.requestPayload).toBeNull();
+    expect(body.logs[0]?.responsePayload).toBeNull();
+  });
+});
+
+describe("GET /v1/llm-request-logs/:id/payload", () => {
+  test("returns parsed payloads for a valid log", async () => {
+    const reqPayload = JSON.stringify({ model: "gpt-4.1", messages: [] });
+    const resPayload = JSON.stringify({
+      choices: [{ message: { content: "hi" } }],
+    });
+    seedRequestLog({
+      id: "log-payload-ok",
+      messageId: "msg-payload-ok",
+      provider: "openai",
+      requestPayload: reqPayload,
+      responsePayload: resPayload,
+    });
+
+    const response = await dispatchLogPayload("log-payload-ok");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      id: string;
+      requestPayload: unknown;
+      responsePayload: unknown;
+    };
+
+    expect(body.id).toBe("log-payload-ok");
+    expect(body.requestPayload).toEqual(JSON.parse(reqPayload));
+    expect(body.responsePayload).toEqual(JSON.parse(resPayload));
+  });
+
+  test("returns 404 for a nonexistent log", async () => {
+    const response = await dispatchLogPayload("does-not-exist");
+    expect(response.status).toBe(404);
+  });
+
+  test("falls back to string values for non-JSON payloads", async () => {
+    seedRequestLog({
+      id: "log-raw-strings",
+      messageId: "msg-raw-strings",
+      provider: null,
+      requestPayload: "raw-request-text",
+      responsePayload: "raw-response-text",
+    });
+
+    const response = await dispatchLogPayload("log-raw-strings");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      id: string;
+      requestPayload: unknown;
+      responsePayload: unknown;
+    };
+
+    expect(body.requestPayload).toBe("raw-request-text");
+    expect(body.responsePayload).toBe("raw-response-text");
   });
 });

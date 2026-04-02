@@ -39,11 +39,11 @@ const TEST_REGISTRY = {
       defaultEnabled: true,
     },
     {
-      id: "contacts",
+      id: "email-channel",
       scope: "assistant",
-      key: "contacts",
-      label: "Contacts",
-      description: "Contacts management",
+      key: "email-channel",
+      label: "Email Channel",
+      description: "Email channel integration",
       defaultEnabled: false,
     },
     {
@@ -262,19 +262,19 @@ describe("GET /v1/feature-flags handler", () => {
   });
 
   test("remote values fill in when no local override exists", async () => {
-    // Write a remote store with contacts enabled (overriding registry default of false)
+    // Write a remote store with email-channel enabled (overriding registry default of false)
     writeFileSync(
       remoteFeatureFlagStorePath,
       JSON.stringify({
         version: 1,
         values: {
-          contacts: true,
+          "email-channel": true,
         },
       }),
     );
     clearRemoteFeatureFlagStoreCache();
 
-    // No local override for contacts
+    // No local override for email-channel
     if (existsSync(featureFlagStorePath)) {
       rmSync(featureFlagStorePath);
     }
@@ -288,12 +288,12 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    const contactsFlag = body.flags.find(
-      (f: { key: string }) => f.key === "contacts",
+    const emailFlag = body.flags.find(
+      (f: { key: string }) => f.key === "email-channel",
     );
-    expect(contactsFlag).toBeDefined();
+    expect(emailFlag).toBeDefined();
     // Remote value (true) overrides registry default (false)
-    expect(contactsFlag.enabled).toBe(true);
+    expect(emailFlag.enabled).toBe(true);
   });
 
   test("local overrides take precedence over remote values", async () => {
@@ -303,7 +303,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          contacts: true,
+          "email-channel": true,
         },
       }),
     );
@@ -315,7 +315,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          contacts: false,
+          "email-channel": false,
         },
       }),
     );
@@ -329,12 +329,12 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    const contactsFlag = body.flags.find(
-      (f: { key: string }) => f.key === "contacts",
+    const emailFlag = body.flags.find(
+      (f: { key: string }) => f.key === "email-channel",
     );
-    expect(contactsFlag).toBeDefined();
+    expect(emailFlag).toBeDefined();
     // Local override (false) takes precedence over remote (true)
-    expect(contactsFlag.enabled).toBe(false);
+    expect(emailFlag.enabled).toBe(false);
   });
 
   test("registry default used when neither local nor remote is set", async () => {
@@ -358,13 +358,13 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // contacts has defaultEnabled: false in registry
-    const contactsFlag = body.flags.find(
-      (f: { key: string }) => f.key === "contacts",
+    // email-channel has defaultEnabled: false in registry
+    const emailFlag = body.flags.find(
+      (f: { key: string }) => f.key === "email-channel",
     );
-    expect(contactsFlag).toBeDefined();
-    expect(contactsFlag.enabled).toBe(false);
-    expect(contactsFlag.defaultEnabled).toBe(false);
+    expect(emailFlag).toBeDefined();
+    expect(emailFlag.enabled).toBe(false);
+    expect(emailFlag.defaultEnabled).toBe(false);
 
     // browser has defaultEnabled: true in registry
     const browserFlag = body.flags.find(
@@ -373,6 +373,34 @@ describe("GET /v1/feature-flags handler", () => {
     expect(browserFlag).toBeDefined();
     expect(browserFlag.enabled).toBe(true);
     expect(browserFlag.defaultEnabled).toBe(true);
+  });
+
+  test("returns flags when invoked via assistants path without trailing slash", async () => {
+    // The macOS client sends GET /v1/assistants/<id>/feature-flags (no trailing slash).
+    // The gateway route regex must accept this path.
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request(
+        "http://gateway.test/v1/assistants/some-assistant-id/feature-flags",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // Should return all assistant-scope flags with expected shape
+    expect(body.flags.length).toBeGreaterThan(0);
+    for (const flag of body.flags) {
+      expect(typeof flag.key).toBe("string");
+      expect(typeof flag.enabled).toBe("boolean");
+    }
+
+    // Verify a known flag is present
+    const browserFlag = body.flags.find(
+      (f: { key: string }) => f.key === "browser",
+    );
+    expect(browserFlag).toBeDefined();
+    expect(browserFlag.enabled).toBe(true);
   });
 });
 
@@ -408,7 +436,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          contacts: true,
+          "email-channel": true,
         },
       }),
     );
@@ -427,7 +455,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     // Both old and new values should be persisted
     clearFeatureFlagStoreCache();
     const persisted = readPersistedFeatureFlags();
-    expect(persisted["contacts"]).toBe(true);
+    expect(persisted["email-channel"]).toBe(true);
     expect(persisted["browser"]).toBe(true);
   });
 
@@ -543,7 +571,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
   test("accepts valid declared kebab-case key formats", async () => {
     const handler = createFeatureFlagsPatchHandler();
 
-    const validKeys = ["browser", "contacts"];
+    const validKeys = ["browser", "email-channel"];
 
     for (const key of validKeys) {
       clearFeatureFlagStoreCache();
@@ -614,7 +642,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       featureFlagStorePath,
       JSON.stringify({
         version: 1,
-        values: { contacts: true },
+        values: { "email-channel": true },
       }),
     );
     clearFeatureFlagStoreCache();
@@ -633,7 +661,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const raw = readFileSync(featureFlagStorePath, "utf-8");
     const data = JSON.parse(raw);
     expect(data.version).toBe(1);
-    expect(data.values["contacts"]).toBe(true);
+    expect(data.values["email-channel"]).toBe(true);
     expect(data.values["browser"]).toBe(false);
 
     // Verify no temp files left behind
@@ -647,7 +675,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const handler = createFeatureFlagsPatchHandler();
 
     // Fire multiple concurrent PATCH requests at the same time
-    const flagKeys = ["browser", "contacts"];
+    const flagKeys = ["browser", "email-channel"];
 
     const results = await Promise.all(
       flagKeys.map((key) =>

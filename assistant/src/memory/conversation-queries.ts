@@ -14,7 +14,22 @@ const log = getLogger("conversation-store");
  * Build an FTS5 MATCH query string from natural text by extracting tokens.
  * Used for messages_fts full-text search over conversation content.
  */
-function buildFtsMatchQuery(text: string): string | null {
+export function buildFtsMatchQuery(
+  text: string,
+  opts?: { allowFts5Syntax?: boolean },
+): string | null {
+  // If the query already contains FTS5 operators, pass it through directly
+  // so callers (e.g. the archive recall tool) can use exact-phrase, AND, OR,
+  // NOT, NEAR syntax. Only enabled when the caller explicitly opts in —
+  // user-facing search should always go through normal tokenization to avoid
+  // FTS5 boolean semantics leaking into sidebar/global search.
+  if (
+    opts?.allowFts5Syntax &&
+    /\bAND\b|\bOR\b|\bNOT\b|\bNEAR\s*\(|"[^"]+"/.test(text)
+  ) {
+    return text.trim();
+  }
+
   const tokens = text
     .toLowerCase()
     .split(/[^a-z0-9_]+/g)
@@ -22,7 +37,8 @@ function buildFtsMatchQuery(text: string): string | null {
     .filter((token) => token.length >= 2);
   if (tokens.length === 0) return null;
   const unique = [...new Set(tokens)].slice(0, 24);
-  return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" OR ");
+  // Space-separated quoted tokens are implicit AND in FTS5.
+  return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" ");
 }
 
 export function listConversations(
@@ -311,7 +327,7 @@ export function searchConversations(
  * occurrence of `query`. The content may be JSON (content blocks) or plain
  * text; we extract a readable snippet in either case.
  */
-function buildExcerpt(rawContent: string, query: string): string {
+export function buildExcerpt(rawContent: string, query: string): string {
   // Try to extract plain text from JSON content blocks first.
   let text = rawContent;
   try {

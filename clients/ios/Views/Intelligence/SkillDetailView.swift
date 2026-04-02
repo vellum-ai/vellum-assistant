@@ -21,58 +21,17 @@ struct SkillDetailView: View {
                 headerSection
             }
 
-            // Details section
+            // Details section with origin-specific metadata via originMeta
             Section("Details") {
-                if let clawhub = skill.clawhub {
-                    detailRow(label: "Author", value: clawhub.author)
-                }
-                if let version = skill.installedVersion {
-                    detailRow(label: "Version", value: version)
-                }
-                detailRow(label: "Source", value: skill.source.capitalized)
-                detailRow(label: "State", value: skill.state.capitalized)
-
-                if let provenance = skill.provenance {
-                    detailRow(label: "Provenance", value: provenance.kind.capitalized)
-                    if let provider = provenance.provider {
-                        detailRow(label: "Provider", value: provider)
-                    }
-                }
+                detailsSection
+                detailRow(label: "Origin", value: originLabel(skill.origin))
+                detailRow(label: "Status", value: skill.status.capitalized)
             }
 
-            // Inspect data section (loaded from ClaWHub)
-            if let inspected = skillsStore.inspectedSkill {
-                Section("About") {
-                    if !inspected.skill.summary.isEmpty {
-                        Text(inspected.skill.summary)
-                            .font(VFont.bodyMediumLighter)
-                            .foregroundStyle(VColor.contentSecondary)
-                    }
-
-                    if let owner = inspected.owner {
-                        detailRow(label: "Owner", value: owner.displayName)
-                    }
-
-                    if let stats = inspected.stats {
-                        detailRow(label: "Stars", value: "\(stats.stars)")
-                        detailRow(label: "Installs", value: "\(stats.installs)")
-                    }
-
-                    if let latestVersion = inspected.latestVersion {
-                        detailRow(label: "Latest Version", value: latestVersion.version)
-                        if let changelog = latestVersion.changelog, !changelog.isEmpty {
-                            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                                Text("Changelog")
-                                    .font(VFont.labelDefault)
-                                    .foregroundStyle(VColor.contentTertiary)
-                                Text(changelog)
-                                    .font(VFont.bodyMediumLighter)
-                                    .foregroundStyle(VColor.contentSecondary)
-                            }
-                        }
-                    }
-                }
-            } else if skillsStore.isInspecting {
+            // Enrichment data from skill detail endpoint
+            if let detail = skillsStore.selectedSkillDetail {
+                enrichmentSection(detail)
+            } else if skillsStore.isLoadingSkillDetail {
                 Section("About") {
                     HStack {
                         Spacer()
@@ -81,7 +40,7 @@ struct SkillDetailView: View {
                         Spacer()
                     }
                 }
-            } else if let error = skillsStore.inspectError {
+            } else if let error = skillsStore.skillDetailError {
                 Section("About") {
                     Text(error)
                         .font(VFont.bodyMediumLighter)
@@ -94,7 +53,7 @@ struct SkillDetailView: View {
                 if isInstalled {
                     // Enable/Disable toggle
                     Button {
-                        if skill.state == "enabled" {
+                        if skill.isEnabled {
                             skillsStore.disableSkill(name: skill.name)
                         } else {
                             skillsStore.enableSkill(name: skill.name)
@@ -102,7 +61,7 @@ struct SkillDetailView: View {
                     } label: {
                         HStack {
                             VIconView(.circlePlay, size: 16)
-                            Text(skill.state == "enabled" ? "Disable Skill" : "Enable Skill")
+                            Text(skill.isEnabled ? "Disable Skill" : "Enable Skill")
                         }
                     }
 
@@ -155,14 +114,15 @@ struct SkillDetailView: View {
         .navigationTitle(skill.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            // Inspect the skill if it has a clawhub source
-            if skill.clawhub != nil {
-                skillsStore.inspectSkill(slug: skill.id)
+            // Only fetch detail and files for locally available skills (bundled or installed).
+            // Remote catalog search results are not in the local resolved catalog, so
+            // GET /skills/:id and GET /skills/:id/files would 404 for them.
+            if skill.isInstalled {
+                skillsStore.fetchSkillDetail(skillId: skill.id)
+                skillsStore.fetchSkillFiles(skillId: skill.id)
             }
-            skillsStore.fetchSkillFiles(skillId: skill.id)
         }
         .onDisappear {
-            skillsStore.clearInspection()
             skillsStore.clearSkillDetail()
             expandedFilePath = nil
         }
@@ -196,16 +156,7 @@ struct SkillDetailView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if skill.updateAvailable {
-                HStack(spacing: 4) {
-                    VIconView(.circleArrowUp, size: 12)
-                    Text("Update available")
-                        .font(VFont.labelDefault)
-                }
-                .foregroundStyle(VColor.primaryBase)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Update available for this skill")
-            }
+            VSkillTypePill(origin: skill.origin, status: skill.status)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.sm)
@@ -283,6 +234,71 @@ struct SkillDetailView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(file.path), \(formatFileSize(file.size))\(file.isBinary ? ", binary" : "")")
+    }
+
+    // MARK: - Details Section (origin-specific metadata via originMeta)
+
+    @ViewBuilder
+    private var detailsSection: some View {
+        switch skill.originMeta {
+        case .clawhub(let meta):
+            if !meta.author.isEmpty {
+                detailRow(label: "Author", value: meta.author)
+            }
+            if meta.stars > 0 {
+                detailRow(label: "Stars", value: "\(meta.stars)")
+            }
+        case .skillssh(let meta):
+            if !meta.sourceRepo.isEmpty {
+                detailRow(label: "Source Repo", value: meta.sourceRepo)
+            }
+        case .vellum, .custom:
+            EmptyView()
+        }
+    }
+
+    // MARK: - Enrichment Section (from skill detail endpoint)
+
+    @ViewBuilder
+    private func enrichmentSection(_ detail: SkillDetailHTTPResponse) -> some View {
+        if detail.owner != nil || detail.stats != nil || detail.latestVersion != nil {
+            Section("About") {
+                if let owner = detail.owner {
+                    detailRow(label: "Owner", value: owner.displayName)
+                }
+
+                if let stats = detail.stats {
+                    detailRow(label: "Stars", value: "\(stats.stars)")
+                    detailRow(label: "Installs", value: "\(stats.installs)")
+                }
+
+                if let latestVersion = detail.latestVersion {
+                    detailRow(label: "Latest Version", value: latestVersion.version)
+                    if let changelog = latestVersion.changelog, !changelog.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Changelog")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                            Text(changelog)
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundStyle(VColor.contentSecondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Origin Label
+
+    private func originLabel(_ origin: String) -> String {
+        switch origin {
+        case "vellum": return "Core"
+        case "clawhub": return "Community"
+        case "skillssh": return "Community"
+        case "custom": return "Created"
+        default: return origin.capitalized
+        }
     }
 
     // MARK: - File Helpers

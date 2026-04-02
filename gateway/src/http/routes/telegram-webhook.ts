@@ -4,6 +4,7 @@ import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
 import { DedupCache } from "../../dedup-cache.js";
+import { ContentMismatchError } from "../../download-validation.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
@@ -575,6 +576,7 @@ export function createTelegramWebhookHandler(
     // Download and upload attachments if present (skip for edits and callback
     // queries — edits only update text, callbacks have no media to process)
     let attachmentIds: string[] | undefined;
+    const failedAttachmentNames: string[] = [];
     const eventAttachments = normalized.message.attachments;
     if (
       eventAttachments &&
@@ -636,7 +638,8 @@ export function createTelegramWebhookHandler(
               return uploadAttachment(config, downloaded);
             }),
           );
-          for (const result of results) {
+          for (let j = 0; j < results.length; j++) {
+            const result = results[j];
             if (result.status === "fulfilled") {
               attachmentIds.push(result.value.id);
             } else if (result.reason instanceof AttachmentValidationError) {
@@ -644,6 +647,13 @@ export function createTelegramWebhookHandler(
                 { err: result.reason },
                 "Skipping attachment with validation error",
               );
+              failedAttachmentNames.push(batch[j].fileName || batch[j].fileId);
+            } else if (result.reason instanceof ContentMismatchError) {
+              tlog.warn(
+                { err: result.reason },
+                "Skipping attachment with content mismatch",
+              );
+              failedAttachmentNames.push(batch[j].fileName || batch[j].fileId);
             } else {
               // Transient failure — propagate so the webhook returns 500 and
               // Telegram retries the update delivery.
@@ -664,6 +674,16 @@ export function createTelegramWebhookHandler(
           { error: "Attachment processing failed" },
           { status: 500 },
         );
+      }
+    }
+
+    // Inject context about failed attachments into the message
+    if (failedAttachmentNames.length > 0) {
+      const failureNotice = `[The user attached file(s) that could not be retrieved: ${failedAttachmentNames.map((n) => `"${n}"`).join(", ")}. Ask them to re-send if the content is important.]`;
+      if (normalized.message.content.length > 0) {
+        normalized.message.content += `\n\n${failureNotice}`;
+      } else {
+        normalized.message.content = failureNotice;
       }
     }
 

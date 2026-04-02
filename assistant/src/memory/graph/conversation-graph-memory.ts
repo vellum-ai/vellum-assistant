@@ -26,16 +26,11 @@ import {
   InContextTracker,
   MAX_CONTEXT_LOAD_IMAGES,
   MAX_PER_TURN_IMAGES,
-  MAX_REFRESH_IMAGES,
   type ResolvedImage,
   resolveInjectionImages,
 } from "./injection.js";
-import {
-  loadContextMemory,
-  REFRESH_INTERVAL_TURNS,
-  refreshContextMemory,
-  retrieveForTurn,
-} from "./retriever.js";
+import { loadContextMemory, retrieveForTurn } from "./retriever.js";
+import type { RetrievalMetrics } from "./types.js";
 
 const log = getLogger("graph-conversation-memory");
 
@@ -51,9 +46,7 @@ const ESTIMATED_IMAGE_TOKENS = 1000;
  */
 export class ConversationGraphMemory {
   readonly tracker = new InContextTracker();
-  private turnCount = 0;
   private initialized = false;
-  private lastCompactedAt: number | null = null;
   private needsReload = false;
   private scopeId: string;
   private conversationId: string;
@@ -133,7 +126,6 @@ export class ConversationGraphMemory {
     // so we conservatively clear everything and reload.
     this.tracker.evictCompactedTurns(this.tracker.getTurn());
     this.needsReload = true;
-    this.lastCompactedAt = Date.now();
     log.info(
       { compactedMessageCount },
       "Compaction detected — will reload context on next turn",
@@ -184,7 +176,6 @@ export class ConversationGraphMemory {
    *
    * Dispatches to the appropriate retrieval mode:
    * - Turn 1 (or after compaction): full context load
-   * - Every 5 turns: periodic refresh
    * - Every other turn: per-turn injection
    *
    * Returns augmented messages with memory context prepended to the last
@@ -199,9 +190,12 @@ export class ConversationGraphMemory {
     runMessages: Message[];
     injectedTokens: number;
     latencyMs: number;
-    mode: "context-load" | "refresh" | "per-turn" | "none";
+    mode: "context-load" | "per-turn" | "none";
+    /** The raw text content of the injected block (without XML wrapper), or null if nothing was injected. */
+    injectedBlockText: string | null;
+    /** Retrieval pipeline metrics (null for noop/error paths). */
+    metrics: RetrievalMetrics | null;
   }> {
-    this.turnCount++;
     this.tracker.advanceTurn();
 
     const noopResult = {
@@ -209,6 +203,8 @@ export class ConversationGraphMemory {
       injectedTokens: 0,
       latencyMs: 0,
       mode: "none" as const,
+      injectedBlockText: null as string | null,
+      metrics: null as RetrievalMetrics | null,
     };
 
     // Gate: skip for empty/tool-result-only messages — unless we need to
@@ -240,10 +236,6 @@ export class ConversationGraphMemory {
           abortSignal,
           onEvent,
         );
-      }
-
-      if (this.turnCount % REFRESH_INTERVAL_TURNS === 0) {
-        return await this.runRefresh(messages, config, abortSignal);
       }
 
       return await this.runPerTurn(messages, config, abortSignal);
@@ -286,6 +278,8 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "context-load" as const,
+        injectedBlockText: null,
+        metrics: result.metrics,
       };
     }
 
@@ -303,6 +297,8 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "context-load" as const,
+        injectedBlockText: null,
+        metrics: result.metrics,
       };
     }
 
@@ -333,77 +329,8 @@ export class ConversationGraphMemory {
       injectedTokens,
       latencyMs: result.latencyMs,
       mode: "context-load" as const,
-    };
-  }
-
-  private async runRefresh(
-    messages: Message[],
-    config: AssistantConfig,
-    signal: AbortSignal,
-  ) {
-    // Build recent turns text from the last ~6 messages
-    const recentTurns = messages
-      .slice(-6)
-      .map((m) => {
-        const textBlocks = m.content.filter(
-          (b): b is Extract<typeof b, { type: "text" }> => b.type === "text",
-        );
-        if (textBlocks.length === 0) return "";
-        return `[${m.role}]: ${textBlocks.map((b) => b.text).join(" ")}`;
-      })
-      .filter((t) => t.length > 0)
-      .join("\n\n");
-
-    const result = await refreshContextMemory({
-      recentTurnsText: recentTurns,
-      scopeId: this.scopeId,
-      config,
-      tracker: this.tracker,
-      signal,
-    });
-
-    if (result.nodes.length === 0) {
-      this.lastInjectedBlock = null;
-      this.lastInjectedNodeIds = [];
-      this.lastInjectedImages = new Map();
-      return {
-        runMessages: messages,
-        injectedTokens: 0,
-        latencyMs: result.latencyMs,
-        mode: "refresh" as const,
-      };
-    }
-
-    // Track new nodes
-    this.tracker.add(result.nodes.map((n) => n.node.id));
-
-    const injectionBlock = assembleInjectionBlock(result.nodes);
-    if (!injectionBlock) {
-      return {
-        runMessages: messages,
-        injectedTokens: 0,
-        latencyMs: result.latencyMs,
-        mode: "refresh" as const,
-      };
-    }
-
-    // Resolve images from scored nodes
-    const images = await resolveInjectionImages(
-      result.nodes,
-      MAX_REFRESH_IMAGES,
-    );
-
-    this.lastInjectedBlock = injectionBlock;
-    this.lastInjectedNodeIds = result.nodes.map((n) => n.node.id);
-    this.lastInjectedImages = images;
-
-    return {
-      runMessages: injectMemoryBlock(messages, injectionBlock, images),
-      injectedTokens:
-        estimateTextTokens(injectionBlock) +
-        images.size * ESTIMATED_IMAGE_TOKENS,
-      latencyMs: result.latencyMs,
-      mode: "refresh" as const,
+      injectedBlockText: contextBlock,
+      metrics: result.metrics,
     };
   }
 
@@ -426,13 +353,15 @@ export class ConversationGraphMemory {
         .map((b) => b.text)
         .join(" ");
 
-      if (msg.role === "user" && !userLast) {
-        userLast = text;
-        userLastBlocks = msg.content;
+      if (msg.role === "user") {
+        if (userLastBlocks.length === 0) {
+          userLastBlocks = msg.content;
+          userLast = text;
+        }
       } else if (msg.role === "assistant" && !assistantLast) {
         assistantLast = text;
       }
-      if (userLast && assistantLast) break;
+      if (userLastBlocks.length > 0 && assistantLast) break;
     }
 
     const result = await retrieveForTurn({
@@ -454,6 +383,8 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "per-turn" as const,
+        injectedBlockText: null,
+        metrics: result.metrics,
       };
     }
 
@@ -467,6 +398,8 @@ export class ConversationGraphMemory {
         injectedTokens: 0,
         latencyMs: result.latencyMs,
         mode: "per-turn" as const,
+        injectedBlockText: null,
+        metrics: result.metrics,
       };
     }
 
@@ -487,6 +420,8 @@ export class ConversationGraphMemory {
         images.size * ESTIMATED_IMAGE_TOKENS,
       latencyMs: result.latencyMs,
       mode: "per-turn" as const,
+      injectedBlockText: injectionBlock,
+      metrics: result.metrics,
     };
   }
 }
@@ -505,14 +440,18 @@ export class ConversationGraphMemory {
  * We strip all leading blocks that match this pattern so that
  * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
  */
-function stripExistingMemoryInjections(messages: Message[]): Message[] {
+export function stripExistingMemoryInjections(messages: Message[]): Message[] {
   if (messages.length === 0) return messages;
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") return messages;
 
   // Walk from the front and skip all memory-injected blocks.
   // The injection prefix is always contiguous at the start of content.
+  // Memory-injected images are always preceded by a <memory_image> text
+  // marker (see injectMemoryBlock). Only strip image blocks that follow
+  // such a marker — user-attached images must be preserved.
   let firstNonMemory = 0;
+  let prevWasMemoryImageMarker = false;
   const content = last.content;
   while (firstNonMemory < content.length) {
     const block = content[firstNonMemory];
@@ -521,13 +460,16 @@ function stripExistingMemoryInjections(messages: Message[]): Message[] {
       block.text.startsWith("<memory __injected>\n")
     ) {
       firstNonMemory++;
+      prevWasMemoryImageMarker = false;
     } else if (
       block.type === "text" &&
       block.text.startsWith("<memory_image>")
     ) {
       firstNonMemory++;
-    } else if (block.type === "image") {
+      prevWasMemoryImageMarker = true;
+    } else if (block.type === "image" && prevWasMemoryImageMarker) {
       firstNonMemory++;
+      prevWasMemoryImageMarker = false;
     } else {
       break;
     }
@@ -545,10 +487,13 @@ function stripExistingMemoryInjections(messages: Message[]): Message[] {
 function injectTextBlock(messages: Message[], text: string): Message[] {
   if (text.trim().length === 0) return messages;
   if (messages.length === 0) return messages;
-  const userTail = messages[messages.length - 1];
+  // Strip existing memory blocks from the last user message first to prevent
+  // duplicates when the message was loaded from DB with a persisted block.
+  const cleaned = stripExistingMemoryInjections(messages);
+  const userTail = cleaned[cleaned.length - 1];
   if (!userTail || userTail.role !== "user") return messages;
   return [
-    ...messages.slice(0, -1),
+    ...cleaned.slice(0, -1),
     {
       ...userTail,
       content: [
@@ -569,7 +514,10 @@ function injectMemoryBlock(
 ): Message[] {
   if (text.trim().length === 0 && images.size === 0) return messages;
   if (messages.length === 0) return messages;
-  const userTail = messages[messages.length - 1];
+  // Strip existing memory blocks from the last user message first to prevent
+  // duplicates when the message was loaded from DB with a persisted block.
+  const cleaned = stripExistingMemoryInjections(messages);
+  const userTail = cleaned[cleaned.length - 1];
   if (!userTail || userTail.role !== "user") return messages;
 
   const blocks: ContentBlock[] = [
@@ -592,7 +540,7 @@ function injectMemoryBlock(
   }
 
   return [
-    ...messages.slice(0, -1),
+    ...cleaned.slice(0, -1),
     { ...userTail, content: [...blocks, ...userTail.content] },
   ];
 }

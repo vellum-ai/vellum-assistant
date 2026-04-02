@@ -8,6 +8,17 @@ private final class AttributedStringCacheEntry: NSObject {
     init(_ attributedString: AttributedString) { self.attributedString = attributedString }
 }
 
+#if os(macOS)
+private final class MeasuredTextCacheEntry: NSObject {
+    let nsAttributedString: NSAttributedString
+    let size: CGSize
+    init(nsAttributedString: NSAttributedString, size: CGSize) {
+        self.nsAttributedString = nsAttributedString
+        self.size = size
+    }
+}
+#endif
+
 /// Reusable view that renders parsed `MarkdownSegment` arrays.
 /// Groups consecutive text-selectable segments (text, headings, lists) into
 /// unified Text views so that text selection can span across paragraphs.
@@ -45,17 +56,7 @@ struct MarkdownSegmentView: View, Equatable {
                 switch group {
                 case .selectableRun(let runSegments):
                     #if os(macOS)
-                    let attributed = buildCombinedAttributedString(from: runSegments)
-                    let nsAttributed = Self.convertToNSAttributedString(
-                        attributed,
-                        font: VFont.nsChat,
-                        textColor: NSColor(textColor)
-                    )
-                    let measuredSize = VSelectableTextView.measureSize(
-                        attributedString: nsAttributed,
-                        lineSpacing: 4,
-                        maxWidth: maxContentWidth ?? VSpacing.chatBubbleMaxWidth
-                    )
+                    let (nsAttributed, measuredSize) = resolveSelectableRunMeasurement(runSegments)
                     VSelectableTextView(
                         attributedString: nsAttributed,
                         maxWidth: maxContentWidth,
@@ -203,6 +204,21 @@ struct MarkdownSegmentView: View, Equatable {
         return cache
     }()
 
+    #if os(macOS)
+    @MainActor private static var measuredTextCache: NSCache<NSNumber, MeasuredTextCacheEntry> = {
+        let cache = NSCache<NSNumber, MeasuredTextCacheEntry>()
+        cache.countLimit = 500
+        cache.totalCostLimit = 20_000_000 // ~20 MB
+        return cache
+    }()
+
+    #if DEBUG
+    /// Exposed for testing: number of cache insertions into `measuredTextCache`.
+    /// NSCache doesn't expose its count, so we maintain a parallel counter.
+    @MainActor static var _measuredTextCacheInsertCount: Int = 0
+    #endif
+    #endif
+
     // MARK: - Cache Guardrails
 
     private static let maxCacheableTextLength = 10_000
@@ -216,6 +232,12 @@ struct MarkdownSegmentView: View, Equatable {
         prefixWidthCache.removeAll()
         groupedSegmentsCache.removeAll()
         MarkdownTableView.clearCellAttributedStringCache()
+        #if os(macOS)
+        measuredTextCache.removeAllObjects()
+        #if DEBUG
+        _measuredTextCacheInsertCount = 0
+        #endif
+        #endif
     }
 
     /// Rough character count of the text content within a segment array.
@@ -267,6 +289,56 @@ struct MarkdownSegmentView: View, Equatable {
         Self.attributedStringCache.setObject(AttributedStringCacheEntry(result), forKey: cacheKeyNS, cost: textLen * 10)
         return result
     }
+
+    #if os(macOS)
+    /// Computes or retrieves from cache the `(NSAttributedString, CGSize)` pair
+    /// for a selectable text run.  `internal` so `@testable import` tests can
+    /// exercise the cache directly (SwiftUI `body` evaluation does not force
+    /// `ForEach` row closures to execute in a unit-test context).
+    @MainActor func resolveSelectableRunMeasurement(
+        _ runSegments: [MarkdownSegment]
+    ) -> (NSAttributedString, CGSize) {
+        var hasher = Hasher()
+        for segment in runSegments { hasher.combine(segment) }
+        hasher.combine(textColor.description)
+        hasher.combine(secondaryTextColor.description)
+        hasher.combine(codeTextColor.description)
+        hasher.combine(codeBackgroundColor.description)
+        let effectiveMaxWidth = maxContentWidth ?? VSpacing.chatBubbleMaxWidth
+        hasher.combine(effectiveMaxWidth)
+        let key = hasher.finalize()
+
+        let keyNS = key as NSNumber
+        if let cached = Self.measuredTextCache.object(forKey: keyNS) {
+            return (cached.nsAttributedString, cached.size)
+        }
+
+        os_signpost(.begin, log: PerfSignposts.log, name: "selectableRunMeasure")
+        let attributed = buildCombinedAttributedString(from: runSegments)
+        let nsAttributed = Self.convertToNSAttributedString(
+            attributed, font: VFont.nsChat, textColor: NSColor(textColor)
+        )
+        let size = VSelectableTextView.measureSize(
+            attributedString: nsAttributed,
+            lineSpacing: 4,
+            maxWidth: effectiveMaxWidth
+        )
+        os_signpost(.end, log: PerfSignposts.log, name: "selectableRunMeasure")
+
+        let textLen = Self.segmentTextLength(runSegments)
+        if textLen <= Self.maxCacheableTextLength {
+            Self.measuredTextCache.setObject(
+                MeasuredTextCacheEntry(nsAttributedString: nsAttributed, size: size),
+                forKey: keyNS,
+                cost: textLen * 15
+            )
+            #if DEBUG
+            Self._measuredTextCacheInsertCount += 1
+            #endif
+        }
+        return (nsAttributed, size)
+    }
+    #endif
 
     /// Pure builder with no side effects — separated for caching.
     private static func buildAttributedStringUncached(

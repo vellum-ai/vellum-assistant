@@ -39,6 +39,85 @@ export interface SkillRouteDeps {
   getSkillContext: () => SkillOperationContext;
 }
 
+const slimSkillBase = {
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  emoji: z.string().optional(),
+  kind: z.enum(["bundled", "installed", "catalog"]),
+  status: z.enum(["enabled", "disabled", "available"]),
+};
+
+const slimSkillSchema = z.discriminatedUnion("origin", [
+  z.object({ ...slimSkillBase, origin: z.literal("vellum") }),
+  z.object({
+    ...slimSkillBase,
+    origin: z.literal("clawhub"),
+    slug: z.string(),
+    author: z.string(),
+    stars: z.number(),
+    installs: z.number(),
+    reports: z.number(),
+    publishedAt: z.string().optional(),
+  }),
+  z.object({
+    ...slimSkillBase,
+    origin: z.literal("skillssh"),
+    slug: z.string(),
+    sourceRepo: z.string(),
+    installs: z.number(),
+  }),
+  z.object({ ...slimSkillBase, origin: z.literal("custom") }),
+]);
+
+const skillDetailSchema = z.discriminatedUnion("origin", [
+  z.object({ ...slimSkillBase, origin: z.literal("vellum") }),
+  z.object({
+    ...slimSkillBase,
+    origin: z.literal("clawhub"),
+    slug: z.string(),
+    author: z.string(),
+    stars: z.number(),
+    installs: z.number(),
+    reports: z.number(),
+    publishedAt: z.string().optional(),
+    owner: z
+      .object({
+        handle: z.string(),
+        displayName: z.string(),
+        image: z.string().optional(),
+      })
+      .nullable()
+      .optional(),
+    stats: z
+      .object({
+        stars: z.number(),
+        installs: z.number(),
+        downloads: z.number(),
+        versions: z.number(),
+      })
+      .nullable()
+      .optional(),
+    latestVersion: z
+      .object({
+        version: z.string(),
+        changelog: z.string().optional(),
+      })
+      .nullable()
+      .optional(),
+    createdAt: z.number().nullable().optional(),
+    updatedAt: z.number().nullable().optional(),
+  }),
+  z.object({
+    ...slimSkillBase,
+    origin: z.literal("skillssh"),
+    slug: z.string(),
+    sourceRepo: z.string(),
+    installs: z.number(),
+  }),
+  z.object({ ...slimSkillBase, origin: z.literal("custom") }),
+]);
+
 export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
   const ctx = () => deps.getSkillContext();
 
@@ -60,34 +139,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         },
       ],
       responseBody: z.object({
-        skills: z
-          .array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              description: z.string(),
-              emoji: z.string().optional(),
-              homepage: z.string().optional(),
-              source: z.enum([
-                "bundled",
-                "managed",
-                "workspace",
-                "clawhub",
-                "extra",
-                "catalog",
-              ]),
-              state: z.enum(["enabled", "disabled"]),
-              installStatus: z.enum(["bundled", "installed", "available"]),
-              updateAvailable: z.boolean(),
-              provenance: z.object({
-                kind: z.enum(["first-party", "third-party", "local"]),
-                provider: z.string().optional(),
-                originId: z.string().optional(),
-                sourceUrl: z.string().optional(),
-              }),
-            }),
-          )
-          .describe("Skill objects"),
+        skills: z.array(slimSkillSchema).describe("Skill objects"),
       }),
       handler: async ({ url }) => {
         const include = url.searchParams.get("include");
@@ -273,7 +325,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         },
       ],
       responseBody: z.object({
-        data: z.object({}).passthrough().describe("Search results"),
+        skills: z
+          .array(slimSkillSchema)
+          .describe("Skill objects matching the search query"),
       }),
       handler: async ({ url }) => {
         const query = url.searchParams.get("q") ?? "";
@@ -284,7 +338,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         if (!result.success) {
           return httpError("INTERNAL_ERROR", result.error, 500);
         }
-        return Response.json({ data: result.data });
+        return Response.json({ skills: result.skills });
       },
     },
 
@@ -404,10 +458,13 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       method: "GET",
       policyKey: "skills",
       summary: "Get skill",
-      description: "Return a single skill by ID.",
+      description: "Return a single skill by ID with enriched detail fields.",
       tags: ["skills"],
-      handler: ({ params }) => {
-        const result = getSkill(params.id, ctx());
+      responseBody: z.object({
+        skill: skillDetailSchema.describe("Skill detail object"),
+      }),
+      handler: async ({ params }) => {
+        const result = await getSkill(params.id, ctx());
         if ("error" in result) {
           if (result.status === 404) {
             return httpError("NOT_FOUND", result.error, 404);

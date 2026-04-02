@@ -49,7 +49,7 @@ public struct VNavItem<Trailing: View>: View {
     }
 
     private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
+        isActive ? VColor.contentDefault : VColor.contentTertiary
     }
 
     private var textColor: Color {
@@ -103,6 +103,11 @@ public struct VNavItem<Trailing: View>: View {
         .padding(.horizontal, 0)
         .help(isExpanded ? "" : label)
         .pointerCursor(onHover: { isHovered = $0 })
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isActive ? [.isSelected] : [])
+        .accessibilityAction { action() }
     }
 }
 
@@ -154,7 +159,7 @@ public struct VNavItemTrailingIcon: View {
     var isActive: Bool = false
 
     private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
+        isActive ? VColor.contentDefault : VColor.contentTertiary
     }
 
     public var body: some View {

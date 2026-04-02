@@ -120,6 +120,20 @@ extension MainWindowView {
     /// to reduce type-checker pressure (the init has many parameters).
     private func makeSectionView(group: ConversationGroup, conversations: [ConversationModel]) -> SidebarSectionView {
         let isScheduled = group.id == ConversationGroup.scheduled.id
+        let isBackground = group.id == ConversationGroup.background.id
+        let countMode: SidebarSectionView.CountMode = isScheduled
+            ? .subGroups(grouper: { $0.scheduleJobId })
+            : isBackground
+                ? .subGroups(grouper: { $0.source })
+                : .items
+        let subGroupLabelProvider: ((String, [ConversationModel]) -> String)? = isBackground
+            ? { key, _ in key.prefix(1).uppercased() + key.dropFirst() }
+            : nil
+        let expandedSubGroups: Binding<Set<String>>? = isScheduled
+            ? Binding(get: { sidebar.expandedScheduleGroups }, set: { sidebar.expandedScheduleGroups = $0 })
+            : isBackground
+                ? Binding(get: { sidebar.expandedBackgroundGroups }, set: { sidebar.expandedBackgroundGroups = $0 })
+                : nil
         return SidebarSectionView(
             group: group,
             conversations: conversations,
@@ -127,7 +141,7 @@ extension MainWindowView {
             showAll: sidebar.showAllInSection.contains(group.id),
             maxCollapsed: 5,
             isDropTarget: sidebar.dropTargetSectionId == group.id,
-            countMode: isScheduled ? .subGroups(grouper: { $0.scheduleJobId }) : .items,
+            countMode: countMode,
             isRenaming: sidebar.renamingGroupId == group.id,
             renamingName: Binding(
                 get: { sidebar.renamingGroupName },
@@ -145,16 +159,18 @@ extension MainWindowView {
                 sidebar.renamingGroupId = nil
             },
             onDelete: group.isSystemGroup ? nil : {
-                Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+                if conversations.isEmpty {
+                    Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+                } else {
+                    groupToDelete = group
+                }
             },
             selectedConversationId: conversationManager.activeConversationId,
             onToggleExpand: { sidebar.toggleSection(group.id) },
             onToggleShowAll: { sidebar.toggleShowAll(group.id) },
             makeRow: { makeSidebarRow(conversation: $0) },
-            expandedScheduleGroups: isScheduled ? Binding(
-                get: { sidebar.expandedScheduleGroups },
-                set: { sidebar.expandedScheduleGroups = $0 }
-            ) : nil,
+            expandedScheduleGroups: expandedSubGroups,
+            subGroupLabelProvider: subGroupLabelProvider,
             sidebar: sidebar,
             conversationManager: conversationManager
         )
@@ -228,18 +244,14 @@ extension MainWindowView {
             }
 
             let customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
-            let backgroundEnabled = assistantFeatureFlagStore.isEnabled("show-background-conversations")
             let groupEntries: [SidebarGroupEntry] = {
                 let raw = conversationManager.groupedConversations
                 var entries: [SidebarGroupEntry] = []
                 var extraUngrouped: [ConversationModel] = []
                 for entry in raw {
                     if let group = entry.group {
-                        // Hide Background group when its flag is off
-                        if group.id == ConversationGroup.background.id && !backgroundEnabled {
-                            extraUngrouped.append(contentsOf: entry.conversations)
                         // Hide custom groups when custom groups flag is off
-                        } else if !group.isSystemGroup && !customGroupsEnabled {
+                        if !group.isSystemGroup && !customGroupsEnabled {
                             extraUngrouped.append(contentsOf: entry.conversations)
                         } else {
                             entries.append(SidebarGroupEntry(id: group.id, group: group, conversations: entry.conversations))
@@ -317,7 +329,11 @@ extension MainWindowView {
                     style: .ghost,
                     size: .compact
                 ) {
+                    let wasCollapsed = !sidebar.showAllInSection.contains("ungrouped")
                     withAnimation(VAnimation.fast) { sidebar.toggleShowAll("ungrouped") }
+                    if wasCollapsed {
+                        conversationManager.loadAllRemainingConversations()
+                    }
                 }
                 Spacer()
             }
@@ -427,6 +443,22 @@ extension MainWindowView {
                             value: contentGeo.size.height
                         )
                     })
+            }
+            .sheet(item: $groupToDelete) { group in
+                DeleteGroupConfirmationSheet(
+                    groupName: group.name,
+                    onDelete: {
+                        groupToDelete = nil
+                        Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+                    },
+                    onArchiveAndDelete: {
+                        groupToDelete = nil
+                        Task<Void, Never> { await conversationManager.deleteGroupAndArchiveConversations(group.id) }
+                    },
+                    onCancel: {
+                        groupToDelete = nil
+                    }
+                )
             }
             .background(GeometryReader { scrollGeo in
                 Color.clear.preference(
@@ -568,7 +600,7 @@ extension MainWindowView {
 
     @ViewBuilder
     func sidebarSectionDivider() -> some View {
-        VColor.surfaceBase
+        VColor.surfaceActive
             .frame(height: 1)
             .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
     }

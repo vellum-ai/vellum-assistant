@@ -19,16 +19,20 @@ import {
 } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db.js";
 import { parseEpochMs } from "./extraction.js";
 import {
   createTrigger,
+  deduplicateParagraphs,
   deleteNode,
   getEdgesForNode,
   getTriggersForNode,
   queryNodes,
+  recordNodeEdit,
   updateNode,
 } from "./store.js";
 import type { MemoryNode } from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-consolidation");
 
@@ -59,7 +63,11 @@ function buildConsolidationPrompt(
           ? ` eventDate=${new Date(n.eventDate).toISOString().split("T")[0]}`
           : "";
       const imageStr = n.hasImage ? " [has_image]" : "";
-      return `  [${n.id}] type=${n.type} sig=${n.significance.toFixed(2)} fidelity=${n.fidelity} reinforced=${n.reinforcementCount}x age=${age}d${eventStr}${imageStr}\n    ${n.content}`;
+      return `  [${n.id}] type=${n.type} sig=${n.significance.toFixed(
+        2,
+      )} fidelity=${n.fidelity} reinforced=${
+        n.reinforcementCount
+      }x age=${age}d${eventStr}${imageStr}\n    ${n.content}`;
     })
     .join("\n\n");
 
@@ -182,7 +190,7 @@ function getRecentNodes(scopeId: string, days: number = 7): MemoryNode[] {
     fidelityNot: ["gone"],
     createdAfter: cutoff,
     limit: 10000,
-  });
+  }).filter((n) => !isCapabilityNode(n));
 }
 
 function getTopSignificanceNodes(
@@ -193,8 +201,9 @@ function getTopSignificanceNodes(
     scopeId,
     fidelityNot: ["gone"],
     minSignificance: 0.6,
-    limit: n,
-  });
+  })
+    .filter((n) => !isCapabilityNode(n))
+    .slice(0, n);
 }
 
 function getDecayedNodes(scopeId: string): MemoryNode[] {
@@ -202,7 +211,10 @@ function getDecayedNodes(scopeId: string): MemoryNode[] {
     scopeId,
     limit: 10000,
   });
-  return all.filter((n) => n.fidelity === "faded" || n.fidelity === "gist");
+  return all.filter(
+    (n) =>
+      (n.fidelity === "faded" || n.fidelity === "gist") && !isCapabilityNode(n),
+  );
 }
 
 function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
@@ -210,7 +222,7 @@ function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
     scopeId,
     fidelityNot: ["gone"],
     limit: 10000,
-  });
+  }).filter((n) => !isCapabilityNode(n));
   // Fisher-Yates shuffle, take first n
   for (let i = all.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -484,6 +496,10 @@ async function consolidateChunk(
     merge_edges?: Array<{ survivor_id: string; deleted_id: string }>;
   };
 
+  // Build nodeMap once upfront; patch entries after each updateNode() so
+  // later iterations always read fresh in-memory state.
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+
   // Apply updates
   for (const update of input.updates ?? []) {
     if (!nodeIds.has(update.id)) continue; // safety: only update nodes in this partition
@@ -502,13 +518,36 @@ async function consolidateChunk(
 
     if (Object.keys(changes).length > 1) {
       // more than just lastConsolidated
-      updateNode(update.id, changes);
+
+      // Wrap edit recording + node update in a transaction so they are atomic:
+      // if updateNode fails, the edit record is rolled back.
+      getDb().transaction(() => {
+        if (changes.content) {
+          const cleanContent = deduplicateParagraphs(changes.content);
+          const node = nodeMap.get(update.id);
+          if (node && node.content !== cleanContent) {
+            recordNodeEdit({
+              nodeId: update.id,
+              previousContent: node.content,
+              newContent: cleanContent,
+              source: "consolidation",
+            });
+          }
+        }
+
+        updateNode(update.id, changes);
+      });
       result.nodesUpdated++;
+      // Sync in-memory state with what updateNode actually wrote to the DB
+      // (updateNode deduplicates content before persisting)
+      if (changes.content)
+        changes.content = deduplicateParagraphs(changes.content);
+      const node = nodeMap.get(update.id);
+      if (node) Object.assign(node, changes);
     }
   }
 
   // Apply merge edges (before deletion so the edge can reference the node)
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   const { createEdge } = await import("./store.js");
   for (const merge of input.merge_edges ?? []) {
     if (!nodeIds.has(merge.survivor_id) || !nodeIds.has(merge.deleted_id))
@@ -532,6 +571,7 @@ async function consolidateChunk(
         survivor.eventDate == null
       ) {
         updateNode(merge.survivor_id, { eventDate: deleted.eventDate });
+        survivor.eventDate = deleted.eventDate;
 
         // The deleted node's triggers will be cascade-deleted when the node
         // is removed. Ensure the survivor has an event trigger for the
@@ -564,6 +604,7 @@ async function consolidateChunk(
         (survivor.imageRefs == null || survivor.imageRefs.length === 0)
       ) {
         updateNode(merge.survivor_id, { imageRefs: deleted.imageRefs });
+        survivor.imageRefs = deleted.imageRefs;
       }
     } catch (err) {
       log.warn({ err }, "Failed to create merge edge");
@@ -574,6 +615,7 @@ async function consolidateChunk(
   for (const id of input.delete_ids ?? []) {
     if (!nodeIds.has(id)) continue; // safety
     try {
+      log.info({ nodeId: id }, "Consolidation deleting node");
       deleteNode(id);
       result.nodesDeleted++;
       result.deletedIds.push(id);

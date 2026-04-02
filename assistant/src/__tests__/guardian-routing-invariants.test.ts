@@ -40,10 +40,15 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import {
+  buildDecisionActions,
+  GUARDIAN_DECISION_ACTIONS,
+} from "../runtime/guardian-decision-types.js";
+import {
   type GuardianReplyContext,
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { listGuardianDecisionPrompts } from "../runtime/routes/guardian-action-routes.js";
 
 initializeDb();
 
@@ -1699,5 +1704,134 @@ describe("routing invariant: expired requests are excluded from pending discover
     expect(result.consumed).toBe(false);
     expect(result.type).toBe("not_consumed");
     expect(result.decisionApplied).toBe(false);
+  });
+});
+
+// ===========================================================================
+// SECTION 12: Kind-specific action sets in prompt mapping
+// ===========================================================================
+
+describe("routing invariant: kind-specific action sets in prompt mapping", () => {
+  beforeEach(() => resetTables());
+
+  test("buildDecisionActions({ forGuardianOnBehalf: true }) includes temporal actions", () => {
+    const actions = buildDecisionActions({ forGuardianOnBehalf: true });
+    const actionIds = actions.map((a) => a.action);
+    expect(actionIds).toContain("approve_once");
+    expect(actionIds).toContain("approve_10m");
+    expect(actionIds).toContain("approve_conversation");
+    expect(actionIds).toContain("reject");
+    // approve_always must NOT be present for guardian-on-behalf
+    expect(actionIds).not.toContain("approve_always");
+  });
+
+  test("non-tool-approval action set is approve_once + reject only", () => {
+    const actions = [
+      GUARDIAN_DECISION_ACTIONS.approve_once,
+      GUARDIAN_DECISION_ACTIONS.reject,
+    ];
+    expect(actions).toHaveLength(2);
+    expect(actions[0].action).toBe("approve_once");
+    expect(actions[1].action).toBe("reject");
+  });
+
+  test("source-code invariant: guardian-action-routes.ts contains kind guard", () => {
+    const srcRoot = resolve(__dirname, "..");
+    const fullPath = join(srcRoot, "runtime/routes/guardian-action-routes.ts");
+    const source = readFileSync(fullPath, "utf-8");
+    expect(source).toContain('req.kind === "tool_approval"');
+  });
+
+  // Integration tests: verify listGuardianDecisionPrompts returns correct
+  // action sets for each canonical request kind.
+
+  test("tool_approval prompt includes temporal actions (approve_10m, approve_conversation)", () => {
+    const convId = "conv-kind-tool-approval";
+    createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: convId,
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "shell",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const prompts = listGuardianDecisionPrompts({ conversationId: convId });
+    expect(prompts).toHaveLength(1);
+
+    const actionIds = prompts[0].actions.map((a) => a.action);
+    expect(actionIds).toContain("approve_once");
+    expect(actionIds).toContain("approve_10m");
+    expect(actionIds).toContain("approve_conversation");
+    expect(actionIds).toContain("reject");
+    expect(actionIds).not.toContain("approve_always");
+  });
+
+  test("pending_question prompt has approve_once + reject only (no temporal actions)", () => {
+    const convId = "conv-kind-pending-question";
+    createCanonicalGuardianRequest({
+      kind: "pending_question",
+      sourceType: "voice",
+      sourceChannel: "phone",
+      conversationId: convId,
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      callSessionId: "call-pq",
+      pendingQuestionId: "pq-kind-test",
+      questionText: "What time works best?",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const prompts = listGuardianDecisionPrompts({ conversationId: convId });
+    expect(prompts).toHaveLength(1);
+
+    const actionIds = prompts[0].actions.map((a) => a.action);
+    expect(actionIds).toEqual(["approve_once", "reject"]);
+    expect(actionIds).not.toContain("approve_10m");
+    expect(actionIds).not.toContain("approve_conversation");
+  });
+
+  test("access_request prompt has approve_once + reject only (no temporal actions)", () => {
+    const convId = "conv-kind-access-request";
+    createCanonicalGuardianRequest({
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: convId,
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "ingress_access_request",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const prompts = listGuardianDecisionPrompts({ conversationId: convId });
+    expect(prompts).toHaveLength(1);
+
+    const actionIds = prompts[0].actions.map((a) => a.action);
+    expect(actionIds).toEqual(["approve_once", "reject"]);
+    expect(actionIds).not.toContain("approve_10m");
+    expect(actionIds).not.toContain("approve_conversation");
+  });
+
+  test("tool_grant_request prompt has approve_once + reject only (no temporal actions)", () => {
+    const convId = "conv-kind-tool-grant-request";
+    createCanonicalGuardianRequest({
+      kind: "tool_grant_request",
+      sourceType: "channel",
+      conversationId: convId,
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "file_write",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const prompts = listGuardianDecisionPrompts({ conversationId: convId });
+    expect(prompts).toHaveLength(1);
+
+    const actionIds = prompts[0].actions.map((a) => a.action);
+    expect(actionIds).toEqual(["approve_once", "reject"]);
+    expect(actionIds).not.toContain("approve_10m");
+    expect(actionIds).not.toContain("approve_conversation");
   });
 });

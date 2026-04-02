@@ -705,10 +705,11 @@ describe("Terminal output format: formatShellOutput shared by sandbox and host",
     const longOutput = "x".repeat(MAX_OUTPUT_LENGTH + 100);
     const result = formatShellOutput(longOutput, "", 0, false, 120);
 
-    expect(result.content.length).toBe(
-      MAX_OUTPUT_LENGTH + 1 + '<output_truncated limit="50K" />'.length,
-    );
-    expect(result.content).toContain("<output_truncated");
+    expect(result.content).toContain('limit="20K"');
+    expect(result.content).toContain('file="');
+    // The <output_truncated tag starts right after MAX_OUTPUT_LENGTH chars + 1 newline
+    const tagStart = result.content.indexOf("<output_truncated");
+    expect(tagStart).toBe(MAX_OUTPUT_LENGTH + 1);
   });
 
   test("timed-out command appends timeout tag and sets isError", () => {

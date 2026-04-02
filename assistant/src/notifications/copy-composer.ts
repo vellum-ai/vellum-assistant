@@ -353,6 +353,15 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     };
   },
 
+  "guardian.channel_activation": (payload) => {
+    const code = str(payload.verificationCode, "------");
+    const channel = str(payload.sourceChannel, "a channel");
+    return {
+      title: "Guardian Verification Code",
+      body: `Your ${channel} verification code is: ${code}\n\nEnter this code in your ${channel} chat to verify your identity as guardian.`,
+    };
+  },
+
   "ingress.access_request": (payload) => ({
     title: "Access Request",
     body: buildAccessRequestContractText(payload),
@@ -396,6 +405,92 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     return {
       title: "Callback Requested",
       body: lines.join("\n"),
+    };
+  },
+
+  "ingress.trusted_contact.guardian_decision": (payload) => {
+    const decision = str(payload.decision, "decided on");
+    const sourceChannel =
+      typeof payload.sourceChannel === "string"
+        ? payload.sourceChannel
+        : undefined;
+
+    const requesterDisplayName =
+      typeof payload.requesterDisplayName === "string" &&
+      payload.requesterDisplayName.length > 0
+        ? payload.requesterDisplayName
+        : undefined;
+    const requesterExternalUserId =
+      typeof payload.requesterExternalUserId === "string" &&
+      payload.requesterExternalUserId.length > 0
+        ? payload.requesterExternalUserId
+        : undefined;
+    const requesterLabel = sanitizeIdentityField(
+      requesterDisplayName ??
+        (sourceChannel === "slack" &&
+        requesterExternalUserId &&
+        /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
+          ? `<@${requesterExternalUserId}>`
+          : requesterExternalUserId) ??
+        "Someone",
+    );
+
+    const decidedByDisplayName =
+      typeof payload.decidedByDisplayName === "string" &&
+      payload.decidedByDisplayName.length > 0
+        ? payload.decidedByDisplayName
+        : undefined;
+    const decidedByExternalUserId =
+      typeof payload.decidedByExternalUserId === "string" &&
+      payload.decidedByExternalUserId.length > 0
+        ? payload.decidedByExternalUserId
+        : undefined;
+    const decidedByLabel = sanitizeIdentityField(
+      decidedByDisplayName ??
+        (sourceChannel === "slack" &&
+        decidedByExternalUserId &&
+        /^U[A-Z0-9]+$/i.test(decidedByExternalUserId)
+          ? `<@${decidedByExternalUserId}>`
+          : decidedByExternalUserId) ??
+        "a guardian",
+    );
+
+    const verb = decision === "approved" ? "approved" : "denied";
+    return {
+      title: "Trusted Contact Decision",
+      body: `${requesterLabel}'s access request has been ${verb} by ${decidedByLabel}.`,
+    };
+  },
+
+  "ingress.trusted_contact.denied": (payload) => {
+    const sourceChannel =
+      typeof payload.sourceChannel === "string"
+        ? payload.sourceChannel
+        : undefined;
+
+    const requesterDisplayName =
+      typeof payload.requesterDisplayName === "string" &&
+      payload.requesterDisplayName.length > 0
+        ? payload.requesterDisplayName
+        : undefined;
+    const requesterExternalUserId =
+      typeof payload.requesterExternalUserId === "string" &&
+      payload.requesterExternalUserId.length > 0
+        ? payload.requesterExternalUserId
+        : undefined;
+    const requesterLabel = sanitizeIdentityField(
+      requesterDisplayName ??
+        (sourceChannel === "slack" &&
+        requesterExternalUserId &&
+        /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
+          ? `<@${requesterExternalUserId}>`
+          : requesterExternalUserId) ??
+        "Someone",
+    );
+
+    return {
+      title: "Trusted Contact Denied",
+      body: `A trusted contact request from ${requesterLabel} has been denied.`,
     };
   },
 

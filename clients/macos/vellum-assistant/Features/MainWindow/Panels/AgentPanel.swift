@@ -240,7 +240,7 @@ struct SkillItemRow: View {
     let onDelete: () -> Void
 
     private var isRemovable: Bool {
-        skill.source == "managed" || skill.source == "clawhub"
+        skill.kind == "installed"
     }
 
     var body: some View {
@@ -259,7 +259,7 @@ struct SkillItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        skillTag(for: skill.source)
+                        skillTag(for: skill.origin, status: skill.status)
 
                         Spacer()
                     }
@@ -310,7 +310,7 @@ struct AvailableSkillItemRow: View {
                         .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    skillTag(for: skill.source)
+                    skillTag(for: skill.origin, status: skill.status)
                     Spacer()
                 }
                 Text(skill.description)
@@ -343,19 +343,20 @@ struct AvailableSkillItemRow: View {
 
 // MARK: - Skill Tag Helper
 
-private func skillTag(for source: String) -> VTag {
-    switch source {
-    case "bundled":
-        return VTag("Core", color: VColor.contentDefault, icon: .package)
-    case "managed", "clawhub":
-        return VTag("Installed", color: VColor.systemPositiveStrong, icon: .circleCheck)
-    case "workspace":
-        return VTag("Created", color: VColor.contentSecondary, icon: .sparkles)
-    case "extra":
-        return VTag("Extra", color: VColor.contentTertiary, icon: .puzzle)
-    case "catalog":
+private func skillTag(for origin: String, status: String? = nil) -> VTag {
+    if status == "available" {
         return VTag("Available", color: VColor.funTeal, icon: .arrowDownToLine)
+    }
+    switch origin {
+    case "vellum":
+        return VTag("Core", color: VColor.contentDefault, icon: .package)
+    case "clawhub":
+        return VTag("Community", color: VColor.funPurple, icon: .globe)
+    case "skillssh":
+        return VTag("Community", color: VColor.funTeal, icon: .globe)
+    case "custom":
+        return VTag("Created", color: VColor.contentSecondary, icon: .sparkles)
     default:
-        return VTag(source.capitalized, color: VColor.contentTertiary, icon: .puzzle)
+        return VTag(origin.capitalized, color: VColor.contentTertiary, icon: .puzzle)
     }
 }

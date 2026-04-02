@@ -4077,6 +4077,36 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/llm-request-logs/{id}/payload:
+    get:
+      operationId: llmrequestlogs_by_id_payload_get
+      summary: Get raw payload for a single LLM request log
+      description: Return the full request and response payloads for a specific log entry.
+      tags:
+        - messages
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  requestPayload: {}
+                  responsePayload: {}
+                required:
+                  - id
+                  - requestPayload
+                  - responsePayload
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/logs/export:
     post:
       operationId: logs_export_post
@@ -5697,68 +5727,165 @@ paths:
                   skills:
                     type: array
                     items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        name:
-                          type: string
-                        description:
-                          type: string
-                        emoji:
-                          type: string
-                        homepage:
-                          type: string
-                        source:
-                          type: string
-                          enum:
-                            - bundled
-                            - managed
-                            - workspace
-                            - clawhub
-                            - extra
-                            - catalog
-                        state:
-                          type: string
-                          enum:
-                            - enabled
-                            - disabled
-                        installStatus:
-                          type: string
-                          enum:
-                            - bundled
-                            - installed
-                            - available
-                        updateAvailable:
-                          type: boolean
-                        provenance:
-                          type: object
+                      oneOf:
+                        - type: object
                           properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            emoji:
+                              type: string
                             kind:
                               type: string
                               enum:
-                                - first-party
-                                - third-party
-                                - local
-                            provider:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
                               type: string
-                            originId:
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            origin:
                               type: string
-                            sourceUrl:
+                              const: vellum
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - origin
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            origin:
+                              type: string
+                              const: clawhub
+                            slug:
+                              type: string
+                            author:
+                              type: string
+                            stars:
+                              type: number
+                            installs:
+                              type: number
+                            reports:
+                              type: number
+                            publishedAt:
                               type: string
                           required:
+                            - id
+                            - name
+                            - description
                             - kind
+                            - status
+                            - origin
+                            - slug
+                            - author
+                            - stars
+                            - installs
+                            - reports
                           additionalProperties: false
-                      required:
-                        - id
-                        - name
-                        - description
-                        - source
-                        - state
-                        - installStatus
-                        - updateAvailable
-                        - provenance
-                      additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            origin:
+                              type: string
+                              const: skillssh
+                            slug:
+                              type: string
+                            sourceRepo:
+                              type: string
+                            installs:
+                              type: number
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - origin
+                            - slug
+                            - sourceRepo
+                            - installs
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            origin:
+                              type: string
+                              const: custom
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - origin
+                          additionalProperties: false
                     description: Skill objects
                 required:
                   - skills
@@ -5831,12 +5958,235 @@ paths:
     get:
       operationId: skills_by_id_get
       summary: Get skill
-      description: Return a single skill by ID.
+      description: Return a single skill by ID with enriched detail fields.
       tags:
         - skills
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skill:
+                    oneOf:
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          origin:
+                            type: string
+                            const: vellum
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - origin
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          origin:
+                            type: string
+                            const: clawhub
+                          slug:
+                            type: string
+                          author:
+                            type: string
+                          stars:
+                            type: number
+                          installs:
+                            type: number
+                          reports:
+                            type: number
+                          publishedAt:
+                            type: string
+                          owner:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  handle:
+                                    type: string
+                                  displayName:
+                                    type: string
+                                  image:
+                                    type: string
+                                required:
+                                  - handle
+                                  - displayName
+                                additionalProperties: false
+                              - type: "null"
+                          stats:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  stars:
+                                    type: number
+                                  installs:
+                                    type: number
+                                  downloads:
+                                    type: number
+                                  versions:
+                                    type: number
+                                required:
+                                  - stars
+                                  - installs
+                                  - downloads
+                                  - versions
+                                additionalProperties: false
+                              - type: "null"
+                          latestVersion:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  version:
+                                    type: string
+                                  changelog:
+                                    type: string
+                                required:
+                                  - version
+                                additionalProperties: false
+                              - type: "null"
+                          createdAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          updatedAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - origin
+                          - slug
+                          - author
+                          - stars
+                          - installs
+                          - reports
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          origin:
+                            type: string
+                            const: skillssh
+                          slug:
+                            type: string
+                          sourceRepo:
+                            type: string
+                          installs:
+                            type: number
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - origin
+                          - slug
+                          - sourceRepo
+                          - installs
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          origin:
+                            type: string
+                            const: custom
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - origin
+                        additionalProperties: false
+                    description: Skill detail object
+                required:
+                  - skill
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -6114,13 +6464,171 @@ paths:
               schema:
                 type: object
                 properties:
-                  data:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Search results
+                  skills:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            origin:
+                              type: string
+                              const: vellum
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - origin
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            origin:
+                              type: string
+                              const: clawhub
+                            slug:
+                              type: string
+                            author:
+                              type: string
+                            stars:
+                              type: number
+                            installs:
+                              type: number
+                            reports:
+                              type: number
+                            publishedAt:
+                              type: string
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - origin
+                            - slug
+                            - author
+                            - stars
+                            - installs
+                            - reports
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            origin:
+                              type: string
+                              const: skillssh
+                            slug:
+                              type: string
+                            sourceRepo:
+                              type: string
+                            installs:
+                              type: number
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - origin
+                            - slug
+                            - sourceRepo
+                            - installs
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            emoji:
+                              type: string
+                            kind:
+                              type: string
+                              enum:
+                                - bundled
+                                - installed
+                                - catalog
+                            status:
+                              type: string
+                              enum:
+                                - enabled
+                                - disabled
+                                - available
+                            origin:
+                              type: string
+                              const: custom
+                          required:
+                            - id
+                            - name
+                            - description
+                            - kind
+                            - status
+                            - origin
+                          additionalProperties: false
+                    description: Skill objects matching the search query
                 required:
-                  - data
+                  - skills
                 additionalProperties: false
       parameters:
         - name: q

@@ -45,115 +45,6 @@ public func adaptiveColor(light: Color, dark: Color) -> Color {
     #endif
 }
 
-// MARK: - Raw Palette Scales (Token Internals Only)
-
-enum Emerald {
-    static let _950 = Color(hex: 0x073D2E)
-    static let _900 = Color(hex: 0x0A5843)
-    static let _800 = Color(hex: 0x0C7356)
-    static let _700 = Color(hex: 0x10906A)
-    static let _600 = Color(hex: 0x18B07A)
-    static let _500 = Color(hex: 0x38CF93)
-    static let _400 = Color(hex: 0x6EE7B5)
-    static let _300 = Color(hex: 0xA6F2D1)
-    static let _200 = Color(hex: 0xD2F9E8)
-    static let _100 = Color(hex: 0xECFDF5)
-}
-
-public enum Danger {
-    public static let _950 = Color(hex: 0x4E281D)
-    public static let _900 = Color(hex: 0x803017)
-    public static let _800 = Color(hex: 0xAB3F1C)
-    public static let _700 = Color(hex: 0xDA491A)
-    public static let _600 = Color(hex: 0xE86B40)
-    public static let _500 = Color(hex: 0xF39B74)
-    public static let _400 = Color(hex: 0xF9C0A2)
-    public static let _300 = Color(hex: 0xF7DAC9)
-    public static let _200 = Color(hex: 0xFFE4D5)
-    public static let _100 = Color(hex: 0xFFF3EE)
-}
-
-public enum Amber {
-    public static let _950 = Color(hex: 0x5E3207)
-    public static let _900 = Color(hex: 0x7A4409)
-    public static let _800 = Color(hex: 0xA35E0C)
-    public static let _700 = Color(hex: 0xC97C10)
-    public static let _600 = Color(hex: 0xE8A020)
-    public static let _550 = Color(hex: 0xF1B21E)
-    public static let _500 = Color(hex: 0xFAC426)
-    public static let _400 = Color(hex: 0xFDD94E)
-    public static let _300 = Color(hex: 0xFEEC94)
-    public static let _200 = Color(hex: 0xFEF7CD)
-    public static let _100 = Color(hex: 0xFEFCE8)
-}
-
-enum Stone {
-    static let _950 = Color(hex: 0x1C1917)
-    static let _900 = Color(hex: 0x292524)
-    static let _800 = Color(hex: 0x44403C)
-    static let _700 = Color(hex: 0x57534E)
-    static let _600 = Color(hex: 0x78716C)
-    static let _500 = Color(hex: 0x97918B)
-    static let _400 = Color(hex: 0xA8A29E)
-    static let _300 = Color(hex: 0xD6D3D1)
-    static let _200 = Color(hex: 0xE7E5E4)
-    static let _100 = Color(hex: 0xF5F5F4)
-    static let _50  = Color(hex: 0xFAFAF9)
-}
-
-enum Slate {
-    static let _950 = Stone._950
-    static let _900 = Stone._900
-    static let _800 = Stone._800
-    static let _700 = Stone._700
-    static let _600 = Stone._600
-    static let _500 = Stone._500
-    static let _400 = Stone._400
-    static let _300 = Stone._300
-    static let _200 = Stone._200
-    static let _100 = Stone._100
-    static let _50  = Stone._50
-}
-
-enum Moss {
-    static let _950 = Color(hex: 0x20201E)
-    static let _900 = Color(hex: 0x2A2A28)
-    static let _700 = Color(hex: 0x3A3A37)
-    static let _600 = Color(hex: 0x4A4A46)
-    static let _500 = Color(hex: 0x6B6B65)
-    static let _400 = Color(hex: 0xA1A096)
-    static let _300 = Color(hex: 0xBDB9A9)
-    static let _200 = Color(hex: 0xD4D1C1)
-    static let _100 = Color(hex: 0xE8E6DA)
-    static let _50  = Color(hex: 0xF5F3EB)
-}
-
-public enum Forest {
-    public static let _950 = Color(hex: 0x1A2316)
-    public static let _900 = Color(hex: 0x2A3825)
-    public static let _800 = Color(hex: 0x3D4F36)
-    public static let _700 = Color(hex: 0x516748)
-    public static let _600 = Color(hex: 0x657D5B)
-    public static let _500 = Color(hex: 0x7A8B6F)
-    public static let _400 = Color(hex: 0x98A88F)
-    public static let _300 = Color(hex: 0xB5C3AE)
-    public static let _200 = Color(hex: 0xD4DFD0)
-    public static let _100 = Color(hex: 0xEDF2EB)
-}
-
-enum Sage {
-    static let _950 = Forest._950
-    static let _900 = Forest._900
-    static let _800 = Forest._800
-    static let _700 = Forest._700
-    static let _600 = Forest._600
-    static let _500 = Forest._500
-    static let _400 = Forest._400
-    static let _300 = Forest._300
-    static let _200 = Forest._200
-    static let _100 = Forest._100
-}
-
 // MARK: - Canonical Semantic Tokens
 
 public enum VSemanticColorToken: String, CaseIterable {
@@ -161,16 +52,19 @@ public enum VSemanticColorToken: String, CaseIterable {
     case primaryBase
     case primaryHover
     case primaryActive
+    case primarySecondHover
 
     case surfaceBase
     case surfaceOverlay
     case surfaceActive
     case surfaceLift
+    case surfaceHover
 
     case borderDisabled
     case borderBase
     case borderHover
     case borderActive
+    case borderElement
 
     case contentEmphasized
     case contentDefault
@@ -206,56 +100,62 @@ public struct VSemanticColorPair: Equatable {
 
 private enum FigmaRawColor {
     // Primary
-    static let primaryLightDisabled = Color(hex: 0xD4D1C1)
-    static let primaryDarkDisabled = Color(hex: 0x3A3A37)
-    static let primaryLightBase = Color(hex: 0x516748)
-    static let primaryDarkBase = Color(hex: 0x657D5B)
-    static let primaryLightHover = Color(hex: 0x657D5B)
-    static let primaryDarkHover = Color(hex: 0x516748)
-    static let primaryLightActive = Color(hex: 0x7A8B6F)
-    static let primaryDarkActive = Color(hex: 0x7A8B6F)
+    static let primaryLightDisabled = Color(hex: 0xF6F5F4)
+    static let primaryDarkDisabled = Color(hex: 0x2D3339)
+    static let primaryLightBase = Color(hex: 0x17191C)
+    static let primaryDarkBase = Color(hex: 0xFDFDFC)
+    static let primaryLightHover = Color(hex: 0x24292E)
+    static let primaryDarkHover = Color(hex: 0xF2F0EE)
+    static let primaryLightActive = Color(hex: 0x2D3339)
+    static let primaryDarkActive = Color(hex: 0xE9E6E2)
+    static let primaryLightSecondHover = Color(hex: 0xB9B4AC)
+    static let primaryDarkSecondHover = Color(hex: 0xE9E6E2)
 
     // Surface
-    static let surfaceLightBase = Color(hex: 0xE8E6DA)
-    static let surfaceDarkBase = Color(hex: 0x2A2A28)
-    static let surfaceLightOverlay = Color(hex: 0xF5F3EB)
-    static let surfaceDarkOverlay = Color(hex: 0x20201E)
-    static let surfaceLightActive = Color(hex: 0xD4D1C1)
-    static let surfaceDarkActive = Color(hex: 0x3A3A37)
+    static let surfaceLightBase = Color(hex: 0xF6F5F4)
+    static let surfaceDarkBase = Color(hex: 0x17191C)
+    static let surfaceLightOverlay = Color(hex: 0xFDFDFC)
+    static let surfaceDarkOverlay = Color(hex: 0x1C2024)
+    static let surfaceLightActive = Color(hex: 0xF2F0EE)
+    static let surfaceDarkActive = Color(hex: 0x444D56)
     static let surfaceLightLift = Color(hex: 0xFFFFFF)
-    static let surfaceDarkLift = Color(hex: 0x000000)
+    static let surfaceDarkLift = Color(hex: 0x24292E)
+    static let surfaceLightHover = Color(hex: 0xB9B4AC)
+    static let surfaceDarkHover = Color(hex: 0xE9E6E2)
 
     // Border
-    static let borderLightDisabled = Color(hex: 0xD4D1C1)
-    static let borderDarkDisabled = Color(hex: 0x3A3A37)
-    static let borderLightBase = Color(hex: 0xBDB9A9)
-    static let borderDarkBase = Color(hex: 0x4A4A46)
-    static let borderLightHover = Color(hex: 0xA1A096)
-    static let borderDarkHover = Color(hex: 0x6B6B65)
-    static let borderLightActive = Color(hex: 0x7A8B6F)
-    static let borderDarkActive = Color(hex: 0x7A8B6F)
+    static let borderLightDisabled = Color(hex: 0xE9E6E2)
+    static let borderDarkDisabled = Color(hex: 0x1C2024)
+    static let borderLightBase = Color(hex: 0xF2F0EE)
+    static let borderDarkBase = Color(hex: 0x24292E)
+    static let borderLightHover = Color(hex: 0xF6F5F4)
+    static let borderDarkHover = Color(hex: 0x2D3339)
+    static let borderLightActive = Color(hex: 0x2D3339)
+    static let borderDarkActive = Color(hex: 0xF6F5F4)
+    static let borderLightElement = Color(hex: 0xD3CCC5)
+    static let borderDarkElement = Color(hex: 0x5A6672)
 
     // Content
-    static let contentLightEmphasized = Color(hex: 0x20201E)
-    static let contentDarkEmphasized = Color(hex: 0xF5F3EB)
-    static let contentLightDefault = Color(hex: 0x2A2A28)
-    static let contentDarkDefault = Color(hex: 0xE8E6DA)
-    static let contentLightSecondary = Color(hex: 0x4A4A46)
-    static let contentDarkSecondary = Color(hex: 0xBDB9A9)
-    static let contentLightTertiary = Color(hex: 0xA1A096)
-    static let contentDarkTertiary = Color(hex: 0xA1A096)
-    static let contentLightDisabled = Color(hex: 0xBDB9A9)
-    static let contentDarkDisabled = Color(hex: 0x6B6B65)
-    static let contentLightBackground = Color(hex: 0xD4D1C1)
-    static let contentDarkBackground = Color(hex: 0x3A3A37)
-    static let contentLightInset = Color(hex: 0xFFFFFF)
-    static let contentDarkInset = Color(hex: 0x000000)
+    static let contentLightEmphasized = Color(hex: 0x161616)
+    static let contentDarkEmphasized = Color(hex: 0xFDFDFC)
+    static let contentLightDefault = Color(hex: 0x24292E)
+    static let contentDarkDefault = Color(hex: 0xF6F5F4)
+    static let contentLightSecondary = Color(hex: 0x5A6672)
+    static let contentDarkSecondary = Color(hex: 0xA9B2BB)
+    static let contentLightTertiary = Color(hex: 0x71808E)
+    static let contentDarkTertiary = Color(hex: 0x8D99A5)
+    static let contentLightDisabled = Color(hex: 0xA9B2BB)
+    static let contentDarkDisabled = Color(hex: 0x5A6672)
+    static let contentLightBackground = Color(hex: 0xF2F0EE)
+    static let contentDarkBackground = Color(hex: 0x2D3339)
+    static let contentLightInset = Color(hex: 0xFDFDFC)
+    static let contentDarkInset = Color(hex: 0x17191C)
 
     // System
-    static let systemLightPositiveStrong = Color(hex: 0x516748)
-    static let systemDarkPositiveStrong = Color(hex: 0x516748)
-    static let systemLightPositiveWeak = Color(hex: 0xD4DFD0)
-    static let systemDarkPositiveWeak = Color(hex: 0x1A2316)
+    static let systemLightPositiveStrong = Color(hex: 0x277E41)
+    static let systemDarkPositiveStrong = Color(hex: 0x277E41)
+    static let systemLightPositiveWeak = Color(hex: 0xE9F2EC)
+    static let systemDarkPositiveWeak = Color(hex: 0x1C251F)
     static let systemLightNegativeStrong = Color(hex: 0xDA491A)
     static let systemDarkNegativeStrong = Color(hex: 0xDA491A)
     static let systemLightNegativeHover = Color(hex: 0xE86B40)
@@ -270,31 +170,34 @@ private enum FigmaRawColor {
 
 public enum VColor {
     public static let semanticPairs: [VSemanticColorToken: VSemanticColorPair] = [
-        .primaryDisabled: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
-        .primaryBase: .init(lightHex: "#516748", darkHex: "#657D5B"),
-        .primaryHover: .init(lightHex: "#657D5B", darkHex: "#516748"),
-        .primaryActive: .init(lightHex: "#7A8B6F", darkHex: "#7A8B6F"),
+        .primaryDisabled: .init(lightHex: "#F6F5F4", darkHex: "#2D3339"),
+        .primaryBase: .init(lightHex: "#17191C", darkHex: "#FDFDFC"),
+        .primaryHover: .init(lightHex: "#24292E", darkHex: "#F2F0EE"),
+        .primaryActive: .init(lightHex: "#2D3339", darkHex: "#E9E6E2"),
+        .primarySecondHover: .init(lightHex: "#B9B4AC", darkHex: "#E9E6E2"),
 
-        .surfaceBase: .init(lightHex: "#E8E6DA", darkHex: "#2A2A28"),
-        .surfaceOverlay: .init(lightHex: "#F5F3EB", darkHex: "#20201E"),
-        .surfaceActive: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
-        .surfaceLift: .init(lightHex: "#FFFFFF", darkHex: "#000000"),
+        .surfaceBase: .init(lightHex: "#F6F5F4", darkHex: "#17191C"),
+        .surfaceOverlay: .init(lightHex: "#FDFDFC", darkHex: "#1C2024"),
+        .surfaceActive: .init(lightHex: "#F2F0EE", darkHex: "#444D56"),
+        .surfaceLift: .init(lightHex: "#FFFFFF", darkHex: "#24292E"),
+        .surfaceHover: .init(lightHex: "#B9B4AC", darkHex: "#E9E6E2"),
 
-        .borderDisabled: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
-        .borderBase: .init(lightHex: "#BDB9A9", darkHex: "#4A4A46"),
-        .borderHover: .init(lightHex: "#A1A096", darkHex: "#6B6B65"),
-        .borderActive: .init(lightHex: "#7A8B6F", darkHex: "#7A8B6F"),
+        .borderDisabled: .init(lightHex: "#E9E6E2", darkHex: "#1C2024"),
+        .borderBase: .init(lightHex: "#F2F0EE", darkHex: "#24292E"),
+        .borderHover: .init(lightHex: "#F6F5F4", darkHex: "#2D3339"),
+        .borderActive: .init(lightHex: "#2D3339", darkHex: "#F6F5F4"),
+        .borderElement: .init(lightHex: "#D3CCC5", darkHex: "#5A6672"),
 
-        .contentEmphasized: .init(lightHex: "#20201E", darkHex: "#F5F3EB"),
-        .contentDefault: .init(lightHex: "#2A2A28", darkHex: "#E8E6DA"),
-        .contentSecondary: .init(lightHex: "#4A4A46", darkHex: "#BDB9A9"),
-        .contentTertiary: .init(lightHex: "#A1A096", darkHex: "#A1A096"),
-        .contentDisabled: .init(lightHex: "#BDB9A9", darkHex: "#6B6B65"),
-        .contentBackground: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
-        .contentInset: .init(lightHex: "#FFFFFF", darkHex: "#000000"),
+        .contentEmphasized: .init(lightHex: "#161616", darkHex: "#FDFDFC"),
+        .contentDefault: .init(lightHex: "#24292E", darkHex: "#F6F5F4"),
+        .contentSecondary: .init(lightHex: "#5A6672", darkHex: "#A9B2BB"),
+        .contentTertiary: .init(lightHex: "#71808E", darkHex: "#8D99A5"),
+        .contentDisabled: .init(lightHex: "#A9B2BB", darkHex: "#5A6672"),
+        .contentBackground: .init(lightHex: "#F2F0EE", darkHex: "#2D3339"),
+        .contentInset: .init(lightHex: "#FDFDFC", darkHex: "#17191C"),
 
-        .systemPositiveStrong: .init(lightHex: "#516748", darkHex: "#516748"),
-        .systemPositiveWeak: .init(lightHex: "#D4DFD0", darkHex: "#1A2316"),
+        .systemPositiveStrong: .init(lightHex: "#277E41", darkHex: "#277E41"),
+        .systemPositiveWeak: .init(lightHex: "#E9F2EC", darkHex: "#1C251F"),
         .systemNegativeStrong: .init(lightHex: "#DA491A", darkHex: "#DA491A"),
         .systemNegativeHover: .init(lightHex: "#E86B40", darkHex: "#AB3F1C"),
         .systemNegativeWeak: .init(lightHex: "#F7DAC9", darkHex: "#4E281D"),
@@ -309,18 +212,21 @@ public enum VColor {
     public static let primaryBase = adaptiveColor(light: FigmaRawColor.primaryLightBase, dark: FigmaRawColor.primaryDarkBase)
     public static let primaryHover = adaptiveColor(light: FigmaRawColor.primaryLightHover, dark: FigmaRawColor.primaryDarkHover)
     public static let primaryActive = adaptiveColor(light: FigmaRawColor.primaryLightActive, dark: FigmaRawColor.primaryDarkActive)
+    public static let primarySecondHover = adaptiveColor(light: FigmaRawColor.primaryLightSecondHover, dark: FigmaRawColor.primaryDarkSecondHover)
 
     // Surface
     public static let surfaceBase = adaptiveColor(light: FigmaRawColor.surfaceLightBase, dark: FigmaRawColor.surfaceDarkBase)
     public static let surfaceOverlay = adaptiveColor(light: FigmaRawColor.surfaceLightOverlay, dark: FigmaRawColor.surfaceDarkOverlay)
     public static let surfaceActive = adaptiveColor(light: FigmaRawColor.surfaceLightActive, dark: FigmaRawColor.surfaceDarkActive)
     public static let surfaceLift = adaptiveColor(light: FigmaRawColor.surfaceLightLift, dark: FigmaRawColor.surfaceDarkLift)
+    public static let surfaceHover = adaptiveColor(light: FigmaRawColor.surfaceLightHover, dark: FigmaRawColor.surfaceDarkHover)
 
     // Border
     public static let borderDisabled = adaptiveColor(light: FigmaRawColor.borderLightDisabled, dark: FigmaRawColor.borderDarkDisabled)
     public static let borderBase = adaptiveColor(light: FigmaRawColor.borderLightBase, dark: FigmaRawColor.borderDarkBase)
     public static let borderHover = adaptiveColor(light: FigmaRawColor.borderLightHover, dark: FigmaRawColor.borderDarkHover)
     public static let borderActive = adaptiveColor(light: FigmaRawColor.borderLightActive, dark: FigmaRawColor.borderDarkActive)
+    public static let borderElement = adaptiveColor(light: FigmaRawColor.borderLightElement, dark: FigmaRawColor.borderDarkElement)
 
     // Content
     public static let contentEmphasized = adaptiveColor(light: FigmaRawColor.contentLightEmphasized, dark: FigmaRawColor.contentDarkEmphasized)
@@ -341,8 +247,8 @@ public enum VColor {
     public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak)
 
     // Diff view — adaptive background tints for unified-diff line highlighting.
-    public static let diffAddedBg  = adaptiveColor(light: Forest._100, dark: Emerald._950)
-    public static let diffRemovedBg = adaptiveColor(light: Danger._100, dark: Danger._950)
+    public static let diffAddedBg  = adaptiveColor(light: Color(hex: 0xEDF2EB), dark: Color(hex: 0x073D2E))
+    public static let diffRemovedBg = adaptiveColor(light: Color(hex: 0xFFF3EE), dark: Color(hex: 0x4E281D))
     public static let diffHunkBg   = adaptiveColor(light: Color(hex: 0xDDE4EE), dark: Color(hex: 0x1E2A38))
 
     // Syntax highlighting — adaptive tokens shared by SyntaxTheme and HighlightedTextView.

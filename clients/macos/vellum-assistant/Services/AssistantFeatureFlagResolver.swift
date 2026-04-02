@@ -10,6 +10,51 @@ import VellumAssistantShared
 /// format is: `{ "version": 1, "values": { "flagKey": true/false } }`.
 enum AssistantFeatureFlagResolver {
 
+    // MARK: - UserDefaults cache
+
+    private static let cachePrefix = "AssistantFeatureFlagCache."
+
+    /// Reads all cached feature flags from UserDefaults, stripping the cache prefix.
+    static func readCachedFlags() -> [String: Bool] {
+        let defaults = UserDefaults.standard
+        var result: [String: Bool] = [:]
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(cachePrefix) {
+            let name = String(key.dropFirst(cachePrefix.count))
+            guard !name.isEmpty else { continue }
+            result[name] = defaults.bool(forKey: key)
+        }
+        return result
+    }
+
+    /// Replaces all cached feature flags in UserDefaults with the given dictionary.
+    static func writeCachedFlags(_ flags: [String: Bool]) {
+        let defaults = UserDefaults.standard
+        // Remove all existing cached keys
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(cachePrefix) {
+            defaults.removeObject(forKey: key)
+        }
+        // Write new values
+        for (key, value) in flags {
+            defaults.set(value, forKey: "\(cachePrefix)\(key)")
+        }
+    }
+
+    /// Merges a single flag into the UserDefaults cache.
+    static func mergeCachedFlag(key: String, enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: "\(cachePrefix)\(key)")
+    }
+
+    /// Removes all cached feature flags from UserDefaults.
+    ///
+    /// Call this when the connected assistant changes so that stale cached
+    /// values from the previous assistant do not leak into the new one.
+    static func clearCachedFlags() {
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(cachePrefix) {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     // MARK: - Protected feature-flags file path
 
     /// Resolves the path to the protected feature-flags file for the currently
@@ -110,12 +155,14 @@ enum AssistantFeatureFlagResolver {
     static func resolvedFlags(
         registryDefaults: [String: Bool]
     ) -> [String: Bool] {
+        let persisted = readPersistedFlags()
+        let cached = readCachedFlags()
         let remote = readRemoteFlags()
-        let persistedFlags = readPersistedFlags()
-        // Priority: persisted > remote > defaults
+        // Priority: persisted > cached > remote > defaults
         return registryDefaults
-            .merging(remote) { _, remote in remote }
-            .merging(persistedFlags) { _, persisted in persisted }
+            .merging(remote) { _, new in new }
+            .merging(cached) { _, new in new }
+            .merging(persisted) { _, new in new }
     }
 
     static func resolvedFlags(

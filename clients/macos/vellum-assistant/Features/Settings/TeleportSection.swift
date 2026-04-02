@@ -50,6 +50,8 @@ private enum TeleportError: LocalizedError {
     case managedEntryNotFound
     case localAssistantNotFound
     case dockerAssistantNotFound
+    case noOrganizations
+    case multipleOrganizations
 
     var errorDescription: String? {
         switch self {
@@ -69,6 +71,10 @@ private enum TeleportError: LocalizedError {
             return "Could not find or create a local assistant"
         case .dockerAssistantNotFound:
             return "Could not find or create a Docker assistant"
+        case .noOrganizations:
+            return "No organizations found for this account"
+        case .multipleOrganizations:
+            return "Multiple organizations found — please select one in account settings first"
         }
     }
 }
@@ -129,11 +135,7 @@ struct TeleportSection: View {
 
     @ViewBuilder
     private var teleportContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Teleport")
-                .font(VFont.titleSmall)
-                .foregroundStyle(VColor.contentDefault)
-
+        SettingsCard(title: "Teleport", subtitle: "Move your assistant to a different hosting environment") {
             if case .verifying = phase {
                 verifyingBanner
             } else if case .transferring(let step) = phase {
@@ -150,21 +152,13 @@ struct TeleportSection: View {
                 destinationPicker
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
     }
 
     // MARK: - Destination Picker
 
     @ViewBuilder
     private var destinationPicker: some View {
-        if assistant.cloud.lowercased() == "local" {
-            // Bare metal local: show both Docker and Platform options
-            destinationButton(for: .docker)
-            destinationButton(for: .platform)
-        } else if assistant.isDocker {
-            // Docker: show only Platform option
+        if assistant.cloud.lowercased() == "local" || assistant.isDocker {
             destinationButton(for: .platform)
         }
     }
@@ -178,7 +172,7 @@ struct TeleportSection: View {
 
             VButton(
                 label: destination.displayLabel,
-                style: .primary,
+                style: .outlined,
                 isDisabled: isDestinationDisabled(destination)
             ) {
                 pendingDestination = destination
@@ -339,11 +333,30 @@ struct TeleportSection: View {
         phase = .transferring(step: "Exporting assistant data...")
         let bundleData = try await exportAssistantBundle()
 
-        // Step 2 — Ensure managed assistant exists on platform
+        // Step 2 — Resolve and validate org ID before upload (upload reads org from UserDefaults)
+        phase = .transferring(step: "Resolving organization...")
+        let organizationId = try await resolveOrganizationId()
+
+        // Step 3 — Upload to GCS via signed URL (with inline fallback)
+        phase = .transferring(step: "Uploading data to cloud...")
+        let bundleKey: String?
+        do {
+            let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
+            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)
+            bundleKey = uploadInfo.bundleKey
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .signedUrlsNotAvailable = error {
+                bundleKey = nil
+            } else {
+                throw error
+            }
+        }
+
+        // Step 4 — Ensure managed assistant exists on platform via direct hatch
         phase = .transferring(step: "Setting up cloud assistant...")
-        let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+        let hatchResult = try await AuthService.shared.hatchAssistant(organizationId: organizationId)
         let platformAssistant: PlatformAssistant
-        switch outcome {
+        switch hatchResult {
         case .reusedExisting(let assistant):
             platformAssistant = assistant
         case .createdNew(let assistant):
@@ -358,18 +371,18 @@ struct TeleportSection: View {
             throw TeleportError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
         }
 
-        // Step 3 — Import bundle to managed assistant
-        phase = .transferring(step: "Uploading data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData)
+        // Step 5 — Import bundle to managed assistant
+        phase = .transferring(step: "Importing data to cloud...")
+        try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
 
-        // Step 4 — Resolve managed assistant for later switch
+        // Step 6 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
             throw TeleportError.managedEntryNotFound
         }
         targetAssistant = managedAssistant
         transferTask = nil
 
-        // Step 5 — Verification phase (do NOT retire or switch yet)
+        // Step 7 — Verification phase (do NOT retire or switch yet)
         phase = .verifying
     }
 
@@ -457,11 +470,30 @@ struct TeleportSection: View {
         phase = .transferring(step: "Exporting assistant data...")
         let bundleData = try await exportAssistantBundle()
 
-        // Step 2 — Ensure managed assistant exists on platform
+        // Step 2 — Resolve and validate org ID before upload (upload reads org from UserDefaults)
+        phase = .transferring(step: "Resolving organization...")
+        let organizationId = try await resolveOrganizationId()
+
+        // Step 3 — Upload to GCS via signed URL (with inline fallback)
+        phase = .transferring(step: "Uploading data to cloud...")
+        let bundleKey: String?
+        do {
+            let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
+            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)
+            bundleKey = uploadInfo.bundleKey
+        } catch let error as PlatformMigrationClient.PlatformMigrationError {
+            if case .signedUrlsNotAvailable = error {
+                bundleKey = nil
+            } else {
+                throw error
+            }
+        }
+
+        // Step 4 — Ensure managed assistant exists on platform via direct hatch
         phase = .transferring(step: "Setting up cloud assistant...")
-        let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+        let hatchResult = try await AuthService.shared.hatchAssistant(organizationId: organizationId)
         let platformAssistant: PlatformAssistant
-        switch outcome {
+        switch hatchResult {
         case .reusedExisting(let assistant):
             platformAssistant = assistant
         case .createdNew(let assistant):
@@ -476,22 +508,56 @@ struct TeleportSection: View {
             throw TeleportError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
         }
 
-        // Step 3 — Import bundle to managed assistant
-        phase = .transferring(step: "Uploading data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData)
+        // Step 5 — Import bundle to managed assistant
+        phase = .transferring(step: "Importing data to cloud...")
+        try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
 
-        // Step 4 — Resolve managed assistant for later switch
+        // Step 6 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
             throw TeleportError.managedEntryNotFound
         }
         targetAssistant = managedAssistant
         transferTask = nil
 
-        // Step 5 — Verification phase (do NOT retire or switch yet)
+        // Step 7 — Verification phase (do NOT retire or switch yet)
         phase = .verifying
     }
 
     // MARK: - Helpers
+
+    /// Resolves and validates the organization ID, mirroring the logic in
+    /// `ManagedAssistantBootstrapService.resolveOrganizationId()`.
+    ///
+    /// Always fetches orgs from the API and validates any persisted value.
+    /// Persists the resolved org ID to UserDefaults so downstream callers
+    /// (e.g. `PlatformMigrationClient.requestUploadUrl()`) can read it.
+    private func resolveOrganizationId() async throws -> String {
+        let orgs = try await AuthService.shared.getOrganizations()
+        let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
+        // If a persisted org ID exists and is valid, use it
+        if let persistedOrgId, !persistedOrgId.isEmpty, orgs.contains(where: { $0.id == persistedOrgId }) {
+            log.info("[teleport] Validated persisted organization: \(persistedOrgId, privacy: .public)")
+            return persistedOrgId
+        }
+
+        if persistedOrgId != nil {
+            log.warning("[teleport] Persisted organization ID not found in user's orgs — re-resolving")
+        }
+
+        // Re-resolve from the org list
+        switch orgs.count {
+        case 0:
+            throw TeleportError.noOrganizations
+        case 1:
+            let orgId = orgs[0].id
+            UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
+            log.info("[teleport] Resolved organization: \(orgId, privacy: .public)")
+            return orgId
+        default:
+            throw TeleportError.multipleOrganizations
+        }
+    }
 
     /// Exports the current assistant's data as a `.vbundle` binary archive.
     private func exportAssistantBundle() async throws -> Data {
@@ -505,19 +571,22 @@ struct TeleportSection: View {
         return response.data
     }
 
-    /// Imports a `.vbundle` archive into the managed assistant via the signed URL upload flow.
+    /// Imports a `.vbundle` archive into the managed assistant.
     ///
-    /// Uses 3 steps: request signed URL → upload to GCS → trigger import from GCS.
+    /// If `bundleKey` is non-nil, triggers import from GCS (the bundle was already uploaded
+    /// via a signed URL). Otherwise, falls back to inline import by sending the raw bundle
+    /// data directly to the platform.
+    ///
     /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
-    private func importBundleToManaged(bundleData: Data) async throws {
-        // Step 1: Request a signed upload URL from the platform
-        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
+    private func importBundleToManaged(bundleData: Data, bundleKey: String?) async throws {
+        let statusCode: Int
+        let data: Data
 
-        // Step 2: Upload bundle directly to GCS via signed URL
-        try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)
-
-        // Step 3: Trigger import from GCS
-        let (statusCode, data) = try await PlatformMigrationClient.importFromGcs(bundleKey: uploadInfo.bundleKey)
+        if let bundleKey {
+            (statusCode, data) = try await PlatformMigrationClient.importFromGcs(bundleKey: bundleKey)
+        } else {
+            (statusCode, data) = try await PlatformMigrationClient.importInline(bundleData: bundleData)
+        }
 
         guard (200..<300).contains(statusCode) else {
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

@@ -31,6 +31,7 @@ import { StringDecoder } from "node:string_decoder";
 import type { Subprocess } from "bun";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { ensureBun } from "../util/bun-runtime.js";
 import { getLogger } from "../util/logger.js";
 import type { CesTransport } from "./client.js";
 import {
@@ -266,8 +267,9 @@ export function createCesProcessManager(
       "Spawning CES child process from source",
     );
 
+    const bunPath = await ensureBun();
     const proc = Bun.spawn({
-      cmd: ["bun", "run", discovery.sourcePath],
+      cmd: [bunPath, "run", discovery.sourcePath],
       stdin: "pipe",
       stdout: "pipe",
       stderr: "ignore",
