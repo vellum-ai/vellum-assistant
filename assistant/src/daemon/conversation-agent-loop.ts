@@ -122,6 +122,7 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
+import type { MemoryRecalled } from "./message-types/memory.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation-agent-loop");
@@ -662,7 +663,7 @@ export async function runAgentLoopImpl(
       }
 
       if (m) {
-        onEvent({
+        const memoryRecalledEvent: MemoryRecalled = {
           type: "memory_recalled",
           provider: m.embeddingProvider ?? "unknown",
           model: m.embeddingModel ?? "unknown",
@@ -683,7 +684,8 @@ export async function runAgentLoopImpl(
             semantic: c.semanticSimilarity,
             recency: c.recencyBoost,
           })),
-        } as ServerMessage);
+        };
+        onEvent(memoryRecalledEvent);
       }
     }
 
