@@ -765,7 +765,7 @@ export async function runGraphExtraction(
             (b): b is { type: "text"; text: string } => b.type === "text",
           )
           .map((b) => b.text)
-          .join("");
+          .join("\n");
       }
       if (!transcript) {
         log.warn(
