@@ -47,15 +47,17 @@ export interface GuardianActivationInterceptParams {
 const DEDUP_TTL_MS = 60_000;
 const processedMessageIds = new Map<string, number>();
 
-function isDuplicateActivation(messageId: string): boolean {
+function isAlreadyProcessed(messageId: string): boolean {
   const now = Date.now();
   // Evict stale entries
   for (const [key, ts] of processedMessageIds) {
     if (now - ts > DEDUP_TTL_MS) processedMessageIds.delete(key);
   }
-  if (processedMessageIds.has(messageId)) return true;
-  processedMessageIds.set(messageId, now);
-  return false;
+  return processedMessageIds.has(messageId);
+}
+
+function markProcessed(messageId: string): void {
+  processedMessageIds.set(messageId, Date.now());
 }
 
 export async function handleGuardianActivationIntercept(
@@ -107,7 +109,9 @@ export async function handleGuardianActivationIntercept(
   // ── Webhook retry dedup ──
   // The intercept runs before recordInbound, so use a lightweight in-memory
   // dedup to prevent duplicate replies when Telegram retries the webhook.
-  if (isDuplicateActivation(externalMessageId)) {
+  // Only checked here; marked as processed after successful session creation
+  // so transient failures remain retryable.
+  if (isAlreadyProcessed(externalMessageId)) {
     return Response.json({ accepted: true, guardianActivation: true });
   }
 
@@ -152,6 +156,10 @@ export async function handleGuardianActivationIntercept(
     destinationAddress: conversationExternalId,
     verificationPurpose: "guardian",
   });
+
+  // Mark as processed only after session creation succeeds so transient
+  // failures (e.g. temporary DB issues) remain retryable on the next webhook.
+  markProcessed(externalMessageId);
 
   // ── Send deterministic Telegram reply ──
   if (replyCallbackUrl) {
