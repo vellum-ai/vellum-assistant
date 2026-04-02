@@ -16,7 +16,13 @@ extension MessageListView {
         // switch by comparing against the last-known conversation ID.
         // Must check BEFORE configureScrollCallbacks() which updates
         // currentConversationId.
-        let isConversationSwitch = scrollState.currentConversationId != conversationId
+        //
+        // Skip when currentConversationId is nil (true first mount) — reset()
+        // on freshly-initialized state is redundant and its 300ms scroll-
+        // indicator-hide task would cause a visual flicker on app launch.
+        let previousConversationId = scrollState.currentConversationId
+        let isConversationSwitch = previousConversationId != nil
+            && previousConversationId != conversationId
         configureScrollCallbacks()
         if isConversationSwitch {
             handleConversationSwitched()
