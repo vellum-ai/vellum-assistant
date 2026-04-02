@@ -314,7 +314,7 @@ function formatCompactTimeAndOffset(
 /**
  * Format time as HH:MM:SS with UTC offset and timezone name.
  *
- * Uses the same timezone resolution cascade as `buildTemporalContext`:
+ * Uses the timezone resolution cascade:
  * explicit override → configured user tz → profile user tz → host fallback.
  *
  * Returns format: `2026-04-02 (Thu) 01:52:33 -05:00 (America/Chicago)`
@@ -364,61 +364,3 @@ export function formatTurnTimestamp(
   return `${dateStr} (${dayName}) ${hour}:${minute}:${second} ${offset} (${timeZone})`;
 }
 
-/**
- * Build a compact temporal context string for model injection.
- */
-export function buildTemporalContext(
-  options: TemporalContextOptions = {},
-): string {
-  const now = new Date(options.nowMs ?? Date.now());
-  const resolvedHostTimeZone =
-    canonicalizeTimeZone(
-      options.hostTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-    ) ?? "UTC";
-  const resolvedConfiguredUserTimeZone = options.configuredUserTimeZone
-    ? canonicalizeTimeZone(options.configuredUserTimeZone)
-    : null;
-  const resolvedUserTimeZone = options.userTimeZone
-    ? canonicalizeTimeZone(options.userTimeZone)
-    : null;
-  const resolvedTimeZone = options.timeZone
-    ? canonicalizeTimeZone(options.timeZone)
-    : null;
-  const timeZone =
-    resolvedTimeZone ??
-    resolvedConfiguredUserTimeZone ??
-    resolvedUserTimeZone ??
-    resolvedHostTimeZone;
-  const userTimeZone = resolvedConfiguredUserTimeZone ?? resolvedUserTimeZone;
-  const timeZoneSource = resolvedTimeZone
-    ? "explicit_override"
-    : resolvedConfiguredUserTimeZone
-      ? "user_settings"
-      : resolvedUserTimeZone
-        ? "user_profile_memory"
-        : "assistant_host_fallback";
-  const todayParts = localDateParts(now, timeZone);
-  const todayStr = formatLocalDate(now, timeZone);
-  const todayWeekday = WEEKDAY_SHORT[todayParts.weekday];
-  const { time, offset } = formatCompactTimeAndOffset(now, timeZone);
-
-  const tzSuffix =
-    timeZoneSource === "assistant_host_fallback" ? " (host fallback)" : "";
-
-  const lines = [
-    `<temporal_context>`,
-    `Today: ${todayStr} (${todayWeekday}) ${time} ${offset}`,
-    `TZ: ${timeZone}${tzSuffix}`,
-  ];
-
-  if (userTimeZone && userTimeZone !== timeZone) {
-    lines.push(`User TZ: ${userTimeZone}`);
-  }
-  if (resolvedHostTimeZone !== timeZone) {
-    lines.push(`Host TZ: ${resolvedHostTimeZone}`);
-  }
-
-  lines.push(`</temporal_context>`);
-
-  return lines.join("\n");
-}
