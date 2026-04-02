@@ -53,14 +53,14 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - Connection State (internal)
 
     /// Whether auto-wake should be attempted on disconnect.
-    /// Only applies to local assistants (not remote, Docker, or managed).
+    /// Applies to local and Docker assistants (not remote or managed).
     private var isLocal: Bool {
         #if os(macOS)
         guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"),
               let assistant = LockfileAssistant.loadByName(id) else {
             return false
         }
-        return !assistant.isRemote && !assistant.isManaged
+        return (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged
         #else
         return false
         #endif
