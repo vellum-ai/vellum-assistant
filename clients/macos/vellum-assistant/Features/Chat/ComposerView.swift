@@ -74,7 +74,7 @@ struct ComposerView: View {
     @State private var isComposerFocused = false
     @State private var measuredTextHeight: CGFloat = 32
     @State private var textViewIsFocused: Bool = false
-    @State private var cursorPosition: Int = 0
+    @State var cursorPosition: Int = 0
 
     @State var showSlashMenu = false
     @State var slashFilter = ""
@@ -83,7 +83,7 @@ struct ComposerView: View {
     @State var showEmojiMenu = false
     @State var emojiFilter = ""
     @State var emojiSelectedIndex = 0
-    @State private var textReplacer = TextReplacementProxy()
+    @State var textReplacer = TextReplacementProxy()
     /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
     @State private var preDictationText: String = ""
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
