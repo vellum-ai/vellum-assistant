@@ -293,19 +293,23 @@ struct SettingsPanel: View {
                         if devUnlockText.lowercased() == "dev" {
                             isDeveloperEnabled = true
                             showingDevUnlock = false
-                            // Persist the flag so it survives relaunch
+                            // Notify listeners (e.g. AssistantFeatureFlagStore) so UI updates globally
+                            NotificationCenter.default.post(
+                                name: .assistantFeatureFlagDidChange,
+                                object: nil,
+                                userInfo: ["key": Self.developerFeatureFlagKey, "enabled": true]
+                            )
+                            // Persist locally so the flag survives app restarts
+                            AssistantFeatureFlagResolver.mergeCachedFlag(key: Self.developerFeatureFlagKey, enabled: true)
+                            try? AssistantFeatureFlagResolver.mergePersistedFlag(key: Self.developerFeatureFlagKey, enabled: true)
+                            // Best-effort PATCH to the gateway
                             Task {
                                 do {
-                                    if connectionManager != nil {
-                                        try await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
-                                    } else {
-                                        try AssistantFeatureFlagResolver.mergePersistedFlag(
-                                            key: Self.developerFeatureFlagKey,
-                                            enabled: true
-                                        )
-                                    }
+                                    try await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
                                 } catch {
-                                    // Flag is already set in memory; persistence failure is non-fatal
+                                    // Local persistence already saved the override. The gateway PATCH
+                                    // may fail for managed assistants where the platform doesn't
+                                    // support the write endpoint. Log but don't revert.
                                 }
                             }
                         }
