@@ -165,7 +165,8 @@ struct MemoriesPanel: View {
                             }
                         )
                         .id(item.id)
-                        .frame(width: 400, maxHeight: .infinity)
+                        .frame(width: 400)
+                        .frame(maxHeight: .infinity)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                         .onKeyPress(.escape) {
                             withAnimation(VAnimation.panel) { selectedItem = nil }
