@@ -8,7 +8,7 @@
  * Idempotent: safe to re-run after interruption at any point.
  */
 
-import { existsSync, readdirSync, rmSync, rmdirSync } from "node:fs";
+import { existsSync, readdirSync, rmdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
