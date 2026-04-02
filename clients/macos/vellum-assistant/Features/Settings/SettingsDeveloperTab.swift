@@ -338,9 +338,7 @@ struct SettingsDeveloperTab: View {
               let appParsed = VersionCompat.parse(appVersion) else {
             return false
         }
-        if assistantParsed.major != appParsed.major { return assistantParsed.major < appParsed.major }
-        if assistantParsed.minor != appParsed.minor { return assistantParsed.minor < appParsed.minor }
-        return assistantParsed.patch < appParsed.patch
+        return assistantParsed < appParsed
     }
 
     @ViewBuilder

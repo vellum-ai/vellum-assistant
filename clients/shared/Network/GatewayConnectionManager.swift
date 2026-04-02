@@ -376,9 +376,7 @@ public final class GatewayConnectionManager: ObservableObject {
               let parsedB = VersionCompat.parse(b) else {
             return a == b
         }
-        return parsedA.major == parsedB.major
-            && parsedA.minor == parsedB.minor
-            && parsedA.patch == parsedB.patch
+        return parsedA == parsedB
     }
 
     // MARK: - Version Change Handling
