@@ -312,7 +312,7 @@ export function assembleContextBlock(
   // --- Skills You Can Use ---
   if (capabilities.length > 0) {
     const entries = capabilities.slice(0, 5).map((scored) => {
-      const content = scored.node.content.replace(/^skill:\S+\n/, "");
+      const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
       return `- ${content} → use skill_load to activate`;
     });
     parts.push(`### Skills You Can Use\n${entries.join("\n")}`);
@@ -368,7 +368,7 @@ export function assembleInjectionBlock(nodes: ScoredNode[]): string {
   return nodes
     .map((scored) => {
       if (isCapabilityNode(scored.node)) {
-        const content = scored.node.content.replace(/^skill:\S+\n/, "");
+        const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
         return `- [skill] ${content} → use skill_load to activate`;
       }
       if (scored.node.eventDate != null) {

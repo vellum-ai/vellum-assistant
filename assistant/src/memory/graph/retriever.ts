@@ -453,20 +453,22 @@ export async function loadContextMemory(
     limit: CAPABILITY_RESERVE * 4,
   });
 
-  // Dedup: both seeding systems may create nodes for the same skill.
-  // Extract skill ID from content and keep only the first node per skill.
-  const seenSkillIds = new Set<string>();
-  const capabilityNodes = rawCapabilityNodes.filter(isCapabilityNode).filter((node) => {
-    const skillMatch = node.content.match(
-      /^skill:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)/,
-    );
-    const skillId = skillMatch?.[1] ?? skillMatch?.[2];
-    if (skillId) {
-      if (seenSkillIds.has(skillId)) return false;
-      seenSkillIds.add(skillId);
-    }
-    return true;
-  });
+  // Dedup: both seeding systems may create nodes for the same capability.
+  // Extract capability ID from content and keep only the first node per ID.
+  const seenCapabilityIds = new Set<string>();
+  const capabilityNodes = rawCapabilityNodes
+    .filter(isCapabilityNode)
+    .filter((node) => {
+      const match = node.content.match(
+        /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+      );
+      const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+      if (capId) {
+        if (seenCapabilityIds.has(capId)) return false;
+        seenCapabilityIds.add(capId);
+      }
+      return true;
+    });
 
   // Rank by semantic similarity when a query vector exists
   let selectedCapabilities: MemoryNode[];
