@@ -618,9 +618,33 @@ export async function loadContextMemory(
     (s) => !deterministicIds.has(s.node.id),
   );
 
+  // 9. Cross-category dedup: catch topic-level duplicates across reserved
+  //    categories (prospective, upcoming, capabilities) and serendipity.
+  //    Only runs when the combined set is large enough to warrant an LLM call.
+  const CROSS_DEDUP_THRESHOLD = 15;
+  const combined = [...deterministic, ...uniqueSerendipity];
+  let dedupedDeterministic = deterministic;
+  let dedupedSerendipity = uniqueSerendipity;
+
+  if (combined.length > CROSS_DEDUP_THRESHOLD) {
+    const deduped = await dedupForTurn(
+      combined,
+      combined.length, // preserve all non-duplicate nodes
+      "context load — deduplicate across all categories",
+    );
+
+    // Re-split into deterministic vs serendipity by checking original membership
+    dedupedDeterministic = deduped.filter((s) =>
+      deterministicIds.has(s.node.id),
+    );
+    dedupedSerendipity = deduped.filter(
+      (s) => !deterministicIds.has(s.node.id),
+    );
+  }
+
   return {
-    nodes: deterministic,
-    serendipityNodes: uniqueSerendipity,
+    nodes: dedupedDeterministic,
+    serendipityNodes: dedupedSerendipity,
     triggeredNodes: allTriggered,
     latencyMs: Date.now() - start,
   };
