@@ -486,6 +486,13 @@ extension AppDelegate {
                         return
                     }
                 }
+                // ensureManagedAssistant() clears connectedAssistantId when the
+                // platform returns 404 (deleted) or 403 (revoked). Restore it
+                // so the guard below doesn't confuse this with a concurrent
+                // switch that wrote a different assistant ID.
+                if UserDefaults.standard.string(forKey: "connectedAssistantId") == nil, !Task.isCancelled {
+                    UserDefaults.standard.set(targetId, forKey: "connectedAssistantId")
+                }
                 // Guard against a second switch that started while we were
                 // awaiting the bootstrap — only finish if this task hasn't
                 // been cancelled and this assistant is still the selected
