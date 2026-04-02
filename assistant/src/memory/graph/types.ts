@@ -122,14 +122,15 @@ export interface MemoryNode {
  */
 export function isCapabilityNode(node: MemoryNode): boolean {
   if (node.type !== "procedural") return false;
-  // Old seeding system (skill-memory.ts): content starts with "skill:{id}\n"
-  if (node.content.startsWith("skill:")) return true;
+  // Old seeding systems: content starts with "skill:{id}\n" or "cli:{name}\n"
+  if (node.content.startsWith("skill:") || node.content.startsWith("cli:"))
+    return true;
   // New seeding system (capability-seed.ts): content matches
   // 'The "{name}" skill ({id}) is available.' or
   // 'The "assistant {name}" CLI command is available.'
   if (
     node.content.startsWith('The "') &&
-    node.content.includes(") is available.")
+    node.content.includes(" is available.")
   ) {
     return true;
   }
