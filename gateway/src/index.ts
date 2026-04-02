@@ -864,7 +864,7 @@ async function main() {
       handler: (req) => handleFeatureFlagsGet(req),
     },
     {
-      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/$/,
+      path: /^\/v1\/assistants\/([^/]+)\/feature-flags\/?$/,
       method: "GET",
       auth: "edge-scoped",
       scope: "feature_flags.read",

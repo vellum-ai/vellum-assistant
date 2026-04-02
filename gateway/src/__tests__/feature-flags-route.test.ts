@@ -374,6 +374,34 @@ describe("GET /v1/feature-flags handler", () => {
     expect(browserFlag.enabled).toBe(true);
     expect(browserFlag.defaultEnabled).toBe(true);
   });
+
+  test("returns flags when invoked via assistants path without trailing slash", async () => {
+    // The macOS client sends GET /v1/assistants/<id>/feature-flags (no trailing slash).
+    // The gateway route regex must accept this path.
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request(
+        "http://gateway.test/v1/assistants/some-assistant-id/feature-flags",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // Should return all assistant-scope flags with expected shape
+    expect(body.flags.length).toBeGreaterThan(0);
+    for (const flag of body.flags) {
+      expect(typeof flag.key).toBe("string");
+      expect(typeof flag.enabled).toBe("boolean");
+    }
+
+    // Verify a known flag is present
+    const browserFlag = body.flags.find(
+      (f: { key: string }) => f.key === "browser",
+    );
+    expect(browserFlag).toBeDefined();
+    expect(browserFlag.enabled).toBe(true);
+  });
 });
 
 describe("PATCH /v1/feature-flags/:flagKey handler", () => {
