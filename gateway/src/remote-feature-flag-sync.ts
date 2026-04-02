@@ -24,7 +24,7 @@ function getPollIntervalMs(): number {
 }
 
 export type RemoteFeatureFlagSyncConfig = {
-  /** Credential cache for resolving platform URL, API key, and assistant ID dynamically. */
+  /** Credential cache for resolving platform URL and API key dynamically. */
   credentials: CredentialCache;
 };
 
@@ -89,12 +89,10 @@ export class RemoteFeatureFlagSync {
     string,
     boolean
   > | null> {
-    const [platformUrlRaw, assistantIdRaw, assistantApiKeyRaw] =
-      await Promise.all([
-        this.credentials.get(credentialKey("vellum", "platform_base_url")),
-        this.credentials.get(credentialKey("vellum", "platform_assistant_id")),
-        this.credentials.get(credentialKey("vellum", "assistant_api_key")),
-      ]);
+    const [platformUrlRaw, assistantApiKeyRaw] = await Promise.all([
+      this.credentials.get(credentialKey("vellum", "platform_base_url")),
+      this.credentials.get(credentialKey("vellum", "assistant_api_key")),
+    ]);
 
     // Fall back to env vars when credential cache values are missing.
     const platformUrl = (
@@ -108,17 +106,11 @@ export class RemoteFeatureFlagSync {
     // for internal gateway endpoints and would produce 401s here.
     const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
 
-    const assistantId =
-      process.env.PLATFORM_ASSISTANT_ID?.trim() ||
-      assistantIdRaw?.trim() ||
-      undefined;
-
-    if (!platformUrl || !assistantApiKey || !assistantId) {
+    if (!platformUrl || !assistantApiKey) {
       log.debug(
         {
           hasPlatformUrl: !!platformUrl,
           hasApiKey: !!assistantApiKey,
-          hasAssistantId: !!assistantId,
         },
         "Remote feature flag sync skipped: missing credentials",
       );
