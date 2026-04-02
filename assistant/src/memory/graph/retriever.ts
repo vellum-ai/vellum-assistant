@@ -35,6 +35,7 @@ import {
   evaluateTemporalTriggers,
   type TriggeredResult,
 } from "./triggers.js";
+import { isCapabilityNode } from "./types.js";
 import type { MemoryEdge, MemoryNode, ScoredNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
@@ -337,7 +338,7 @@ export async function loadContextMemory(
     limit: maxNodes,
   });
   for (const node of recentNodes) {
-    if (node.type === "procedural") continue;
+    if (isCapabilityNode(node)) continue;
     if (!semanticCandidateIds.has(node.id)) {
       semanticCandidateIds.set(node.id, 0);
     }
@@ -455,7 +456,7 @@ export async function loadContextMemory(
   // Dedup: both seeding systems may create nodes for the same skill.
   // Extract skill ID from content and keep only the first node per skill.
   const seenSkillIds = new Set<string>();
-  const capabilityNodes = rawCapabilityNodes.filter((node) => {
+  const capabilityNodes = rawCapabilityNodes.filter(isCapabilityNode).filter((node) => {
     const skillMatch = node.content.match(
       /^skill:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)/,
     );
@@ -583,7 +584,7 @@ export async function loadContextMemory(
   // the cut shouldn't compete with organic memories for general slots.
   const mainPool = scored.filter(
     (s) =>
-      s.node.type !== "procedural" &&
+      !isCapabilityNode(s.node) &&
       !prospectiveIds.has(s.node.id) &&
       !upcomingIds.has(s.node.id),
   );
@@ -613,7 +614,7 @@ export async function loadContextMemory(
   // Exclude procedural nodes from serendipity — they have reserved slots
   // and shouldn't appear as random wildcard picks.
   const serendipityPool = scored.filter(
-    (s) => s.node.type !== "procedural",
+    (s) => !isCapabilityNode(s.node),
   );
   const serendipityPicks = sampleSerendipity(serendipityPool, serendipitySlots);
 
@@ -823,7 +824,7 @@ export async function retrieveForTurn(
     if (node.fidelity === "gone") continue;
     // Procedural nodes (capabilities) have reserved slots at context-load
     // and shouldn't compete with organic memories in per-turn injection.
-    if (node.type === "procedural") continue;
+    if (isCapabilityNode(node)) continue;
 
     const semanticSim = allCandidateIds.get(node.id) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);
@@ -967,7 +968,7 @@ export async function refreshContextMemory(
   const scored: ScoredNode[] = [];
   for (const node of nodes) {
     if (node.fidelity === "gone") continue;
-    if (node.type === "procedural") continue;
+    if (isCapabilityNode(node)) continue;
 
     const semanticSim = candidateScoreMap.get(node.id) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);

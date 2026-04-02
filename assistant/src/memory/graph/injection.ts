@@ -5,6 +5,7 @@
 import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { getLogger } from "../../util/logger.js";
 import { loadImageRefData } from "./image-ref-utils.js";
+import { isCapabilityNode } from "./types.js";
 import type { MemoryNode, ScoredNode } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -274,7 +275,7 @@ export function assembleContextBlock(
       upcoming.push(scored);
     } else if (node.type === "prospective") {
       threads.push(scored);
-    } else if (node.type === "procedural") {
+    } else if (isCapabilityNode(node)) {
       capabilities.push(scored);
     } else if (node.type === "emotional" && isRecent(node)) {
       // Recent emotional nodes go in "Right Now" — present-tense state
@@ -366,7 +367,7 @@ export function assembleInjectionBlock(nodes: ScoredNode[]): string {
   if (nodes.length === 0) return "";
   return nodes
     .map((scored) => {
-      if (scored.node.type === "procedural") {
+      if (isCapabilityNode(scored.node)) {
         const content = scored.node.content.replace(/^skill:\S+\n/, "");
         return `- [skill] ${content} → use skill_load to activate`;
       }
