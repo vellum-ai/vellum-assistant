@@ -821,6 +821,9 @@ export async function retrieveForTurn(
 
   for (const node of nodes) {
     if (node.fidelity === "gone") continue;
+    // Procedural nodes (capabilities) have reserved slots at context-load
+    // and shouldn't compete with organic memories in per-turn injection.
+    if (node.type === "procedural") continue;
 
     const semanticSim = allCandidateIds.get(node.id) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);
@@ -964,6 +967,7 @@ export async function refreshContextMemory(
   const scored: ScoredNode[] = [];
   for (const node of nodes) {
     if (node.fidelity === "gone") continue;
+    if (node.type === "procedural") continue;
 
     const semanticSim = candidateScoreMap.get(node.id) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);
