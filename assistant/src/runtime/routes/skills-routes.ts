@@ -70,6 +70,54 @@ const slimSkillSchema = z.discriminatedUnion("origin", [
   z.object({ ...slimSkillBase, origin: z.literal("custom") }),
 ]);
 
+const skillDetailSchema = z.discriminatedUnion("origin", [
+  z.object({ ...slimSkillBase, origin: z.literal("vellum") }),
+  z.object({
+    ...slimSkillBase,
+    origin: z.literal("clawhub"),
+    slug: z.string(),
+    author: z.string(),
+    stars: z.number(),
+    installs: z.number(),
+    reports: z.number(),
+    publishedAt: z.string().optional(),
+    owner: z
+      .object({
+        handle: z.string(),
+        displayName: z.string(),
+        image: z.string().optional(),
+      })
+      .nullable()
+      .optional(),
+    stats: z
+      .object({
+        stars: z.number(),
+        installs: z.number(),
+        downloads: z.number(),
+        versions: z.number(),
+      })
+      .nullable()
+      .optional(),
+    latestVersion: z
+      .object({
+        version: z.string(),
+        changelog: z.string().optional(),
+      })
+      .nullable()
+      .optional(),
+    createdAt: z.number().nullable().optional(),
+    updatedAt: z.number().nullable().optional(),
+  }),
+  z.object({
+    ...slimSkillBase,
+    origin: z.literal("skillssh"),
+    slug: z.string(),
+    sourceRepo: z.string(),
+    installs: z.number(),
+  }),
+  z.object({ ...slimSkillBase, origin: z.literal("custom") }),
+]);
+
 export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
   const ctx = () => deps.getSkillContext();
 
@@ -412,6 +460,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Get skill",
       description: "Return a single skill by ID with enriched detail fields.",
       tags: ["skills"],
+      responseBody: z.object({
+        skill: skillDetailSchema.describe("Skill detail object"),
+      }),
       handler: async ({ params }) => {
         const result = await getSkill(params.id, ctx());
         if ("error" in result) {
