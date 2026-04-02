@@ -35,7 +35,12 @@ import {
   evaluateTemporalTriggers,
   type TriggeredResult,
 } from "./triggers.js";
-import type { MemoryEdge, MemoryNode, ScoredNode } from "./types.js";
+import type {
+  MemoryEdge,
+  MemoryNode,
+  RetrievalMetrics,
+  ScoredNode,
+} from "./types.js";
 import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
@@ -764,6 +769,7 @@ export interface TurnRetrievalResult {
   /** Triggers that fired this turn. */
   triggeredNodes: TriggeredResult[];
   latencyMs: number;
+  metrics: RetrievalMetrics;
 }
 
 /**
@@ -781,6 +787,23 @@ export async function retrieveForTurn(
   const now = new Date();
   const nowMs = now.getTime();
 
+  let embeddingProvider: string | null = null;
+  let embeddingModel: string | null = null;
+  let hybridSearchLatencyMs = 0;
+
+  const ZERO_METRICS: RetrievalMetrics = {
+    semanticHits: 0,
+    mergedCount: 0,
+    selectedCount: 0,
+    tier1Count: 0,
+    tier2Count: 0,
+    hybridSearchLatencyMs: 0,
+    sparseVectorUsed: false,
+    embeddingProvider: null,
+    embeddingModel: null,
+    topCandidates: [],
+  };
+
   // 1. Build query from last exchange
   const queryText = [opts.assistantLastMessage, opts.userLastMessage]
     .filter((m) => m.length > 0)
@@ -792,6 +815,7 @@ export async function retrieveForTurn(
     (b): b is ImageContent => b.type === "image",
   );
   const allCandidateIds = new Map<string, number>(); // nodeId → best score
+  const searchStart = Date.now();
 
   if (imageBlocks.length > 0) {
     try {
@@ -830,7 +854,7 @@ export async function retrieveForTurn(
   }
 
   if (queryText.trim().length === 0 && allCandidateIds.size === 0) {
-    return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
+    return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start, metrics: ZERO_METRICS };
   }
 
   // Chunk if too large (8k token ≈ 32k chars conservative estimate)
@@ -871,6 +895,8 @@ export async function retrieveForTurn(
       const embedResults = await embedWithRetry(opts.config, chunks, {
         signal: opts.signal,
       });
+      embeddingProvider = embedResults.provider;
+      embeddingModel = embedResults.model;
       queryEmbeddings = embedResults.vectors;
 
       const searchPromises = queryEmbeddings.map((vec) =>
@@ -884,12 +910,18 @@ export async function retrieveForTurn(
           allCandidateIds.set(r.nodeId, Math.max(current, r.score));
         }
       }
+      hybridSearchLatencyMs = Date.now() - searchStart;
     } catch (err) {
       log.warn({ err }, "Embedding/search failed for turn retrieval");
       if (allCandidateIds.size === 0) {
-        return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
+        return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start, metrics: ZERO_METRICS };
       }
     }
+  }
+
+  // Capture search latency for image-only searches (text path sets it inside its try block)
+  if (hybridSearchLatencyMs === 0 && allCandidateIds.size > 0) {
+    hybridSearchLatencyMs = Date.now() - searchStart;
   }
 
   // 3. Evaluate semantic triggers
@@ -923,6 +955,13 @@ export async function retrieveForTurn(
       serendipityNodes: [],
       triggeredNodes: triggeredSemantic,
       latencyMs: Date.now() - start,
+      metrics: {
+        ...ZERO_METRICS,
+        semanticHits: allCandidateIds.size,
+        hybridSearchLatencyMs,
+        embeddingProvider,
+        embeddingModel,
+      },
     };
   }
 
@@ -1031,10 +1070,31 @@ export async function retrieveForTurn(
   const serendipityPicks = sampleSerendipity(serendipityPool, 1);
   const allInjected = [...allDeterministic, ...serendipityPicks];
 
+  const TOP_N = 20;
+  const topCandidates = scored.slice(0, TOP_N).map((s) => ({
+    nodeId: s.node.id,
+    type: s.node.type,
+    score: s.score,
+    semanticSimilarity: s.scoreBreakdown.semanticSimilarity,
+    recencyBoost: s.scoreBreakdown.recencyBoost,
+  }));
+
   return {
     nodes: allInjected,
     serendipityNodes: serendipityPicks,
     triggeredNodes: triggeredSemantic,
     latencyMs: Date.now() - start,
+    metrics: {
+      semanticHits: allCandidateIds.size,
+      mergedCount: scored.length,
+      selectedCount: allInjected.length,
+      tier1Count: 0,
+      tier2Count: 0,
+      hybridSearchLatencyMs,
+      sparseVectorUsed: false,
+      embeddingProvider,
+      embeddingModel,
+      topCandidates,
+    },
   };
 }
