@@ -682,7 +682,9 @@ struct SettingsPanel: View {
         if let schedulesEnabled = resolved[Self.schedulesFeatureFlagKey] {
             isSchedulesEnabled = schedulesEnabled
         }
-        isIntegrationsGridEnabled = resolved[Self.integrationsGridFeatureFlagKey] ?? false
+        if let integrationsGridEnabled = resolved[Self.integrationsGridFeatureFlagKey] {
+            isIntegrationsGridEnabled = integrationsGridEnabled
+        }
 
         consumeDeferredDeepLinkIfVisible()
     }

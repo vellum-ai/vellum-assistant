@@ -2468,6 +2468,7 @@ public final class SettingsStore: ObservableObject {
             managedOAuthConnections = grouped
         } catch {
             log.error("Failed to fetch all managed OAuth connections: \(error)")
+            managedOAuthConnections = [:]
         }
     }
 
