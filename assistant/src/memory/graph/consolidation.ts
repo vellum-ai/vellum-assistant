@@ -182,7 +182,7 @@ function getRecentNodes(scopeId: string, days: number = 7): MemoryNode[] {
     fidelityNot: ["gone"],
     createdAfter: cutoff,
     limit: 10000,
-  });
+  }).filter((n) => n.type !== "procedural");
 }
 
 function getTopSignificanceNodes(
@@ -194,7 +194,7 @@ function getTopSignificanceNodes(
     fidelityNot: ["gone"],
     minSignificance: 0.6,
     limit: n,
-  });
+  }).filter((n) => n.type !== "procedural");
 }
 
 function getDecayedNodes(scopeId: string): MemoryNode[] {
@@ -202,7 +202,7 @@ function getDecayedNodes(scopeId: string): MemoryNode[] {
     scopeId,
     limit: 10000,
   });
-  return all.filter((n) => n.fidelity === "faded" || n.fidelity === "gist");
+  return all.filter((n) => (n.fidelity === "faded" || n.fidelity === "gist") && n.type !== "procedural");
 }
 
 function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
@@ -210,7 +210,7 @@ function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
     scopeId,
     fidelityNot: ["gone"],
     limit: 10000,
-  });
+  }).filter((n) => n.type !== "procedural");
   // Fisher-Yates shuffle, take first n
   for (let i = all.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
