@@ -157,6 +157,7 @@ export function upsertSkillCapabilityMemory(
         .where(eq(memoryGraphNodes.id, existing.id))
         .run();
       enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
+      log.info({ skillId, nodeId: existing.id }, "Reactivated skill capability memory");
       return;
     }
 
@@ -185,6 +186,7 @@ export function upsertSkillCapabilityMemory(
       })
       .run();
     enqueueMemoryJob("embed_graph_node", { nodeId: id });
+    log.info({ skillId, nodeId: id }, "Created skill capability memory");
   } catch (err) {
     log.warn({ err, skillId }, "Failed to upsert skill capability memory");
   }
@@ -282,6 +284,7 @@ export function seedCatalogSkillMemories(): void {
         if (!item.content.startsWith("skill:")) continue;
         const itemSkillId = item.content.split("\n")[0].replace("skill:", "");
         if (!catalogIds.has(itemSkillId) && !cachedCatalogIds.has(itemSkillId)) {
+          log.info({ skillId: itemSkillId, nodeId: item.id, catalogSize: catalogIds.size, cacheSize: cachedCatalogIds.size }, "Pruning stale skill capability memory");
           db.update(memoryGraphNodes)
             .set({ fidelity: "gone", lastAccessed: now })
             .where(eq(memoryGraphNodes.id, item.id))

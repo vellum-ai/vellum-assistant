@@ -241,6 +241,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
   });
 
   enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+  log.info({ sourceKey, nodeId: node.id }, "Created capability graph node");
 }
 
 /**
@@ -292,6 +293,7 @@ function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
       const sources = JSON.parse(row.sourceConversations as string);
       const key = Array.isArray(sources) ? sources[0] : null;
       if (key && typeof key === "string" && !activeKeys.has(key)) {
+        log.info({ sourceKey: key, nodeId: row.id }, "Pruning stale capability graph node");
         db.update(memoryGraphNodes)
           .set({ fidelity: "gone", lastAccessed: now })
           .where(eq(memoryGraphNodes.id, row.id))
