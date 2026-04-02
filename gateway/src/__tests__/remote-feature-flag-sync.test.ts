@@ -147,7 +147,7 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      "https://env-platform.example.com/v1/assistants/asst-123/feature-flags/",
+      "https://env-platform.example.com/v1/feature-flags/assistant-flag-values/",
     );
   });
 
@@ -210,7 +210,7 @@ describe("RemoteFeatureFlagSync", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0];
-    expect(url).toContain("/v1/assistants/env-asst-456/feature-flags/");
+    expect(url).toContain("/v1/feature-flags/assistant-flag-values/");
   });
 
   test("fetches and caches flags on successful response", async () => {
@@ -345,7 +345,7 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      "https://platform.example.com/v1/assistants/asst-abc-999/feature-flags/",
+      "https://platform.example.com/v1/feature-flags/assistant-flag-values/",
     );
   });
 
@@ -424,7 +424,7 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      "https://platform.example.com/v1/assistants/asst-123/feature-flags/",
+      "https://platform.example.com/v1/feature-flags/assistant-flag-values/",
     );
   });
 
@@ -445,7 +445,7 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      "https://platform.example.com/v1/assistants/asst-trimmed/feature-flags/",
+      "https://platform.example.com/v1/feature-flags/assistant-flag-values/",
     );
     const headers = init?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Api-Key trimmed-key");

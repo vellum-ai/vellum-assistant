@@ -103,7 +103,7 @@ export class RemoteFeatureFlagSync {
       ""
     ).replace(/\/+$/, "");
 
-    // Feature flag sync hits the public platform API (/v1/assistants/…),
+    // Feature flag sync hits the public platform API (/v1/feature-flags/assistant-flag-values/),
     // which requires Api-Key auth. PLATFORM_INTERNAL_API_KEY is only valid
     // for internal gateway endpoints and would produce 401s here.
     const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
@@ -125,7 +125,7 @@ export class RemoteFeatureFlagSync {
       return null;
     }
 
-    const url = `${platformUrl}/v1/assistants/${assistantId}/feature-flags/`;
+    const url = `${platformUrl}/v1/feature-flags/assistant-flag-values/`;
     log.debug({ url }, "Fetching remote feature flags from platform");
 
     const response = await fetchImpl(url, {
