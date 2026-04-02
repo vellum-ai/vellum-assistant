@@ -116,7 +116,11 @@ export function seedSkillGraphNodes(): void {
       }
     }
 
-    pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
+    if (getCachedCatalogSync().length > 0) {
+      pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
+    } else {
+      log.debug("Skipping skill capability pruning — catalog cache not yet populated");
+    }
   } catch (err) {
     log.warn({ err }, "Failed to seed skill graph nodes");
   }

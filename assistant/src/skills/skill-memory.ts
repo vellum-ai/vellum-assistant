@@ -271,19 +271,22 @@ export function seedCatalogSkillMemories(): void {
       )
       .all();
 
-    const cachedCatalogIds = new Set(
-      getCachedCatalogSync().map((s) => s.id),
-    );
+    const cachedCatalog = getCachedCatalogSync();
+    if (cachedCatalog.length === 0) {
+      log.debug("Skipping skill memory pruning — catalog cache not yet populated");
+    } else {
+      const cachedCatalogIds = new Set(cachedCatalog.map((s) => s.id));
 
-    const now = Date.now();
-    for (const item of allCapabilities) {
-      if (!item.content.startsWith("skill:")) continue;
-      const itemSkillId = item.content.split("\n")[0].replace("skill:", "");
-      if (!catalogIds.has(itemSkillId) && !cachedCatalogIds.has(itemSkillId)) {
-        db.update(memoryGraphNodes)
-          .set({ fidelity: "gone", lastAccessed: now })
-          .where(eq(memoryGraphNodes.id, item.id))
-          .run();
+      const now = Date.now();
+      for (const item of allCapabilities) {
+        if (!item.content.startsWith("skill:")) continue;
+        const itemSkillId = item.content.split("\n")[0].replace("skill:", "");
+        if (!catalogIds.has(itemSkillId) && !cachedCatalogIds.has(itemSkillId)) {
+          db.update(memoryGraphNodes)
+            .set({ fidelity: "gone", lastAccessed: now })
+            .where(eq(memoryGraphNodes.id, item.id))
+            .run();
+        }
       }
     }
   } catch (err) {
