@@ -166,6 +166,7 @@ public extension VNavItem where Trailing == VNavItemTrailingIcon {
             subtitle: subtitle,
             isActive: isActive,
             isExpanded: isExpanded,
+            isKeyboardFocused: false,
             action: action
         ) {
             VNavItemTrailingIcon(

@@ -182,6 +182,10 @@ public struct VMenu<Content: View>: View {
             // Brief delay so the hosting NSPanel's focus system is ready.
             try? await Task.sleep(nanoseconds: 50_000_000)
             isMenuFocused = true
+            // If this child menu was opened via keyboard (→ arrow), auto-focus the first item.
+            if panelLevel > 0, coordinator?.consumePendingChildFocus() == true, !registeredIDs.isEmpty {
+                moveMenuFocus(direction: 1)
+            }
         }
         .onPreferenceChange(VMenuItemRegistrationKey.self) { registrations in
             registeredIDs = registrations.map(\.id)
@@ -190,8 +194,9 @@ public struct VMenu<Content: View>: View {
         .onReceive(coordinator?.clearFocusAnyPublisher ?? Empty<Void, Never>().eraseToAnyPublisher()) { _ in
             focusedItemID = nil
         }
-        .onReceive(coordinator?.focusChangeAnyPublisher ?? Empty<UUID?, Never>().eraseToAnyPublisher()) { newID in
-            focusedItemID = newID
+        .onReceive(coordinator?.focusChangeAnyPublisher ?? Empty<(level: Int, id: UUID?), Never>().eraseToAnyPublisher()) { change in
+            guard change.level == panelLevel else { return }
+            focusedItemID = change.id
         }
         #endif
     }
@@ -201,7 +206,6 @@ public struct VMenu<Content: View>: View {
     #if os(macOS)
     /// Unified key-press handler dispatching to the appropriate navigation action.
     private func handleMenuKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
-        print("[VMenuKeyboard] onKeyPress: key=\(keyPress.key) level=\(panelLevel) itemCount=\(registeredIDs.count)")
         if keyPress.key == .upArrow {
             moveMenuFocus(direction: -1)
             return .handled
@@ -221,10 +225,7 @@ public struct VMenu<Content: View>: View {
     /// Move keyboard focus up or down by `direction` (+1 = down, -1 = up), wrapping around.
     private func moveMenuFocus(direction: Int) {
         coordinator?.recordKeyboardEvent()
-        guard !registeredIDs.isEmpty else {
-            print("[VMenuKeyboard] moveMenuFocus: no items registered")
-            return
-        }
+        guard !registeredIDs.isEmpty else { return }
 
         let currentIndex: Int
         if let fid = focusedItemID, let idx = registeredIDs.firstIndex(of: fid) {
@@ -237,8 +238,6 @@ public struct VMenu<Content: View>: View {
         let next = (currentIndex + direction + count) % count
         focusedItemID = registeredIDs[next]
 
-        print("[VMenuKeyboard] moveMenuFocus: direction=\(direction) index=\(next)/\(count) id=\(focusedItemID?.uuidString.prefix(8) ?? "nil")")
-
         // Keep coordinator in sync for the VoiceOver bridge.
         coordinator?.focusedIndex[panelLevel] = next
         coordinator?.postVoiceOverFocusNotification(level: panelLevel)
@@ -247,10 +246,10 @@ public struct VMenu<Content: View>: View {
     /// Activate the currently focused item (Enter / Space).
     private func activateMenuFocus() -> KeyPress.Result {
         guard let fid = focusedItemID,
+              coordinator?.isItemEnabled(level: panelLevel, id: fid) ?? true,
               let action = coordinator?.itemActions[panelLevel]?[fid] else {
             return .ignored
         }
-        print("[VMenuKeyboard] activateMenuFocus: id=\(fid.uuidString.prefix(8))")
         action()
         return .handled
     }
@@ -261,7 +260,7 @@ public struct VMenu<Content: View>: View {
               let action = coordinator?.submenuActions[panelLevel]?[fid] else {
             return .ignored
         }
-        print("[VMenuKeyboard] openMenuSubmenu: id=\(fid.uuidString.prefix(8))")
+        coordinator?.pendingChildFocus = true
         action()
         return .handled
     }
@@ -269,7 +268,6 @@ public struct VMenu<Content: View>: View {
     /// Close the current submenu (← arrow). Only valid when panelLevel > 0.
     private func closeMenuSubmenu() -> KeyPress.Result {
         guard panelLevel > 0 else { return .ignored }
-        print("[VMenuKeyboard] closeMenuSubmenu: level=\(panelLevel)")
         coordinator?.dismissChild()
         return .handled
     }
@@ -418,6 +416,10 @@ public struct VMenuItem<Trailing: View>: View {
                 coordinator?.registerItemAction(level: panelLevel, id: itemID) {
                     dismissMenu?(); action()
                 }
+                coordinator?.registerItemEnabled(level: panelLevel, id: itemID, isEnabled: isEnabled)
+            }
+            .onChange(of: isEnabled) { _, newValue in
+                coordinator?.registerItemEnabled(level: panelLevel, id: itemID, isEnabled: newValue)
             }
             #endif
         } else {
@@ -462,6 +464,10 @@ public struct VMenuItem<Trailing: View>: View {
                 coordinator?.registerItemAction(level: panelLevel, id: itemID) {
                     dismissMenu?(); action()
                 }
+                coordinator?.registerItemEnabled(level: panelLevel, id: itemID, isEnabled: isEnabled)
+            }
+            .onChange(of: isEnabled) { _, newValue in
+                coordinator?.registerItemEnabled(level: panelLevel, id: itemID, isEnabled: newValue)
             }
             #endif
         }

@@ -63,7 +63,8 @@ public final class VMenuCoordinator {
 
     /// Subject for signaling VMenu that the focused item changed via the fallback key-handling path
     /// (VMenuPanel.keyDown → coordinator.handleKeyDown). VMenu subscribes and updates `@State`.
-    let focusChangeSubject = PassthroughSubject<UUID?, Never>()
+    /// Includes the panel level so each VMenu instance only reacts to its own level's changes.
+    let focusChangeSubject = PassthroughSubject<(level: Int, id: UUID?), Never>()
 
     /// Type-erased publisher for VMenu to subscribe to clear-focus signals.
     var clearFocusAnyPublisher: AnyPublisher<Void, Never> {
@@ -71,7 +72,7 @@ public final class VMenuCoordinator {
     }
 
     /// Type-erased publisher for VMenu to subscribe to focus-change signals (fallback path).
-    var focusChangeAnyPublisher: AnyPublisher<UUID?, Never> {
+    var focusChangeAnyPublisher: AnyPublisher<(level: Int, id: UUID?), Never> {
         focusChangeSubject.eraseToAnyPublisher()
     }
 
@@ -95,6 +96,13 @@ public final class VMenuCoordinator {
 
     /// Weak references to NSViews embedded in each item, for VoiceOver focus notifications.
     var itemNSViews: [Int: [UUID: WeakNSViewRef]] = [:]
+
+    /// Set of disabled item UUIDs per panel level. Keyboard activation is blocked for these items.
+    var itemDisabled: [Int: Set<UUID>] = [:]
+
+    /// When `true`, the next child VMenu that initializes should auto-focus its first item.
+    /// Set when right arrow opens a submenu; consumed by the child VMenu's `.task`.
+    var pendingChildFocus = false
 
     // MARK: - Item Registration
 
@@ -132,6 +140,29 @@ public final class VMenuCoordinator {
     func registerItemNSView(level: Int, id: UUID, view: NSView) {
         if itemNSViews[level] == nil { itemNSViews[level] = [:] }
         itemNSViews[level]?[id] = WeakNSViewRef(view: view)
+    }
+
+    /// Update the enabled/disabled state for a menu item. Called from VMenuItem on appear
+    /// and when the `isEnabled` environment value changes.
+    func registerItemEnabled(level: Int, id: UUID, isEnabled: Bool) {
+        if itemDisabled[level] == nil { itemDisabled[level] = [] }
+        if isEnabled {
+            itemDisabled[level]?.remove(id)
+        } else {
+            itemDisabled[level]?.insert(id)
+        }
+    }
+
+    /// Whether the item at the given level is enabled for keyboard activation.
+    func isItemEnabled(level: Int, id: UUID) -> Bool {
+        !(itemDisabled[level]?.contains(id) ?? false)
+    }
+
+    /// Consume the pending child focus flag. Returns `true` if it was set.
+    func consumePendingChildFocus() -> Bool {
+        guard pendingChildFocus else { return false }
+        pendingChildFocus = false
+        return true
     }
 
     /// Return the UUID of the currently focused item at a level, if any.
@@ -238,6 +269,8 @@ public final class VMenuCoordinator {
         itemActions.removeAll()
         submenuActions.removeAll()
         itemNSViews.removeAll()
+        itemDisabled.removeAll()
+        pendingChildFocus = false
         removeClickMonitor()
         removeWindowObserver()
         removeAppDeactivationObserver()
@@ -258,6 +291,7 @@ public final class VMenuCoordinator {
         itemActions.removeValue(forKey: childLevel)
         submenuActions.removeValue(forKey: childLevel)
         itemNSViews.removeValue(forKey: childLevel)
+        itemDisabled.removeValue(forKey: childLevel)
         if let menuPanel = child as? VMenuPanel {
             menuPanel.closeFromCoordinator()
         } else {
@@ -293,6 +327,7 @@ public final class VMenuCoordinator {
             itemActions.removeValue(forKey: level)
             submenuActions.removeValue(forKey: level)
             itemNSViews.removeValue(forKey: level)
+            itemDisabled.removeValue(forKey: level)
         }
 
         if panels.isEmpty {
@@ -359,8 +394,6 @@ public final class VMenuCoordinator {
         // can ignore micro-movements that would immediately clear the focus.
         lastKeyboardEventTime = ProcessInfo.processInfo.systemUptime
 
-        print("[VMenuKeyboard] handleKeyDown: keyCode=\(event.keyCode) level=\(level) panelCount=\(panels.count) itemCounts=\(itemCounts)")
-
         switch event.keyCode {
         case 126: // Up arrow
             moveFocus(direction: -1, level: level)
@@ -377,16 +410,14 @@ public final class VMenuCoordinator {
         case 124: // Right arrow — open submenu if focused item is a VSubMenuItem
             if let focusedID = focusedItemID(at: level),
                let action = submenuActions[level]?[focusedID] {
+                pendingChildFocus = true
                 action()
-                // Move focus into the newly opened child
-                if hasChild {
-                    moveFocus(direction: 1, level: level + 1)
-                }
                 return true
             }
             return false
-        case 36, 49: // Enter, Space — activate focused item
+        case 36, 49: // Enter, Space — activate focused item (skip disabled items)
             if let focusedID = focusedItemID(at: level),
+               isItemEnabled(level: level, id: focusedID),
                let action = itemActions[level]?[focusedID] {
                 action()
                 return true
@@ -399,20 +430,16 @@ public final class VMenuCoordinator {
 
     private func moveFocus(direction: Int, level: Int) {
         let count = itemCounts[level] ?? 0
-        guard count > 0 else {
-            print("[VMenuKeyboard] moveFocus: no items at level \(level), itemCounts=\(itemCounts), itemOrder keys=\(itemOrder.keys.sorted())")
-            return
-        }
+        guard count > 0 else { return }
 
         let current = focusedIndex[level] ?? (direction > 0 ? -1 : count)
         let next = (current + direction + count) % count
         focusedIndex[level] = next
 
         let focusedID = focusedItemID(at: level)
-        print("[VMenuKeyboard] moveFocus: level=\(level) index=\(next) id=\(focusedID?.uuidString.prefix(8) ?? "nil") count=\(count)")
 
         // Notify VMenu via Combine (fallback path — primary path is .onKeyPress in VMenu)
-        focusChangeSubject.send(focusedID)
+        focusChangeSubject.send((level: level, id: focusedID))
 
         postVoiceOverFocusNotification(level: level)
     }
@@ -420,7 +447,6 @@ public final class VMenuCoordinator {
     /// Clear keyboard focus (switch back to mouse-driven interaction).
     func clearKeyboardFocus() {
         if !focusedIndex.isEmpty {
-            print("[VMenuKeyboard] clearKeyboardFocus")
             focusedIndex.removeAll()
             // Signal VMenu to clear its @State focusedItemID
             clearFocusSubject.send()
