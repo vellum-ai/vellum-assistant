@@ -77,6 +77,19 @@ struct MemoriesPanel: View {
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var viewMode: MemoryViewMode = .cards
+
+    private enum MemoryViewMode: String, CaseIterable {
+        case cards = "Cards"
+        case compact = "Compact"
+
+        var icon: String {
+            switch self {
+            case .cards: return VIcon.layoutGrid.rawValue
+            case .compact: return VIcon.list.rawValue
+            }
+        }
+    }
 
     init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
@@ -224,6 +237,13 @@ struct MemoriesPanel: View {
                 }
             )
 
+            VTabs(
+                items: MemoryViewMode.allCases.map { (label: $0.rawValue, icon: $0.icon, tag: $0) },
+                selection: $viewMode,
+                style: .pill,
+                size: .compact
+            )
+
             VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
                 showCreateSheet = true
             }
@@ -306,14 +326,25 @@ struct MemoriesPanel: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: VSpacing.sm) {
-                    ForEach(store.items) { item in
-                        MemoryItemRow(
-                            item: item,
-                            onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
-                            onDelete: {
-                                Task { _ = await store.deleteItem(id: item.id) }
-                            }
-                        )
+                    switch viewMode {
+                    case .cards:
+                        ForEach(store.items) { item in
+                            MemoryItemRow(
+                                item: item,
+                                onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
+                                onDelete: {
+                                    Task { _ = await store.deleteItem(id: item.id) }
+                                }
+                            )
+                        }
+                    case .compact:
+                        ForEach(store.items) { item in
+                            MemoryItemCompactRow(
+                                item: item,
+                                isSelected: selectedItem?.id == item.id,
+                                onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } }
+                            )
+                        }
                     }
                     if store.hasMore {
                         VLoadingIndicator()
