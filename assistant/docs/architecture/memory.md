@@ -558,49 +558,47 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `assistant/src/workspace/top-level-scanner.ts`          | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap                                                                             |
 | `assistant/src/workspace/top-level-renderer.ts`         | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block                                                                            |
-| `assistant/src/daemon/conversation-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<temporal_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<turn_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
 | `assistant/src/onboarding/onboarding-orchestrator.ts`   | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata                                              |
 | `assistant/src/daemon/conversation-agent-loop.ts`       | Agent loop orchestration, runtime injection wiring, strip chain                                                                            |
 
 ---
 
-## Temporal Context Injection — Date Grounding
+## Turn Context Injection — Date & Actor Grounding
 
-The session injects a `<temporal_context>` block into every user message at runtime, giving the model awareness of the current date, current local time, current UTC time, and timezone source metadata. This enables reliable reasoning about dates and times without persisting volatile temporal data in conversation history.
+The session injects a unified `<turn_context>` block into every user message at runtime, giving the model awareness of the current timestamp (with timezone), interface, channel, and actor identity. This replaces the former separate `<temporal_context>`, `<inbound_actor_context>`, and per-channel turn context blocks.
+
+The `timestamp:` field format is: `2026-04-02 (Wed) 14:30:00 -05:00 (America/Chicago)` — date, abbreviated weekday, local time, UTC offset, and IANA timezone name.
 
 ### Per-turn flow
 
 ```mermaid
 graph TB
     subgraph "Per-Turn Flow"
-        BUILD["buildTemporalContext(timeZone, hostTimeZone, userTimeZone)<br/>→ compact XML block"]
-        INJECT["applyRuntimeInjections<br/>prepend temporal block<br/>to user message"]
+        BUILD["buildUnifiedTurnContext(options)<br/>→ unified XML block"]
+        INJECT["applyRuntimeInjections<br/>prepend turn context block<br/>to user message"]
         AGENT["AgentLoop.run(runMessages)"]
-        STRIP["stripTemporalContext<br/>remove block from persisted history"]
     end
 
     BUILD --> INJECT
     INJECT --> AGENT
-    AGENT --> STRIP
 ```
 
 ### Key design decisions
 
-- **Fresh each turn**: `buildTemporalContext()` is called at the start of every agent loop invocation, ensuring the model always sees the current date even in long-running conversations.
+- **Fresh each turn**: Turn context is built at the start of every agent loop invocation, ensuring the model always sees the current timestamp even in long-running conversations.
 - **Clock source invariant**: Absolute time (`now`) always comes from the assistant host clock (`Date.now()`), never from channel/client clocks.
 - **Timezone precedence**: If `ui.userTimezone` is configured, temporal context uses it for local-date interpretation. Otherwise it falls back to memory-stored timezone, then assistant host timezone.
 - **Timezone-aware**: Uses `Intl.DateTimeFormat` APIs for DST-safe date arithmetic and timezone validation/canonicalization.
-- **Runtime-only**: The injected `<temporal_context>` block is stripped from `this.messages` after the agent loop completes via `stripTemporalContext`. It never persists in conversation history.
-- **Specific strip prefix**: The strip function matches the exact injected prefix (`<temporal_context>\nToday:`) to avoid accidentally removing user-authored text that starts with `<temporal_context>`.
-- **Retry paths**: Temporal context is included in all three `applyRuntimeInjections` call sites (main path, compact retry, media-trim retry).
+- **Persisted in history**: Unlike the former `<temporal_context>` block, unified `<turn_context>` blocks persist in conversation history so the assistant retains temporal and actor grounding across turns. Legacy `<temporal_context>` blocks from pre-unification history are still stripped for backward compatibility.
+- **Retry paths**: Turn context is included in all `applyRuntimeInjections` call sites (main path, compact retry, media-trim retry).
 
 ### Key files
 
-| File                                                    | Role                                                                                    |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `assistant/src/daemon/date-context.ts`                  | `buildTemporalContext()` — generates the `<temporal_context>` XML block                 |
-| `assistant/src/daemon/conversation-runtime-assembly.ts` | `injectTemporalContext()` / `stripTemporalContext()` helpers                            |
-| `assistant/src/daemon/conversation-agent-loop.ts`       | Wiring: computes temporal context, passes to `applyRuntimeInjections`, strips after run |
+| File                                                    | Role                                                                                          |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | `buildUnifiedTurnContext()` — generates the `<turn_context>` XML block; strip helpers          |
+| `assistant/src/daemon/conversation-agent-loop.ts`       | Wiring: computes turn context options, passes to `applyRuntimeInjections`                      |
 
 ---
 
