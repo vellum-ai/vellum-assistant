@@ -342,7 +342,10 @@ final class AvatarAppearanceManager {
     }
 
     /// Fetches character-traits.json via HTTP through the gateway for Docker/remote instances.
-    private func fetchTraitsViaHTTP() async {
+    /// - Parameter skipClearOnFailure: When `true`, a failed HTTP fetch preserves
+    ///   locally-loaded character traits instead of clearing them. Mirrors the
+    ///   same guard on ``fetchAvatarViaHTTP(skipClearOnFailure:)``.
+    private func fetchTraitsViaHTTP(skipClearOnFailure: Bool = false) async {
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/workspace/file/content",
@@ -350,12 +353,14 @@ final class AvatarAppearanceManager {
                 timeout: 10
             )
             guard response.isSuccess, !response.data.isEmpty else {
-                if characterBodyShape != nil { characterBodyShape = nil }
-                if characterEyeStyle != nil { characterEyeStyle = nil }
-                if characterColor != nil { characterColor = nil }
-                cachedFallbackAvatar = nil
-                cachedFullFallbackAvatar = nil
-                updateDockIcon()
+                if !skipClearOnFailure {
+                    if characterBodyShape != nil { characterBodyShape = nil }
+                    if characterEyeStyle != nil { characterEyeStyle = nil }
+                    if characterColor != nil { characterColor = nil }
+                    cachedFallbackAvatar = nil
+                    cachedFullFallbackAvatar = nil
+                    updateDockIcon()
+                }
                 return
             }
             guard let components = try? JSONDecoder().decode(AvatarComponents.self, from: response.data) else {
@@ -374,12 +379,14 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch character traits via HTTP: \(error.localizedDescription)")
-            if characterBodyShape != nil { characterBodyShape = nil }
-            if characterEyeStyle != nil { characterEyeStyle = nil }
-            if characterColor != nil { characterColor = nil }
-            cachedFallbackAvatar = nil
-            cachedFullFallbackAvatar = nil
-            updateDockIcon()
+            if !skipClearOnFailure {
+                if characterBodyShape != nil { characterBodyShape = nil }
+                if characterEyeStyle != nil { characterEyeStyle = nil }
+                if characterColor != nil { characterColor = nil }
+                cachedFallbackAvatar = nil
+                cachedFullFallbackAvatar = nil
+                updateDockIcon()
+            }
         }
     }
 
@@ -465,11 +472,12 @@ final class AvatarAppearanceManager {
         }
 
         let diskLoadSucceeded = customAvatarImage != nil
+        let traitsLoadedFromDisk = characterBodyShape != nil
 
         Task { [weak self] in
             await self?.fetchComponents()
             await self?.fetchAvatarViaHTTP(skipClearOnFailure: diskLoadSucceeded)
-            await self?.fetchTraitsViaHTTP()
+            await self?.fetchTraitsViaHTTP(skipClearOnFailure: traitsLoadedFromDisk)
         }
     }
 
@@ -563,9 +571,39 @@ final class AvatarAppearanceManager {
     /// Posted whenever the avatar changes so other components (e.g. menu bar icon) can update.
     static let avatarDidChangeNotification = Notification.Name("AvatarAppearanceManager.avatarDidChange")
 
+    /// The bundled Vellum app icon, loaded once so it can be used as a
+    /// reliable dock-icon fallback without depending on macOS resolving
+    /// `CFBundleIconName` from a nil `applicationIconImage`.
+    private static let bundledAppIcon: NSImage? = {
+        guard let url = ResourceBundle.bundle.url(forResource: "vellum-app-icon", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
+
+    /// Restores the dock icon to the default Vellum logo.
+    /// Called during disconnect flows and before app termination so the
+    /// pinned dock tile always shows a meaningful icon.
+    func restoreBundleIcon() {
+        if let bundleIcon = Self.bundledAppIcon {
+            let canvasSize: CGFloat = 512
+            let iconSize: CGFloat = 418
+            let padding = (canvasSize - iconSize) / 2
+            let squircle = Self.squircleIcon(bundleIcon, size: iconSize)
+            let icon = NSImage(size: NSSize(width: canvasSize, height: canvasSize), flipped: false) { _ in
+                let iconRect = NSRect(x: padding, y: padding, width: iconSize, height: iconSize)
+                squircle.draw(in: iconRect, from: NSRect(origin: .zero, size: squircle.size),
+                              operation: .copy, fraction: 1.0)
+                return true
+            }
+            NSApplication.shared.applicationIconImage = icon
+        } else {
+            NSApplication.shared.applicationIconImage = nil
+        }
+        NSApp.dockTile.display()
+    }
+
     /// Updates the application dock icon to match the current avatar.
     /// Uses the custom avatar PNG when available, falls back to a character
-    /// avatar rendered from saved traits, then reverts to the default bundle icon.
+    /// avatar rendered from saved traits, then restores the bundled Vellum logo.
     private func updateDockIcon() {
         NotificationCenter.default.post(name: Self.avatarDidChangeNotification, object: nil)
 
@@ -576,8 +614,7 @@ final class AvatarAppearanceManager {
         } else if let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor {
             avatar = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color, size: 512)
         } else {
-            NSApplication.shared.applicationIconImage = nil
-            NSApp.dockTile.display()
+            restoreBundleIcon()
             return
         }
 
