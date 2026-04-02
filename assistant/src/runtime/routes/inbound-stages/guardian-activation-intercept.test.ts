@@ -14,34 +14,41 @@ let mockSessionResult = {
   ttlSeconds: 600,
 };
 
-const mockCreateOutboundSession = mock(() => mockSessionResult);
-const mockFindActiveSession = mock(() => mockActiveSession);
-const mockDeliverChannelReply = mock(async () => ({ ok: true }));
-const mockEmitNotificationSignal = mock(async () => ({
-  signalId: "sig-1",
-  deduplicated: false,
-  dispatched: true,
-  reason: "ok",
-  deliveryResults: [],
-}));
+// Track calls manually to avoid TypeScript issues with mock() generics
+let createOutboundSessionCalls: unknown[] = [];
+let deliverChannelReplyCalls: unknown[][] = [];
+let emitNotificationSignalCalls: unknown[] = [];
 
 mock.module("../../../contacts/contact-store.js", () => ({
   findGuardianForChannel: () => mockGuardian,
 }));
 
 mock.module("../../channel-verification-service.js", () => ({
-  createOutboundSession: (...args: unknown[]) =>
-    mockCreateOutboundSession(...args),
-  findActiveSession: (...args: unknown[]) => mockFindActiveSession(...args),
+  createOutboundSession: (params: unknown) => {
+    createOutboundSessionCalls.push(params);
+    return mockSessionResult;
+  },
+  findActiveSession: () => mockActiveSession,
 }));
 
 mock.module("../../gateway-client.js", () => ({
-  deliverChannelReply: (...args: unknown[]) => mockDeliverChannelReply(...args),
+  deliverChannelReply: (url: unknown, payload: unknown, token: unknown) => {
+    deliverChannelReplyCalls.push([url, payload, token]);
+    return Promise.resolve({ ok: true });
+  },
 }));
 
 mock.module("../../../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: (...args: unknown[]) =>
-    mockEmitNotificationSignal(...args),
+  emitNotificationSignal: (params: unknown) => {
+    emitNotificationSignalCalls.push(params);
+    return Promise.resolve({
+      signalId: "sig-1",
+      deduplicated: false,
+      dispatched: true,
+      reason: "ok",
+      deliveryResults: [],
+    });
+  },
 }));
 
 mock.module("../../../util/logger.js", () => ({
@@ -96,17 +103,15 @@ describe("handleGuardianActivationIntercept", () => {
       expiresAt: Date.now() + 600_000,
       ttlSeconds: 600,
     };
-    mockCreateOutboundSession.mockClear();
-    mockFindActiveSession.mockClear();
-    mockDeliverChannelReply.mockClear();
-    mockEmitNotificationSignal.mockClear();
+    createOutboundSessionCalls = [];
+    deliverChannelReplyCalls = [];
+    emitNotificationSignalCalls = [];
   });
 
   afterEach(() => {
-    mockCreateOutboundSession.mockClear();
-    mockFindActiveSession.mockClear();
-    mockDeliverChannelReply.mockClear();
-    mockEmitNotificationSignal.mockClear();
+    createOutboundSessionCalls = [];
+    deliverChannelReplyCalls = [];
+    emitNotificationSignalCalls = [];
   });
 
   test("bare /start with no guardian creates session and returns early", async () => {
@@ -117,9 +122,8 @@ describe("handleGuardianActivationIntercept", () => {
     expect(body).toEqual({ accepted: true, guardianActivation: true });
 
     // Verify createOutboundSession was called with correct params
-    expect(mockCreateOutboundSession).toHaveBeenCalledTimes(1);
-    const sessionArgs = mockCreateOutboundSession.mock.calls[0][0];
-    expect(sessionArgs).toEqual({
+    expect(createOutboundSessionCalls).toHaveLength(1);
+    expect(createOutboundSessionCalls[0]).toEqual({
       channel: "telegram",
       expectedExternalUserId: "user-42",
       expectedChatId: "chat-123",
@@ -129,18 +133,17 @@ describe("handleGuardianActivationIntercept", () => {
     });
 
     // Verify deliverChannelReply was called with the welcome/verify message
-    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
-    const replyArgs = mockDeliverChannelReply.mock.calls[0];
-    expect(replyArgs[0]).toBe("https://gateway/reply");
-    expect(replyArgs[1]).toEqual({
+    expect(deliverChannelReplyCalls).toHaveLength(1);
+    expect(deliverChannelReplyCalls[0][0]).toBe("https://gateway/reply");
+    expect(deliverChannelReplyCalls[0][1]).toEqual({
       chatId: "chat-123",
       text: "Welcome! To verify your identity as guardian, check your assistant app for a verification code and enter it here.",
       assistantId: "self",
     });
 
     // Verify emitNotificationSignal was called with guardian.channel_activation
-    expect(mockEmitNotificationSignal).toHaveBeenCalledTimes(1);
-    const signalArgs = mockEmitNotificationSignal.mock.calls[0][0];
+    expect(emitNotificationSignalCalls).toHaveLength(1);
+    const signalArgs = emitNotificationSignalCalls[0] as Record<string, any>;
     expect(signalArgs.sourceEventName).toBe("guardian.channel_activation");
     expect(signalArgs.contextPayload.verificationCode).toBe("123456");
     expect(signalArgs.contextPayload.sourceChannel).toBe("telegram");
@@ -157,7 +160,7 @@ describe("handleGuardianActivationIntercept", () => {
 
     const result = await handleGuardianActivationIntercept(makeParams());
     expect(result).toBeNull();
-    expect(mockCreateOutboundSession).not.toHaveBeenCalled();
+    expect(createOutboundSessionCalls).toHaveLength(0);
   });
 
   test("/start with payload returns null", async () => {
@@ -169,7 +172,7 @@ describe("handleGuardianActivationIntercept", () => {
       }),
     );
     expect(result).toBeNull();
-    expect(mockCreateOutboundSession).not.toHaveBeenCalled();
+    expect(createOutboundSessionCalls).toHaveLength(0);
   });
 
   test("non-/start message returns null", async () => {
@@ -179,7 +182,7 @@ describe("handleGuardianActivationIntercept", () => {
       }),
     );
     expect(result).toBeNull();
-    expect(mockCreateOutboundSession).not.toHaveBeenCalled();
+    expect(createOutboundSessionCalls).toHaveLength(0);
   });
 
   test("no commandIntent returns null", async () => {
@@ -192,7 +195,7 @@ describe("handleGuardianActivationIntercept", () => {
       makeParams({ sourceMetadata: undefined }),
     );
     expect(result2).toBeNull();
-    expect(mockCreateOutboundSession).not.toHaveBeenCalled();
+    expect(createOutboundSessionCalls).toHaveLength(0);
   });
 
   test("non-telegram channel returns null", async () => {
@@ -200,7 +203,7 @@ describe("handleGuardianActivationIntercept", () => {
       makeParams({ sourceChannel: "slack" as any }),
     );
     expect(result).toBeNull();
-    expect(mockCreateOutboundSession).not.toHaveBeenCalled();
+    expect(createOutboundSessionCalls).toHaveLength(0);
   });
 
   test("missing sender ID returns null", async () => {
@@ -208,7 +211,7 @@ describe("handleGuardianActivationIntercept", () => {
       makeParams({ rawSenderId: undefined }),
     );
     expect(result).toBeNull();
-    expect(mockCreateOutboundSession).not.toHaveBeenCalled();
+    expect(createOutboundSessionCalls).toHaveLength(0);
   });
 
   test("existing active session sends 'already in progress' reply", async () => {
@@ -225,18 +228,17 @@ describe("handleGuardianActivationIntercept", () => {
     expect(body).toEqual({ accepted: true, guardianActivationPending: true });
 
     // createOutboundSession should NOT be called
-    expect(mockCreateOutboundSession).not.toHaveBeenCalled();
+    expect(createOutboundSessionCalls).toHaveLength(0);
 
     // deliverChannelReply should be called with the "already in progress" message
-    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
-    const replyArgs = mockDeliverChannelReply.mock.calls[0];
-    expect(replyArgs[1]).toEqual({
+    expect(deliverChannelReplyCalls).toHaveLength(1);
+    expect(deliverChannelReplyCalls[0][1]).toEqual({
       chatId: "chat-123",
       text: "A verification is already in progress. Check your assistant app for the code and enter it here.",
       assistantId: "self",
     });
 
     // emitNotificationSignal should NOT be called
-    expect(mockEmitNotificationSignal).not.toHaveBeenCalled();
+    expect(emitNotificationSignalCalls).toHaveLength(0);
   });
 });
