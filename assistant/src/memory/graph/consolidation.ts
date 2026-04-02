@@ -19,7 +19,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db-connection.js";
+import { getDb } from "../db.js";
 import { parseEpochMs } from "./extraction.js";
 import {
   createTrigger,
