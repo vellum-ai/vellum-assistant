@@ -41,6 +41,7 @@ public final class VMenuCoordinator {
     @ObservationIgnored private var windowObserver: Any?
     @ObservationIgnored private var appDeactivationObserver: Any?
     @ObservationIgnored private var mouseMoveMonitor: Any?
+    @ObservationIgnored private var keyboardMonitor: Any?
     @ObservationIgnored private var lastKeyboardEventTime: TimeInterval = 0
     @ObservationIgnored private var graceTimer: DispatchWorkItem?
     @ObservationIgnored private var rootDismissHandler: (() -> Void)?
@@ -145,6 +146,7 @@ public final class VMenuCoordinator {
         itemNSViews = [:]
         installClickMonitor()
         installMouseMoveMonitor()
+        installKeyboardMonitor()
 
         if let sourceWindow {
             windowObserver = NotificationCenter.default.addObserver(
@@ -227,6 +229,7 @@ public final class VMenuCoordinator {
         removeWindowObserver()
         removeAppDeactivationObserver()
         removeMouseMoveMonitor()
+        removeKeyboardMonitor()
         handler?()
     }
 
@@ -284,6 +287,7 @@ public final class VMenuCoordinator {
             removeWindowObserver()
             removeAppDeactivationObserver()
             removeMouseMoveMonitor()
+            removeKeyboardMonitor()
             let handler = rootDismissHandler
             rootDismissHandler = nil
             handler?()
@@ -326,7 +330,14 @@ public final class VMenuCoordinator {
 
     // MARK: - Keyboard Navigation (M3)
 
-    /// Handle a key event from a panel. Returns `true` if handled.
+    /// Handle a key event. Returns `true` if consumed.
+    ///
+    /// Called from two sources:
+    /// 1. The local key event monitor (primary path — bypasses the responder chain)
+    /// 2. VMenuPanel.keyDown (fallback for any events the monitor misses)
+    ///
+    /// The local monitor approach matches how native `NSMenu` intercepts key events.
+    /// Reference: [NSEvent.addLocalMonitorForEvents](https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents(matching:handler:))
     func handleKeyDown(_ event: NSEvent) -> Bool {
         let level = panels.count - 1
         guard level >= 0 else { return false }
@@ -443,6 +454,35 @@ public final class VMenuCoordinator {
         }
     }
 
+    // MARK: - Keyboard Monitor
+
+    /// Install a local key event monitor that intercepts key-down events before the
+    /// responder chain. This is the same approach native `NSMenu` uses to handle
+    /// arrow keys, Enter, and Space — it works regardless of which window is key
+    /// and bypasses `NSHostingView`'s internal key handling.
+    ///
+    /// Returning `nil` from the monitor consumes the event; returning the event lets
+    /// it pass through to the normal responder chain.
+    ///
+    /// Reference: [NSEvent.addLocalMonitorForEvents](https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents(matching:handler:))
+    private func installKeyboardMonitor() {
+        removeKeyboardMonitor()
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if self.handleKeyDown(event) {
+                return nil // Consume the event
+            }
+            return event // Pass through unhandled keys
+        }
+    }
+
+    private func removeKeyboardMonitor() {
+        if let monitor = keyboardMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyboardMonitor = nil
+        }
+    }
+
     // MARK: - Click Monitor
 
     private func installClickMonitor() {
@@ -504,6 +544,9 @@ public final class VMenuCoordinator {
             NotificationCenter.default.removeObserver(observer)
         }
         if let monitor = mouseMoveMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = keyboardMonitor {
             NSEvent.removeMonitor(monitor)
         }
     }
