@@ -501,9 +501,9 @@ This ensures that file writes, bash commands, host operations, and other mutatin
 
 ---
 
-## Workspace Context Injection — Runtime-Only Directory Awareness
+## Workspace Context Injection — Directory Awareness
 
-The session injects a workspace top-level directory listing into every user message at runtime, giving the model awareness of the sandbox filesystem structure without persisting it in conversation history.
+The session injects a `<workspace>` directory listing into the first user message and after compaction, giving the model awareness of the sandbox filesystem structure. The block persists in conversation history (old-format `<workspace_top_level>` blocks from pre-change history are stripped for backward compatibility).
 
 ### Lifecycle
 
@@ -516,7 +516,6 @@ graph TB
         CACHE["Cache rendered text<br/>workspaceTopLevelDirty = false"]
         INJECT["applyRuntimeInjections<br/>prepend workspace block<br/>to user message"]
         AGENT["AgentLoop.run(runMessages)"]
-        STRIP["stripWorkspaceTopLevelContext<br/>remove block from persisted history"]
     end
 
     subgraph "Dirty Triggers (tool_result handler)"
@@ -532,7 +531,6 @@ graph TB
     RENDER --> CACHE
     CACHE --> INJECT
     INJECT --> AGENT
-    AGENT --> STRIP
 
     FILE_EDIT --> DIRTY
     FILE_WRITE --> DIRTY
@@ -544,7 +542,7 @@ graph TB
 - **Scope**: Sandbox workspace only (`~/.vellum/workspace`). Non-recursive — only top-level directories.
 - **Bounded**: Maximum 120 directory entries (`MAX_TOP_LEVEL_ENTRIES`). Excess is truncated with a note.
 - **Prepend, not append**: The workspace block is prepended to the user message content so that Anthropic cache breakpoints continue to land on the trailing user text block, preserving prompt cache efficiency.
-- **Runtime-only**: The injected `<workspace_top_level>` block is stripped from `this.messages` after the agent loop completes. It never persists in conversation history or the database.
+- **Persists in history**: The injected `<workspace>` block persists in conversation history, giving the model workspace grounding across turns. Legacy `<workspace_top_level>` blocks from pre-change history are stripped for backward compatibility.
 - **Dirty-refresh**: The scanner runs once on the first turn, then only re-runs after a successful mutation tool (`file_edit`, `file_write`, `bash`). Failed tool results do not trigger a refresh.
 - **Injection ordering**: Workspace context is injected after other runtime injections (active surface, etc.) via `applyRuntimeInjections`, but because it is **prepended** to content blocks, it appears first in the final message.
 
@@ -557,16 +555,16 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 | File                                                    | Role                                                                                                                                       |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `assistant/src/workspace/top-level-scanner.ts`          | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap                                                                             |
-| `assistant/src/workspace/top-level-renderer.ts`         | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block                                                                            |
-| `assistant/src/daemon/conversation-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<turn_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/workspace/top-level-renderer.ts`         | Renders `TopLevelSnapshot` to `<workspace>` XML block                                                                                      |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | Runtime injections and legacy-block strip helpers (`<workspace>`, `<turn_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`)  |
 | `assistant/src/onboarding/onboarding-orchestrator.ts`   | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata                                              |
-| `assistant/src/daemon/conversation-agent-loop.ts`       | Agent loop orchestration, runtime injection wiring, strip chain                                                                            |
+| `assistant/src/daemon/conversation-agent-loop.ts`       | Agent loop orchestration, runtime injection wiring, legacy-block strip chain                                                               |
 
 ---
 
 ## Turn Context Injection — Date & Actor Grounding
 
-The session injects a unified `<turn_context>` block into every user message at runtime, giving the model awareness of the current timestamp (with timezone), interface, channel, and actor identity. This replaces the former separate `<temporal_context>`, `<inbound_actor_context>`, and per-channel turn context blocks.
+The session injects a unified `<turn_context>` block into every user message, giving the model awareness of the current timestamp (with timezone), interface, channel, and actor identity. This replaces the former separate `<temporal_context>`, `<inbound_actor_context>`, and per-channel turn context blocks. The unified block persists in conversation history so the assistant retains temporal and actor grounding across turns. Legacy blocks from pre-change history are stripped for backward compatibility.
 
 The `timestamp:` field format is: `2026-04-02 (Wed) 14:30:00 -05:00 (America/Chicago)` — date, abbreviated weekday, local time, UTC offset, and IANA timezone name.
 
@@ -575,8 +573,8 @@ The `timestamp:` field format is: `2026-04-02 (Wed) 14:30:00 -05:00 (America/Chi
 ```mermaid
 graph TB
     subgraph "Per-Turn Flow"
-        BUILD["buildUnifiedTurnContext(options)<br/>→ unified XML block"]
-        INJECT["applyRuntimeInjections<br/>prepend turn context block<br/>to user message"]
+        BUILD["buildUnifiedTurnContextBlock()<br/>→ unified XML block with timestamp,<br/>actor context, channel context"]
+        INJECT["applyRuntimeInjections<br/>prepend turn_context block<br/>to user message"]
         AGENT["AgentLoop.run(runMessages)"]
     end
 
@@ -586,19 +584,20 @@ graph TB
 
 ### Key design decisions
 
-- **Fresh each turn**: Turn context is built at the start of every agent loop invocation, ensuring the model always sees the current timestamp even in long-running conversations.
+- **Fresh each turn**: `buildUnifiedTurnContextBlock()` is called at the start of every agent loop invocation, ensuring the model always sees the current timestamp even in long-running conversations.
 - **Clock source invariant**: Absolute time (`now`) always comes from the assistant host clock (`Date.now()`), never from channel/client clocks.
-- **Timezone precedence**: If `ui.userTimezone` is configured, temporal context uses it for local-date interpretation. Otherwise it falls back to memory-stored timezone, then assistant host timezone.
+- **Timezone precedence**: If `ui.userTimezone` is configured, turn context uses it for local-date interpretation. Otherwise it falls back to memory-stored timezone, then assistant host timezone.
 - **Timezone-aware**: Uses `Intl.DateTimeFormat` APIs for DST-safe date arithmetic and timezone validation/canonicalization.
-- **Persisted in history**: Unlike the former `<temporal_context>` block, unified `<turn_context>` blocks persist in conversation history so the assistant retains temporal and actor grounding across turns. Legacy `<temporal_context>` blocks from pre-unification history are still stripped for backward compatibility.
+- **Persists in history**: The `<turn_context>` block persists in conversation history. Legacy `<temporal_context>`, `<inbound_actor_context>`, and separate channel context blocks from pre-change history are stripped for backward compatibility.
 - **Retry paths**: Turn context is included in all `applyRuntimeInjections` call sites (main path, compact retry, media-trim retry).
 
 ### Key files
 
-| File                                                    | Role                                                                                          |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `assistant/src/daemon/conversation-runtime-assembly.ts` | `buildUnifiedTurnContext()` — generates the `<turn_context>` XML block; strip helpers          |
-| `assistant/src/daemon/conversation-agent-loop.ts`       | Wiring: computes turn context options, passes to `applyRuntimeInjections`                      |
+| File                                                    | Role                                                                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/daemon/date-context.ts`                  | `formatTurnTimestamp()` — generates the timestamp string used in `<turn_context>`                             |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | `buildUnifiedTurnContextBlock()` — constructs the unified `<turn_context>` block; legacy block strip helpers  |
+| `assistant/src/daemon/conversation-agent-loop.ts`       | Wiring: builds turn context, passes to `applyRuntimeInjections`                                               |
 
 ---
 
