@@ -274,9 +274,13 @@ public struct VMenuItem<Trailing: View>: View {
                 label: label,
                 isActive: isActive,
                 isExpanded: true,
-                #if os(macOS)
-                isKeyboardFocused: isKeyboardFocused,
-                #endif
+                isKeyboardFocused: {
+                    #if os(macOS)
+                    return isKeyboardFocused
+                    #else
+                    return false
+                    #endif
+                }(),
                 action: { dismissMenu?(); action() }
             ) {
                 trailing

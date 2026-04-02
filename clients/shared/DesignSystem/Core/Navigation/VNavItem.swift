@@ -1,9 +1,5 @@
 import SwiftUI
 
-#if os(macOS)
-import AppKit
-#endif
-
 /// Sidebar navigation row used by both the main app sidebar and the component gallery.
 ///
 /// Handles expanded (icon + label) and collapsed (icon-only) modes with consistent
@@ -26,11 +22,10 @@ public struct VNavItem<Trailing: View>: View {
     public var subtitle: String?
     public var isActive: Bool
     public var isExpanded: Bool
-    #if os(macOS)
     /// When `true`, applies the keyboard-focus highlight background (same as hover).
     /// Managed by `VMenuCoordinator` via the Observation framework.
+    /// On iOS this property is always `false` (no-op).
     public var isKeyboardFocused: Bool
-    #endif
     public let action: () -> Void
     public let trailing: Trailing
 
@@ -45,9 +40,7 @@ public struct VNavItem<Trailing: View>: View {
         subtitle: String? = nil,
         isActive: Bool = false,
         isExpanded: Bool = true,
-        #if os(macOS)
         isKeyboardFocused: Bool = false,
-        #endif
         action: @escaping () -> Void,
         @ViewBuilder trailing: () -> Trailing
     ) {
@@ -56,9 +49,7 @@ public struct VNavItem<Trailing: View>: View {
         self.subtitle = subtitle
         self.isActive = isActive
         self.isExpanded = isExpanded
-        #if os(macOS)
         self.isKeyboardFocused = isKeyboardFocused
-        #endif
         self.action = action
         self.trailing = trailing()
     }
@@ -123,9 +114,7 @@ public struct VNavItem<Trailing: View>: View {
 
     private var navItemBackground: Color {
         if isActive { return VColor.surfaceActive }
-        #if os(macOS)
         if isKeyboardFocused { return VColor.surfaceBase }
-        #endif
         if isHovered { return VColor.surfaceBase }
         return .clear
     }
@@ -141,9 +130,7 @@ public extension VNavItem where Trailing == EmptyView {
         subtitle: String? = nil,
         isActive: Bool = false,
         isExpanded: Bool = true,
-        #if os(macOS)
         isKeyboardFocused: Bool = false,
-        #endif
         action: @escaping () -> Void
     ) {
         self.init(
@@ -152,9 +139,7 @@ public extension VNavItem where Trailing == EmptyView {
             subtitle: subtitle,
             isActive: isActive,
             isExpanded: isExpanded,
-            #if os(macOS)
             isKeyboardFocused: isKeyboardFocused,
-            #endif
             action: action
         ) {
             EmptyView()
