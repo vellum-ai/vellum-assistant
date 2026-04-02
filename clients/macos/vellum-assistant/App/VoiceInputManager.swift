@@ -113,7 +113,8 @@ final class VoiceInputManager {
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private lazy var audioEngine = AVAudioEngine()
+    private let engineController = AudioEngineController(label: "com.vellum.audioEngine.voiceInput")
+    private var enginePrewarmed = false
 
     init(dictationClient: any DictationClientProtocol = DictationClient()) {
         self.dictationClient = dictationClient
@@ -121,6 +122,7 @@ final class VoiceInputManager {
 
     func start() {
         hasStarted = true
+        prewarmEngine()
         setupActivationMonitors()
 
         // Cancel any in-flight hold when the user switches apps, to prevent the
@@ -228,9 +230,9 @@ final class VoiceInputManager {
     /// Skips blocking `audioEngine.stop()` when `isTerminating` or no tap was installed.
     private func tearDownAudioState() {
         if hasInstalledTap && !isTerminating {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
+            engineController.tearDown()
         }
+        hasInstalledTap = false
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()
@@ -259,24 +261,35 @@ final class VoiceInputManager {
         onAmplitudeChanged?(0)
 
         if hasInstalledTap {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
+            engineController.stopAndRemoveTap()
         }
+        hasInstalledTap = false
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
         recognitionRequest?.endAudio()
     }
 
+    /// Pre-initialize the audio engine so the first recording starts instantly.
+    /// Skips pre-warming when microphone permission hasn't been granted yet —
+    /// accessing the input node triggers the system permission dialog, which we want to
+    /// avoid on dev rebuilds (where TCC resets to `.notDetermined` after re-signing).
+    private func prewarmEngine() {
+        guard !enginePrewarmed else { return }
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            log.info("Skipping audio engine pre-warm — microphone not yet authorized")
+            return
+        }
+        engineController.prewarm()
+        enginePrewarmed = true
+    }
+
     /// Reset the audio engine to a clean state after an error.
     /// Clears any stale internal buffers or format caches that accumulate
     /// after failed start/stop cycles.
     private func resetAudioEngine() {
-        if hasInstalledTap {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
-        audioEngine.reset()
+        engineController.reset()
+        hasInstalledTap = false
     }
 
     // MARK: - Activation Monitor Setup
@@ -643,14 +656,11 @@ final class VoiceInputManager {
         // cleaned up (e.g. audio engine stopped unexpectedly). installTap crashes
         // with NSInternalInconsistencyException if a tap already exists on the bus.
         // See: https://stackoverflow.com/questions/41805381
-        let inputNode = audioEngine.inputNode
-        inputNode.removeTap(onBus: 0)
+        engineController.removeTap()
         hasInstalledTap = true
 
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
-            log.error("Invalid audio format — channels: \(recordingFormat.channelCount), sampleRate: \(recordingFormat.sampleRate)")
+        guard let recordingFormat = engineController.inputNodeFormat() else {
+            log.error("Invalid audio format — no valid input channels or sample rate")
             isRecording = false
             onRecordingStateChanged?(false)
             currentDictationContext = nil
@@ -662,7 +672,7 @@ final class VoiceInputManager {
 
         let ampState = amplitudeState
         ampState.reset()
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+        engineController.installTap(bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             request.append(buffer)
 
             // Compute amplitude from the audio buffer for visual feedback.
@@ -727,18 +737,16 @@ final class VoiceInputManager {
             }
         }
 
-        do {
-            audioEngine.prepare()
-            try audioEngine.start()
+        if engineController.prepareAndStart() {
             VoiceFeedback.playActivationChime()
-        } catch {
-            log.error("Audio engine failed to start: \(error.localizedDescription)")
+        } else {
+            log.error("Audio engine failed to start")
             isRecording = false
             onRecordingStateChanged?(false)
             currentDictationContext = nil
             overlayWindow.dismiss()
             tearDownAudioState()
-            audioEngine.reset()
+            engineController.reset()
         }
     }
 
@@ -768,6 +776,7 @@ final class VoiceInputManager {
         }
 
         log.info("Permissions granted — starting recording")
+        prewarmEngine()
         if self.currentMode == .dictation {
             self.currentDictationContext = DictationContextCapture.capture()
         }
@@ -843,9 +852,9 @@ final class VoiceInputManager {
         onRecordingStateChanged?(false)
 
         if hasInstalledTap {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
+            engineController.stopAndRemoveTap()
         }
+        hasInstalledTap = false
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
