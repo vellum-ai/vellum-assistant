@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -78,7 +77,6 @@ struct MemoriesPanel: View {
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var escapeMonitor: Any?
 
     init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
@@ -136,7 +134,36 @@ struct MemoriesPanel: View {
             HStack(alignment: .top, spacing: VSpacing.xxl) {
                 kindSidebar
                     .frame(width: 220)
-                contentView
+
+                HStack(spacing: 0) {
+                    // Memory list — takes remaining width
+                    listContent
+                        .frame(maxWidth: .infinity)
+
+                    // Side detail panel — slides in from right
+                    if let item = selectedItem {
+                        Divider()
+                        ScrollView {
+                            MemoryItemDetailSheet(
+                                item: item,
+                                store: store,
+                                onDismiss: { withAnimation(VAnimation.panel) { selectedItem = nil } },
+                                onNavigate: { newItem in
+                                    withAnimation(VAnimation.fast) { selectedItem = newItem }
+                                }
+                            )
+                            .id(item.id)
+                        }
+                        .frame(width: 400)
+                        .scrollContentBackground(.hidden)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .onKeyPress(.escape) {
+                            withAnimation(VAnimation.panel) { selectedItem = nil }
+                            return .handled
+                        }
+                    }
+                }
+                .animation(VAnimation.panel, value: selectedItem?.id)
             }
             .padding(.top, VSpacing.lg)
         }
@@ -144,37 +171,13 @@ struct MemoriesPanel: View {
         .task(id: focusedMemoryId) {
             guard let memoryId = focusedMemoryId else { return }
             if let item = await store.fetchDetail(id: memoryId) {
-                withAnimation(VAnimation.fast) { selectedItem = item }
+                withAnimation(VAnimation.panel) { selectedItem = item }
             }
             focusedMemoryId = nil
         }
         .onDisappear {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
-        }
-        .overlay {
-            if let item = selectedItem {
-                ZStack {
-                    VColor.auxBlack.opacity(0.4)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(VAnimation.fast) { selectedItem = nil }
-                        }
-                    MemoryItemDetailSheet(
-                        item: item,
-                        store: store,
-                        onDismiss: { withAnimation(VAnimation.fast) { selectedItem = nil } },
-                        onNavigate: { newItem in
-                            withAnimation(VAnimation.fast) { selectedItem = newItem }
-                        }
-                    )
-                    .id(selectedItem?.id)
-                }
-                .transition(.opacity)
-                .onAppear { installEscapeMonitor() }
-                .onDisappear { removeEscapeMonitor() }
-            }
         }
         .sheet(isPresented: $showCreateSheet) {
             MemoryItemCreateSheet(
@@ -281,27 +284,10 @@ struct MemoriesPanel: View {
         .clipShape(Capsule())
     }
 
-    // MARK: - Escape Key
-
-    private func installEscapeMonitor() {
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.keyCode == 53 else { return event } // 53 = Escape
-            withAnimation(VAnimation.fast) { selectedItem = nil }
-            return nil
-        }
-    }
-
-    private func removeEscapeMonitor() {
-        if let monitor = escapeMonitor {
-            NSEvent.removeMonitor(monitor)
-            escapeMonitor = nil
-        }
-    }
-
-    // MARK: - Content View
+    // MARK: - List Content
 
     @ViewBuilder
-    private var contentView: some View {
+    private var listContent: some View {
         if store.isLoading && store.items.isEmpty {
             VStack {
                 Spacer()
@@ -323,7 +309,7 @@ struct MemoriesPanel: View {
                     ForEach(store.items) { item in
                         MemoryItemRow(
                             item: item,
-                            onSelect: { withAnimation(VAnimation.fast) { selectedItem = item } },
+                            onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
                             onDelete: {
                                 Task { _ = await store.deleteItem(id: item.id) }
                             }

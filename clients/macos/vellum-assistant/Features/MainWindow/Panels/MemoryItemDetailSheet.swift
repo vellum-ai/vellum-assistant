@@ -77,13 +77,6 @@ struct MemoryItemDetailSheet: View {
                             save()
                         }
                     } else {
-                        VButton(
-                            label: "Delete",
-                            leftIcon: VIcon.trash.rawValue,
-                            style: .dangerOutline
-                        ) {
-                            showDeleteConfirm = true
-                        }
                         Spacer()
                         VButton(label: "Close", style: .outlined) {
                             onDismiss()
@@ -105,7 +98,20 @@ struct MemoryItemDetailSheet: View {
                 }
             }
         }
-        .frame(width: 480, height: 520)
+        .overlay(alignment: .topTrailing) {
+            if !isEditing {
+                Menu {
+                    Button("Delete", role: .destructive) { showDeleteConfirm = true }
+                } label: {
+                    VIconView(.ellipsis, size: 14)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .padding(VSpacing.sm)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, VSpacing.md)
+                .padding(.trailing, VSpacing.md)
+            }
+        }
         .alert("Delete this memory?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
