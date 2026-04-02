@@ -954,6 +954,9 @@ export async function retrieveForTurn(
     hybridSearchLatencyMs = Date.now() - searchStart;
   }
 
+  // Snapshot pure vector-search results before triggers inflate the set
+  const pureSemanticHits = allCandidateIds.size;
+
   // 3. Evaluate semantic triggers
   const semanticTriggers = getActiveTriggersByType("semantic", opts.scopeId);
   const triggeredSemantic =
@@ -987,7 +990,7 @@ export async function retrieveForTurn(
       latencyMs: Date.now() - start,
       metrics: {
         ...ZERO_METRICS,
-        semanticHits: allCandidateIds.size,
+        semanticHits: pureSemanticHits,
         hybridSearchLatencyMs,
         embeddingProvider,
         embeddingModel,
@@ -1115,7 +1118,7 @@ export async function retrieveForTurn(
     triggeredNodes: triggeredSemantic,
     latencyMs: Date.now() - start,
     metrics: {
-      semanticHits: allCandidateIds.size,
+      semanticHits: pureSemanticHits,
       mergedCount: scored.length,
       selectedCount: allInjected.length,
       tier1Count: 0,
