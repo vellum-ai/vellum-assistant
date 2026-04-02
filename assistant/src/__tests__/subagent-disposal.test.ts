@@ -26,6 +26,7 @@ interface FakeManagedSubagent {
   state: SubagentState;
   parentSendToClient: (msg: ServerMessage) => void;
   retainedUntil?: number;
+  hadEnqueuedMessages?: boolean;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -278,6 +279,29 @@ describe("SubagentManager terminal disposal", () => {
       outputTokens: 200,
       estimatedCost: 0.05,
     });
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("defers release when messages were enqueued during run", async () => {
+    const manager = new SubagentManager();
+    const subagentId = "sub-1";
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const managed = asInternals(manager).subagents.get(subagentId)!;
+    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.runAgentLoop = async () => {};
+    // Simulate that a message was enqueued during the run.
+    managed.hadEnqueuedMessages = true;
+
+    await asInternals(manager).runSubagent(subagentId, "Do something");
+
+    // Conversation should NOT be released — drain may still be active.
+    expect(managed.conversation).not.toBeNull();
+    // But retainedUntil should be set for eventual TTL cleanup.
+    expect(managed.retainedUntil).toBeGreaterThan(Date.now());
+    expect(state.status).toBe("completed");
 
     asInternals(manager).stopSweep();
   });

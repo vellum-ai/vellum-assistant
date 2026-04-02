@@ -62,6 +62,16 @@ interface ManagedSubagent {
   parentSendToClient: (msg: ServerMessage) => void;
   /** Epoch ms after which this terminal entry can be removed by the TTL sweep. */
   retainedUntil?: number;
+  /**
+   * Set to true when sendMessage enqueues a follow-up message while the
+   * initial objective loop is running.  runAgentLoop fires drainQueue without
+   * awaiting it, and drainQueue shift()s the item synchronously — so both
+   * hasQueuedMessages() and isProcessing() can return false while the drain
+   * is still active.  This flag lets the finally block in runSubagent defer
+   * the release to the TTL sweep rather than tearing down the conversation
+   * mid-drain.
+   */
+  hadEnqueuedMessages?: boolean;
 }
 
 export interface SubagentNotificationInfo {
@@ -296,14 +306,15 @@ export class SubagentManager {
       log.error({ subagentId, err }, "Subagent failed");
     } finally {
       // Release the heavyweight Conversation — output is already persisted in DB.
-      // runAgentLoop fires drainQueue without awaiting it, so if messages were
-      // enqueued via sendMessage while the objective was running, the drain chain
-      // may still be processing. Defer the release to avoid tearing down
-      // conversation state mid-drain; the TTL sweep will clean it up later.
-      if (managed.conversation?.hasQueuedMessages()) {
+      // runAgentLoop fires drainQueue without awaiting it, and drainQueue shift()s
+      // the next item synchronously — so both hasQueuedMessages() and
+      // isProcessing() can return false while a drain is still active.  Use the
+      // hadEnqueuedMessages flag (set in sendMessage) to detect this case and
+      // defer the release to the TTL sweep rather than tearing down mid-drain.
+      if (managed.hadEnqueuedMessages) {
         log.debug(
           { subagentId },
-          "Deferring conversation release — queued messages still draining",
+          "Deferring conversation release — messages were enqueued during run",
         );
         managed.retainedUntil = Date.now() + TERMINAL_RETENTION_MS;
         this.ensureSweepRunning();
@@ -436,6 +447,9 @@ export class SubagentManager {
     );
     if (result.rejected) {
       return "sent"; // error event already delivered via onEvent
+    }
+    if (result.queued) {
+      managed.hadEnqueuedMessages = true;
     }
     if (!result.queued) {
       // Conversation is idle — send directly.  Fire-and-forget so we don't block.
