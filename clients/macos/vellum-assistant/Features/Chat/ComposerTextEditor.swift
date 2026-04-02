@@ -3,6 +3,13 @@ import AppKit
 import SwiftUI
 import VellumAssistantShared
 
+/// Proxy object that allows callers to programmatically replace text
+/// in the composer's underlying NSTextView. Uses `insertText(_:replacementRange:)`
+/// so replacements participate in the undo stack.
+final class TextReplacementProxy {
+    var replaceText: ((NSRange, String) -> Void)?
+}
+
 /// NSScrollView subclass that reports intrinsic content size based on
 /// its document view's text layout height. This lets SwiftUI size the
 /// view correctly without the scroll view expanding to fill all
@@ -55,6 +62,8 @@ struct ComposerTextEditor: NSViewRepresentable {
     var onDownArrow: (() -> Bool)? = nil
     var onEscape: (() -> Bool)? = nil
     var onPasteImage: (() -> Void)? = nil
+    @Binding var cursorPosition: Int
+    var textReplacer: TextReplacementProxy? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -86,6 +95,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         layoutManager.addTextContainer(textContainer)
 
         let textView = ComposerTextView(frame: .zero, textContainer: textContainer)
+        context.coordinator.textView = textView
         textView.isRichText = false
         textView.importsGraphics = false
         textView.drawsBackground = false
@@ -121,6 +131,12 @@ struct ComposerTextEditor: NSViewRepresentable {
         scrollView.contentHeight = minHeight
         scrollView.documentView = textView
         textView.delegate = context.coordinator
+
+        if let proxy = textReplacer {
+            proxy.replaceText = { [weak textView] range, replacement in
+                textView?.insertText(replacement, replacementRange: range)
+            }
+        }
 
         let coordinator = context.coordinator
 
@@ -207,6 +223,12 @@ struct ComposerTextEditor: NSViewRepresentable {
             coordinator.parent.isFocused = focused
         }
 
+        if let proxy = textReplacer {
+            proxy.replaceText = { [weak textView] range, replacement in
+                textView?.insertText(replacement, replacementRange: range)
+            }
+        }
+
         // Re-strip drag types in case TextKit re-registered them during
         // font or attribute updates above.
         textView.unregisterDraggedTypes()
@@ -245,6 +267,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         var lastAppliedFont: NSFont?
         var lastAppliedLineSpacing: CGFloat?
         var lastAppliedTextColor: NSColor?
+        weak var textView: ComposerTextView?
 
         init(parent: ComposerTextEditor) {
             self.parent = parent
@@ -255,6 +278,10 @@ struct ComposerTextEditor: NSViewRepresentable {
             let newText = textView.string
             if parent.text != newText {
                 parent.text = newText
+            }
+            let pos = textView.selectedRange().location
+            if parent.cursorPosition != pos {
+                parent.cursorPosition = pos
             }
             measureHeight(textView)
         }
@@ -272,6 +299,14 @@ struct ComposerTextEditor: NSViewRepresentable {
         func textDidEndEditing(_ notification: Notification) {
             if parent.isFocused {
                 parent.isFocused = false
+            }
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            let pos = textView.selectedRange().location
+            if parent.cursorPosition != pos {
+                parent.cursorPosition = pos
             }
         }
 
