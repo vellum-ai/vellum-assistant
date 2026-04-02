@@ -193,7 +193,7 @@ Common duplicate mistakes to avoid:
 - Same fact restated in a later conversation → REINFORCE, don't create
 - An update to an existing situation (e.g. "project is now done") → UPDATE the existing node, don't create a parallel one
 
-${otherCandidates.length > 0 ? `### Existing memories (candidates for connection/reinforcement)\n${otherCandidates.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}` : "No existing memories found — this may be an early conversation."}`;
+${otherCandidates.length > 0 ? `### Existing memories (candidates for connection/reinforcement)\n${otherCandidates.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}` : reconsolidationNodes.length > 0 ? "All existing memories are shown in the reconsolidation section above." : "No existing memories found — this may be an early conversation."}`;
 
   return reconsolidationSection + candidateSection;
 })()}
