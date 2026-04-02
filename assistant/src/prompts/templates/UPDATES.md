@@ -28,3 +28,11 @@ If your user finds proactive check-ins unwanted, they can disable it by setting 
 The default checklist focuses on your user relationship, not generic tasks like weather or news. You can customize it by editing HEARTBEAT.md in your workspace.
 <!-- /vellum-update-release:heartbeat-default -->
 
+<!-- vellum-update-release:corrupted-attachment-cleanup -->
+## Corrupted image attachments cleaned up
+
+Some Slack image attachments were stored incorrectly due to a missing OAuth scope — the files contained error pages instead of actual image data. This caused conversations with those images to fail with "The AI provider rejected the request" on every subsequent message.
+
+This has been fixed automatically: the corrupted attachments were removed from affected conversations during this update, and the OAuth scope issue has been resolved so new image uploads work correctly. If your user mentions missing images from earlier conversations, this is why — the images were never successfully received in the first place.
+<!-- /vellum-update-release:corrupted-attachment-cleanup -->
+
