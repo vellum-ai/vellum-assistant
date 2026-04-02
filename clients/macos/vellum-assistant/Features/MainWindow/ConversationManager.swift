@@ -56,7 +56,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     /// the group system. When true, `groupId: null` from the server means "explicitly
     /// ungrouped" and the client should NOT override it with source-based heuristics.
     /// When false (old daemon), the heuristic fallback in `deriveGroupId` is needed.
-    var daemonSupportsGroups: Bool = false
+    @ObservationIgnored var daemonSupportsGroups: Bool = false
     var hasMoreConversations: Bool = false
     var isLoadingMoreConversations: Bool = false
     private struct AssistantActivitySnapshot: Equatable {
@@ -72,8 +72,8 @@ final class ConversationManager: ConversationRestorerDelegate {
     /// Concrete client for group CRUD operations (not on the protocol).
     private let groupClient = ConversationListClient()
     /// Debounce task for coalescing rapid reorder persistence calls (e.g. during drag).
-    private var reorderDebounceTask: Task<Void, Never>?
-    var serverOffset: Int = 0
+    @ObservationIgnored private var reorderDebounceTask: Task<Void, Never>?
+    @ObservationIgnored var serverOffset: Int = 0
     var activeConversationId: UUID? {
         didSet {
             if let activeConversationId {
@@ -128,17 +128,17 @@ final class ConversationManager: ConversationRestorerDelegate {
     }
 
     private(set) var draftViewModel: ChatViewModel?
-    private var chatViewModels: [UUID: ChatViewModel] = [:]
+    @ObservationIgnored private var chatViewModels: [UUID: ChatViewModel] = [:]
     /// Maximum number of ChatViewModels to keep in memory. When this limit is
     /// exceeded, the least-recently-accessed VM (that isn't the active conversation) is
     /// evicted. This prevents unbounded memory growth from accumulated conversations.
     private let maxCachedViewModels = 10
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
-    private var vmAccessOrder: [UUID] = []
-    private var pendingEvictionTask: Task<Void, Never>?
+    @ObservationIgnored private var vmAccessOrder: [UUID] = []
+    @ObservationIgnored private var pendingEvictionTask: Task<Void, Never>?
     /// Conversation local IDs whose ViewModels are pinned by open pop-out windows.
     /// Pinned VMs are exempt from LRU eviction.
-    private var pinnedViewModelIds: Set<UUID> = []
+    @ObservationIgnored private var pinnedViewModelIds: Set<UUID> = []
     /// Background queue for Combine subscription teardown. AnyCancellable.cancel()
     /// is thread-safe per Apple docs, but tearing down deep operator chains
     /// (CombineLatest3/4, scan, removeDuplicates, etc.) synchronously on main
@@ -155,18 +155,18 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationRestorer: ConversationRestorer
     /// Queued renames for conversations that don't yet have a conversationId.
     /// Flushed in backfillConversationId when the daemon assigns a conversation ID.
-    private var pendingRenames: [UUID: String] = [:]
+    @ObservationIgnored private var pendingRenames: [UUID: String] = [:]
     /// Flag to suppress lastActiveConversationIdString writes during initialization and conversation restoration.
-    private var isRestoringConversations = false
+    @ObservationIgnored private var isRestoringConversations = false
     /// Owns per-conversation activity state (busy flags, interaction states,
     /// active message count) on an `@Observable` class so SwiftUI views get
     /// property-level tracking instead of broad `objectWillChange` invalidation.
     let activityStore = ConversationActivityStore()
     /// Subscription to assistant activity per conversation.
     /// Used to mark inactive conversations as unseen when assistant output changes.
-    private var assistantActivityCancellables: [UUID: AnyCancellable] = [:]
+    @ObservationIgnored private var assistantActivityCancellables: [UUID: AnyCancellable] = [:]
     /// Last observed assistant activity snapshot per conversation.
-    private var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = [:]
+    @ObservationIgnored private var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = [:]
     /// Pending anchor message ID for scroll-to behavior on notification deep links.
     var pendingAnchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -175,24 +175,24 @@ final class ConversationManager: ConversationRestorerDelegate {
     var highlightedMessageId: UUID?
     /// Tracks which conversation the pending anchor belongs to so stale anchors are
     /// cleared automatically when the user switches to a different conversation.
-    private var pendingAnchorConversationId: UUID?
+    @ObservationIgnored private var pendingAnchorConversationId: UUID?
     /// Conversation IDs whose seen signals are deferred pending undo expiration.
-    private var pendingSeenConversationIds: [String] = []
+    @ObservationIgnored private var pendingSeenConversationIds: [String] = []
     /// Task that auto-commits deferred seen signals after the undo window.
-    private var pendingSeenSignalTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingSeenSignalTask: Task<Void, Never>?
     /// Daemon conversation IDs that need a notification catch-up (history fetch)
     /// once the associated ChatViewModel finishes its current send/think cycle.
     /// Populated when a notification_intent arrives while the VM is busy.
-    private var pendingNotificationCatchUpIds: Set<String> = []
+    @ObservationIgnored private var pendingNotificationCatchUpIds: Set<String> = []
     /// Stores the groupId a conversation had before being pinned, so it can be
     /// restored on unpin instead of falling back to heuristic-based routing.
-    private var prePinGroupIds: [UUID: String?] = [:]
+    @ObservationIgnored private var prePinGroupIds: [UUID: String?] = [:]
     /// Periodic task that refreshes the active channel conversation's history.
     /// Cancelled when switching away from a channel conversation.
-    private var channelRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var channelRefreshTask: Task<Void, Never>?
     /// Local seen/unread toggles should survive a stale daemon conversation-list
     /// replay until the daemon either acknowledges them or reports a newer reply.
-    private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
+    @ObservationIgnored private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
 
     private enum PendingAttentionOverride {
         case seen(latestAssistantMessageAt: Date?)
@@ -209,7 +209,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     /// Snapshots captured by the most recent `markAllConversationsSeen()` call,
     /// keyed by conversation ID. Consumed by `restoreUnseen(conversationIds:)`.
-    private var markAllSeenPriorStates: [UUID: MarkAllSeenPriorState] = [:]
+    @ObservationIgnored private var markAllSeenPriorStates: [UUID: MarkAllSeenPriorState] = [:]
 
     var sortedGroups: [ConversationGroup] {
         groups.sorted { $0.sortPosition < $1.sortPosition }

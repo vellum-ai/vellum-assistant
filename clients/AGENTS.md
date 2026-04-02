@@ -65,7 +65,7 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 |---|---|
 | New view models and state objects | Deep Combine integration (`@Published` pipelines with `sink`, `combineLatest`, `debounce`, `removeDuplicates`) |
 | Classes with simple stored properties that drive UI | Classes that rely on `objectWillChange` forwarding from nested ObservableObjects |
-| Leaf-node view models observed by a single view | Hub objects that subscribe to many child `objectWillChange` publishers (e.g., ConversationManager) |
+| Leaf-node view models observed by a single view | Hub objects that subscribe to many child `objectWillChange` publishers |
 | Per-entity state objects in dictionary stores | Classes conforming to protocols requiring `ObservableObject` (e.g., `SessionOverlayProviding`) |
 
 <details>
@@ -73,7 +73,7 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 
 The following classes have been migrated from `ObservableObject` to `@Observable`:
 
-**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState
+**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState, ConversationManager
 
 **Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager, ChatViewModel
 
@@ -89,7 +89,6 @@ These classes stay `ObservableObject` because they have deep Combine integration
 | `SettingsStore` | Heavy `UserDefaults.publisher` + Combine pipelines |
 | `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
 | `VoiceModeManager` | Complex Combine pipelines (audio streams, state machine transitions) |
-| `ConversationManager` | Hub object subscribing to many child `objectWillChange` publishers; complex lifecycle |
 | `GatewayConnectionManager` | Combine-based SSE event stream processing |
 | `RecordingManager` | Audio capture Combine pipelines |
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
