@@ -1,4 +1,9 @@
-export const MAX_OUTPUT_LENGTH = 50_000;
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+
+export const MAX_OUTPUT_LENGTH = 20_000;
 
 export interface ShellOutputResult {
   content: string;
@@ -33,7 +38,15 @@ export function formatShellOutput(
   }
 
   if (output.length > MAX_OUTPUT_LENGTH) {
-    const msg = '<output_truncated limit="50K" />';
+    let fullOutputPath: string | undefined;
+    try {
+      fullOutputPath = join(tmpdir(), `vellum-shell-output-${randomUUID()}.txt`);
+      writeFileSync(fullOutputPath, output, "utf-8");
+    } catch {
+      fullOutputPath = undefined;
+    }
+    const fileAttr = fullOutputPath ? ` file="${fullOutputPath}"` : "";
+    const msg = `<output_truncated limit="20K"${fileAttr} />`;
     output = output.slice(0, MAX_OUTPUT_LENGTH) + `\n${msg}`;
     statusParts.push(msg);
   }
