@@ -911,9 +911,27 @@ struct SettingsDeveloperTab: View {
         isLoadingAssistantFlags = true
         assistantFlagsError = nil
         do {
-            assistantFlags = try await featureFlagClient.getFeatureFlags()
-            // Cache the fetched flag state for persistence across restarts
-            let cacheValues = Dictionary(uniqueKeysWithValues: assistantFlags.map { ($0.key, $0.enabled) })
+            var flags = try await featureFlagClient.getFeatureFlags()
+            // Merge persisted local overrides so user toggles survive app restarts
+            // even when the platform doesn't support the PATCH write endpoint.
+            let persistedOverrides = AssistantFeatureFlagResolver.readPersistedFlags()
+            if !persistedOverrides.isEmpty {
+                flags = flags.map { flag in
+                    if let override = persistedOverrides[flag.key] {
+                        return AssistantFeatureFlag(
+                            key: flag.key,
+                            enabled: override,
+                            defaultEnabled: flag.defaultEnabled,
+                            description: flag.description,
+                            label: flag.label
+                        )
+                    }
+                    return flag
+                }
+            }
+            assistantFlags = flags
+            // Cache the MERGED state (including local overrides) for persistence across restarts
+            let cacheValues = Dictionary(uniqueKeysWithValues: flags.map { ($0.key, $0.enabled) })
             AssistantFeatureFlagResolver.writeCachedFlags(cacheValues)
         } catch {
             // Fall back to the bundled registry + local persisted overrides
