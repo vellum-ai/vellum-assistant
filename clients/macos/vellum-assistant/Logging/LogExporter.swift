@@ -720,7 +720,7 @@ enum LogExporter {
     /// silently if the API is unavailable or the subsystem has no entries.
     private nonisolated static func collectUnifiedLog(to destination: URL) {
         do {
-            let lines = try UnifiedLogReader.readFormattedRecentLines()
+            let lines = try UnifiedLogReader.readFormattedRecentLines(maximumEntryCount: Int.max)
             guard !lines.isEmpty else { return }
             let content = lines.joined(separator: "\n")
             try content.write(to: destination, atomically: true, encoding: .utf8)

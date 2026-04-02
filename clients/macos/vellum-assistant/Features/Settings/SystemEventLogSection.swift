@@ -31,7 +31,7 @@ struct SystemEventLogSection: View {
             HStack(spacing: VSpacing.sm) {
                 VButton(
                     label: "Refresh",
-                    icon: "arrow.clockwise",
+                    icon: VIcon.refreshCw.rawValue,
                     style: .outlined,
                     size: .compact,
                     isDisabled: isLoading
