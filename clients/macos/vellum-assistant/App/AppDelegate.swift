@@ -820,6 +820,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onboardingState = nil
             return
         }
+        // Eagerly apply onboarding avatar traits so the ComingAliveOverlay
+        // (and any other UI) can render the character avatar immediately
+        // instead of falling back to the bundled green V logo while the
+        // async daemon sync completes.
+        if AvatarAppearanceManager.shared.customAvatarImage == nil,
+           AvatarAppearanceManager.shared.characterBodyShape == nil {
+            let image = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
+            AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: body, eyeStyle: eyes, color: color)
+        }
         Task {
             await AvatarAppearanceManager.shared.syncTraitsToDaemon(
                 bodyShape: body, eyeStyle: eyes, color: color
