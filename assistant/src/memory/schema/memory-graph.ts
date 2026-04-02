@@ -137,3 +137,18 @@ export const memoryGraphTriggers = sqliteTable(
     index("idx_graph_triggers_type").on(table.type),
   ],
 );
+
+export const memoryGraphNodeEdits = sqliteTable(
+  "memory_graph_node_edits",
+  {
+    id: text("id").primaryKey(),
+    nodeId: text("node_id")
+      .notNull()
+      .references(() => memoryGraphNodes.id, { onDelete: "cascade" }),
+    previousContent: text("previous_content").notNull(),
+    newContent: text("new_content").notNull(),
+    source: text("source").notNull(),
+    conversationId: text("conversation_id"),
+    created: integer("created").notNull(),
+  },
+);
