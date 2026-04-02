@@ -11,11 +11,14 @@ extension MessageListView {
     // MARK: - onAppear
 
     func handleAppear() {
-        configureScrollCallbacks()
         // .id(conversationId) on the ScrollView destroys and recreates it on
         // conversation switch, firing onAppear for the new view. Detect the
         // switch by comparing against the last-known conversation ID.
-        if scrollState.currentConversationId != conversationId {
+        // Must check BEFORE configureScrollCallbacks() which updates
+        // currentConversationId.
+        let isConversationSwitch = scrollState.currentConversationId != conversationId
+        configureScrollCallbacks()
+        if isConversationSwitch {
             handleConversationSwitched()
         }
         // Seed the confirmation marker so a conversation already paused in
