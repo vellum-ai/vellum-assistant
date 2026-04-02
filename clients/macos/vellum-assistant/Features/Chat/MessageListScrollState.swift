@@ -426,10 +426,9 @@ final class MessageListScrollState {
         guard let targetId = pendingPushToTopTarget,
               mode.pushToTopMessageId != nil else { return }
         pendingPushToTopTarget = nil
-        // Non-animated: avoids a feedback loop where each animation frame
-        // updates @State scrollPosition, triggering a body re-evaluation
-        // and expensive LazyVStack measureEstimates pass.
-        performScrollTo(targetId, anchor: .top)
+        withAnimation(VAnimation.fast) {
+            performScrollTo(targetId, anchor: .top)
+        }
     }
 
     /// Exits push-to-top and transitions to followingBottom with a
@@ -511,14 +510,13 @@ final class MessageListScrollState {
 
     /// Low-level scroll-to-bottom execution. Does not check mode.
     private func executeScrollToBottom(animated: Bool) {
-        // Non-animated scrolling for programmatic bottom-pins avoids a
-        // feedback loop where animated position updates continuously
-        // trigger body re-evaluations + LazyVStack layout passes.
-        // User-initiated "scroll to latest" taps pass through
-        // requestPinToBottom(animated: true, userInitiated: true)
-        // which still calls this method — the animation is intentionally
-        // removed for all programmatic paths to prevent layout cascades.
-        performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+        if animated {
+            withAnimation(VAnimation.fast) {
+                performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+            }
+        } else {
+            performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+        }
     }
 
     /// Performs a programmatic scroll to the given item ID and anchor point.
