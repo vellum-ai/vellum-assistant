@@ -46,6 +46,13 @@ import Foundation
 // │                                 │ not a wire type                         │
 // │ SkillOperationResult            │ Client-only result wrapper for skill    │
 // │                                 │ operations; not a wire type             │
+// │ SkillOriginMeta (enum)         │ Discriminated union over `origin`;     │
+// │                                 │ custom Decodable init dispatches on    │
+// │                                 │ origin string                          │
+// │ ClawhubOriginMeta              │ Payload struct for clawhub origin;     │
+// │                                 │ decoded from flat fields               │
+// │ SkillsshOriginMeta             │ Payload struct for skillssh origin;    │
+// │                                 │ decoded from flat fields               │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -1015,6 +1022,91 @@ public struct SkillOperationResult: Sendable {
     public init(success: Bool, error: String? = nil) {
         self.success = success
         self.error = error
+    }
+}
+
+// MARK: - Skill Origin Meta
+
+/// Origin-specific metadata for a skill sourced from ClaWHub.
+public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
+    public let slug: String
+    public let author: String
+    public let stars: Int
+    public let installs: Int
+    public let reports: Int
+    public let publishedAt: String?
+}
+
+/// Origin-specific metadata for a skill sourced from Skills.sh.
+public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
+    public let slug: String
+    public let sourceRepo: String
+    public let installs: Int
+}
+
+/// Discriminated union over the `origin` field of a skill.
+/// Dispatches on the origin string to decode origin-specific metadata.
+public enum SkillOriginMeta: Decodable, Sendable, Equatable {
+    case vellum
+    case clawhub(ClawhubOriginMeta)
+    case skillssh(SkillsshOriginMeta)
+    case custom
+
+    private enum CodingKeys: String, CodingKey {
+        case origin, slug, author, stars, installs, reports, publishedAt, sourceRepo
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let origin = try container.decode(String.self, forKey: .origin)
+        switch origin {
+        case "clawhub":
+            self = .clawhub(ClawhubOriginMeta(
+                slug: try container.decode(String.self, forKey: .slug),
+                author: try container.decode(String.self, forKey: .author),
+                stars: try container.decode(Int.self, forKey: .stars),
+                installs: try container.decode(Int.self, forKey: .installs),
+                reports: try container.decode(Int.self, forKey: .reports),
+                publishedAt: try container.decodeIfPresent(String.self, forKey: .publishedAt)
+            ))
+        case "skillssh":
+            self = .skillssh(SkillsshOriginMeta(
+                slug: try container.decode(String.self, forKey: .slug),
+                sourceRepo: try container.decode(String.self, forKey: .sourceRepo),
+                installs: try container.decode(Int.self, forKey: .installs)
+            ))
+        case "vellum":
+            self = .vellum
+        default:
+            self = .custom
+        }
+    }
+}
+
+extension SkillsListResponseSkill {
+    /// Decoded origin-specific metadata. Lazily parses from the flat fields.
+    public var originMeta: SkillOriginMeta {
+        switch origin {
+        case "clawhub":
+            return .clawhub(ClawhubOriginMeta(
+                slug: slug ?? id,
+                author: author ?? "",
+                stars: stars ?? 0,
+                installs: installs ?? 0,
+                reports: reports ?? 0,
+                publishedAt: publishedAt
+            ))
+        case "skillssh":
+            return .skillssh(SkillsshOriginMeta(
+                slug: slug ?? id,
+                sourceRepo: sourceRepo ?? "",
+                installs: installs ?? 0
+            ))
+        case "vellum":
+            return .vellum
+        default:
+            return .custom
+        }
     }
 }
 
