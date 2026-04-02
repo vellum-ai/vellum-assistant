@@ -78,7 +78,7 @@ export interface TrustContext {
 }
 
 /**
- * Inbound actor context for the `<inbound_actor_context>` block.
+ * Inbound actor context for the `<turn_context>` block.
  *
  * Carries channel-agnostic identity and trust metadata resolved from
  * inbound message identity fields. This replaces the old `<guardian_context>`
@@ -669,9 +669,9 @@ export interface UnifiedTurnContextOptions {
 }
 
 /**
- * Build a unified `<turn_context>` block that replaces the separate
- * `<temporal_context>`, `<inbound_actor_context>`, and `<turn_context>`
- * blocks with a single coherent injection.
+ * Build a unified `<turn_context>` block that replaces the former separate
+ * `<temporal_context>` and `<inbound_actor_context>` blocks with a single
+ * coherent injection.
  *
  * - Always emits timestamp and interface (when provided).
  * - When `actorContext` is provided (non-guardian turns): emits full actor
