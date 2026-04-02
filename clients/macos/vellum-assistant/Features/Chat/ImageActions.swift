@@ -145,14 +145,13 @@ enum ImageActions {
 
     /// Cache of sharing services by file extension. Services depend on file type,
     /// not content, so one discovery per extension per app session is sufficient.
-    /// Accessed only from MainActor (via @State + .task in calling views).
-    private static var sharingServicesCache: [String: [NSSharingService]] = [:]
+    @MainActor private static var sharingServicesCache: [String: [NSSharingService]] = [:]
 
     /// Returns a probe file URL for the given extension key, creating the file
     /// if it doesn't already exist. The probe is a minimal 1x1 image encoded in
     /// the format matching the extension so that sharing services that validate
     /// media content return accurate results.
-    private static func ensureProbeFile(for key: String) -> URL {
+    @MainActor private static func ensureProbeFile(for key: String) -> URL {
         let probeURL = FileManager.default.temporaryDirectory.appendingPathComponent("vellum-share-probe.\(key)")
         if !FileManager.default.fileExists(atPath: probeURL.path) {
             let tiny = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in
@@ -179,7 +178,7 @@ enum ImageActions {
     /// Callers should invoke this from a `.task` modifier and store the result
     /// in `@State`, then pass the loaded services to `contextMenuItems()`.
     @available(macOS, deprecated: 13.0)
-    static func loadSharingServices(for filename: String) async -> [NSSharingService] {
+    @MainActor static func loadSharingServices(for filename: String) async -> [NSSharingService] {
         let ext = (filename as NSString).pathExtension.lowercased()
         let key = ext.isEmpty ? "png" : ext
         if let cached = sharingServicesCache[key] { return cached }
