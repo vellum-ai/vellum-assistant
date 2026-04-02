@@ -866,6 +866,10 @@ export async function retrieveForTurn(
           const imgResult = await embedWithRetry(opts.config, [imageInput], {
             signal: opts.signal,
           });
+          if (!embeddingProvider) {
+            embeddingProvider = imgResult.provider;
+            embeddingModel = imgResult.model;
+          }
           const imgVector = imgResult.vectors[0];
           if (imgVector) {
             const imgResults = await searchGraphNodes(imgVector, 40, [
