@@ -9,6 +9,17 @@ public struct EmotionalChargePayload: Codable, Hashable, Sendable {
     public let originalIntensity: Double?
 }
 
+/// Bucketed importance level derived from the 0–1 importance score.
+public enum ImportanceLevel: Int, Comparable {
+    case low = 1
+    case medium = 2
+    case high = 3
+
+    public static func < (lhs: ImportanceLevel, rhs: ImportanceLevel) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
 /// A single memory item returned by the assistant's memory API.
 public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
     public let id: String
@@ -64,6 +75,25 @@ public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         return formatter.localizedString(for: lastSeenDate, relativeTo: Date())
+    }
+
+    /// Bucketed importance level for visual indicators (dots, bars).
+    public var importanceLevel: ImportanceLevel {
+        let value = importance ?? 0
+        if value >= 0.66 { return .high }
+        if value >= 0.33 { return .medium }
+        return .low
+    }
+
+    /// Human-readable label for the source type, or nil if unknown.
+    public var sourceLabel: String? {
+        switch sourceType {
+        case "direct": return "Told directly"
+        case "observed": return "Observed"
+        case "inferred": return "Inferred"
+        case "told-by-other": return "Told by other"
+        default: return nil
+        }
     }
 
     // MARK: - Status Helpers
