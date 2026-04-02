@@ -127,6 +127,8 @@ struct SettingsDeveloperTab: View {
 
             // Feature Flags
             featureFlagSection
+            // System Event Log
+            SystemEventLogSection()
             // Environment Variables
             environmentVariablesSection
             // Sentry Testing
