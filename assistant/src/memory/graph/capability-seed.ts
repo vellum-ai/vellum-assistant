@@ -6,7 +6,7 @@
 // skill-memory.ts and cli-memory.ts.
 // ---------------------------------------------------------------------------
 
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 
 import { buildCliProgram } from "../../cli/program.js";
 import { getConfig } from "../../config/loader.js";
@@ -112,6 +112,12 @@ export function seedSkillGraphNodes(): void {
     // seenKeys already contains all locally-installed-and-enabled skills
     // which is sufficient to identify what should be kept.
     pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
+
+    // Clean up old-format nodes created by the legacy skill-memory.ts system.
+    // Those nodes have content like "skill:{id}\n..." instead of the current
+    // 'The "..." skill ...' format. Mark them as gone so they stop appearing
+    // as duplicates. Idempotent — once cleaned, subsequent runs find nothing.
+    cleanupOldFormatSkillNodes();
   } catch (err) {
     log.warn({ err }, "Failed to seed skill graph nodes");
   }
@@ -260,6 +266,45 @@ function deleteCapabilityNode(sourceKey: string): void {
       .set({ fidelity: "gone", lastAccessed: Date.now() })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
+  }
+}
+
+/**
+ * Find and soft-delete old-format skill memory nodes.
+ *
+ * The legacy skill-memory.ts system stored content as "skill:{id}\n{statement}".
+ * The current system uses "The "..." skill ..." prose format. This marks any
+ * remaining old-format nodes as gone so they no longer surface in retrieval.
+ */
+function cleanupOldFormatSkillNodes(): void {
+  const db = getDb();
+
+  const oldFormatNodes = db
+    .select()
+    .from(memoryGraphNodes)
+    .where(
+      and(
+        eq(memoryGraphNodes.type, "procedural"),
+        eq(memoryGraphNodes.scopeId, "default"),
+        sql`${memoryGraphNodes.fidelity} != 'gone'`,
+        sql`${memoryGraphNodes.content} LIKE 'skill:%'`,
+      ),
+    )
+    .all();
+
+  const now = Date.now();
+  for (const node of oldFormatNodes) {
+    // Verify this is truly old-format: "skill:{id}\n..."
+    if (!/^skill:\S+\n/.test(node.content)) continue;
+
+    db.update(memoryGraphNodes)
+      .set({ fidelity: "gone", lastAccessed: now })
+      .where(eq(memoryGraphNodes.id, node.id))
+      .run();
+    log.info(
+      { nodeId: node.id },
+      "Cleaned up old-format skill memory node",
+    );
   }
 }
 
