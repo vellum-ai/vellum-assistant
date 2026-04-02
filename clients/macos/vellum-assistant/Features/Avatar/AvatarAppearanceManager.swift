@@ -571,33 +571,27 @@ final class AvatarAppearanceManager {
     /// Posted whenever the avatar changes so other components (e.g. menu bar icon) can update.
     static let avatarDidChangeNotification = Notification.Name("AvatarAppearanceManager.avatarDidChange")
 
-    /// The bundled Vellum app icon, loaded once so it can be used as a
-    /// reliable dock-icon fallback without depending on macOS resolving
-    /// `CFBundleIconName` from a nil `applicationIconImage`.
-    private static let bundledAppIcon: NSImage? = {
-        guard let url = ResourceBundle.bundle.url(forResource: "vellum-app-icon", withExtension: "png") else { return nil }
-        return NSImage(contentsOf: url)
+    /// The original bundle icon resolved from the `.app` bundle on disk.
+    /// Uses `NSWorkspace` so the result is independent of whatever
+    /// `applicationIconImage` is set at runtime and already includes all
+    /// system-resolved representations.
+    ///
+    /// Reference: https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
+    private static let bundledAppIcon: NSImage = {
+        NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 
     /// Restores the dock icon to the default Vellum logo.
-    /// Called during disconnect flows and before app termination so the
-    /// pinned dock tile always shows a meaningful icon.
+    ///
+    /// Per Apple docs, setting `applicationIconImage` to `nil` should
+    /// restore the bundle icon, but this is unreliable after activation-
+    /// policy transitions (`.accessory` ↔ `.regular`) — macOS can show a
+    /// generic blank squircle instead.  Setting the bundle icon explicitly
+    /// avoids the issue.
+    ///
+    /// Reference: https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage
     func restoreBundleIcon() {
-        if let bundleIcon = Self.bundledAppIcon {
-            let canvasSize: CGFloat = 512
-            let iconSize: CGFloat = 418
-            let padding = (canvasSize - iconSize) / 2
-            let squircle = Self.squircleIcon(bundleIcon, size: iconSize)
-            let icon = NSImage(size: NSSize(width: canvasSize, height: canvasSize), flipped: false) { _ in
-                let iconRect = NSRect(x: padding, y: padding, width: iconSize, height: iconSize)
-                squircle.draw(in: iconRect, from: NSRect(origin: .zero, size: squircle.size),
-                              operation: .copy, fraction: 1.0)
-                return true
-            }
-            NSApplication.shared.applicationIconImage = icon
-        } else {
-            NSApplication.shared.applicationIconImage = nil
-        }
+        NSApplication.shared.applicationIconImage = Self.bundledAppIcon
         NSApp.dockTile.display()
     }
 
