@@ -99,6 +99,7 @@ export function registerConversationNotifiers(
         ctx.sendToClient({
           type: "message_complete",
           conversationId: conversationId,
+          messageId: msg.id,
         });
       }
     },
@@ -133,6 +134,7 @@ export function registerConversationNotifiers(
         ctx.sendToClient({
           type: "message_complete",
           conversationId: conversationId,
+          messageId: msg.id,
         });
       }
     },
@@ -145,7 +147,7 @@ export function registerConversationNotifiers(
       const callee = callSession?.toNumber ?? "the caller";
       const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Use the call answer API to respond._`;
 
-      await addMessage(
+      const msg = await addMessage(
         conversationId,
         "assistant",
         JSON.stringify([{ type: "text", text: questionText }]),
@@ -168,6 +170,7 @@ export function registerConversationNotifiers(
       ctx.sendToClient({
         type: "message_complete",
         conversationId: conversationId,
+        messageId: msg.id,
       });
     },
   );
