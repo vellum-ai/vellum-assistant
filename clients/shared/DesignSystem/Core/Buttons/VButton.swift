@@ -22,8 +22,14 @@ public struct VButton: View {
     public var tintColor: Color? = nil
     public let action: () -> Void
 
+    @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
+
+    /// Whether the button is effectively disabled, considering both the
+    /// explicit `isDisabled` property and the SwiftUI environment's `isEnabled`
+    /// state (set by external `.disabled()` modifiers up the view hierarchy).
+    private var effectivelyDisabled: Bool { isDisabled || !isEnabled }
 
     public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, iconColor: Color? = nil, iconRotation: Angle? = nil, tintColor: Color? = nil, action: @escaping () -> Void) {
         self.label = label
@@ -82,12 +88,12 @@ public struct VButton: View {
             tintColor: tintColor
         ))
         .onHover { hovering in
-            isHovered = isDisabled ? false : hovering
+            isHovered = effectivelyDisabled ? false : hovering
         }
         .pointerCursor()
         .disabled(isDisabled)
         .accessibilityLabel(label)
-        .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
+        .accessibilityHint(effectivelyDisabled ? "Button is currently disabled" : "")
         .optionalAccessibilityIdentifier(accessibilityID)
         .modifier(OptionalHelpModifier(tooltip: tooltip))
     }
@@ -95,7 +101,7 @@ public struct VButton: View {
     private var textIconSize: CGFloat { 13 }
 
     private var iconOnlyForegroundColor: Color {
-        if isDisabled { return VColor.contentDisabled }
+        if effectivelyDisabled { return VColor.contentDisabled }
         switch style {
         case .primary:
             return VColor.contentInset
