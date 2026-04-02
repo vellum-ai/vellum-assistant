@@ -87,18 +87,10 @@ struct IntegrationsGridView: View {
             }
         }
         .onAppear {
-            for provider in store.managedOAuthProviders {
-                Task {
-                    await store.fetchManagedOAuthConnections(providerKey: provider.provider_key)
-                }
-            }
+            fetchAllConnections()
         }
         .onChange(of: store.managedOAuthProviders.map(\.provider_key)) { _, _ in
-            for provider in store.managedOAuthProviders {
-                Task {
-                    await store.fetchManagedOAuthConnections(providerKey: provider.provider_key)
-                }
-            }
+            fetchAllConnections()
         }
         .sheet(isPresented: isDetailPresented) {
             if let key = selectedProviderKey {
@@ -118,6 +110,17 @@ struct IntegrationsGridView: View {
             get: { selectedProviderKey != nil },
             set: { if !$0 { selectedProviderKey = nil } }
         )
+    }
+
+    // MARK: - Data Fetching
+
+    private func fetchAllConnections() {
+        for provider in store.managedOAuthProviders {
+            Task {
+                await store.fetchManagedOAuthConnections(providerKey: provider.provider_key)
+            }
+            store.fetchYourOwnOAuthApps(providerKey: provider.provider_key)
+        }
     }
 
     // MARK: - Grid

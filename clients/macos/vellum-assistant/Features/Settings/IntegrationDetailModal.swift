@@ -235,7 +235,9 @@ struct IntegrationDetailModal: View {
 
     private var managedConnectButton: some View {
         Button {
-            store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+            if !isConnecting {
+                store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+            }
         } label: {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.plus, size: 14)
@@ -252,6 +254,7 @@ struct IntegrationDetailModal: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(isConnecting)
         .onHover { isConnectButtonHovered = $0 }
     }
 
