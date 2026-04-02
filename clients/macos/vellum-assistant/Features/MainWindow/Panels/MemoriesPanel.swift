@@ -137,7 +137,6 @@ struct MemoriesPanel: View {
                     if !store.searchText.isEmpty {
                         filterPill(label: "\"\(store.searchText)\"", color: VColor.contentSecondary) {
                             store.searchText = ""
-                            Task { await store.loadItems() }
                         }
                     }
                 }
@@ -206,10 +205,15 @@ struct MemoriesPanel: View {
             VSearchBar(placeholder: "Search Memories", text: $store.searchText)
                 .onChange(of: store.searchText) {
                     searchDebounceTask?.cancel()
-                    searchDebounceTask = Task {
-                        try? await Task.sleep(nanoseconds: 300_000_000)
-                        guard !Task.isCancelled else { return }
-                        await store.loadItems()
+                    if store.searchText.isEmpty {
+                        // Clearing the search — reload immediately with no debounce
+                        searchDebounceTask = Task { await store.loadItems() }
+                    } else {
+                        searchDebounceTask = Task {
+                            try? await Task.sleep(nanoseconds: 300_000_000)
+                            guard !Task.isCancelled else { return }
+                            await store.loadItems()
+                        }
                     }
                 }
 
@@ -295,6 +299,7 @@ struct MemoriesPanel: View {
                     .foregroundStyle(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(label) filter")
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xxs)
