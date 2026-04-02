@@ -339,7 +339,6 @@ struct ChatView: View {
                 isInteractionEnabled: isInteractionEnabled,
                 containerWidth: containerWidth
             )
-            .equatable()
 
             if let error = viewModel.errorManager.conversationError, error.isCreditsExhausted {
                 CreditsExhaustedBanner(
