@@ -135,7 +135,11 @@ struct TeleportSection: View {
 
     @ViewBuilder
     private var teleportContent: some View {
-        SettingsCard(title: "Teleport", subtitle: "Move your assistant to a different hosting environment") {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Teleport")
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentDefault)
+
             if case .verifying = phase {
                 verifyingBanner
             } else if case .transferring(let step) = phase {
@@ -152,6 +156,9 @@ struct TeleportSection: View {
                 destinationPicker
             }
         }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard(background: VColor.surfaceOverlay)
     }
 
     // MARK: - Destination Picker
@@ -159,10 +166,8 @@ struct TeleportSection: View {
     @ViewBuilder
     private var destinationPicker: some View {
         if assistant.cloud.lowercased() == "local" {
-            // Docker option: still behind feature flag
-            if MacOSClientFeatureFlagManager.shared.isEnabled("teleport") {
-                destinationButton(for: .docker)
-            }
+            // Bare metal local: show both Docker and Platform options
+            destinationButton(for: .docker)
             destinationButton(for: .platform)
         } else if assistant.isDocker {
             // Docker: show only Platform option
@@ -179,7 +184,7 @@ struct TeleportSection: View {
 
             VButton(
                 label: destination.displayLabel,
-                style: .outlined,
+                style: .primary,
                 isDisabled: isDestinationDisabled(destination)
             ) {
                 pendingDestination = destination
