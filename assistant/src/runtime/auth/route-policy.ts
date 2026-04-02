@@ -532,3 +532,14 @@ registerPolicy("admin/rollback-migrations", {
   requiredScopes: ["internal.write"],
   allowedPrincipalTypes: ["svc_gateway"],
 });
+
+// Profiler management: gateway-only control-plane endpoints
+registerPolicy("profiler/runs", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
+registerPolicy("profiler/runs/export", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});

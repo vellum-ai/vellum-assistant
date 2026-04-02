@@ -1,0 +1,334 @@
+/**
+ * HTTP route handlers for managed profiler run management.
+ *
+ * Control-plane callers (proxied via vembda) can enumerate, inspect, export,
+ * and delete completed profiler runs without opening a shell on the assistant
+ * pod.
+ *
+ * Routes:
+ *   GET    /v1/profiler/runs              — list all profiler runs
+ *   GET    /v1/profiler/runs/:runId       — detail for a single run
+ *   POST   /v1/profiler/runs/:runId/export — tar.gz export of a single run
+ *   DELETE /v1/profiler/runs/:runId       — delete a completed run
+ */
+
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { z } from "zod";
+
+import { getProfilerRunId } from "../../config/env-registry.js";
+import type { ProfilerRunManifest } from "../../daemon/profiler-run-store.js";
+import {
+  rescanRuns,
+  runProfilerSweep,
+} from "../../daemon/profiler-run-store.js";
+import { getLogger } from "../../util/logger.js";
+import { getProfilerRunDir } from "../../util/platform.js";
+import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
+import { createTarGz, MAX_ARCHIVE_BYTES } from "./archive-utils.js";
+
+const log = getLogger("profiler-routes");
+
+// ── Helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Read the Bun-generated profiler markdown summary from a run directory.
+ * Bun writes CPU profile summaries as `.md` files; we look for the first
+ * markdown file in the run directory.
+ */
+function readProfileSummary(runDir: string): string | undefined {
+  try {
+    const entries = readdirSync(runDir);
+    const mdFile = entries.find((e) => e.endsWith(".md"));
+    if (!mdFile) return undefined;
+    return readFileSync(join(runDir, mdFile), "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Read and parse a manifest.json from a run directory.
+ */
+function readManifest(runDir: string): ProfilerRunManifest | null {
+  try {
+    const raw = readFileSync(join(runDir, "manifest.json"), "utf-8");
+    return JSON.parse(raw) as ProfilerRunManifest;
+  } catch {
+    return null;
+  }
+}
+
+// ── Route handlers ─────────────────────────────────────────────────────
+
+/**
+ * GET /v1/profiler/runs — list all profiler runs with manifest metadata.
+ */
+function handleListRuns(): Response {
+  const manifests = rescanRuns();
+
+  // Sort newest-first for the listing
+  manifests.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  return Response.json({
+    runs: manifests,
+    totalRuns: manifests.length,
+    activeRunId: getProfilerRunId() ?? null,
+  });
+}
+
+/**
+ * GET /v1/profiler/runs/:runId — detail view with manifest + markdown summary.
+ */
+function handleGetRun(runId: string): Response {
+  if (runId.includes("..") || runId.includes("/") || runId.includes("\\")) {
+    return httpError("BAD_REQUEST", "Invalid run ID", 400);
+  }
+
+  const runDir = getProfilerRunDir(runId);
+  if (!existsSync(runDir)) {
+    return httpError("NOT_FOUND", `Profiler run '${runId}' not found`, 404);
+  }
+
+  const manifest = readManifest(runDir);
+  if (!manifest) {
+    return httpError(
+      "INTERNAL_ERROR",
+      `Manifest missing for profiler run '${runId}'`,
+      500,
+    );
+  }
+
+  const summary = readProfileSummary(runDir);
+  const activeRunId = getProfilerRunId();
+
+  return Response.json({
+    ...manifest,
+    summary: summary ?? null,
+    isActive: runId === activeRunId,
+  });
+}
+
+/**
+ * POST /v1/profiler/runs/:runId/export — package a single run as tar.gz.
+ */
+function handleExportRun(runId: string): Response {
+  if (runId.includes("..") || runId.includes("/") || runId.includes("\\")) {
+    return httpError("BAD_REQUEST", "Invalid run ID", 400);
+  }
+
+  const runDir = getProfilerRunDir(runId);
+  if (!existsSync(runDir)) {
+    return httpError("NOT_FOUND", `Profiler run '${runId}' not found`, 404);
+  }
+
+  // Stage the run directory contents into a temp directory to avoid
+  // including parent path structure in the archive.
+  const staging = mkdtempSync(join(tmpdir(), "vellum-profiler-export-"));
+
+  try {
+    // Copy run directory contents into the staging area
+    copyDirContents(runDir, staging);
+
+    const archiveBytes = createTarGz(staging);
+    if (!archiveBytes) {
+      log.error(
+        { runId },
+        "Profiler run archive exceeds size limit or tar failed",
+      );
+      return httpError(
+        "INTERNAL_ERROR",
+        `Profiler run '${runId}' exceeds the maximum archive size of ${MAX_ARCHIVE_BYTES} bytes`,
+        500,
+      );
+    }
+
+    return new Response(archiveBytes, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/gzip",
+        "Content-Disposition": `attachment; filename="profiler-${runId}.tar.gz"`,
+        "Content-Length": String(archiveBytes.byteLength),
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, runId }, "Failed to export profiler run");
+    return httpError(
+      "INTERNAL_ERROR",
+      `Failed to export profiler run: ${message}`,
+      500,
+    );
+  } finally {
+    try {
+      rmSync(staging, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup
+    }
+  }
+}
+
+/**
+ * DELETE /v1/profiler/runs/:runId — delete a completed run and recalculate
+ * disk-budget state.
+ */
+function handleDeleteRun(runId: string): Response {
+  if (runId.includes("..") || runId.includes("/") || runId.includes("\\")) {
+    return httpError("BAD_REQUEST", "Invalid run ID", 400);
+  }
+
+  const activeRunId = getProfilerRunId();
+  if (runId === activeRunId) {
+    return httpError(
+      "CONFLICT",
+      `Cannot delete the currently active profiler run '${runId}'`,
+      409,
+    );
+  }
+
+  const runDir = getProfilerRunDir(runId);
+  if (!existsSync(runDir)) {
+    return httpError("NOT_FOUND", `Profiler run '${runId}' not found`, 404);
+  }
+
+  try {
+    rmSync(runDir, { recursive: true, force: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, runId }, "Failed to delete profiler run directory");
+    return httpError(
+      "INTERNAL_ERROR",
+      `Failed to delete profiler run: ${message}`,
+      500,
+    );
+  }
+
+  // Re-run the sweep to recompute disk-budget state after deletion
+  const sweepResult = runProfilerSweep();
+
+  log.info(
+    { runId, remainingRuns: sweepResult.remainingRuns },
+    "Profiler run deleted",
+  );
+
+  return Response.json({
+    deleted: true,
+    runId,
+    remainingRuns: sweepResult.remainingRuns,
+    activeRunOverBudget: sweepResult.activeRunOverBudget,
+  });
+}
+
+// ── File copying helper ────────────────────────────────────────────────
+
+/**
+ * Recursively copy all files and directories from `src` into `dest`.
+ */
+function copyDirContents(src: string, dest: string): void {
+  const entries = readdirSync(src);
+  for (const entry of entries) {
+    const srcPath = join(src, entry);
+    const destPath = join(dest, entry);
+    try {
+      const stat = statSync(srcPath);
+      if (stat.isDirectory()) {
+        mkdirSync(destPath, { recursive: true });
+        copyDirContents(srcPath, destPath);
+      } else if (stat.isFile()) {
+        const content = readFileSync(srcPath);
+        writeFileSync(destPath, content);
+      }
+    } catch {
+      // Skip unreadable entries
+    }
+  }
+}
+
+// ── Route definitions ──────────────────────────────────────────────────
+
+export function profilerRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "profiler/runs",
+      method: "GET",
+      policyKey: "profiler/runs",
+      summary: "List profiler runs",
+      description:
+        "Enumerate all profiler run directories with manifest metadata, sorted newest-first.",
+      tags: ["profiler"],
+      responseBody: z.object({
+        runs: z.array(
+          z.object({
+            runId: z.string(),
+            status: z.enum(["active", "completed"]),
+            createdAt: z.string(),
+            updatedAt: z.string(),
+            totalBytes: z.number(),
+          }),
+        ),
+        totalRuns: z.number(),
+        activeRunId: z.string().nullable(),
+      }),
+      handler: () => handleListRuns(),
+    },
+    {
+      endpoint: "profiler/runs/:runId",
+      method: "GET",
+      policyKey: "profiler/runs",
+      summary: "Get profiler run detail",
+      description:
+        "Return manifest metadata, Bun-generated markdown summary, and current retention state for a single profiler run.",
+      tags: ["profiler"],
+      responseBody: z.object({
+        runId: z.string(),
+        status: z.enum(["active", "completed"]),
+        createdAt: z.string(),
+        updatedAt: z.string(),
+        totalBytes: z.number(),
+        summary: z.string().nullable(),
+        isActive: z.boolean(),
+      }),
+      handler: ({ params }) => handleGetRun(params.runId),
+    },
+    {
+      endpoint: "profiler/runs/:runId/export",
+      method: "POST",
+      policyKey: "profiler/runs/export",
+      summary: "Export profiler run",
+      description:
+        "Package a single profiler run directory as a tar.gz bundle, subject to the same archive size limits used by runtime log exports.",
+      tags: ["profiler"],
+      handler: ({ params }) => handleExportRun(params.runId),
+    },
+    {
+      endpoint: "profiler/runs/:runId",
+      method: "DELETE",
+      policyKey: "profiler/runs",
+      summary: "Delete profiler run",
+      description:
+        "Delete a completed profiler run and recalculate disk-budget state. Rejects deletion of the currently active run.",
+      tags: ["profiler"],
+      responseBody: z.object({
+        deleted: z.boolean(),
+        runId: z.string(),
+        remainingRuns: z.number(),
+        activeRunOverBudget: z.boolean(),
+      }),
+      handler: ({ params }) => handleDeleteRun(params.runId),
+    },
+  ];
+}
