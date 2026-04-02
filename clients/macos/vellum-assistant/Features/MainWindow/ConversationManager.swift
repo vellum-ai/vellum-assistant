@@ -159,8 +159,8 @@ final class ConversationManager: ConversationRestorerDelegate {
     /// Flag to suppress lastActiveConversationIdString writes during initialization and conversation restoration.
     @ObservationIgnored private var isRestoringConversations = false
     /// Owns per-conversation activity state (busy flags, interaction states,
-    /// active message count) on an `@Observable` class so SwiftUI views get
-    /// property-level tracking instead of broad `objectWillChange` invalidation.
+    /// active message count) as a separate `@Observable` class for
+    /// fine-grained view invalidation scoped to individual conversations.
     let activityStore = ConversationActivityStore()
     /// Subscription to assistant activity per conversation.
     /// Used to mark inactive conversations as unseen when assistant output changes.

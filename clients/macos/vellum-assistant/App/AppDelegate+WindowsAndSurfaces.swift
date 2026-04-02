@@ -544,9 +544,6 @@ extension AppDelegate {
     }
 
     func observeAssistantStatus() {
-        // Observe active conversation changes and assistant status for the
-        // menu bar icon. With @Observable, withObservationTracking fires after
-        // the mutation completes, so activeViewModel resolves to the correct VM.
         observeActiveConversationForMenuBar()
         observeActiveViewModelErrorText()
     }
@@ -569,8 +566,8 @@ extension AppDelegate {
         observeActiveViewModelThinking()
     }
 
-    /// Watches the active ChatViewModel's `isThinking` property directly via
-    /// @Observable tracking, replacing the Combine `isThinkingPublisher` bridge.
+    /// Watches the active ChatViewModel's `isThinking` property and
+    /// updates the menu bar icon on change. Re-arms while the VM is active.
     private func observeActiveViewModelThinking() {
         guard let vm = mainWindow?.conversationManager.activeViewModel else { return }
         withObservationTracking {
@@ -605,9 +602,6 @@ extension AppDelegate {
     }
 
     func observeConversationBadge(_ conversationManager: ConversationManager) {
-        conversationBadgeCancellable?.cancel()
-        conversationBadgeCancellable = nil
-
         applyDockConversationBadge(count: conversationManager.unseenVisibleConversationCount)
         observeUnseenConversationCount(conversationManager)
     }

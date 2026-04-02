@@ -258,8 +258,6 @@ extension AppDelegate {
                 // show the reauth screen.
                 let detachedWindow = mainWindow?.detachWindow()
                 mainWindow = nil
-                conversationBadgeCancellable?.cancel()
-                conversationBadgeCancellable = nil
                 NSApp.dockTile.badgeLabel = nil
 
                 if let hotKeyMonitor {
@@ -283,8 +281,6 @@ extension AppDelegate {
                     NotificationCenter.default.removeObserver(observer)
                     windowObserver = nil
                 }
-                statusIconCancellable?.cancel()
-                statusIconCancellable = nil
                 connectionStatusCancellable?.cancel()
                 connectionStatusCancellable = nil
                 pulseTimer?.invalidate()
@@ -699,8 +695,6 @@ extension AppDelegate {
         threadWindowManager?.closeAll()
         mainWindow?.close()
         mainWindow = nil
-        conversationBadgeCancellable?.cancel()
-        conversationBadgeCancellable = nil
         NSApp.dockTile.badgeLabel = nil
 
         if let hotKeyMonitor {
@@ -724,8 +718,6 @@ extension AppDelegate {
             NotificationCenter.default.removeObserver(observer)
             windowObserver = nil
         }
-        statusIconCancellable?.cancel()
-        statusIconCancellable = nil
         connectionStatusCancellable?.cancel()
         connectionStatusCancellable = nil
         pulseTimer?.invalidate()
