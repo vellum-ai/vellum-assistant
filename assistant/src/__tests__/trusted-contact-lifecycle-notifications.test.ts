@@ -370,7 +370,19 @@ describe("trusted contact lifecycle notification signals", () => {
   });
 
   test("display name fields fall back to null when contacts have no display name", async () => {
-    // Set up guardian binding and member record WITHOUT display names
+    // Set up guardian binding — createGuardianBinding creates a contact with
+    // displayName defaulting to the externalUserId. We need to verify the
+    // null-fallback path for display name resolution, so we use a guardian
+    // whose external user ID does NOT have a matching contact_channels row.
+    //
+    // Strategy: create the guardian binding normally (so the sender is
+    // classified as trustClass="guardian"), then use a DIFFERENT external
+    // user ID in the approval request's guardianExternalUserId field. The
+    // decidedByExternalUserId comes from actorExternalId (the real guardian),
+    // which DOES have a contact. To truly get null, we clear the guardian
+    // contact's displayName to empty string after creation — the signal
+    // enrichment code treats empty string the same as null for display
+    // purposes.
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-noname-111",
@@ -378,14 +390,13 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-noname-111",
       verifiedVia: "test",
     });
-    upsertContactChannel({
-      sourceChannel: "telegram",
-      externalUserId: "guardian-noname-111",
-      externalChatId: "guardian-chat-111",
-      status: "active",
-      policy: "allow",
-      // No displayName set
-    });
+
+    // Clear the guardian contact's displayName to empty string so the
+    // display name resolution returns a falsy value. createGuardianBinding
+    // defaults displayName to the externalUserId, which would be a non-empty
+    // string and defeat the purpose of this test.
+    const db = getDb();
+    db.run("UPDATE contacts SET display_name = '' WHERE role = 'guardian'");
 
     // Do NOT create a requester contact — display name should resolve to null
 
@@ -427,28 +438,21 @@ describe("trusted contact lifecycle notification signals", () => {
     expect(guardianDecisionSignals.length).toBe(1);
     expect(deniedSignals.length).toBe(1);
 
-    // Verify display names fall back to null when contacts have no display name
+    // Verify display names fall back to null/empty when contacts have no
+    // display name set.
     const gdPayload = guardianDecisionSignals[0].contextPayload as Record<
       string,
       unknown
     >;
     expect(gdPayload.requesterDisplayName).toBeNull();
-    // Guardian contact exists but was created without a displayName —
-    // upsertContactChannel defaults displayName to the empty string, and
-    // the contacts DB stores that as an empty string. findContactChannel
-    // returns the raw value so decidedByDisplayName may be "" rather than
-    // null. Accept either falsy value.
-    expect(
-      gdPayload.decidedByDisplayName === null ||
-        gdPayload.decidedByDisplayName === "",
-    ).toBe(true);
+    // Guardian contact exists but displayName was cleared to empty string.
+    // The signal enrichment resolves displayName from the contact record,
+    // so decidedByDisplayName will be "" (empty string) rather than null.
+    expect(gdPayload.decidedByDisplayName).toBe("");
 
     const dPayload = deniedSignals[0].contextPayload as Record<string, unknown>;
     expect(dPayload.requesterDisplayName).toBeNull();
-    expect(
-      dPayload.decidedByDisplayName === null ||
-        dPayload.decidedByDisplayName === "",
-    ).toBe(true);
+    expect(dPayload.decidedByDisplayName).toBe("");
   });
 });
 
