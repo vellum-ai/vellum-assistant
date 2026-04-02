@@ -82,6 +82,8 @@ public struct VMenu<Content: View>: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Menu")
     }
 }
 
@@ -218,6 +220,12 @@ public struct VMenuItem<Trailing: View>: View {
             .onTapGesture { guard isEnabled else { return }; dismissMenu?(); action() }
             .onHover { isHovered = $0 }
             .pointerCursor()
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAddTraits(isActive ? [.isSelected] : [])
+            .accessibilityRemoveTraits(isEnabled ? [] : [.isButton])
+            .accessibilityAction { dismissMenu?(); action() }
         }
     }
 }
@@ -352,6 +360,11 @@ public struct VSubMenuItem<Content: View>: View {
         .accessibilityLabel(label)
         .accessibilityHint("Opens submenu")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            guard isEnabled else { return }
+            hoverTimer?.cancel()
+            showChild(coordinator: coordinator)
+        }
     }
 
     @State private var screenRect: CGRect = .zero
@@ -457,10 +470,12 @@ public struct VMenuSection<Content: View>: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.sm)
                 .padding(.bottom, VSpacing.xs)
+                .accessibilityAddTraits(.isHeader)
         }
 
         VColor.surfaceBase.frame(height: 1)
             .padding(.horizontal, VSpacing.xs)
+            .accessibilityHidden(true)
 
         content
     }
@@ -476,6 +491,7 @@ public struct VMenuDivider: View {
         VColor.surfaceBase.frame(height: 1)
             .padding(.horizontal, VSpacing.xs)
             .padding(.vertical, VSpacing.xs)
+            .accessibilityHidden(true)
     }
 }
 

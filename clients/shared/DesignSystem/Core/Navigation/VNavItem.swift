@@ -103,6 +103,11 @@ public struct VNavItem<Trailing: View>: View {
         .padding(.horizontal, 0)
         .help(isExpanded ? "" : label)
         .pointerCursor(onHover: { isHovered = $0 })
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isActive ? [.isSelected] : [])
+        .accessibilityAction { action() }
     }
 }
 
