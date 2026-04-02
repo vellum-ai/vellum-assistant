@@ -2219,7 +2219,6 @@ public enum ServerMessage: Decodable, Sendable {
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
     case guardianActionsPendingResponse(GuardianActionsPendingResponseMessage)
-    case guardianActionDecisionResponse(GuardianActionDecisionResponseMessage)
     case recordingPause(RecordingPause)
     case recordingResume(RecordingResume)
     case recordingStart(RecordingStart)
@@ -2620,9 +2619,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "guardian_actions_pending_response":
             let message = try GuardianActionsPendingResponseMessage(from: decoder)
             self = .guardianActionsPendingResponse(message)
-        case "guardian_action_decision_response":
-            let message = try GuardianActionDecisionResponseMessage(from: decoder)
-            self = .guardianActionDecisionResponse(message)
         case "recording_pause":
             let message = try RecordingPause(from: decoder)
             self = .recordingPause(message)
