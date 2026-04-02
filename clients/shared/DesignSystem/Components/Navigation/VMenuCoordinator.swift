@@ -22,6 +22,8 @@ public final class VMenuCoordinator {
     private var rootDismissHandler: (() -> Void)?
     /// Screen rect to exclude from click-outside dismiss (e.g., the trigger button).
     private var excludeRect: CGRect?
+    /// The window the menu was opened from, used to attach child panels.
+    private weak var sourceWindow: NSWindow?
 
     /// Max depth: root + one submenu.
     static let maxDepth = 2
@@ -43,6 +45,7 @@ public final class VMenuCoordinator {
         panels = [panel]
         rootDismissHandler = onDismiss
         self.excludeRect = excludeRect
+        self.sourceWindow = sourceWindow
         focusedIndex = [:]
         itemCounts = [:]
         installClickMonitor()
@@ -82,6 +85,13 @@ public final class VMenuCoordinator {
             coordinator: self,
             content: content
         )
+
+        // Attach the child panel to the source window so it stays
+        // grouped with the app and doesn't float above other apps.
+        if let sourceWindow {
+            sourceWindow.addChildWindow(childPanel, ordered: .above)
+        }
+
         panels.append(childPanel)
         // Reset focus for the new child level
         focusedIndex.removeValue(forKey: panels.count - 1)
