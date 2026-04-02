@@ -595,7 +595,10 @@ export function supersedeNode(
  */
 export function applyDiff(
   diff: MemoryDiff,
-  opts?: { conversationId?: string },
+  opts?: {
+    conversationId?: string;
+    source?: "extraction" | "consolidation" | "manual";
+  },
 ): ApplyDiffResult {
   const db = getDb();
   const result: ApplyDiffResult = {
@@ -664,7 +667,7 @@ export function applyDiff(
               nodeId: update.id,
               previousContent: current.content,
               newContent: updates.content as string,
-              source: "extraction",
+              source: opts?.source ?? "extraction",
               conversationId: opts?.conversationId ?? null,
               created: Date.now(),
             })
