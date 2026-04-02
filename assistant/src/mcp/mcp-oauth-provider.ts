@@ -16,6 +16,7 @@
  *    user's browser.
  */
 
+import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 
 import type {
@@ -66,6 +67,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   private readonly interactive: boolean;
   private readonly callbackTransport: McpOAuthCallbackTransport;
   private _codeVerifier: string | undefined;
+  private _state: string | undefined;
   private _redirectUrl: string | undefined;
   private _codePromise: Promise<string> | null = null;
   private callbackServer: Server | null = null;
@@ -186,6 +188,26 @@ export class McpOAuthProvider implements OAuthClientProvider {
       throw new Error("No code verifier available — OAuth flow not started");
     }
     return this._codeVerifier;
+  }
+
+  // --- State (CSRF token for OAuth) ---
+
+  /**
+   * Return a `state` value for the authorization URL.
+   *
+   * The MCP SDK calls `provider.state?.()` and, when the return value is
+   * truthy, appends it as the `state` query parameter.  For the **gateway**
+   * transport the state is mandatory because it is the key used by the
+   * `oauth-callback-registry` to route the redirect back to this flow.
+   * For the **loopback** transport the state is optional (the loopback
+   * server matches on the callback URL itself), but we generate one anyway
+   * for defense-in-depth.
+   */
+  async state(): Promise<string> {
+    if (!this._state) {
+      this._state = randomBytes(16).toString("hex");
+    }
+    return this._state;
   }
 
   // --- Discovery State ---
