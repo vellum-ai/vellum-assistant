@@ -480,6 +480,9 @@ extension AppDelegate {
                     // resolveOrganizationId() inside ensureManagedAssistant()).
                     if UserDefaults.standard.string(forKey: "connectedOrganizationId") == nil {
                         log.error("Organization ID not resolved — aborting managed switch to \(targetId, privacy: .public)")
+                        // The main window was already closed in step 2.
+                        // Re-show it so the user isn't stranded without UI.
+                        self.showMainWindow()
                         return
                     }
                 }
