@@ -140,6 +140,10 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
             skippedAPIKeyEntry = UserDefaults.standard.bool(forKey: "onboarding.skippedAPIKeyEntry")
+            if let rawHosting = UserDefaults.standard.string(forKey: "onboarding.selectedHostingMode"),
+               let mode = HostingMode(rawValue: rawHosting) {
+                selectedHostingMode = mode
+            }
         }
         // Clamp restored step to the valid range.
         let maxStep = 3
@@ -176,6 +180,7 @@ final class OnboardingState {
         UserDefaults.standard.set(cloudProvider, forKey: "onboarding.cloudProvider")
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
         UserDefaults.standard.set(skippedAPIKeyEntry, forKey: "onboarding.skippedAPIKeyEntry")
+        UserDefaults.standard.set(selectedHostingMode.rawValue, forKey: "onboarding.selectedHostingMode")
     }
 
     /// Resets all hatch-related and credential state for a clean retry,
@@ -229,7 +234,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.skippedAPIKeyEntry", "onboarding.variant", "onboarding.firstMeetingCrackProgress"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.skippedAPIKeyEntry", "onboarding.selectedHostingMode", "onboarding.variant", "onboarding.firstMeetingCrackProgress"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
