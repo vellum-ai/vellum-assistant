@@ -30,6 +30,7 @@ import {
   resolveInjectionImages,
 } from "./injection.js";
 import { loadContextMemory, retrieveForTurn } from "./retriever.js";
+import type { RetrievalMetrics } from "./types.js";
 
 const log = getLogger("graph-conversation-memory");
 
@@ -192,6 +193,8 @@ export class ConversationGraphMemory {
     mode: "context-load" | "per-turn" | "none";
     /** The raw text content of the injected block (without XML wrapper), or null if nothing was injected. */
     injectedBlockText: string | null;
+    /** Retrieval pipeline metrics (null for noop/error paths). */
+    metrics: RetrievalMetrics | null;
   }> {
     this.tracker.advanceTurn();
 
@@ -201,6 +204,7 @@ export class ConversationGraphMemory {
       latencyMs: 0,
       mode: "none" as const,
       injectedBlockText: null as string | null,
+      metrics: null as RetrievalMetrics | null,
     };
 
     // Gate: skip for empty/tool-result-only messages — unless we need to
@@ -275,6 +279,7 @@ export class ConversationGraphMemory {
         latencyMs: result.latencyMs,
         mode: "context-load" as const,
         injectedBlockText: null,
+        metrics: result.metrics,
       };
     }
 
@@ -293,6 +298,7 @@ export class ConversationGraphMemory {
         latencyMs: result.latencyMs,
         mode: "context-load" as const,
         injectedBlockText: null,
+        metrics: result.metrics,
       };
     }
 
@@ -324,6 +330,7 @@ export class ConversationGraphMemory {
       latencyMs: result.latencyMs,
       mode: "context-load" as const,
       injectedBlockText: contextBlock,
+      metrics: result.metrics,
     };
   }
 
@@ -377,6 +384,7 @@ export class ConversationGraphMemory {
         latencyMs: result.latencyMs,
         mode: "per-turn" as const,
         injectedBlockText: null,
+        metrics: result.metrics,
       };
     }
 
@@ -391,6 +399,7 @@ export class ConversationGraphMemory {
         latencyMs: result.latencyMs,
         mode: "per-turn" as const,
         injectedBlockText: null,
+        metrics: result.metrics,
       };
     }
 
@@ -412,6 +421,7 @@ export class ConversationGraphMemory {
       latencyMs: result.latencyMs,
       mode: "per-turn" as const,
       injectedBlockText: injectionBlock,
+      metrics: result.metrics,
     };
   }
 }
