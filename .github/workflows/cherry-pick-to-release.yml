@@ -36,8 +36,11 @@ jobs:
           # Find the latest release/v* branch by semantic version sort.
           # Use -V (version sort) on the first key so that the 'release/v'
           # prefix is handled correctly across major versions.
+          # Filter to only clean semver branches (release/vX.Y.Z), excluding
+          # branches with suffixes like release/v0.6.0-foo.
           LATEST_BRANCH=$(git branch -r --list 'origin/release/v*' \
             | sed 's|origin/||; s/^[[:space:]]*//' \
+            | grep -E '^release/v[0-9]+\.[0-9]+\.[0-9]+$' \
             | sort -t. -k1,1V -k2,2n -k3,3n \
             | tail -1)
 
