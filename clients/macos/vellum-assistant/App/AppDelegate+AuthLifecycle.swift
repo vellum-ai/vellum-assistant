@@ -458,13 +458,18 @@ extension AppDelegate {
             managedSwitchTask = Task {
                 do {
                     _ = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
+                } catch is CancellationError {
+                    log.info("Managed switch to \(targetId, privacy: .public) cancelled")
+                    return
                 } catch {
                     log.error("Managed bootstrap failed during switch — proceeding anyway: \(error.localizedDescription, privacy: .public)")
                 }
                 // Guard against a second switch that started while we were
-                // awaiting the bootstrap — only finish if this assistant is
-                // still the selected target.
-                guard UserDefaults.standard.string(forKey: "connectedAssistantId") == targetId else {
+                // awaiting the bootstrap — only finish if this task hasn't
+                // been cancelled and this assistant is still the selected
+                // target.
+                guard !Task.isCancelled,
+                      UserDefaults.standard.string(forKey: "connectedAssistantId") == targetId else {
                     log.info("Managed switch to \(targetId, privacy: .public) superseded — skipping finishSwitchAssistant")
                     return
                 }
