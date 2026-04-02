@@ -72,10 +72,11 @@ public class VMenuPanel: NSPanel {
             panel.appearance = appearance
         }
 
-        // Inject coordinator and dismiss closure into environment.
+        // Inject coordinator, panel level, and dismiss closure into environment.
         let paddedContent = content()
             .environment(\.vMenuDismiss, { [weak coordinator] in coordinator?.dismissAll() })
             .environment(\.vMenuCoordinator, coordinator)
+            .environment(\.vMenuPanelLevel, 0)
             .padding(Self.shadowInset)
         // Use NSHostingView directly as contentView — no FirstMouseView wrapper.
         // This preserves the natural NSPanel → NSHostingView → SwiftUI accessibility
@@ -153,9 +154,11 @@ public class VMenuPanel: NSPanel {
             panel.appearance = appearance
         }
 
+        let childLevel = coordinator.panels.count
         let paddedContent = content()
             .environment(\.vMenuDismiss, { [weak coordinator] in coordinator?.dismissAll() })
             .environment(\.vMenuCoordinator, coordinator)
+            .environment(\.vMenuPanelLevel, childLevel)
             .padding(Self.shadowInset)
             .onHover { hovering in
                 if hovering {

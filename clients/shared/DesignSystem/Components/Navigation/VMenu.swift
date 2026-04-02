@@ -29,6 +29,61 @@ public extension EnvironmentValues {
         set { self[VMenuCoordinatorKey.self] = newValue }
     }
 }
+
+// MARK: - VMenu Panel Level Environment
+
+/// The nesting level of the current VMenu panel (0 = root, 1 = child submenu).
+/// Injected by VMenuPanel so items know which level they belong to for keyboard focus registration.
+private struct VMenuPanelLevelKey: EnvironmentKey {
+    static let defaultValue: Int = 0
+}
+
+public extension EnvironmentValues {
+    var vMenuPanelLevel: Int {
+        get { self[VMenuPanelLevelKey.self] }
+        set { self[VMenuPanelLevelKey.self] = newValue }
+    }
+}
+
+// MARK: - Item Registration Preference Key
+
+/// Data reported by each interactive menu item (VMenuItem, VSubMenuItem) so VMenu
+/// can assign sequential indices and update the coordinator's item registry.
+struct VMenuItemRegistration: Equatable {
+    let id: UUID
+    let isSubmenu: Bool
+}
+
+/// Preference key that collects item registrations in layout order (top to bottom).
+/// VMenu reads this via `onPreferenceChange` to populate the coordinator's `itemOrder`.
+struct VMenuItemRegistrationKey: PreferenceKey {
+    static var defaultValue: [VMenuItemRegistration] = []
+    static func reduce(value: inout [VMenuItemRegistration], nextValue: () -> [VMenuItemRegistration]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+// MARK: - NSView Capture for VoiceOver Bridge
+
+/// Invisible NSViewRepresentable that captures its underlying NSView reference and registers
+/// it with the VMenuCoordinator. When keyboard focus moves to this item, the coordinator
+/// uses the NSView to post `NSAccessibility.post(element:notification:.focusedUIElementChanged)`
+/// so VoiceOver tracks keyboard navigation.
+struct VMenuItemNSViewCapture: NSViewRepresentable {
+    let itemID: UUID
+    let level: Int
+    let coordinator: VMenuCoordinator?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        view.setAccessibilityElement(false)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        coordinator?.registerItemNSView(level: level, id: itemID, view: nsView)
+    }
+}
 #endif
 
 // MARK: - VMenu Parent Width Environment
@@ -63,6 +118,11 @@ public struct VMenu<Content: View>: View {
     public let width: CGFloat?
     public let content: Content
 
+    #if os(macOS)
+    @Environment(\.vMenuCoordinator) private var coordinator
+    @Environment(\.vMenuPanelLevel) private var panelLevel
+    #endif
+
     public init(
         width: CGFloat? = nil,
         @ViewBuilder content: () -> Content
@@ -82,6 +142,12 @@ public struct VMenu<Content: View>: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
+        #if os(macOS)
+        .onPreferenceChange(VMenuItemRegistrationKey.self) { registrations in
+            let ids = registrations.map(\.id)
+            coordinator?.updateItemOrder(level: panelLevel, ids: ids)
+        }
+        #endif
     }
 }
 
@@ -143,6 +209,19 @@ public struct VMenuItem<Trailing: View>: View {
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
 
+    #if os(macOS)
+    @Environment(\.vMenuCoordinator) private var coordinator
+    @Environment(\.vMenuPanelLevel) private var panelLevel
+    @State private var itemID = UUID()
+
+    /// Whether this item is currently focused via keyboard navigation.
+    private var isKeyboardFocused: Bool {
+        guard let coordinator,
+              let focusedID = coordinator.focusedItemID(at: panelLevel) else { return false }
+        return focusedID == itemID
+    }
+    #endif
+
     public init(
         icon: String? = nil,
         label: String,
@@ -173,6 +252,16 @@ public struct VMenuItem<Trailing: View>: View {
         return isActive ? VColor.contentEmphasized : VColor.contentSecondary
     }
 
+    /// Background color for the item, incorporating active state, keyboard focus, and mouse hover.
+    private var highlightBackground: Color {
+        if isActive { return VColor.surfaceActive }
+        #if os(macOS)
+        if isKeyboardFocused { return VColor.surfaceBase }
+        #endif
+        if isHovered && isEnabled { return VColor.surfaceBase }
+        return .clear
+    }
+
     public var body: some View {
         if size == .regular {
             let _ = {
@@ -185,11 +274,23 @@ public struct VMenuItem<Trailing: View>: View {
                 label: label,
                 isActive: isActive,
                 isExpanded: true,
+                #if os(macOS)
+                isKeyboardFocused: isKeyboardFocused,
+                #endif
                 action: { dismissMenu?(); action() }
             ) {
                 trailing
             }
             .accessibilityValue(accessibilityValueText ?? "")
+            #if os(macOS)
+            .preference(key: VMenuItemRegistrationKey.self, value: [VMenuItemRegistration(id: itemID, isSubmenu: false)])
+            .background(VMenuItemNSViewCapture(itemID: itemID, level: panelLevel, coordinator: coordinator))
+            .onAppear {
+                coordinator?.registerItemAction(level: panelLevel, id: itemID) {
+                    dismissMenu?(); action()
+                }
+            }
+            #endif
         } else {
             HStack(spacing: VSpacing.xs) {
                 if let icon {
@@ -211,11 +312,7 @@ public struct VMenuItem<Trailing: View>: View {
             .padding(.vertical, VSpacing.xs)
             .frame(minHeight: VSize.rowMinHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                isActive ? VColor.surfaceActive :
-                isHovered && isEnabled ? VColor.surfaceBase :
-                Color.clear
-            )
+            .background(highlightBackground)
             .animation(VAnimation.fast, value: isHovered)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
@@ -229,6 +326,15 @@ public struct VMenuItem<Trailing: View>: View {
             .accessibilityRemoveTraits(isEnabled ? [] : [.isButton])
             .accessibilityValue(accessibilityValueText ?? "")
             .accessibilityAction { guard isEnabled else { return }; dismissMenu?(); action() }
+            #if os(macOS)
+            .preference(key: VMenuItemRegistrationKey.self, value: [VMenuItemRegistration(id: itemID, isSubmenu: false)])
+            .background(VMenuItemNSViewCapture(itemID: itemID, level: panelLevel, coordinator: coordinator))
+            .onAppear {
+                coordinator?.registerItemAction(level: panelLevel, id: itemID) {
+                    dismissMenu?(); action()
+                }
+            }
+            #endif
         }
     }
 }
@@ -277,9 +383,11 @@ public struct VSubMenuItem<Content: View>: View {
 
     @Environment(\.vMenuCoordinator) private var coordinator
     @Environment(\.vMenuParentWidth) private var parentWidth
+    @Environment(\.vMenuPanelLevel) private var panelLevel
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
     @State private var hoverTimer: DispatchWorkItem?
+    @State private var itemID = UUID()
 
     public init(
         icon: String? = nil,
@@ -295,6 +403,22 @@ public struct VSubMenuItem<Content: View>: View {
 
     private var effectiveWidth: CGFloat? {
         width ?? parentWidth
+    }
+
+    /// Whether this item is currently focused via keyboard navigation.
+    private var isKeyboardFocused: Bool {
+        guard let coordinator,
+              let focusedID = coordinator.focusedItemID(at: panelLevel) else { return false }
+        return focusedID == itemID
+    }
+
+    /// Background color incorporating keyboard focus and mouse hover.
+    private var highlightBackground: Color {
+        #if os(macOS)
+        if isKeyboardFocused { return VColor.surfaceBase }
+        #endif
+        if isHovered && isEnabled { return VColor.surfaceBase }
+        return .clear
     }
 
     public var body: some View {
@@ -319,7 +443,7 @@ public struct VSubMenuItem<Content: View>: View {
         .padding(.vertical, VSpacing.xs)
         .frame(minHeight: VSize.rowMinHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovered && isEnabled ? VColor.surfaceBase : Color.clear)
+        .background(highlightBackground)
         .animation(VAnimation.fast, value: isHovered)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .contentShape(Rectangle())
@@ -368,6 +492,18 @@ public struct VSubMenuItem<Content: View>: View {
             guard isEnabled else { return }
             hoverTimer?.cancel()
             showChild(coordinator: coordinator)
+        }
+        .preference(key: VMenuItemRegistrationKey.self, value: [VMenuItemRegistration(id: itemID, isSubmenu: true)])
+        .background(VMenuItemNSViewCapture(itemID: itemID, level: panelLevel, coordinator: coordinator))
+        .onAppear {
+            // Register both item action (Enter/Space) and submenu action (right arrow).
+            // For submenus, both trigger the same behavior: open the child panel.
+            let openAction = { [weak coordinator] in
+                hoverTimer?.cancel()
+                showChild(coordinator: coordinator)
+            }
+            coordinator?.registerItemAction(level: panelLevel, id: itemID, action: openAction)
+            coordinator?.registerSubmenuAction(level: panelLevel, id: itemID, action: openAction)
         }
     }
 

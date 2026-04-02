@@ -1,6 +1,16 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import Observation
+
+// MARK: - WeakNSViewRef
+
+/// Weak reference wrapper for NSView, used to store item view references
+/// without creating retain cycles.
+final class WeakNSViewRef {
+    weak var view: NSView?
+    init(view: NSView) { self.view = view }
+}
 
 // MARK: - VMenuCoordinator
 
@@ -12,19 +22,31 @@ import SwiftUI
 /// - Manages grace-period timer for delayed child dismiss.
 /// - Observes the source window for close notification.
 /// - Provides `dismissAll()` (injected as `vMenuDismiss`) and `dismissChild()`.
+/// - Tracks keyboard focus state for arrow-key navigation, activation, and VoiceOver bridging.
+///
+/// Keyboard focus is tracked via `focusedIndex` (observed by SwiftUI views through
+/// the Observation framework). When a user presses arrow keys, `focusedIndex` updates
+/// and SwiftUI re-renders the appropriate items with a focus highlight. Mouse movement
+/// clears keyboard focus, switching back to hover-driven interaction.
+///
+/// References:
+/// - [NSAccessibility.post](https://developer.apple.com/documentation/appkit/nsaccessibility/post(element:notification:))
+/// - [Observation framework](https://developer.apple.com/documentation/observation)
+@Observable
 @MainActor
 public final class VMenuCoordinator {
     /// Ordered stack of open panels. Index 0 = root, index 1 = child.
-    private(set) var panels: [NSPanel] = []
-    private var clickMonitor: Any?
-    private var windowObserver: Any?
-    private var appDeactivationObserver: Any?
-    private var graceTimer: DispatchWorkItem?
-    private var rootDismissHandler: (() -> Void)?
+    @ObservationIgnored private(set) var panels: [NSPanel] = []
+    @ObservationIgnored private var clickMonitor: Any?
+    @ObservationIgnored private var windowObserver: Any?
+    @ObservationIgnored private var appDeactivationObserver: Any?
+    @ObservationIgnored private var mouseMoveMonitor: Any?
+    @ObservationIgnored private var graceTimer: DispatchWorkItem?
+    @ObservationIgnored private var rootDismissHandler: (() -> Void)?
     /// Screen rect to exclude from click-outside dismiss (e.g., the trigger button).
-    private var excludeRect: CGRect?
+    @ObservationIgnored private var excludeRect: CGRect?
     /// The window the menu was opened from, used to attach child panels.
-    private weak var sourceWindow: NSWindow?
+    @ObservationIgnored private weak var sourceWindow: NSWindow?
 
     /// Max depth: root + one submenu.
     static let maxDepth = 2
@@ -35,9 +57,65 @@ public final class VMenuCoordinator {
     // MARK: - Keyboard Focus (M3)
 
     /// Focused item index per panel level. Key absent = no keyboard focus (mouse-driven).
+    ///
+    /// This is the primary observed property — SwiftUI views react to changes here
+    /// to show/hide the keyboard focus highlight. The Observation framework tracks
+    /// reads of this property in view `body` computations and triggers re-renders
+    /// when the value changes.
     var focusedIndex: [Int: Int] = [:]
-    /// Total item count per panel level (set by VMenu via preference key).
-    var itemCounts: [Int: Int] = [:]
+
+    /// Total item count per panel level (derived from `itemOrder`).
+    @ObservationIgnored var itemCounts: [Int: Int] = [:]
+
+    /// Ordered list of item UUIDs per panel level, in layout order.
+    /// Populated by VMenu via `onPreferenceChange(VMenuItemRegistrationKey.self)`.
+    @ObservationIgnored var itemOrder: [Int: [UUID]] = [:]
+
+    /// Action closures for each item, keyed by (level, UUID).
+    /// Invoked when Enter/Space is pressed on the focused item.
+    @ObservationIgnored var itemActions: [Int: [UUID: () -> Void]] = [:]
+
+    /// Submenu-open closures for VSubMenuItems, keyed by (level, UUID).
+    /// Invoked when → arrow is pressed on a focused submenu item.
+    @ObservationIgnored var submenuActions: [Int: [UUID: () -> Void]] = [:]
+
+    /// Weak references to NSViews embedded in each item, for VoiceOver focus notifications.
+    @ObservationIgnored var itemNSViews: [Int: [UUID: WeakNSViewRef]] = [:]
+
+    // MARK: - Item Registration
+
+    /// Update the ordered list of item UUIDs for a panel level.
+    /// Called by VMenu when the preference key collects item registrations.
+    func updateItemOrder(level: Int, ids: [UUID]) {
+        itemOrder[level] = ids
+        itemCounts[level] = ids.count
+    }
+
+    /// Register an action closure for a menu item at the given level.
+    func registerItemAction(level: Int, id: UUID, action: @escaping () -> Void) {
+        if itemActions[level] == nil { itemActions[level] = [:] }
+        itemActions[level]?[id] = action
+    }
+
+    /// Register a submenu-open closure for a VSubMenuItem at the given level.
+    func registerSubmenuAction(level: Int, id: UUID, action: @escaping () -> Void) {
+        if submenuActions[level] == nil { submenuActions[level] = [:] }
+        submenuActions[level]?[id] = action
+    }
+
+    /// Register an NSView reference for a menu item (used for VoiceOver focus notifications).
+    func registerItemNSView(level: Int, id: UUID, view: NSView) {
+        if itemNSViews[level] == nil { itemNSViews[level] = [:] }
+        itemNSViews[level]?[id] = WeakNSViewRef(view: view)
+    }
+
+    /// Return the UUID of the currently focused item at a level, if any.
+    func focusedItemID(at level: Int) -> UUID? {
+        guard let focusIdx = focusedIndex[level],
+              let ids = itemOrder[level],
+              focusIdx < ids.count else { return nil }
+        return ids[focusIdx]
+    }
 
     // MARK: - Panel Lifecycle
 
@@ -49,7 +127,12 @@ public final class VMenuCoordinator {
         self.sourceWindow = sourceWindow
         focusedIndex = [:]
         itemCounts = [:]
+        itemOrder = [:]
+        itemActions = [:]
+        submenuActions = [:]
+        itemNSViews = [:]
         installClickMonitor()
+        installMouseMoveMonitor()
 
         if let sourceWindow {
             windowObserver = NotificationCenter.default.addObserver(
@@ -124,9 +207,14 @@ public final class VMenuCoordinator {
         panels.removeAll()
         focusedIndex.removeAll()
         itemCounts.removeAll()
+        itemOrder.removeAll()
+        itemActions.removeAll()
+        submenuActions.removeAll()
+        itemNSViews.removeAll()
         removeClickMonitor()
         removeWindowObserver()
         removeAppDeactivationObserver()
+        removeMouseMoveMonitor()
         handler?()
     }
 
@@ -138,16 +226,27 @@ public final class VMenuCoordinator {
         let childLevel = panels.count
         focusedIndex.removeValue(forKey: childLevel)
         itemCounts.removeValue(forKey: childLevel)
+        itemOrder.removeValue(forKey: childLevel)
+        itemActions.removeValue(forKey: childLevel)
+        submenuActions.removeValue(forKey: childLevel)
+        itemNSViews.removeValue(forKey: childLevel)
         if let menuPanel = child as? VMenuPanel {
             menuPanel.closeFromCoordinator()
         } else {
             child.close()
+        }
+
+        // Restore VoiceOver focus to the parent level's currently focused item.
+        let parentLevel = panels.count - 1
+        if parentLevel >= 0 {
+            postVoiceOverFocusNotification(level: parentLevel)
         }
     }
 
     /// Called when a panel is closed externally (e.g., AppKit window management).
     func panelWasClosed(_ panel: NSPanel) {
         guard let idx = panels.firstIndex(where: { $0 === panel }) else { return }
+        let previousCount = panels.count
         // Close descendant panels too
         for i in stride(from: panels.count - 1, through: idx + 1, by: -1) {
             if let menuPanel = panels[i] as? VMenuPanel {
@@ -158,10 +257,21 @@ public final class VMenuCoordinator {
         }
         panels.removeSubrange(idx...)
 
+        // Clean up registration data for removed levels
+        for level in idx..<previousCount {
+            focusedIndex.removeValue(forKey: level)
+            itemCounts.removeValue(forKey: level)
+            itemOrder.removeValue(forKey: level)
+            itemActions.removeValue(forKey: level)
+            submenuActions.removeValue(forKey: level)
+            itemNSViews.removeValue(forKey: level)
+        }
+
         if panels.isEmpty {
             removeClickMonitor()
             removeWindowObserver()
             removeAppDeactivationObserver()
+            removeMouseMoveMonitor()
             let handler = rootDismissHandler
             rootDismissHandler = nil
             handler?()
@@ -222,9 +332,23 @@ public final class VMenuCoordinator {
                 return true
             }
             return false
-        case 124: // Right arrow — handled by VSubMenuItem activation
+        case 124: // Right arrow — open submenu if focused item is a VSubMenuItem
+            if let focusedID = focusedItemID(at: level),
+               let action = submenuActions[level]?[focusedID] {
+                action()
+                // Move focus into the newly opened child
+                if hasChild {
+                    moveFocus(direction: 1, level: level + 1)
+                }
+                return true
+            }
             return false
-        case 36, 49: // Enter, Space — activation handled by focused VMenuItem
+        case 36, 49: // Enter, Space — activate focused item
+            if let focusedID = focusedItemID(at: level),
+               let action = itemActions[level]?[focusedID] {
+                action()
+                return true
+            }
             return false
         default:
             return false
@@ -238,11 +362,60 @@ public final class VMenuCoordinator {
         let current = focusedIndex[level] ?? (direction > 0 ? -1 : count)
         let next = (current + direction + count) % count
         focusedIndex[level] = next
+
+        postVoiceOverFocusNotification(level: level)
     }
 
     /// Clear keyboard focus (switch back to mouse-driven interaction).
     func clearKeyboardFocus() {
-        focusedIndex.removeAll()
+        if !focusedIndex.isEmpty {
+            focusedIndex.removeAll()
+        }
+    }
+
+    // MARK: - VoiceOver Bridge
+
+    /// Post an accessibility focus notification for the currently focused item,
+    /// so VoiceOver tracks keyboard navigation.
+    private func postVoiceOverFocusNotification(level: Int) {
+        guard let focusedID = focusedItemID(at: level),
+              let nsView = itemNSViews[level]?[focusedID]?.view else { return }
+
+        // Walk up the view hierarchy to find the nearest accessibility element.
+        // The VMenuItem's `.accessibilityElement(children: .combine)` creates a
+        // single combined element that is the accessible parent of our helper NSView.
+        if let accessibleElement = findAccessibleElement(from: nsView) {
+            NSAccessibility.post(element: accessibleElement, notification: .focusedUIElementChanged)
+        }
+    }
+
+    /// Walk up the NSView hierarchy to find the nearest view that is an accessibility element.
+    private func findAccessibleElement(from view: NSView) -> Any? {
+        var current: NSView? = view.superview
+        while let v = current {
+            if v.isAccessibilityElement() { return v }
+            current = v.superview
+        }
+        return view
+    }
+
+    // MARK: - Mouse Move Monitor
+
+    /// Install a mouse movement monitor that clears keyboard focus when the user moves the mouse.
+    /// This matches native NSMenu behavior: arrow keys enter keyboard mode, mouse movement exits.
+    private func installMouseMoveMonitor() {
+        removeMouseMoveMonitor()
+        mouseMoveMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
+            self?.clearKeyboardFocus()
+            return event
+        }
+    }
+
+    private func removeMouseMoveMonitor() {
+        if let monitor = mouseMoveMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseMoveMonitor = nil
+        }
     }
 
     // MARK: - Click Monitor
@@ -304,6 +477,9 @@ public final class VMenuCoordinator {
         }
         if let observer = appDeactivationObserver {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let monitor = mouseMoveMonitor {
+            NSEvent.removeMonitor(monitor)
         }
     }
 }

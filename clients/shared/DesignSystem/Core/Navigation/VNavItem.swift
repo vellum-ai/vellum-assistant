@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 /// Sidebar navigation row used by both the main app sidebar and the component gallery.
 ///
 /// Handles expanded (icon + label) and collapsed (icon-only) modes with consistent
@@ -22,6 +26,11 @@ public struct VNavItem<Trailing: View>: View {
     public var subtitle: String?
     public var isActive: Bool
     public var isExpanded: Bool
+    #if os(macOS)
+    /// When `true`, applies the keyboard-focus highlight background (same as hover).
+    /// Managed by `VMenuCoordinator` via the Observation framework.
+    public var isKeyboardFocused: Bool
+    #endif
     public let action: () -> Void
     public let trailing: Trailing
 
@@ -36,6 +45,9 @@ public struct VNavItem<Trailing: View>: View {
         subtitle: String? = nil,
         isActive: Bool = false,
         isExpanded: Bool = true,
+        #if os(macOS)
+        isKeyboardFocused: Bool = false,
+        #endif
         action: @escaping () -> Void,
         @ViewBuilder trailing: () -> Trailing
     ) {
@@ -44,6 +56,9 @@ public struct VNavItem<Trailing: View>: View {
         self.subtitle = subtitle
         self.isActive = isActive
         self.isExpanded = isExpanded
+        #if os(macOS)
+        self.isKeyboardFocused = isKeyboardFocused
+        #endif
         self.action = action
         self.trailing = trailing()
     }
@@ -91,11 +106,7 @@ public struct VNavItem<Trailing: View>: View {
         .padding(.vertical, VSpacing.xs)
         .frame(minHeight: Self.rowMinHeight)
         .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
-        .background(
-            isActive ? VColor.surfaceActive :
-            isHovered ? VColor.surfaceBase :
-            Color.clear
-        )
+        .background(navItemBackground)
         .animation(VAnimation.fast, value: isHovered)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .contentShape(Rectangle())
@@ -109,6 +120,15 @@ public struct VNavItem<Trailing: View>: View {
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
         .accessibilityAction { action() }
     }
+
+    private var navItemBackground: Color {
+        if isActive { return VColor.surfaceActive }
+        #if os(macOS)
+        if isKeyboardFocused { return VColor.surfaceBase }
+        #endif
+        if isHovered { return VColor.surfaceBase }
+        return .clear
+    }
 }
 
 // MARK: - Convenience initializers
@@ -121,9 +141,22 @@ public extension VNavItem where Trailing == EmptyView {
         subtitle: String? = nil,
         isActive: Bool = false,
         isExpanded: Bool = true,
+        #if os(macOS)
+        isKeyboardFocused: Bool = false,
+        #endif
         action: @escaping () -> Void
     ) {
-        self.init(icon: icon, label: label, subtitle: subtitle, isActive: isActive, isExpanded: isExpanded, action: action) {
+        self.init(
+            icon: icon,
+            label: label,
+            subtitle: subtitle,
+            isActive: isActive,
+            isExpanded: isExpanded,
+            #if os(macOS)
+            isKeyboardFocused: isKeyboardFocused,
+            #endif
+            action: action
+        ) {
             EmptyView()
         }
     }
@@ -142,7 +175,14 @@ public extension VNavItem where Trailing == VNavItemTrailingIcon {
         action: @escaping () -> Void
     ) {
         let active = isActive
-        self.init(icon: icon, label: label, subtitle: subtitle, isActive: isActive, isExpanded: isExpanded, action: action) {
+        self.init(
+            icon: icon,
+            label: label,
+            subtitle: subtitle,
+            isActive: isActive,
+            isExpanded: isExpanded,
+            action: action
+        ) {
             VNavItemTrailingIcon(
                 icon: trailingIcon,
                 rotation: trailingIconRotation,
