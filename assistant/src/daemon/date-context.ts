@@ -290,28 +290,6 @@ function formatLocalDate(date: Date, timeZone: string): string {
 }
 
 /**
- * Format HH:MM and UTC offset for the given instant in the given timezone.
- */
-function formatCompactTimeAndOffset(
-  date: Date,
-  timeZone: string,
-): { time: string; offset: string } {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-    timeZoneName: "shortOffset",
-  });
-  const parts = fmt.formatToParts(date);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const hour = get("hour");
-  const minute = get("minute");
-  const offset = normalizeOffsetToken(get("timeZoneName"));
-  return { time: `${hour}:${minute}`, offset };
-}
-
-/**
  * Format time as HH:MM:SS with UTC offset and timezone name.
  *
  * Uses the timezone resolution cascade:

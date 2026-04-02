@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { SkillSummary } from "../config/skills.js";
-import {
-  fromSkillSummary,
-  type SkillCapabilityInput,
-} from "../skills/skill-memory.js";
+import { fromSkillSummary } from "../skills/skill-memory.js";
 
 function makeSkillSummary(
   overrides: Partial<SkillSummary> = {},

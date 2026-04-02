@@ -13,8 +13,8 @@ import { getConfig } from "../../config/loader.js";
 import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import {
-  getCatalog,
   getCachedCatalogSync,
+  getCatalog,
 } from "../../skills/catalog-cache.js";
 import {
   fromCatalogSkill,
