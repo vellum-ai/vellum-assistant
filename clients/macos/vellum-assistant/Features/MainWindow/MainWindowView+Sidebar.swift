@@ -159,7 +159,11 @@ extension MainWindowView {
                 sidebar.renamingGroupId = nil
             },
             onDelete: group.isSystemGroup ? nil : {
-                groupToDelete = group
+                if conversations.isEmpty {
+                    Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+                } else {
+                    groupToDelete = group
+                }
             },
             selectedConversationId: conversationManager.activeConversationId,
             onToggleExpand: { sidebar.toggleSection(group.id) },
