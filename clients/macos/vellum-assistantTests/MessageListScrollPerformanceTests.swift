@@ -372,8 +372,12 @@ final class MessageListScrollPerformanceTests: XCTestCase {
     // MARK: - Test 9: MarkdownSegmentView Measurement Caching
 
     /// Verifies that resolveSelectableRunMeasurement caches results so repeated
-    /// body evaluations do not re-run TextKit layout passes. This prevents the
-    /// 12-24s main-thread hangs observed in the LazyVStack layout cascade.
+    /// calls do not re-run TextKit layout passes. This prevents the 12-24s
+    /// main-thread hangs observed in the LazyVStack layout cascade.
+    ///
+    /// Calls `resolveSelectableRunMeasurement` directly because SwiftUI's
+    /// `body` evaluation does not execute `ForEach` row closures in a
+    /// unit-test context (no rendering host).
     @MainActor
     func testMarkdownSegmentMeasurementCaching() {
         // Clear any pre-existing cache entries.
@@ -383,35 +387,32 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             .text("Hello world, this is a test message with some representative content for benchmarking layout measurement caching.")
         ]
 
-        // Create two identical MarkdownSegmentView instances (simulates
-        // repeated body evaluation by SwiftUI's layout engine).
-        let view1 = MarkdownSegmentView(segments: segments)
-        let view2 = MarkdownSegmentView(segments: segments)
+        let view = MarkdownSegmentView(segments: segments)
 
-        // Access the body to trigger measurement (first call = cache miss).
-        _ = view1.body
+        // First call = cache miss, triggers TextKit layout.
+        _ = view.resolveSelectableRunMeasurement(segments)
         let insertCountAfterFirst = MarkdownSegmentView._measuredTextCacheInsertCount
 
-        // Second evaluation with identical inputs should hit the cache.
-        _ = view2.body
+        // Second call with identical inputs should hit the cache.
+        _ = view.resolveSelectableRunMeasurement(segments)
         let insertCountAfterSecond = MarkdownSegmentView._measuredTextCacheInsertCount
 
-        // The insert count should NOT increase on the second evaluation,
+        // The insert count should NOT increase on the second call,
         // proving that the TextKit measurement was served from cache.
         XCTAssertEqual(insertCountAfterFirst, insertCountAfterSecond,
-            "Second evaluation must hit the measurement cache — no new TextKit layout pass")
+            "Second call must hit the measurement cache — no new TextKit layout pass")
         XCTAssertGreaterThan(insertCountAfterFirst, 0,
-            "First evaluation must have inserted at least one cache entry")
+            "First call must have inserted at least one cache entry")
     }
 
-    // MARK: - Test 10: MarkdownSegmentView Body Evaluation Performance
+    // MARK: - Test 10: MarkdownSegmentView Measurement Performance
 
-    /// Measures repeated MarkdownSegmentView body evaluations with cached
-    /// measurements. Ensures the per-evaluation cost stays negligible (cache
-    /// lookups only, no TextKit layout). Baseline regression detection via
-    /// XCTest's statistical comparison.
+    /// Measures repeated resolveSelectableRunMeasurement calls with a warm
+    /// cache. Ensures the per-call cost stays negligible (cache lookups only,
+    /// no TextKit layout). Baseline regression detection via XCTest's
+    /// statistical comparison.
     @MainActor
-    func testMarkdownSegmentBodyEvaluationPerformance() {
+    func testMarkdownSegmentMeasurementPerformance() {
         let segments: [MarkdownSegment] = [
             .text("First paragraph with some representative text content."),
             .text("Second paragraph with **bold** and *italic* formatting."),
@@ -419,15 +420,15 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             .text("Third paragraph after the heading with a [link](https://example.com).")
         ]
 
-        // Pre-warm the cache with a first evaluation.
-        let warmup = MarkdownSegmentView(segments: segments)
-        _ = warmup.body
+        let view = MarkdownSegmentView(segments: segments)
 
-        // Measure repeated evaluations — should all be cache hits.
+        // Pre-warm the cache.
+        _ = view.resolveSelectableRunMeasurement(segments)
+
+        // Measure repeated calls — should all be cache hits.
         measure(metrics: [XCTClockMetric()]) {
             for _ in 0..<200 {
-                let view = MarkdownSegmentView(segments: segments)
-                _ = view.body
+                _ = view.resolveSelectableRunMeasurement(segments)
             }
         }
     }
