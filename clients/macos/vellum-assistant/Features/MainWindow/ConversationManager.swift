@@ -51,19 +51,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     @Published var isLoadingMoreConversations: Bool = false
     private struct AssistantActivitySnapshot: Equatable {
         let messageId: UUID
-        let textLength: Int
         let toolCallCount: Int
         let completedToolCallCount: Int
         let surfaceCount: Int
         let isStreaming: Bool
-
-        static func == (lhs: Self, rhs: Self) -> Bool {
-            lhs.messageId == rhs.messageId
-                && lhs.toolCallCount == rhs.toolCallCount
-                && lhs.completedToolCallCount == rhs.completedToolCallCount
-                && lhs.surfaceCount == rhs.surfaceCount
-                && lhs.isStreaming == rhs.isStreaming
-        }
     }
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some conversations.
@@ -2475,7 +2466,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let message = messages.reversed().first(where: { $0.role == .assistant }) else { return nil }
         return AssistantActivitySnapshot(
             messageId: message.id,
-            textLength: message.text.count,
             toolCallCount: message.toolCalls.count,
             completedToolCallCount: message.toolCalls.filter(\.isComplete).count,
             surfaceCount: message.inlineSurfaces.count,
@@ -2554,20 +2544,21 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return
         }
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
-        // Don't bump background conversations to the top — they receive frequent
-        // automated messages (heartbeats) that would constantly re-sort them,
-        // especially when an LRU-evicted ViewModel is recreated on click.
-        if !conversations[index].isBackgroundConversation {
+        let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
+        // Only bump sort order when a genuinely new assistant message appears,
+        // not on every structural change (tool calls, surfaces, streaming state).
+        if isNewMessage && !conversations[index].isBackgroundConversation {
             updateLastInteracted(conversationId: conversationId)
         }
-        let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
         // Keep the local attention timestamp current for live assistant replies
         // so unread eligibility survives until the next conversation-list refresh.
         if conversations[index].latestAssistantMessageAt == nil || isNewMessage {
             conversations[index].latestAssistantMessageAt = Date()
         }
         if conversationId == activeConversationId {
-            conversations[index].hasUnseenLatestAssistantMessage = false
+            if conversations[index].hasUnseenLatestAssistantMessage {
+                conversations[index].hasUnseenLatestAssistantMessage = false
+            }
             // Only emit the seen signal on meaningful transitions:
             // 1. A new assistant message appeared (different messageId)
             // 2. Streaming just completed (isStreaming went true -> false)
@@ -2577,7 +2568,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                     emitConversationSeenSignal(conversationId: conversationId)
                 }
             }
-        } else {
+        } else if !conversations[index].hasUnseenLatestAssistantMessage {
             conversations[index].hasUnseenLatestAssistantMessage = true
         }
     }
