@@ -114,6 +114,7 @@ struct SettingsPanel: View {
     @State private var isDeveloperEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
     @State private var isEmbeddingProviderEnabled: Bool = false
+    @State private var isIntegrationsGridEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
@@ -124,6 +125,7 @@ struct SettingsPanel: View {
     private static let developerFeatureFlagKey = "settings-developer-nav"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let soundsFeatureFlagKey = "sounds"
+    private static let integrationsGridFeatureFlagKey = "settings-integrations-grid"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -181,6 +183,7 @@ struct SettingsPanel: View {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             isSchedulesEnabled = assistantFeatureFlagStore.isEnabled(Self.schedulesFeatureFlagKey)
+            isIntegrationsGridEnabled = assistantFeatureFlagStore.isEnabled(Self.integrationsGridFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -244,6 +247,8 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .schedules {
                         selectedTab = .general
                     }
+                } else if key == Self.integrationsGridFeatureFlagKey {
+                    isIntegrationsGridEnabled = enabled
                 }
             }
         }
@@ -480,16 +485,28 @@ struct SettingsPanel: View {
             }
 
             // OAUTH PROVIDERS (dynamic from API)
-            ForEach(store.managedOAuthProviders, id: \.provider_key) { provider in
+            if !isIntegrationsGridEnabled {
+                ForEach(store.managedOAuthProviders, id: \.provider_key) { provider in
+                    Divider()
+                        .background(VColor.borderBase)
+                        .padding(.vertical, VSpacing.sm)
+
+                    OAuthProviderServiceCard(
+                        store: store,
+                        authManager: authManager,
+                        showToast: showToast,
+                        providerKey: provider.provider_key
+                    )
+                }
+            } else {
                 Divider()
                     .background(VColor.borderBase)
                     .padding(.vertical, VSpacing.sm)
 
-                OAuthProviderServiceCard(
+                IntegrationsGridView(
                     store: store,
                     authManager: authManager,
-                    showToast: showToast,
-                    providerKey: provider.provider_key
+                    showToast: showToast
                 )
             }
         }
@@ -643,6 +660,9 @@ struct SettingsPanel: View {
                 if let schedulesFlag = flags.first(where: { $0.key == Self.schedulesFeatureFlagKey }) {
                     isSchedulesEnabled = schedulesFlag.enabled
                 }
+                if let integrationsGridFlag = flags.first(where: { $0.key == Self.integrationsGridFeatureFlagKey }) {
+                    isIntegrationsGridEnabled = integrationsGridFlag.enabled
+                }
                 consumeDeferredDeepLinkIfVisible()
                 return
             } catch {
@@ -665,6 +685,9 @@ struct SettingsPanel: View {
         }
         if let schedulesEnabled = resolved[Self.schedulesFeatureFlagKey] {
             isSchedulesEnabled = schedulesEnabled
+        }
+        if let integrationsGridEnabled = resolved[Self.integrationsGridFeatureFlagKey] {
+            isIntegrationsGridEnabled = integrationsGridEnabled
         }
 
         consumeDeferredDeepLinkIfVisible()

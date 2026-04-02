@@ -170,6 +170,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "settings-integrations-grid",
+      "scope": "assistant",
+      "key": "settings-integrations-grid",
+      "label": "Integrations Grid",
+      "description": "Show the Integrations grid in Models & Services settings, replacing individual OAuth provider cards",
+      "defaultEnabled": false
+    },
+    {
       "id": "quick-input",
       "scope": "macos",
       "key": "quick-input",
@@ -267,3 +275,4 @@
     }
   ]
 }
+
