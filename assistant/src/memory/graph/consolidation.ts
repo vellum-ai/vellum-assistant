@@ -19,6 +19,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db-connection.js";
 import { parseEpochMs } from "./extraction.js";
 import {
   createTrigger,
@@ -62,7 +63,11 @@ function buildConsolidationPrompt(
           ? ` eventDate=${new Date(n.eventDate).toISOString().split("T")[0]}`
           : "";
       const imageStr = n.hasImage ? " [has_image]" : "";
-      return `  [${n.id}] type=${n.type} sig=${n.significance.toFixed(2)} fidelity=${n.fidelity} reinforced=${n.reinforcementCount}x age=${age}d${eventStr}${imageStr}\n    ${n.content}`;
+      return `  [${n.id}] type=${n.type} sig=${n.significance.toFixed(
+        2,
+      )} fidelity=${n.fidelity} reinforced=${
+        n.reinforcementCount
+      }x age=${age}d${eventStr}${imageStr}\n    ${n.content}`;
     })
     .join("\n\n");
 
@@ -514,21 +519,24 @@ async function consolidateChunk(
     if (Object.keys(changes).length > 1) {
       // more than just lastConsolidated
 
-      // Record edit history before the DB write so previousContent is pre-change
-      if (changes.content) {
-        const cleanContent = deduplicateParagraphs(changes.content);
-        const node = nodeMap.get(update.id);
-        if (node && node.content !== cleanContent) {
-          recordNodeEdit({
-            nodeId: update.id,
-            previousContent: node.content,
-            newContent: cleanContent,
-            source: "consolidation",
-          });
+      // Wrap edit recording + node update in a transaction so they are atomic:
+      // if updateNode fails, the edit record is rolled back.
+      getDb().transaction(() => {
+        if (changes.content) {
+          const cleanContent = deduplicateParagraphs(changes.content);
+          const node = nodeMap.get(update.id);
+          if (node && node.content !== cleanContent) {
+            recordNodeEdit({
+              nodeId: update.id,
+              previousContent: node.content,
+              newContent: cleanContent,
+              source: "consolidation",
+            });
+          }
         }
-      }
 
-      updateNode(update.id, changes);
+        updateNode(update.id, changes);
+      });
       result.nodesUpdated++;
       // Sync in-memory state with what updateNode actually wrote to the DB
       // (updateNode deduplicates content before persisting)
