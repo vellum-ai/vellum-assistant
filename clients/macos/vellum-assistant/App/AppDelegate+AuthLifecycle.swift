@@ -451,12 +451,22 @@ extension AppDelegate {
         //    cleared in step 3; without it the health check's
         //    Vellum-Organization-Id header would be missing and the connection
         //    would fail.
+        managedSwitchTask?.cancel()
+        managedSwitchTask = nil
         if assistant.isManaged {
-            Task {
+            let targetId = assistant.assistantId
+            managedSwitchTask = Task {
                 do {
                     _ = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
                 } catch {
                     log.error("Managed bootstrap failed during switch — proceeding anyway: \(error.localizedDescription, privacy: .public)")
+                }
+                // Guard against a second switch that started while we were
+                // awaiting the bootstrap — only finish if this assistant is
+                // still the selected target.
+                guard UserDefaults.standard.string(forKey: "connectedAssistantId") == targetId else {
+                    log.info("Managed switch to \(targetId, privacy: .public) superseded — skipping finishSwitchAssistant")
+                    return
                 }
                 self.finishSwitchAssistant(assistant)
             }
