@@ -292,10 +292,9 @@ export class SubagentManager {
       const errorMsg = err instanceof Error ? err.message : String(err);
       managed.state.error = errorMsg;
       managed.state.completedAt = Date.now();
-      // Guard: conversation may have been released by abort() before catch runs.
-      if (managed.conversation) {
-        managed.state.usage = { ...managed.conversation.usageStats };
-      }
+      // Copy usage from the captured conversation reference — managed.conversation
+      // may have been nulled by an external dispose() before catch runs.
+      managed.state.usage = { ...conversation.usageStats };
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -595,9 +594,14 @@ export class SubagentManager {
     const now = Date.now();
     const expired: string[] = [];
     for (const [id, managed] of this.subagents) {
-      if (managed.retainedUntil && now >= managed.retainedUntil) {
-        expired.push(id);
+      if (!managed.retainedUntil || now < managed.retainedUntil) continue;
+      // Skip entries that still have a live conversation (deferred release due
+      // to hadEnqueuedMessages). Extend retention so the next sweep re-checks.
+      if (managed.conversation) {
+        managed.retainedUntil = now + TERMINAL_RETENTION_MS;
+        continue;
       }
+      expired.push(id);
     }
     for (const id of expired) {
       log.debug(
