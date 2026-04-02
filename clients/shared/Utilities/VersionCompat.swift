@@ -66,7 +66,7 @@ public enum VersionCompat {
         let cleaned = (version.hasPrefix("v") || version.hasPrefix("V")) ? String(version.dropFirst()) : version
         // Split off pre-release suffix (-beta.1) before parsing core version
         let parts = cleaned.split(separator: "-", maxSplits: 1).map(String.init)
-        let core = parts[0]
+        guard let core = parts.first else { return nil }
         let pre: String? = parts.count > 1 ? parts[1] : nil
         // Strip build metadata (+build.123) from pre-release or core
         let cleanPre = pre?.split(separator: "+", maxSplits: 1).first.map(String.init)
