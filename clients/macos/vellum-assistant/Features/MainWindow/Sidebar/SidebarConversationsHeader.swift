@@ -41,11 +41,11 @@ struct SidebarConversationsHeader: View {
                         style: .ghost,
                         action: onCreateGroup
                     )
+                    .disabled(isLoading)
                     .vTooltip("New group")
                 }
                 VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewConversation)
                     .disabled(isLoading)
-                    .opacity(isLoading ? 0.4 : 1)
                     .vTooltip(newChatTooltip)
             }
         }
