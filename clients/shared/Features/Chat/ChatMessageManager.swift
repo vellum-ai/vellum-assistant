@@ -19,7 +19,26 @@ public final class ChatMessageManager {
 
     // MARK: - Message list
 
-    public var messages: [ChatMessage] = []
+    /// The full message array. The custom getter/setter participates in the
+    /// Observation framework (`access`/`withMutation`) while also pushing
+    /// every mutation through `_messagesSubject` so Combine subscribers
+    /// (pagination, voice mode, conversation manager, iOS store) stay in
+    /// sync without a recursive `withObservationTracking` loop.
+    ///
+    /// - SeeAlso: [Observation framework](https://developer.apple.com/documentation/observation)
+    public var messages: [ChatMessage] {
+        get {
+            access(keyPath: \.messages)
+            return _messagesStorage
+        }
+        set {
+            withMutation(keyPath: \.messages) {
+                _messagesStorage = newValue
+            }
+            _messagesSubject.send(newValue)
+        }
+    }
+    @ObservationIgnored private var _messagesStorage: [ChatMessage] = []
 
     /// Active pending confirmation request ID, derived from `messages` via a
     /// Combine pipeline. Views read this O(1) cached value instead of scanning
@@ -54,11 +73,6 @@ public final class ChatMessageManager {
     public var isThinkingPublisher: AnyPublisher<Bool, Never> { _isThinkingSubject.eraseToAnyPublisher() }
 
     init() {
-        // Start the withObservationTracking sync loops that keep the
-        // CurrentValueSubjects in sync with the @Observable properties.
-        syncMessagesPublisher()
-        syncIsThinkingPublisher()
-
         // Uses visibleMessages (all non-hidden) rather than paginatedMessages
         // because pending confirmations are always near the end of the list,
         // within the initial pagination window. The broader scope ensures the
@@ -93,32 +107,27 @@ public final class ChatMessageManager {
             }
     }
 
-    // MARK: - Sync loops
-
-    private func syncMessagesPublisher() {
-        withObservationTracking {
-            _messagesSubject.send(self.messages)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.syncMessagesPublisher()
-            }
-        }
-    }
-
-    private func syncIsThinkingPublisher() {
-        withObservationTracking {
-            _isThinkingSubject.send(self.isThinking)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.syncIsThinkingPublisher()
-            }
-        }
-    }
-
     // MARK: - Input / send state
 
     public var inputText: String = ""
-    public var isThinking: Bool = false
+
+    /// Whether the assistant is in a "thinking" phase. Like `messages`, the
+    /// custom setter publishes directly to `_isThinkingSubject` so Combine
+    /// subscribers (voice mode) stay in sync without a recursive observation
+    /// loop.
+    public var isThinking: Bool {
+        get {
+            access(keyPath: \.isThinking)
+            return _isThinkingStorage
+        }
+        set {
+            withMutation(keyPath: \.isThinking) {
+                _isThinkingStorage = newValue
+            }
+            _isThinkingSubject.send(newValue)
+        }
+    }
+    @ObservationIgnored private var _isThinkingStorage: Bool = false
     public var isSending: Bool = false
     public var assistantActivityPhase: String = "idle"
     public var assistantActivityAnchor: String = "global"
