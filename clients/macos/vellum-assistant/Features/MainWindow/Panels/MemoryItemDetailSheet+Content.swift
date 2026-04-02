@@ -7,83 +7,88 @@ extension MemoryItemDetailSheet {
 
     @ViewBuilder
     var viewModeContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Statement")
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentTertiary)
-            Text(displayItem.statement)
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentDefault)
-                .textSelection(.enabled)
-        }
+        // Statement — no label, the VModal title already shows the subject
+        Text(displayItem.statement)
+            .font(VFont.bodyMediumLighter)
+            .foregroundStyle(VColor.contentDefault)
+            .textSelection(.enabled)
 
+        // Classification group
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Details")
-                .font(VFont.bodyMediumDefault)
+            Text("Classification")
+                .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentTertiary)
+            HStack(spacing: VSpacing.sm) {
+                kindBadge
+                Text("·").foregroundStyle(VColor.contentTertiary)
+                Text(displayItem.status.capitalized)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+            if let sourceType = displayItem.sourceType {
+                sourceTypeIndicator(sourceType)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+        }
+        .padding(VSpacing.md)
+        .background(VColor.surfaceActive.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
+        // Strength group
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Strength")
+                .font(VFont.bodySmallEmphasised)
+                .foregroundStyle(VColor.contentTertiary)
             HStack(spacing: VSpacing.xs) {
-                Text("Kind")
+                Text("Confidence")
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentTertiary)
-                    .frame(width: 110, alignment: .leading)
-                kindBadge
+                    .frame(width: 90, alignment: .leading)
+                metricBar(value: displayItem.confidence ?? 0,
+                          color: confidenceColor(displayItem.confidence ?? 0))
+                Text("\(Int((displayItem.confidence ?? 0) * 100))%")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
             }
-            metadataRow(label: "Status", value: displayItem.status.capitalized)
-            metadataRow(label: "Confidence", value: "\(Int((displayItem.confidence ?? 0) * 100))%")
             if let importance = displayItem.importance {
-                metadataRow(label: "Importance", value: "\(Int(importance * 100))%")
-            }
-
-            if let sourceType = displayItem.sourceType {
                 HStack(spacing: VSpacing.xs) {
-                    Text("Source")
+                    Text("Importance")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentTertiary)
-                        .frame(width: 110, alignment: .leading)
-                    switch sourceType {
-                    case "direct":
-                        VIconView(.circleCheck, size: 13)
-                            .foregroundStyle(VColor.systemPositiveStrong)
-                        Text("Told directly")
-                    case "observed":
-                        VIconView(.eye, size: 13)
-                            .foregroundStyle(VColor.contentSecondary)
-                        Text("Observed pattern")
-                    default:
-                        VIconView(.sparkles, size: 13)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Text("Inferred")
-                    }
-                }
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentSecondary)
-            }
-
-            if let scopeLabel = displayItem.scopeLabel {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Scope")
-                        .font(VFont.bodyMediumLighter)
+                        .frame(width: 90, alignment: .leading)
+                    metricBar(value: importance, color: VColor.primaryBase)
+                    Text("\(Int(importance * 100))%")
+                        .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
-                        .frame(width: 110, alignment: .leading)
-                    VIconView(.lock, size: 12)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text(scopeLabel)
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
                 }
             }
+            if let count = displayItem.reinforcementCount, count > 0 {
+                metadataRow(label: "Reinforced", value: "\(count) time\(count == 1 ? "" : "s")")
+            }
+        }
+        .padding(VSpacing.md)
+        .background(VColor.surfaceActive.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
-            metadataRow(label: "First seen", value: formattedDate(displayItem.firstSeenDate))
-            metadataRow(label: "Last seen", value: formattedDate(displayItem.lastSeenDate))
-            if let lastUsedDate = displayItem.lastUsedDate {
-                metadataRow(label: "Last used", value: formattedDate(lastUsedDate))
-            }
-            if let fidelity = displayItem.fidelity {
-                metadataRow(label: "Fidelity", value: fidelity.capitalized)
-            }
-            if let reinforcementCount = displayItem.reinforcementCount, reinforcementCount > 0 {
-                metadataRow(label: "Reinforced", value: "\(reinforcementCount) time\(reinforcementCount == 1 ? "" : "s")")
+        // Timeline group (collapsed by default)
+        VDisclosureSection(
+            title: "Timeline",
+            icon: VIcon.clock.rawValue,
+            isExpanded: $isTimelineExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                metadataRow(label: "First seen", value: formattedDate(displayItem.firstSeenDate))
+                metadataRow(label: "Last seen", value: formattedDate(displayItem.lastSeenDate))
+                if let lastUsedDate = displayItem.lastUsedDate {
+                    metadataRow(label: "Last used", value: formattedDate(lastUsedDate))
+                }
+                if let fidelity = displayItem.fidelity {
+                    metadataRow(label: "Fidelity", value: fidelity.capitalized)
+                }
+                if let scopeLabel = displayItem.scopeLabel {
+                    metadataRow(label: "Scope", value: scopeLabel)
+                }
             }
         }
     }

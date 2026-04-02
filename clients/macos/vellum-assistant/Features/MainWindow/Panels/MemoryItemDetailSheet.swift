@@ -17,6 +17,7 @@ struct MemoryItemDetailSheet: View {
     @State var isSaving = false
     @State var showDeleteConfirm = false
     @State var errorMessage: String?
+    @State var isTimelineExpanded = false
 
     /// The item with full detail (supersession subjects resolved), falling back to the list item.
     var displayItem: MemoryItemPayload { detailItem ?? item }
