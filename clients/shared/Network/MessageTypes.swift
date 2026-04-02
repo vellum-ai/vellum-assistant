@@ -1045,42 +1045,12 @@ public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
 }
 
 /// Discriminated union over the `origin` field of a skill.
-/// Dispatches on the origin string to decode origin-specific metadata.
-public enum SkillOriginMeta: Decodable, Sendable, Equatable {
+/// Constructed via the `originMeta` computed property, which dispatches on origin.
+public enum SkillOriginMeta: Sendable, Equatable {
     case vellum
     case clawhub(ClawhubOriginMeta)
     case skillssh(SkillsshOriginMeta)
     case custom
-
-    private enum CodingKeys: String, CodingKey {
-        case origin, slug, author, stars, installs, reports, publishedAt, sourceRepo
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let origin = try container.decode(String.self, forKey: .origin)
-        switch origin {
-        case "clawhub":
-            self = .clawhub(ClawhubOriginMeta(
-                slug: try container.decode(String.self, forKey: .slug),
-                author: try container.decode(String.self, forKey: .author),
-                stars: try container.decode(Int.self, forKey: .stars),
-                installs: try container.decode(Int.self, forKey: .installs),
-                reports: try container.decode(Int.self, forKey: .reports),
-                publishedAt: try container.decodeIfPresent(String.self, forKey: .publishedAt)
-            ))
-        case "skillssh":
-            self = .skillssh(SkillsshOriginMeta(
-                slug: try container.decode(String.self, forKey: .slug),
-                sourceRepo: try container.decode(String.self, forKey: .sourceRepo),
-                installs: try container.decode(Int.self, forKey: .installs)
-            ))
-        case "vellum":
-            self = .vellum
-        default:
-            self = .custom
-        }
-    }
 }
 
 extension SkillsListResponseSkill {
