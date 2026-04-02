@@ -254,8 +254,7 @@ final class MessageListScrollState {
     @ObservationIgnored var lastKnownVisibleMessageCount: Int = 0
     @ObservationIgnored var lastKnownLastMessageStreaming: Bool = false
     @ObservationIgnored var lastKnownIncompleteToolCallCount: Int = 0
-    @ObservationIgnored var lastKnownFirstVisibleId: UUID?
-    @ObservationIgnored var lastKnownLastVisibleId: UUID?
+    @ObservationIgnored var lastKnownVisibleIdFingerprint: Int = 0
     @ObservationIgnored var cachedFirstVisibleMessageId: UUID?
 
     // MARK: - Scroll Action Closures
@@ -604,8 +603,7 @@ final class MessageListScrollState {
         lastKnownVisibleMessageCount = 0
         lastKnownLastMessageStreaming = false
         lastKnownIncompleteToolCallCount = 0
-        lastKnownFirstVisibleId = nil
-        lastKnownLastVisibleId = nil
+        lastKnownVisibleIdFingerprint = 0
         currentConversationId = newConversationId
         mode = .initialLoad
         activeStabilizationCount = 0

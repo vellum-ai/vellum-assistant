@@ -328,8 +328,7 @@ final class MessageListScrollStateTests: XCTestCase {
         state.lastKnownVisibleMessageCount = 8
         state.lastKnownLastMessageStreaming = true
         state.lastKnownIncompleteToolCallCount = 3
-        state.lastKnownFirstVisibleId = UUID()
-        state.lastKnownLastVisibleId = UUID()
+        state.lastKnownVisibleIdFingerprint = 42
 
         state.reset(for: UUID())
 
@@ -338,8 +337,7 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertEqual(state.lastKnownVisibleMessageCount, 0)
         XCTAssertFalse(state.lastKnownLastMessageStreaming)
         XCTAssertEqual(state.lastKnownIncompleteToolCallCount, 0)
-        XCTAssertNil(state.lastKnownFirstVisibleId)
-        XCTAssertNil(state.lastKnownLastVisibleId)
+        XCTAssertEqual(state.lastKnownVisibleIdFingerprint, 0)
         XCTAssertNil(state.cachedLayoutKey)
         XCTAssertNil(state.cachedLayoutMetadata)
     }

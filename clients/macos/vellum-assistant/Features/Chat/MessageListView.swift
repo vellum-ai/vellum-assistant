@@ -69,8 +69,7 @@ struct MessageListView: View, Equatable {
             && lhs.assistantStatusText == rhs.assistantStatusText
             && lhs.selectedModel == rhs.selectedModel
             && lhs.configuredProviders == rhs.configuredProviders
-            && lhs.providerCatalog.count == rhs.providerCatalog.count
-            && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName })
+            && MessageCellView.hashCatalog(lhs.providerCatalog) == MessageCellView.hashCatalog(rhs.providerCatalog)
             && lhs.activeSubagents == rhs.activeSubagents
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
             && lhs.showInspectButton == rhs.showInspectButton
@@ -202,10 +201,13 @@ struct MessageListView: View, Equatable {
         let currentLastStreaming = visibleMessages.last?.isStreaming ?? false
         let currentIncompleteToolCalls = visibleMessages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
 
-        // O(1) boundary check — catches "same count, different IDs" scenarios
-        // by comparing first/last IDs rather than hashing the entire array.
-        let currentFirstId = visibleMessages.first?.id
-        let currentLastId = visibleMessages.last?.id
+        // Full ID fingerprint — catches any ID change in the visible array.
+        // With Equatable on MessageListView + .equatable() at the call site,
+        // body evaluations are now rare (only when data properties actually
+        // change), so this O(n) hash no longer runs on every parent body pass.
+        var idHasher = Hasher()
+        for msg in visibleMessages { idHasher.combine(msg.id) }
+        let currentIdFingerprint = idHasher.finalize()
 
         var changed = false
 
@@ -225,10 +227,8 @@ struct MessageListView: View, Equatable {
             scrollState.lastKnownIncompleteToolCallCount = currentIncompleteToolCalls
             changed = true
         }
-        if currentFirstId != scrollState.lastKnownFirstVisibleId
-            || currentLastId != scrollState.lastKnownLastVisibleId {
-            scrollState.lastKnownFirstVisibleId = currentFirstId
-            scrollState.lastKnownLastVisibleId = currentLastId
+        if currentIdFingerprint != scrollState.lastKnownVisibleIdFingerprint {
+            scrollState.lastKnownVisibleIdFingerprint = currentIdFingerprint
             changed = true
         }
 
