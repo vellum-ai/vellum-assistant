@@ -62,6 +62,7 @@ struct ComposerTextEditor: NSViewRepresentable {
     var onDownArrow: (() -> Bool)? = nil
     var onEscape: (() -> Bool)? = nil
     var onPasteImage: (() -> Void)? = nil
+    var shouldOverrideReturn: (() -> Bool)? = nil
     @Binding var cursorPosition: Int
     var textReplacer: TextReplacementProxy? = nil
 
@@ -218,6 +219,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.onDownArrow = onDownArrow
         textView.onEscape = onEscape
         textView.onPasteImage = onPasteImage
+        textView.shouldOverrideReturn = shouldOverrideReturn
         textView.onFocusChanged = { [weak coordinator = context.coordinator] focused in
             guard let coordinator, coordinator.parent.isFocused != focused else { return }
             coordinator.parent.isFocused = focused

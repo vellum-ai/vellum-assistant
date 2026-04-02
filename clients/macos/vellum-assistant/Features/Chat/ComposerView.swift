@@ -272,6 +272,9 @@ struct ComposerView: View {
                     return false
                 },
                 onPasteImage: onPaste,
+                shouldOverrideReturn: {
+                    showSlashMenu || showEmojiMenu
+                },
                 cursorPosition: $cursorPosition,
                 textReplacer: textReplacer
             )
