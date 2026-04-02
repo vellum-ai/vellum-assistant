@@ -273,24 +273,32 @@ export function seedCatalogSkillMemories(): void {
       )
       .all();
 
+    const allLocalSkillIds = new Set(catalog.map((s) => s.id));
     const cachedCatalog = getCachedCatalogSync();
-    if (cachedCatalog.length === 0) {
-      log.debug("Skipping skill memory pruning — catalog cache not yet populated");
-    } else {
-      const cachedCatalogIds = new Set(cachedCatalog.map((s) => s.id));
+    const cachedCatalogIds = new Set(cachedCatalog.map((s) => s.id));
 
-      const now = Date.now();
-      for (const item of allCapabilities) {
-        if (!item.content.startsWith("skill:")) continue;
-        const itemSkillId = item.content.split("\n")[0].replace("skill:", "");
-        if (!catalogIds.has(itemSkillId) && !cachedCatalogIds.has(itemSkillId)) {
-          log.info({ skillId: itemSkillId, nodeId: item.id, catalogSize: catalogIds.size, cacheSize: cachedCatalogIds.size }, "Pruning stale skill capability memory");
-          db.update(memoryGraphNodes)
-            .set({ fidelity: "gone", lastAccessed: now })
-            .where(eq(memoryGraphNodes.id, item.id))
-            .run();
-        }
-      }
+    const now = Date.now();
+    for (const item of allCapabilities) {
+      if (!item.content.startsWith("skill:")) continue;
+      const itemSkillId = item.content.split("\n")[0].replace("skill:", "");
+
+      // Keep enabled skills
+      if (catalogIds.has(itemSkillId)) continue;
+
+      // Keep uninstalled catalog skills that are still in the remote catalog
+      if (cachedCatalogIds.has(itemSkillId)) continue;
+
+      // If the catalog cache is empty (cold start, before async fetch),
+      // we can't tell whether an unknown skill is a stale entry or
+      // a valid uninstalled catalog skill. Only prune skills we can
+      // positively identify as local-but-disabled.
+      if (cachedCatalogIds.size === 0 && !allLocalSkillIds.has(itemSkillId)) continue;
+
+      log.info({ skillId: itemSkillId, nodeId: item.id, catalogSize: catalogIds.size, cacheSize: cachedCatalogIds.size }, "Pruning stale skill capability memory");
+      db.update(memoryGraphNodes)
+        .set({ fidelity: "gone", lastAccessed: now })
+        .where(eq(memoryGraphNodes.id, item.id))
+        .run();
     }
   } catch (err) {
     log.warn({ err }, "Failed to seed catalog skill memories");
