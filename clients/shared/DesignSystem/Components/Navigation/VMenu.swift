@@ -257,6 +257,7 @@ public struct VMenu<Content: View>: View {
     /// Open the submenu of the currently focused VSubMenuItem (→ arrow).
     private func openMenuSubmenu() -> KeyPress.Result {
         guard let fid = focusedItemID,
+              coordinator?.isItemEnabled(level: panelLevel, id: fid) ?? true,
               let action = coordinator?.submenuActions[panelLevel]?[fid] else {
             return .ignored
         }
@@ -638,6 +639,10 @@ public struct VSubMenuItem<Content: View>: View {
             }
             coordinator?.registerItemAction(level: panelLevel, id: itemID, action: openAction)
             coordinator?.registerSubmenuAction(level: panelLevel, id: itemID, action: openAction)
+            coordinator?.registerItemEnabled(level: panelLevel, id: itemID, isEnabled: isEnabled)
+        }
+        .onChange(of: isEnabled) { _, newValue in
+            coordinator?.registerItemEnabled(level: panelLevel, id: itemID, isEnabled: newValue)
         }
     }
 

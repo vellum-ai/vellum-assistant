@@ -407,8 +407,9 @@ public final class VMenuCoordinator {
                 return true
             }
             return false
-        case 124: // Right arrow — open submenu if focused item is a VSubMenuItem
+        case 124: // Right arrow — open submenu if focused item is a VSubMenuItem (skip disabled)
             if let focusedID = focusedItemID(at: level),
+               isItemEnabled(level: level, id: focusedID),
                let action = submenuActions[level]?[focusedID] {
                 pendingChildFocus = true
                 action()

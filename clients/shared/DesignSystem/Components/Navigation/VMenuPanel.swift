@@ -53,6 +53,9 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        // Enable mouse-moved events so the coordinator's local monitor can detect
+        // mouse movement over the panel and clear keyboard focus appropriately.
+        panel.acceptsMouseMovedEvents = true
 
         // Accessibility: configure the panel so VoiceOver can navigate its SwiftUI content.
         // - Role description "menu" preserves the announcement without the behavioral
@@ -145,6 +148,7 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.acceptsMouseMovedEvents = true
         panel.setAccessibilityRoleDescription(NSLocalizedString("menu", comment: "Accessibility role description for VMenu panel"))
         panel.setAccessibilitySubrole(.standardWindow)
         panel.coordinator = coordinator
