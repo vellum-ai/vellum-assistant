@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install bun
-RUN curl -fsSL https://bun.sh/install | bash -s -- --smol
+RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
 # Copy shared packages needed by assistant's repo-local dependencies
@@ -121,6 +121,7 @@ EXPOSE 3001
 
 ENV RUNTIME_HTTP_PORT=3001
 ENV IS_CONTAINERIZED=true
+ENV BUN_SMOL=1
 
 # Copy from builder
 COPY --from=builder /app /app
