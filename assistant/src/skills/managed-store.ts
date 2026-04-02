@@ -11,10 +11,10 @@ import { dirname, join } from "node:path";
 
 import { stringify as stringifyYaml } from "yaml";
 
+import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { writeInstallMeta } from "./install-meta.js";
-import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 
 const log = getLogger("managed-store");
 

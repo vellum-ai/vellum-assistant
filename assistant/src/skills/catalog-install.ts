@@ -14,10 +14,10 @@ import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { getPlatformBaseUrl } from "../config/env.js";
+import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir, readPlatformToken } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
-import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 
 const log = getLogger("catalog-install");
 

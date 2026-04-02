@@ -21,6 +21,11 @@ import {
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../../config/skills.js";
 import {
+  deleteSkillCapabilityNode,
+  seedSkillGraphNodes,
+  seedUninstalledCatalogSkillMemories,
+} from "../../memory/graph/capability-seed.js";
+import {
   createTimeout,
   extractText,
   getConfiguredProvider,
@@ -51,11 +56,6 @@ import {
   removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
-import {
-  deleteSkillCapabilityNode,
-  seedSkillGraphNodes,
-  seedUninstalledCatalogSkillMemories,
-} from "../../memory/graph/capability-seed.js";
 import {
   installExternalSkill,
   resolveSkillSource,
