@@ -6,13 +6,16 @@
 // skill-memory.ts and cli-memory.ts.
 // ---------------------------------------------------------------------------
 
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 
 import { buildCliProgram } from "../../cli/program.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { getCatalog } from "../../skills/catalog-cache.js";
 import {
+  fromCatalogSkill,
   fromSkillSummary,
   type SkillCapabilityInput,
 } from "../../skills/skill-memory.js";
@@ -112,6 +115,12 @@ export function seedSkillGraphNodes(): void {
     // seenKeys already contains all locally-installed-and-enabled skills
     // which is sufficient to identify what should be kept.
     pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
+
+    // Clean up old-format nodes created by the legacy skill-memory.ts system.
+    // Those nodes have content like "skill:{id}\n..." instead of the current
+    // 'The "..." skill ...' format. Mark them as gone so they stop appearing
+    // as duplicates. Idempotent — once cleaned, subsequent runs find nothing.
+    cleanupOldFormatSkillNodes();
   } catch (err) {
     log.warn({ err }, "Failed to seed skill graph nodes");
   }
@@ -134,6 +143,34 @@ export function seedCliGraphNodes(): void {
     pruneStaleCapabilities(CLI_SOURCE_PREFIX, seenKeys);
   } catch (err) {
     log.warn({ err }, "Failed to seed CLI graph nodes");
+  }
+}
+
+/**
+ * Seed capability graph nodes for catalog skills that are not yet installed.
+ * This makes uninstalled skills discoverable via memory injection so the LLM
+ * can auto-install them via skill_load when relevant.
+ * Best-effort: errors are logged but never thrown.
+ */
+export async function seedUninstalledCatalogSkillMemories(): Promise<void> {
+  try {
+    const fullCatalog = await getCatalog();
+    if (fullCatalog.length === 0) return;
+
+    const installedCatalog = loadSkillCatalog();
+    const installedIds = new Set(installedCatalog.map((s) => s.id));
+
+    const config = getConfig();
+    for (const entry of fullCatalog) {
+      if (installedIds.has(entry.id)) continue;
+
+      const flagKey = entry.metadata?.vellum?.["feature-flag"];
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
+
+      upsertSkillCapabilityNode(entry.id, fromCatalogSkill(entry));
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to seed uninstalled catalog skill memories");
   }
 }
 
@@ -264,6 +301,42 @@ function deleteCapabilityNode(sourceKey: string): void {
 }
 
 /**
+ * Find and soft-delete old-format skill memory nodes.
+ *
+ * The legacy skill-memory.ts system stored content as "skill:{id}\n{statement}".
+ * The current system uses "The "..." skill ..." prose format. This marks any
+ * remaining old-format nodes as gone so they no longer surface in retrieval.
+ */
+function cleanupOldFormatSkillNodes(): void {
+  const db = getDb();
+
+  const oldFormatNodes = db
+    .select()
+    .from(memoryGraphNodes)
+    .where(
+      and(
+        eq(memoryGraphNodes.type, "procedural"),
+        eq(memoryGraphNodes.scopeId, "default"),
+        sql`${memoryGraphNodes.fidelity} != 'gone'`,
+        sql`${memoryGraphNodes.content} LIKE 'skill:%'`,
+      ),
+    )
+    .all();
+
+  const now = Date.now();
+  for (const node of oldFormatNodes) {
+    // Verify this is truly old-format: "skill:{id}\n..."
+    if (!/^skill:\S+\n/.test(node.content)) continue;
+
+    db.update(memoryGraphNodes)
+      .set({ fidelity: "gone", lastAccessed: now })
+      .where(eq(memoryGraphNodes.id, node.id))
+      .run();
+    log.info({ nodeId: node.id }, "Cleaned up old-format skill memory node");
+  }
+}
+
+/**
  * Remove capability nodes whose sourceKeys are no longer in the active set.
  */
 function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
@@ -288,7 +361,10 @@ function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
       const sources = JSON.parse(row.sourceConversations as string);
       const key = Array.isArray(sources) ? sources[0] : null;
       if (key && typeof key === "string" && !activeKeys.has(key)) {
-        log.info({ sourceKey: key, nodeId: row.id }, "Pruning stale capability graph node");
+        log.info(
+          { sourceKey: key, nodeId: row.id },
+          "Pruning stale capability graph node",
+        );
         db.update(memoryGraphNodes)
           .set({ fidelity: "gone", lastAccessed: now })
           .where(eq(memoryGraphNodes.id, row.id))

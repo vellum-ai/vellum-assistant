@@ -24,7 +24,7 @@ function assistantMsg(text: string): Message {
 // ---------------------------------------------------------------------------
 
 const sampleContext =
-  "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib, tests\n</workspace_top_level>";
+  "<workspace>\nRoot: /sandbox\nDirectories: src, lib, tests\n</workspace>";
 
 describe("Workspace top-level context — injection", () => {
   test("prepends workspace block to user message content", () => {

@@ -21,6 +21,11 @@ import {
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../../config/skills.js";
 import {
+  deleteSkillCapabilityNode,
+  seedSkillGraphNodes,
+  seedUninstalledCatalogSkillMemories,
+} from "../../memory/graph/capability-seed.js";
+import {
   createTimeout,
   extractText,
   getConfiguredProvider,
@@ -51,11 +56,6 @@ import {
   removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
-import {
-  deleteSkillCapabilityMemory,
-  seedCatalogSkillMemories,
-  seedUninstalledCatalogSkillMemories,
-} from "../../skills/skill-memory.js";
 import {
   installExternalSkill,
   resolveSkillSource,
@@ -242,7 +242,7 @@ export function postInstallSkill(
   }
 
   // Seed skill memories
-  seedCatalogSkillMemories();
+  seedSkillGraphNodes();
   void seedUninstalledCatalogSkillMemories().catch(() => {});
 }
 
@@ -603,7 +603,7 @@ export function enableSkill(
       name: skillId,
       state: "enabled",
     });
-    seedCatalogSkillMemories();
+    seedSkillGraphNodes();
     void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
@@ -626,7 +626,7 @@ export function disableSkill(
       name: skillId,
       state: "disabled",
     });
-    seedCatalogSkillMemories();
+    seedSkillGraphNodes();
     void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
@@ -719,7 +719,7 @@ export async function installSkill(
           "Failed to auto-enable bundled skill",
         );
       }
-      seedCatalogSkillMemories();
+      seedSkillGraphNodes();
       void seedUninstalledCatalogSkillMemories().catch(() => {});
       return { success: true };
     }
@@ -847,14 +847,7 @@ export async function uninstallSkill(
       }
       // Best-effort cleanup of capability memory for uninstalled skill
       // (managed path handles this internally via deleteManagedSkill)
-      deleteSkillCapabilityMemory(skillId);
-      try {
-        const { deleteSkillCapabilityNode } =
-          await import("../../memory/graph/capability-seed.js");
-        deleteSkillCapabilityNode(skillId);
-      } catch {
-        /* best effort */
-      }
+      deleteSkillCapabilityNode(skillId);
     }
 
     // Clean config entry
@@ -1255,7 +1248,7 @@ export async function createSkill(
       );
     }
 
-    seedCatalogSkillMemories();
+    seedSkillGraphNodes();
     void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {

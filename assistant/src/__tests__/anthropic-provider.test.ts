@@ -276,7 +276,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Second user turn (second-to-last): cache_control ephemeral
     const secondUserLastBlock =
       userMessages[1].content[userMessages[1].content.length - 1];
-    expect(secondUserLastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(secondUserLastBlock.cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // Third user turn (last): no cache_control
     const thirdUserLastBlock =
@@ -315,7 +318,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; cache_control?: { type: string; ttl?: string } }>;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
     }>;
     const userMsgs = sent.filter((m) => m.role === "user");
     // First user msg (second-to-last) should get cache
@@ -402,7 +408,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: [
         {
           type: "text",
-          text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>",
+          text: "<workspace>\nRoot: /sandbox\nDirectories: src, tests\n</workspace>",
         },
         { type: "text", text: "What files are in src?" },
       ],
@@ -432,7 +438,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: [
         {
           type: "text",
-          text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>",
+          text: "<workspace>\nRoot: /sandbox\nDirectories: src, tests\n</workspace>",
         },
         { type: "text", text: "Help me debug this" },
         {
@@ -550,7 +556,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         content: [
           {
             type: "text",
-            text: "<workspace_top_level>\nRoot: /sandbox\n</workspace_top_level>",
+            text: "<workspace>\nRoot: /sandbox\n</workspace>",
           },
           {
             type: "tool_result",
@@ -1338,7 +1344,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         content: [
           {
             type: "text",
-            text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src\n</workspace_top_level>",
+            text: "<workspace>\nRoot: /sandbox\nDirectories: src\n</workspace>",
           },
           { type: "text", text: "Turn 1" },
         ],
@@ -1350,7 +1356,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         content: [
           {
             type: "text",
-            text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib\n</workspace_top_level>",
+            text: "<workspace>\nRoot: /sandbox\nDirectories: src, lib\n</workspace>",
           },
           { type: "text", text: "Turn 2" },
         ],
@@ -1362,7 +1368,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         content: [
           {
             type: "text",
-            text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib, docs\n</workspace_top_level>",
+            text: "<workspace>\nRoot: /sandbox\nDirectories: src, lib, docs\n</workspace>",
           },
           { type: "text", text: "Turn 3" },
         ],
@@ -1387,7 +1393,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // Turn 2 (second-to-last): cache on last block only
     expect(userMsgs[1].content[0].cache_control).toBeUndefined();
-    expect(userMsgs[1].content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(userMsgs[1].content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // Turn 3 (last): no cache
     expect(userMsgs[2].content[0].cache_control).toBeUndefined();

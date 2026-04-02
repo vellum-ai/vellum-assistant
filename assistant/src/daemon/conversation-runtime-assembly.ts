@@ -980,7 +980,10 @@ export function buildUnifiedTurnContextBlock(
         `contact_notes: ${sanitizeInlineContextValue(ctx.contactNotes)}`,
       );
     }
-    if (ctx.contactInteractionCount != null && ctx.contactInteractionCount > 0) {
+    if (
+      ctx.contactInteractionCount != null &&
+      ctx.contactInteractionCount > 0
+    ) {
       lines.push(`contact_interaction_count: ${ctx.contactInteractionCount}`);
     }
     if (
@@ -1108,9 +1111,9 @@ export function injectWorkspaceTopLevelContext(
   };
 }
 
-/** Strip `<workspace_top_level>` blocks injected by `injectWorkspaceTopLevelContext`. */
+/** Strip `<workspace>` blocks injected by `injectWorkspaceTopLevelContext`. */
 export function stripWorkspaceTopLevelContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<workspace_top_level>"]);
+  return stripUserTextBlocksByPrefix(messages, ["<workspace>"]);
 }
 
 /**
