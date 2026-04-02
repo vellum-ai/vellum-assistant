@@ -25,7 +25,9 @@ struct MainWindowVersionMismatchBanner: View {
                             windowState.selection = .panel(.settings)
                         },
                         onDismiss: {
-                            connectionManager.dismissVersionMismatch()
+                            withAnimation(VAnimation.fast) {
+                                connectionManager.dismissVersionMismatch()
+                            }
                         }
                     )
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
@@ -41,7 +43,9 @@ struct MainWindowVersionMismatchBanner: View {
                             AppDelegate.shared?.updateManager.checkForUpdates()
                         },
                         onDismiss: {
-                            connectionManager.dismissVersionMismatch()
+                            withAnimation(VAnimation.fast) {
+                                connectionManager.dismissVersionMismatch()
+                            }
                         }
                     )
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
