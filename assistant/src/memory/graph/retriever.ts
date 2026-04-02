@@ -759,6 +759,8 @@ export interface TurnRetrievalOpts {
 export interface TurnRetrievalResult {
   /** New nodes to inject (not already in context). */
   nodes: ScoredNode[];
+  /** Serendipity picks included in nodes. */
+  serendipityNodes: ScoredNode[];
   /** Triggers that fired this turn. */
   triggeredNodes: TriggeredResult[];
   latencyMs: number;
@@ -828,7 +830,7 @@ export async function retrieveForTurn(
   }
 
   if (queryText.trim().length === 0 && allCandidateIds.size === 0) {
-    return { nodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
+    return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
   }
 
   // Chunk if too large (8k token ≈ 32k chars conservative estimate)
@@ -885,7 +887,7 @@ export async function retrieveForTurn(
     } catch (err) {
       log.warn({ err }, "Embedding/search failed for turn retrieval");
       if (allCandidateIds.size === 0) {
-        return { nodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
+        return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
       }
     }
   }
@@ -918,6 +920,7 @@ export async function retrieveForTurn(
   if (newCandidateIds.length === 0) {
     return {
       nodes: [],
+      serendipityNodes: [],
       triggeredNodes: triggeredSemantic,
       latencyMs: Date.now() - start,
     };
@@ -961,8 +964,8 @@ export async function retrieveForTurn(
   // Sort and apply threshold — pull a wider pool for dedup, then trim
   scored.sort((a, b) => b.score - a.score);
   const INJECTION_THRESHOLD = 0.3;
-  const PRE_DEDUP_POOL = 40;
-  const MAX_INJECTED = 8;
+  const PRE_DEDUP_POOL = 20;
+  const MAX_INJECTED = 4;
   const pool = scored
     .filter((s) => s.score >= INJECTION_THRESHOLD)
     .slice(0, PRE_DEDUP_POOL);
@@ -973,8 +976,17 @@ export async function retrieveForTurn(
       ? await dedupForTurn(pool, MAX_INJECTED, opts.userLastMessage)
       : pool;
 
+  // Reserve 1 serendipity slot from scored candidates not in the deterministic set
+  const deterministicIds = new Set(injected.map((n) => n.node.id));
+  const serendipityPool = scored.filter(
+    (s) => s.score >= INJECTION_THRESHOLD && !deterministicIds.has(s.node.id),
+  );
+  const serendipityPicks = sampleSerendipity(serendipityPool, 1);
+  const allInjected = [...injected, ...serendipityPicks];
+
   return {
-    nodes: injected,
+    nodes: allInjected,
+    serendipityNodes: serendipityPicks,
     triggeredNodes: triggeredSemantic,
     latencyMs: Date.now() - start,
   };
