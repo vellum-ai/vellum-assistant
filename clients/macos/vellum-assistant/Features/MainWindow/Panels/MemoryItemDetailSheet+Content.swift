@@ -142,18 +142,18 @@ extension MemoryItemDetailSheet {
             displayItem.subject
                 .lowercased()
                 .split(separator: " ")
-                .map(String.init)
+                .map { $0.filter(\.isLetter) }
                 .filter { $0.count > 3 && !stopWords.contains($0) }
         )
         guard !words.isEmpty else { return [] }
 
-        return store.items
+        return store.allLoadedItems
             .filter { $0.id != displayItem.id && $0.kind == displayItem.kind }
             .filter { candidate in
                 let candidateWords = Set(
                     candidate.subject.lowercased()
                         .split(separator: " ")
-                        .map(String.init)
+                        .map { $0.filter(\.isLetter) }
                         .filter { $0.count > 3 && !stopWords.contains($0) }
                 )
                 return !words.isDisjoint(with: candidateWords)
