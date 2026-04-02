@@ -201,10 +201,8 @@ struct MessageListView: View, Equatable {
         let currentLastStreaming = visibleMessages.last?.isStreaming ?? false
         let currentIncompleteToolCalls = visibleMessages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
 
-        // Full ID fingerprint — catches any ID change in the visible array.
-        // With Equatable on MessageListView + .equatable() at the call site,
-        // body evaluations are now rare (only when data properties actually
-        // change), so this O(n) hash no longer runs on every parent body pass.
+        // O(n) hash of visible message IDs — catches "same count, different
+        // IDs" scenarios (e.g. mid-array swaps during streaming or pagination).
         var idHasher = Hasher()
         for msg in visibleMessages { idHasher.combine(msg.id) }
         let currentIdFingerprint = idHasher.finalize()
@@ -284,9 +282,6 @@ struct MessageListView: View, Equatable {
             activeSubagentFingerprint: Self.computeSubagentFingerprint(activeSubagents),
             displayedMessageCount: displayedMessageCount
         )
-        // liveMessageById dictionary eliminated — ForEach now iterates
-        // directly over liveMessages, avoiding O(n) dictionary allocation
-        // on every body evaluation.
 
         // --- Stage 1: Cached structural metadata ---
         let layout: CachedMessageLayoutMetadata
@@ -406,7 +401,6 @@ struct MessageListView: View, Equatable {
         let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
 
         let result = MessageListDerivedState(
-            displayMessageIds: layout.displayMessageIds,
             messageIndexById: layout.messageIndexById,
             showTimestamp: layout.showTimestamp,
             hasPrecedingAssistantByIndex: layout.hasPrecedingAssistantByIndex,
@@ -1539,7 +1533,6 @@ struct CachedMessageLayoutMetadata {
 /// are always live so SwiftUI's `.equatable()` diffing sees every mutation.
 struct MessageListDerivedState {
     // --- Cached structural metadata (from CachedMessageLayoutMetadata) ---
-    let displayMessageIds: [UUID]
     let messageIndexById: [UUID: Int]
     let showTimestamp: Set<UUID>
     let hasPrecedingAssistantByIndex: Set<Int>
