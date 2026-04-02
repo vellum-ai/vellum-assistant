@@ -445,11 +445,26 @@ export async function loadContextMemory(
   // SQLite — no Qdrant vectors needed — so capabilities surface even on
   // fresh assistants whose embedding jobs haven't completed yet.
   const CAPABILITY_RESERVE = 5;
-  const capabilityNodes = queryNodes({
+  const rawCapabilityNodes = queryNodes({
     scopeId: opts.scopeId,
     types: ["procedural"],
     fidelityNot: ["gone"],
-    limit: CAPABILITY_RESERVE * 2,
+    limit: CAPABILITY_RESERVE * 4,
+  });
+
+  // Dedup: both seeding systems may create nodes for the same skill.
+  // Extract skill ID from content and keep only the first node per skill.
+  const seenSkillIds = new Set<string>();
+  const capabilityNodes = rawCapabilityNodes.filter((node) => {
+    const skillMatch = node.content.match(
+      /^skill:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)/,
+    );
+    const skillId = skillMatch?.[1] ?? skillMatch?.[2];
+    if (skillId) {
+      if (seenSkillIds.has(skillId)) return false;
+      seenSkillIds.add(skillId);
+    }
+    return true;
   });
 
   // Rank by semantic similarity when a query vector exists
@@ -564,12 +579,14 @@ export async function loadContextMemory(
     });
   });
 
-  // Remove reserved nodes from the main pool (they have guaranteed slots)
+  // Remove reserved nodes and all procedural nodes from the main pool.
+  // Procedural nodes have dedicated reserved slots — any that didn't make
+  // the cut shouldn't compete with organic memories for general slots.
   const mainPool = scored.filter(
     (s) =>
+      s.node.type !== "procedural" &&
       !prospectiveIds.has(s.node.id) &&
-      !upcomingIds.has(s.node.id) &&
-      !capabilityIds.has(s.node.id),
+      !upcomingIds.has(s.node.id),
   );
   const mainSlots = Math.max(
     0,
