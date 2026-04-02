@@ -518,7 +518,8 @@ export function getProfilerRuntimeStatus(): ProfilerRuntimeStatus {
     .filter((m) => m.status === "completed")
     .sort(
       (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        new Date(b.completedAt ?? b.createdAt).getTime() -
+        new Date(a.completedAt ?? a.createdAt).getTime(),
     );
 
   let lastCompletedRun: ProfilerLastCompletedRun | null = null;
