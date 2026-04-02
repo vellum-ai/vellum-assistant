@@ -50,9 +50,17 @@ jobs:
     env:
       APP_DISPLAY_NAME: Vellum
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Cancel if superseded by a newer run
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const branch = context.ref.replace('refs/heads/', '');
             for (const status of ['queued', 'waiting', 'in_progress']) {
@@ -81,6 +89,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -111,9 +121,17 @@ jobs:
     env:
       APP_DISPLAY_NAME: Vellum
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Cancel if superseded by a newer run
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const branch = context.ref.replace('refs/heads/', '');
             for (const status of ['queued', 'waiting', 'in_progress']) {
@@ -142,6 +160,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -174,7 +194,7 @@ jobs:
 
       - name: Configure GitHub auth for SPM binary downloads
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           printf "machine github.com\nlogin oauth2\npassword %s\n" "${GH_TOKEN}" > ~/.netrc
           chmod 600 ~/.netrc
