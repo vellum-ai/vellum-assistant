@@ -232,6 +232,78 @@ async function dedupForTurn(
 }
 
 // ---------------------------------------------------------------------------
+// Cross-category dedup — dedup-only (no relevance filtering)
+// ---------------------------------------------------------------------------
+
+/**
+ * Dedup-only pass for cross-category duplicate removal. Unlike `dedupForTurn`,
+ * this does NOT filter by relevance to a query — it ONLY removes duplicates
+ * and keeps everything else. Used after context load to catch topic-level
+ * duplicates across reserved categories and serendipity.
+ */
+async function dedupCrossCategory(
+  candidates: ScoredNode[],
+  maxNodes: number,
+): Promise<ScoredNode[]> {
+  try {
+    const provider = await getConfiguredProvider();
+    if (!provider) return candidates.slice(0, maxNodes);
+
+    const now = Date.now();
+    const listing = candidates
+      .map((s, i) => {
+        const ageDays = (now - s.node.created) / (1000 * 60 * 60 * 24);
+        const age =
+          ageDays < 1
+            ? `${Math.floor(ageDays * 24)}h`
+            : `${Math.floor(ageDays)}d`;
+        return `${i + 1}. (${age}) ${s.node.content}`;
+      })
+      .join("\n");
+
+    const response = await provider.sendMessage(
+      [userMessage(listing)],
+      [SELECT_ITEMS_TOOL],
+      `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
+      {
+        config: {
+          modelIntent: "latency-optimized" as const,
+          tool_choice: { type: "tool" as const, name: "select_items" },
+          thinking: { type: "disabled" },
+          temperature: 0,
+        },
+      },
+    );
+
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock) return candidates.slice(0, maxNodes);
+
+    const input = toolBlock.input as { items?: number[] };
+    if (!input.items?.length) return candidates.slice(0, maxNodes);
+
+    const reranked: ScoredNode[] = [];
+    const seen = new Set<number>();
+    for (const num of input.items) {
+      const idx = num - 1;
+      if (idx >= 0 && idx < candidates.length && !seen.has(idx)) {
+        reranked.push(candidates[idx]);
+        seen.add(idx);
+      }
+    }
+
+    return reranked.length > 0
+      ? reranked.slice(0, maxNodes)
+      : candidates.slice(0, maxNodes);
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Cross-category dedup failed, using original order",
+    );
+    return candidates.slice(0, maxNodes);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Context load — conversation start
 // ---------------------------------------------------------------------------
 
@@ -627,10 +699,9 @@ export async function loadContextMemory(
   let dedupedSerendipity = uniqueSerendipity;
 
   if (combined.length > CROSS_DEDUP_THRESHOLD) {
-    const deduped = await dedupForTurn(
+    const deduped = await dedupCrossCategory(
       combined,
       combined.length, // preserve all non-duplicate nodes
-      "context load — deduplicate across all categories",
     );
 
     // Re-split into deterministic vs serendipity by checking original membership
