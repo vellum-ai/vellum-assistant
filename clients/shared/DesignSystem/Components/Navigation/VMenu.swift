@@ -427,7 +427,7 @@ public struct VMenuItem<Trailing: View>: View {
             HStack(spacing: VSpacing.xs) {
                 if let icon {
                     VIconView(.resolve(icon), size: VSize.iconDefault)
-                        .foregroundStyle(iconColor)
+                        .foregroundStyle(isEnabled ? iconColor : VColor.contentDisabled)
                         .frame(width: VSize.iconSlot, height: VSize.iconSlot)
                 }
                 Text(label)
@@ -560,7 +560,7 @@ public struct VSubMenuItem<Content: View>: View {
         HStack(spacing: VSpacing.xs) {
             if let icon {
                 VIconView(.resolve(icon), size: VSize.iconDefault)
-                    .foregroundStyle(VColor.primaryBase)
+                    .foregroundStyle(isEnabled ? VColor.primaryBase : VColor.contentDisabled)
                     .frame(width: VSize.iconSlot, height: VSize.iconSlot)
             }
             Text(label)
@@ -571,7 +571,7 @@ public struct VSubMenuItem<Content: View>: View {
                 .allowsHitTesting(false)
             Spacer()
             VIconView(.chevronRight, size: 10)
-                .foregroundStyle(VColor.contentTertiary)
+                .foregroundStyle(isEnabled ? VColor.contentTertiary : VColor.contentDisabled)
         }
         .padding(.leading, VSpacing.xs)
         .padding(.trailing, VSpacing.sm)
