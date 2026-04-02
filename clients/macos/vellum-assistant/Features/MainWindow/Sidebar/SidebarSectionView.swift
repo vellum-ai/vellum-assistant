@@ -221,8 +221,7 @@ struct SidebarSectionView: View {
     @ViewBuilder
     private func scheduleSubGroupDisclosure(_ subGroup: ScheduleSubGroup) -> some View {
         let isSubGroupExpanded = expandedScheduleGroups?.wrappedValue.contains(subGroup.key) ?? false
-        let hasUnread = !isSubGroupExpanded &&
-            subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+        let hasUnread = subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
 
         // Disclosure header — layout matches SidebarConversationItem's skeleton
         // so the chevron aligns with the pin icon and the badge aligns with the ellipsis.
