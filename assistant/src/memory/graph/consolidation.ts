@@ -27,6 +27,7 @@ import {
   getEdgesForNode,
   getTriggersForNode,
   queryNodes,
+  recordNodeEdit,
   updateNode,
 } from "./store.js";
 import type { MemoryNode } from "./types.js";
@@ -195,7 +196,9 @@ function getTopSignificanceNodes(
     scopeId,
     fidelityNot: ["gone"],
     minSignificance: 0.6,
-  }).filter((n) => !isCapabilityNode(n)).slice(0, n);
+  })
+    .filter((n) => !isCapabilityNode(n))
+    .slice(0, n);
 }
 
 function getDecayedNodes(scopeId: string): MemoryNode[] {
@@ -203,7 +206,10 @@ function getDecayedNodes(scopeId: string): MemoryNode[] {
     scopeId,
     limit: 10000,
   });
-  return all.filter((n) => (n.fidelity === "faded" || n.fidelity === "gist") && !isCapabilityNode(n));
+  return all.filter(
+    (n) =>
+      (n.fidelity === "faded" || n.fidelity === "gist") && !isCapabilityNode(n),
+  );
 }
 
 function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
@@ -507,6 +513,21 @@ async function consolidateChunk(
 
     if (Object.keys(changes).length > 1) {
       // more than just lastConsolidated
+
+      // Record edit history before the DB write so previousContent is pre-change
+      if (changes.content) {
+        const cleanContent = deduplicateParagraphs(changes.content);
+        const node = nodeMap.get(update.id);
+        if (node && node.content !== cleanContent) {
+          recordNodeEdit({
+            nodeId: update.id,
+            previousContent: node.content,
+            newContent: cleanContent,
+            source: "consolidation",
+          });
+        }
+      }
+
       updateNode(update.id, changes);
       result.nodesUpdated++;
       // Sync in-memory state with what updateNode actually wrote to the DB
