@@ -189,6 +189,7 @@ public struct VMenuItem<Trailing: View>: View {
             ) {
                 trailing
             }
+            .accessibilityValue(accessibilityValueText ?? "")
         } else {
             HStack(spacing: VSpacing.xs) {
                 if let icon {
