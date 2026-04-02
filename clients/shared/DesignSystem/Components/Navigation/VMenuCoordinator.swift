@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
+import Combine
 import SwiftUI
-import Observation
 
 // MARK: - WeakNSViewRef
 
@@ -31,24 +31,23 @@ final class WeakNSViewRef {
 ///
 /// References:
 /// - [NSAccessibility.post](https://developer.apple.com/documentation/appkit/nsaccessibility/post(element:notification:))
-/// - [Observation framework](https://developer.apple.com/documentation/observation)
-@Observable
+/// - [Combine framework](https://developer.apple.com/documentation/combine)
 @MainActor
 public final class VMenuCoordinator {
     /// Ordered stack of open panels. Index 0 = root, index 1 = child.
-    @ObservationIgnored private(set) var panels: [NSPanel] = []
-    @ObservationIgnored private var clickMonitor: Any?
-    @ObservationIgnored private var windowObserver: Any?
-    @ObservationIgnored private var appDeactivationObserver: Any?
-    @ObservationIgnored private var mouseMoveMonitor: Any?
-    @ObservationIgnored private var keyboardMonitor: Any?
-    @ObservationIgnored private var lastKeyboardEventTime: TimeInterval = 0
-    @ObservationIgnored private var graceTimer: DispatchWorkItem?
-    @ObservationIgnored private var rootDismissHandler: (() -> Void)?
+    private(set) var panels: [NSPanel] = []
+    private var clickMonitor: Any?
+    private var windowObserver: Any?
+    private var appDeactivationObserver: Any?
+    private var mouseMoveMonitor: Any?
+    private var keyboardMonitor: Any?
+    private var lastKeyboardEventTime: TimeInterval = 0
+    private var graceTimer: DispatchWorkItem?
+    private var rootDismissHandler: (() -> Void)?
     /// Screen rect to exclude from click-outside dismiss (e.g., the trigger button).
-    @ObservationIgnored private var excludeRect: CGRect?
+    private var excludeRect: CGRect?
     /// The window the menu was opened from, used to attach child panels.
-    @ObservationIgnored private weak var sourceWindow: NSWindow?
+    private weak var sourceWindow: NSWindow?
 
     /// Max depth: root + one submenu.
     static let maxDepth = 2
@@ -58,31 +57,44 @@ public final class VMenuCoordinator {
 
     // MARK: - Keyboard Focus (M3)
 
+    /// Subject for signaling VMenu to clear keyboard focus (e.g., on mouse move).
+    /// VMenu subscribes via `.onReceive(clearFocusAnyPublisher)` and sets its `@State focusedItemID = nil`.
+    let clearFocusSubject = PassthroughSubject<Void, Never>()
+
+    /// Subject for signaling VMenu that the focused item changed via the fallback key-handling path
+    /// (VMenuPanel.keyDown → coordinator.handleKeyDown). VMenu subscribes and updates `@State`.
+    let focusChangeSubject = PassthroughSubject<UUID?, Never>()
+
+    /// Type-erased publisher for VMenu to subscribe to clear-focus signals.
+    var clearFocusAnyPublisher: AnyPublisher<Void, Never> {
+        clearFocusSubject.eraseToAnyPublisher()
+    }
+
+    /// Type-erased publisher for VMenu to subscribe to focus-change signals (fallback path).
+    var focusChangeAnyPublisher: AnyPublisher<UUID?, Never> {
+        focusChangeSubject.eraseToAnyPublisher()
+    }
+
     /// Focused item index per panel level. Key absent = no keyboard focus (mouse-driven).
-    ///
-    /// This is the primary observed property — SwiftUI views react to changes here
-    /// to show/hide the keyboard focus highlight. The Observation framework tracks
-    /// reads of this property in view `body` computations and triggers re-renders
-    /// when the value changes.
     var focusedIndex: [Int: Int] = [:]
 
     /// Total item count per panel level (derived from `itemOrder`).
-    @ObservationIgnored var itemCounts: [Int: Int] = [:]
+    var itemCounts: [Int: Int] = [:]
 
     /// Ordered list of item UUIDs per panel level, in layout order.
     /// Populated by VMenu via `onPreferenceChange(VMenuItemRegistrationKey.self)`.
-    @ObservationIgnored var itemOrder: [Int: [UUID]] = [:]
+    var itemOrder: [Int: [UUID]] = [:]
 
     /// Action closures for each item, keyed by (level, UUID).
     /// Invoked when Enter/Space is pressed on the focused item.
-    @ObservationIgnored var itemActions: [Int: [UUID: () -> Void]] = [:]
+    var itemActions: [Int: [UUID: () -> Void]] = [:]
 
     /// Submenu-open closures for VSubMenuItems, keyed by (level, UUID).
     /// Invoked when → arrow is pressed on a focused submenu item.
-    @ObservationIgnored var submenuActions: [Int: [UUID: () -> Void]] = [:]
+    var submenuActions: [Int: [UUID: () -> Void]] = [:]
 
     /// Weak references to NSViews embedded in each item, for VoiceOver focus notifications.
-    @ObservationIgnored var itemNSViews: [Int: [UUID: WeakNSViewRef]] = [:]
+    var itemNSViews: [Int: [UUID: WeakNSViewRef]] = [:]
 
     // MARK: - Item Registration
 
@@ -346,6 +358,8 @@ public final class VMenuCoordinator {
         // can ignore micro-movements that would immediately clear the focus.
         lastKeyboardEventTime = ProcessInfo.processInfo.systemUptime
 
+        print("[VMenuKeyboard] handleKeyDown: keyCode=\(event.keyCode) level=\(level) panelCount=\(panels.count) itemCounts=\(itemCounts)")
+
         switch event.keyCode {
         case 126: // Up arrow
             moveFocus(direction: -1, level: level)
@@ -384,11 +398,20 @@ public final class VMenuCoordinator {
 
     private func moveFocus(direction: Int, level: Int) {
         let count = itemCounts[level] ?? 0
-        guard count > 0 else { return }
+        guard count > 0 else {
+            print("[VMenuKeyboard] moveFocus: no items at level \(level), itemCounts=\(itemCounts), itemOrder keys=\(itemOrder.keys.sorted())")
+            return
+        }
 
         let current = focusedIndex[level] ?? (direction > 0 ? -1 : count)
         let next = (current + direction + count) % count
         focusedIndex[level] = next
+
+        let focusedID = focusedItemID(at: level)
+        print("[VMenuKeyboard] moveFocus: level=\(level) index=\(next) id=\(focusedID?.uuidString.prefix(8) ?? "nil") count=\(count)")
+
+        // Notify VMenu via Combine (fallback path — primary path is .onKeyPress in VMenu)
+        focusChangeSubject.send(focusedID)
 
         postVoiceOverFocusNotification(level: level)
     }
@@ -396,15 +419,24 @@ public final class VMenuCoordinator {
     /// Clear keyboard focus (switch back to mouse-driven interaction).
     func clearKeyboardFocus() {
         if !focusedIndex.isEmpty {
+            print("[VMenuKeyboard] clearKeyboardFocus")
             focusedIndex.removeAll()
+            // Signal VMenu to clear its @State focusedItemID
+            clearFocusSubject.send()
         }
+    }
+
+    /// Record the time of a keyboard event (for mouse-move debounce).
+    /// Called by VMenu's `.onKeyPress` handlers.
+    func recordKeyboardEvent() {
+        lastKeyboardEventTime = ProcessInfo.processInfo.systemUptime
     }
 
     // MARK: - VoiceOver Bridge
 
     /// Post an accessibility focus notification for the currently focused item,
     /// so VoiceOver tracks keyboard navigation.
-    private func postVoiceOverFocusNotification(level: Int) {
+    func postVoiceOverFocusNotification(level: Int) {
         guard let focusedID = focusedItemID(at: level),
               let nsView = itemNSViews[level]?[focusedID]?.view else { return }
 
@@ -468,11 +500,12 @@ public final class VMenuCoordinator {
     private func installKeyboardMonitor() {
         removeKeyboardMonitor()
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            if self.handleKeyDown(event) {
-                return nil // Consume the event
-            }
-            return event // Pass through unhandled keys
+            // Track timing for mouse-move debounce but do NOT consume the event.
+            // Let SwiftUI's .onKeyPress on VMenu handle it (primary path).
+            // If VMenu doesn't have focus, the event falls through to
+            // VMenuPanel.keyDown (fallback path).
+            self?.lastKeyboardEventTime = ProcessInfo.processInfo.systemUptime
+            return event
         }
     }
 

@@ -45,6 +45,22 @@ public extension EnvironmentValues {
     }
 }
 
+// MARK: - VMenu Focused Item ID Environment
+
+/// The UUID of the currently keyboard-focused menu item, or `nil` when mouse-driven.
+/// Set by VMenu's `.onKeyPress` handlers; read by VMenuItem/VSubMenuItem for the highlight.
+/// Cross-platform — always `nil` on non-macOS (no keyboard navigation for custom menus).
+private struct VMenuFocusedItemIDKey: EnvironmentKey {
+    static let defaultValue: UUID? = nil
+}
+
+extension EnvironmentValues {
+    var vMenuFocusedItemID: UUID? {
+        get { self[VMenuFocusedItemIDKey.self] }
+        set { self[VMenuFocusedItemIDKey.self] = newValue }
+    }
+}
+
 // MARK: - Item Registration Preference Key
 
 /// Data reported by each interactive menu item (VMenuItem, VSubMenuItem) so VMenu
@@ -121,6 +137,11 @@ public struct VMenu<Content: View>: View {
     #if os(macOS)
     @Environment(\.vMenuCoordinator) private var coordinator
     @Environment(\.vMenuPanelLevel) private var panelLevel
+    @FocusState private var isMenuFocused: Bool
+    /// UUID of the item currently highlighted via keyboard. `nil` = mouse-driven (no highlight).
+    @State private var focusedItemID: UUID?
+    /// Ordered list of item UUIDs collected from the preference key.
+    @State private var registeredIDs: [UUID] = []
     #endif
 
     public init(
@@ -138,17 +159,120 @@ public struct VMenu<Content: View>: View {
         .padding(VSpacing.sm)
         .frame(width: width)
         .environment(\.vMenuParentWidth, width)
+        #if os(macOS)
+        .environment(\.vMenuFocusedItemID, focusedItemID)
+        #endif
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
         #if os(macOS)
+        // --- SwiftUI-native keyboard focus (WWDC23 "The SwiftUI cookbook for focus") ---
+        // Primary key-handling path: the VStack receives focus and .onKeyPress fires.
+        // Fallback: if focus is lost, VMenuPanel.keyDown catches events via the responder chain.
+        // Reference: https://developer.apple.com/videos/play/wwdc2023/10162/
+        .focusable()
+        .focused($isMenuFocused)
+        .focusEffectDisabled()
+        .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow, .return, .space]) { keyPress in
+            handleMenuKeyPress(keyPress)
+        }
+        .task {
+            // Brief delay so the hosting NSPanel's focus system is ready.
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            isMenuFocused = true
+        }
         .onPreferenceChange(VMenuItemRegistrationKey.self) { registrations in
-            let ids = registrations.map(\.id)
-            coordinator?.updateItemOrder(level: panelLevel, ids: ids)
+            registeredIDs = registrations.map(\.id)
+            coordinator?.updateItemOrder(level: panelLevel, ids: registeredIDs)
+        }
+        .onReceive(coordinator?.clearFocusAnyPublisher ?? Empty<Void, Never>().eraseToAnyPublisher()) { _ in
+            focusedItemID = nil
+        }
+        .onReceive(coordinator?.focusChangeAnyPublisher ?? Empty<UUID?, Never>().eraseToAnyPublisher()) { newID in
+            focusedItemID = newID
         }
         #endif
     }
+
+    // MARK: - Keyboard Navigation Helpers
+
+    #if os(macOS)
+    /// Unified key-press handler dispatching to the appropriate navigation action.
+    private func handleMenuKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+        print("[VMenuKeyboard] onKeyPress: key=\(keyPress.key) level=\(panelLevel) itemCount=\(registeredIDs.count)")
+        if keyPress.key == .upArrow {
+            moveMenuFocus(direction: -1)
+            return .handled
+        } else if keyPress.key == .downArrow {
+            moveMenuFocus(direction: 1)
+            return .handled
+        } else if keyPress.key == .return || keyPress.key == .space {
+            return activateMenuFocus()
+        } else if keyPress.key == .rightArrow {
+            return openMenuSubmenu()
+        } else if keyPress.key == .leftArrow {
+            return closeMenuSubmenu()
+        }
+        return .ignored
+    }
+
+    /// Move keyboard focus up or down by `direction` (+1 = down, -1 = up), wrapping around.
+    private func moveMenuFocus(direction: Int) {
+        coordinator?.recordKeyboardEvent()
+        guard !registeredIDs.isEmpty else {
+            print("[VMenuKeyboard] moveMenuFocus: no items registered")
+            return
+        }
+
+        let currentIndex: Int
+        if let fid = focusedItemID, let idx = registeredIDs.firstIndex(of: fid) {
+            currentIndex = idx
+        } else {
+            currentIndex = direction > 0 ? -1 : registeredIDs.count
+        }
+
+        let count = registeredIDs.count
+        let next = (currentIndex + direction + count) % count
+        focusedItemID = registeredIDs[next]
+
+        print("[VMenuKeyboard] moveMenuFocus: direction=\(direction) index=\(next)/\(count) id=\(focusedItemID?.uuidString.prefix(8) ?? "nil")")
+
+        // Keep coordinator in sync for the VoiceOver bridge.
+        coordinator?.focusedIndex[panelLevel] = next
+        coordinator?.postVoiceOverFocusNotification(level: panelLevel)
+    }
+
+    /// Activate the currently focused item (Enter / Space).
+    private func activateMenuFocus() -> KeyPress.Result {
+        guard let fid = focusedItemID,
+              let action = coordinator?.itemActions[panelLevel]?[fid] else {
+            return .ignored
+        }
+        print("[VMenuKeyboard] activateMenuFocus: id=\(fid.uuidString.prefix(8))")
+        action()
+        return .handled
+    }
+
+    /// Open the submenu of the currently focused VSubMenuItem (→ arrow).
+    private func openMenuSubmenu() -> KeyPress.Result {
+        guard let fid = focusedItemID,
+              let action = coordinator?.submenuActions[panelLevel]?[fid] else {
+            return .ignored
+        }
+        print("[VMenuKeyboard] openMenuSubmenu: id=\(fid.uuidString.prefix(8))")
+        action()
+        return .handled
+    }
+
+    /// Close the current submenu (← arrow). Only valid when panelLevel > 0.
+    private func closeMenuSubmenu() -> KeyPress.Result {
+        guard panelLevel > 0 else { return .ignored }
+        print("[VMenuKeyboard] closeMenuSubmenu: level=\(panelLevel)")
+        coordinator?.dismissChild()
+        return .handled
+    }
+    #endif
 }
 
 // MARK: - VMenuItemVariant
@@ -212,13 +336,13 @@ public struct VMenuItem<Trailing: View>: View {
     #if os(macOS)
     @Environment(\.vMenuCoordinator) private var coordinator
     @Environment(\.vMenuPanelLevel) private var panelLevel
+    @Environment(\.vMenuFocusedItemID) private var menuFocusedItemID
     @State private var itemID = UUID()
 
-    /// Whether this item is currently focused via keyboard navigation.
+    /// Whether this item is currently highlighted via keyboard navigation.
+    /// Derived from VMenu's `@State focusedItemID` passed through environment.
     private var isKeyboardFocused: Bool {
-        guard let coordinator,
-              let focusedID = coordinator.focusedItemID(at: panelLevel) else { return false }
-        return focusedID == itemID
+        menuFocusedItemID == itemID
     }
     #endif
 
@@ -256,7 +380,7 @@ public struct VMenuItem<Trailing: View>: View {
     private var highlightBackground: Color {
         if isActive { return VColor.surfaceActive }
         #if os(macOS)
-        if isKeyboardFocused { return VColor.surfaceBase }
+        if isKeyboardFocused { return Color.accentColor.opacity(0.15) }
         #endif
         if isHovered && isEnabled { return VColor.surfaceBase }
         return .clear
@@ -392,6 +516,12 @@ public struct VSubMenuItem<Content: View>: View {
     @State private var isHovered = false
     @State private var hoverTimer: DispatchWorkItem?
     @State private var itemID = UUID()
+    @Environment(\.vMenuFocusedItemID) private var menuFocusedItemID
+
+    /// Whether this item is currently highlighted via keyboard navigation.
+    private var isKeyboardFocused: Bool {
+        menuFocusedItemID == itemID
+    }
 
     public init(
         icon: String? = nil,
@@ -409,17 +539,10 @@ public struct VSubMenuItem<Content: View>: View {
         width ?? parentWidth
     }
 
-    /// Whether this item is currently focused via keyboard navigation.
-    private var isKeyboardFocused: Bool {
-        guard let coordinator,
-              let focusedID = coordinator.focusedItemID(at: panelLevel) else { return false }
-        return focusedID == itemID
-    }
-
     /// Background color incorporating keyboard focus and mouse hover.
     private var highlightBackground: Color {
         #if os(macOS)
-        if isKeyboardFocused { return VColor.surfaceBase }
+        if isKeyboardFocused { return Color.accentColor.opacity(0.15) }
         #endif
         if isHovered && isEnabled { return VColor.surfaceBase }
         return .clear
