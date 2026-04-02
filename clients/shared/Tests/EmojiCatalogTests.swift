@@ -51,7 +51,7 @@ final class EmojiCatalogTests: XCTestCase {
     }
 
     func testCommonShortcodesExist() {
-        let required = ["thumbsup", "heart", "fire", "rocket", "tada", "wave", "smile", "eyes", "pray", "100"]
+        let required = ["thumbsup", "heart", "fire", "rocket", "tada", "wave", "smile", "eyes", "pray", "100", "poop", "punch", "plus", "minus"]
         let allShortcodes = Set(EmojiCatalog.all.map(\.shortcode))
         for code in required {
             XCTAssertTrue(allShortcodes.contains(code), "Common shortcode '\(code)' missing from catalog")
