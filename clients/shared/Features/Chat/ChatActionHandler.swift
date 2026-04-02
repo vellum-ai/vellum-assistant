@@ -348,11 +348,11 @@ final class ChatActionHandler {
         guard belongsToConversation(complete.conversationId) else { return }
         // Auxiliary message_complete events (watch notifiers, call notifications)
         // that lack a messageId should not reset the main agent turn state.
-        // Without this guard, a watch commentary/summary message_complete arriving
-        // mid-stream clears currentAssistantMessageId, causing the main agent
-        // loop's subsequent message_complete to set daemonMessageId on the wrong
-        // (newly created) message — breaking the LLM Context Inspector until restart.
-        if complete.messageId == nil && vm.isSending {
+        // Only filter when a main agent turn is actively streaming
+        // (currentAssistantMessageId is set). This allows slash commands and other
+        // non-auxiliary completions (which don't set currentAssistantMessageId)
+        // to process normally.
+        if complete.messageId == nil && vm.currentAssistantMessageId != nil {
             return
         }
         // Flush any buffered streaming text before finalizing the message.
