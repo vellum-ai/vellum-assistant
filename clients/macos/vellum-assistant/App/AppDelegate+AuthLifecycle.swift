@@ -406,8 +406,10 @@ extension AppDelegate {
     /// 1. Clear assistant-scoped runtime state (recording, windows, callbacks)
     /// 2. Disconnect transport (leave old assistant running)
     /// 3. Persist the new assistant selection
-    /// 4. Reconfigure transport and reconnect
-    /// 5. Resume credential bootstrap
+    /// 4. For managed assistants, bootstrap via the platform API to re-resolve
+    ///    the organization ID (cleared in step 3) before connecting
+    /// 5. Reconfigure transport and reconnect
+    /// 6. Resume credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
         // If switching to a managed assistant while logged out, prompt login first.
         if assistant.isManaged && !authManager.isAuthenticated {
@@ -444,11 +446,33 @@ extension AppDelegate {
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
-        // 4. Reconfigure transport and reconnect
+        // 4. For managed assistants, bootstrap via the platform API to
+        //    re-resolve the organization ID before connecting. The org ID was
+        //    cleared in step 3; without it the health check's
+        //    Vellum-Organization-Id header would be missing and the connection
+        //    would fail.
+        if assistant.isManaged {
+            Task {
+                do {
+                    _ = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
+                } catch {
+                    log.error("Managed bootstrap failed during switch — proceeding anyway: \(error.localizedDescription, privacy: .public)")
+                }
+                self.finishSwitchAssistant(assistant)
+            }
+        } else {
+            finishSwitchAssistant(assistant)
+        }
+    }
+
+    /// Steps 5-6 of the switch sequence: reconfigure transport, resume
+    /// credential bootstrap, sync keys, reload flags/avatar, and show UI.
+    private func finishSwitchAssistant(_ assistant: LockfileAssistant) {
+        // 5. Reconfigure transport and reconnect
         hasSetupDaemon = false
         setupGatewayConnectionManager()
 
-        // 5. Resume credential bootstrap and show UI
+        // 6. Resume credential bootstrap and show UI
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
@@ -458,10 +482,10 @@ extension AppDelegate {
         localBootstrapDidComplete = false
         ensureLocalAssistantApiKey()
 
-        // 6. Sync locally-stored API keys to the new assistant. The assistant may
-        //    have started without ANTHROPIC_API_KEY in its environment (e.g.
-        //    when the app was launched via Finder/open). Push keys from
-        //    UserDefaults so the assistant can initialize its LLM providers.
+        // Sync locally-stored API keys to the new assistant. The assistant may
+        // have started without ANTHROPIC_API_KEY in its environment (e.g.
+        // when the app was launched via Finder/open). Push keys from
+        // UserDefaults so the assistant can initialize its LLM providers.
         syncApiKeysToAssistant(assistant)
 
         // Clear the UserDefaults feature-flag cache before reloading so
