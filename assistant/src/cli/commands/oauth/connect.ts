@@ -379,10 +379,7 @@ Examples:
               clientSecret,
               callbackTransport: opts.callbackTransport,
               isInteractive: opts.browser !== false,
-              openUrl:
-                opts.browser !== false
-                  ? (url: string) => openInHostBrowser(url)
-                  : undefined,
+              openUrl: opts.browser !== false ? openInHostBrowser : undefined,
               ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
             });
 
