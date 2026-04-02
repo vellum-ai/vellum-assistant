@@ -368,4 +368,67 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Test 9: MarkdownSegmentView Measurement Caching
+
+    /// Verifies that resolveSelectableRunMeasurement caches results so repeated
+    /// body evaluations do not re-run TextKit layout passes. This prevents the
+    /// 12-24s main-thread hangs observed in the LazyVStack layout cascade.
+    @MainActor
+    func testMarkdownSegmentMeasurementCaching() {
+        // Clear any pre-existing cache entries.
+        MarkdownSegmentView.clearAttributedStringCache()
+
+        let segments: [MarkdownSegment] = [
+            .text("Hello world, this is a test message with some representative content for benchmarking layout measurement caching.")
+        ]
+
+        // Create two identical MarkdownSegmentView instances (simulates
+        // repeated body evaluation by SwiftUI's layout engine).
+        let view1 = MarkdownSegmentView(segments: segments)
+        let view2 = MarkdownSegmentView(segments: segments)
+
+        // Access the body to trigger measurement (first call = cache miss).
+        _ = view1.body
+        let insertCountAfterFirst = MarkdownSegmentView._measuredTextCacheInsertCount
+
+        // Second evaluation with identical inputs should hit the cache.
+        _ = view2.body
+        let insertCountAfterSecond = MarkdownSegmentView._measuredTextCacheInsertCount
+
+        // The insert count should NOT increase on the second evaluation,
+        // proving that the TextKit measurement was served from cache.
+        XCTAssertEqual(insertCountAfterFirst, insertCountAfterSecond,
+            "Second evaluation must hit the measurement cache — no new TextKit layout pass")
+        XCTAssertGreaterThan(insertCountAfterFirst, 0,
+            "First evaluation must have inserted at least one cache entry")
+    }
+
+    // MARK: - Test 10: MarkdownSegmentView Body Evaluation Performance
+
+    /// Measures repeated MarkdownSegmentView body evaluations with cached
+    /// measurements. Ensures the per-evaluation cost stays negligible (cache
+    /// lookups only, no TextKit layout). Baseline regression detection via
+    /// XCTest's statistical comparison.
+    @MainActor
+    func testMarkdownSegmentBodyEvaluationPerformance() {
+        let segments: [MarkdownSegment] = [
+            .text("First paragraph with some representative text content."),
+            .text("Second paragraph with **bold** and *italic* formatting."),
+            .heading(level: 2, text: "A Section Heading"),
+            .text("Third paragraph after the heading with a [link](https://example.com).")
+        ]
+
+        // Pre-warm the cache with a first evaluation.
+        let warmup = MarkdownSegmentView(segments: segments)
+        _ = warmup.body
+
+        // Measure repeated evaluations — should all be cache hits.
+        measure(metrics: [XCTClockMetric()]) {
+            for _ in 0..<200 {
+                let view = MarkdownSegmentView(segments: segments)
+                _ = view.body
+            }
+        }
+    }
 }
