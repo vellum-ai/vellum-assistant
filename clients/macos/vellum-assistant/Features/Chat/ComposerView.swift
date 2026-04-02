@@ -74,6 +74,7 @@ struct ComposerView: View {
     @State private var isComposerFocused = false
     @State private var measuredTextHeight: CGFloat = 32
     @State private var textViewIsFocused: Bool = false
+    @State private var cursorPosition: Int = 0
 
     @State var showSlashMenu = false
     @State var slashFilter = ""
@@ -249,7 +250,8 @@ struct ComposerView: View {
                     if showSlashMenu { handleSlashNavigation(.dismiss); return true }
                     return false
                 },
-                onPasteImage: onPaste
+                onPasteImage: onPaste,
+                cursorPosition: $cursorPosition
             )
             .fixedSize(horizontal: false, vertical: true)
             // Prevent inherited .animation() modifiers from creating animation
