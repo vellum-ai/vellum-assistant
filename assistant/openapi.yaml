@@ -5254,6 +5254,8 @@ paths:
                   description: single_channel, multi_channel, or all_channels
                 quiet:
                   type: boolean
+                reuseConversation:
+                  type: boolean
               required:
                 - name
                 - expression
@@ -5262,6 +5264,7 @@ paths:
                 - mode
                 - routingIntent
                 - quiet
+                - reuseConversation
               additionalProperties: false
   /v1/schedules/{id}/cancel:
     post:
