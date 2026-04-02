@@ -123,8 +123,17 @@ jobs:
           - linux/arm64
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -202,6 +211,13 @@ jobs:
         environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Fail if image build failed
         if: needs.push-assistant-image.result != 'success'
         run: |
@@ -210,6 +226,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get release SHA
         id: release-sha
@@ -322,8 +340,17 @@ jobs:
           - linux/arm64
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -402,8 +429,17 @@ jobs:
           - linux/arm64
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -478,6 +514,13 @@ jobs:
         environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Fail if image build failed
         if: needs.push-gateway-image.result != 'success'
         run: |
@@ -486,6 +529,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get release SHA
         id: release-sha
@@ -596,6 +641,13 @@ jobs:
         environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Fail if image build failed
         if: needs.push-credential-executor-image.result != 'success'
         run: |
@@ -604,6 +656,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get release SHA
         id: release-sha
@@ -731,8 +785,17 @@ jobs:
             dockerfile: credential-executor/Dockerfile
             feature_flag_path: ""
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
