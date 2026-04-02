@@ -581,8 +581,7 @@ async function consolidateChunk(
   for (const id of input.delete_ids ?? []) {
     if (!nodeIds.has(id)) continue; // safety
     try {
-      const deletedNode = nodeMap.get(id);
-      log.info({ nodeId: id, contentPreview: deletedNode?.content?.slice(0, 80) }, "Consolidation deleting node");
+      log.info({ nodeId: id }, "Consolidation deleting node");
       deleteNode(id);
       result.nodesDeleted++;
       result.deletedIds.push(id);
