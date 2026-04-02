@@ -60,6 +60,7 @@ const EXTRACTION_SYSTEM_PROMPT_CHAR_BUDGET = 24_000;
 function buildGraphExtractionSystemPrompt(
   candidateNodes: Array<{ id: string; type: string; content: string }>,
   identityContext: string | null,
+  activeContextNodeIds?: Set<string>,
 ): string {
   const instructions = `You are the memory consolidation process for an AI assistant. A conversation just ended.
 Your job is to extract memories worth keeping and produce a structured diff.
@@ -137,7 +138,43 @@ Do NOT attach images that are incidental (screenshots of error messages fully de
 
 Write detailed descriptions — these are used for text-based retrieval when visual search isn't available.
 
-## Candidate Nodes (existing memories)
+${(() => {
+    const reconsolidationNodes = activeContextNodeIds?.size
+      ? candidateNodes.filter((n) => activeContextNodeIds.has(n.id))
+      : [];
+    const otherCandidates = activeContextNodeIds?.size
+      ? candidateNodes.filter((n) => !activeContextNodeIds.has(n.id))
+      : candidateNodes;
+
+    const reconsolidationSection =
+      reconsolidationNodes.length > 0
+        ? `## Reconsolidation Window
+
+These memories were ACTIVELY RECALLED during this conversation — the user and
+assistant both saw them. Recalled memories are in a reconsolidation window and
+should be the FIRST candidates for updating with new information.
+
+When a recalled memory relates to what was discussed:
+- Conversation CONFIRMS what the memory says → REINFORCE it
+- Conversation adds new detail or nuance → UPDATE it with richer content
+- Conversation reveals the memory is outdated or wrong → UPDATE it or create a superseding node
+- Conversation is unrelated to this memory → leave it alone
+
+STRONG PREFERENCE: Update a recalled memory rather than creating a new node that
+partially overlaps. The recalled memory already has history, reinforcement count,
+and edge connections — enriching it preserves that context graph.
+
+### Recalled memories
+${reconsolidationNodes.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}
+
+`
+        : "";
+
+    const candidateHeader = reconsolidationNodes.length > 0
+      ? "## Other Candidate Nodes (existing memories not in this conversation)"
+      : "## Candidate Nodes (existing memories)";
+
+    const candidateSection = `${candidateHeader}
 
 Check these CAREFULLY for overlap before creating any new node:
 
@@ -155,7 +192,10 @@ Common duplicate mistakes to avoid:
 - Same fact restated in a later conversation → REINFORCE, don't create
 - An update to an existing situation (e.g. "project is now done") → UPDATE the existing node, don't create a parallel one
 
-${candidateNodes.length > 0 ? `### Existing memories (candidates for connection/reinforcement)\n${candidateNodes.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}` : "No existing memories found — this may be an early conversation."}
+${otherCandidates.length > 0 ? `### Existing memories (candidates for connection/reinforcement)\n${otherCandidates.map((n) => `- [${n.id}] (${n.type}) ${n.content}`).join("\n")}` : "No existing memories found — this may be an early conversation."}`;
+
+    return reconsolidationSection + candidateSection;
+  })()}
 `;
 
   let prompt = instructions;
@@ -820,9 +860,14 @@ export async function runGraphExtraction(
     userPersona: userPersona ?? undefined,
   });
 
+  const activeSet = opts?.activeContextNodeIds
+    ? new Set(opts.activeContextNodeIds)
+    : undefined;
+
   const systemPrompt = buildGraphExtractionSystemPrompt(
     candidateNodes.map((n) => ({ id: n.id, type: n.type, content: n.content })),
     identityContext,
+    activeSet,
   );
 
   // 5. Resolve conversation timestamp before the LLM call so we can include
