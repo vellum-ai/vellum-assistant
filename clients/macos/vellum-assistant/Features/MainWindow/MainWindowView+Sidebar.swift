@@ -596,7 +596,7 @@ extension MainWindowView {
 
     @ViewBuilder
     func sidebarSectionDivider() -> some View {
-        VColor.surfaceBase
+        VColor.surfaceActive
             .frame(height: 1)
             .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
     }

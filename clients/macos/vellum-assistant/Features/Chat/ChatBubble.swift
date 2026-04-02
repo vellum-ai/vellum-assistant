@@ -220,7 +220,7 @@ struct ChatBubble: View, Equatable {
 
     private var bubbleFill: AnyShapeStyle {
         if isUser {
-            AnyShapeStyle(VColor.surfaceActive)
+            AnyShapeStyle(VColor.surfaceLift)
         } else if message.isError {
             AnyShapeStyle(VColor.systemNegativeStrong.opacity(0.1))
         } else {

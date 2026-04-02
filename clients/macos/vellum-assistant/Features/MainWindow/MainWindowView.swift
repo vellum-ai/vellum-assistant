@@ -537,7 +537,7 @@ struct MainWindowView: View {
             }
         }
         .frame(height: 48)
-        .background(VColor.surfaceOverlay)
+        .background(VColor.surfaceBase)
     }
 
     /// Core layout extracted to break up type-checker complexity.

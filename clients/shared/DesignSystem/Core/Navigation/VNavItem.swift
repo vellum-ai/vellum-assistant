@@ -49,7 +49,7 @@ public struct VNavItem<Trailing: View>: View {
     }
 
     private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
+        isActive ? VColor.contentDefault : VColor.contentTertiary
     }
 
     private var textColor: Color {
@@ -154,7 +154,7 @@ public struct VNavItemTrailingIcon: View {
     var isActive: Bool = false
 
     private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
+        isActive ? VColor.contentDefault : VColor.contentTertiary
     }
 
     public var body: some View {

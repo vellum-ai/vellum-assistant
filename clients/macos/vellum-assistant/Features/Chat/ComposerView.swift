@@ -381,10 +381,10 @@ struct ComposerView: View {
         .padding(.horizontal, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.window)
-                .fill(VColor.surfaceOverlay)
+                .fill(VColor.surfaceLift)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.window))
-        .shadow(color: VColor.auxBlack.opacity(0.05), radius: 2, x: 0, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.05), radius: 4, x: 0, y: 2)
     }
 
     @ViewBuilder
