@@ -106,7 +106,7 @@ function makeConversation(): Conversation {
       stopReason: "end_turn",
     }),
   };
-  return new Conversation(
+  const conv = new Conversation(
     "conv-1",
     provider,
     "system prompt",
@@ -114,6 +114,10 @@ function makeConversation(): Conversation {
     () => {},
     "/tmp",
   );
+  // Default to guardian trust so history repair tests load all messages.
+  // Tests that exercise untrusted-actor filtering override this explicitly.
+  conv.setTrustContext({ trustClass: "guardian", sourceChannel: "cli" });
+  return conv;
 }
 
 describe("loadFromDb history repair", () => {
