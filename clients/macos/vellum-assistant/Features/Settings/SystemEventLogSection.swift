@@ -10,10 +10,7 @@ struct SystemEventLogSection: View {
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var lastRefreshedAt: Date?
-
-    private var logText: String {
-        entries.map(\.formattedLine).joined(separator: "\n")
-    }
+    @State private var logText: String = ""
 
     private var statusText: String {
         let entryCountLabel = entries.count == 1 ? "1 entry" : "\(entries.count) entries"
@@ -124,6 +121,7 @@ struct SystemEventLogSection: View {
                 )
             }.value
             entries = loadedEntries
+            logText = loadedEntries.map(\.formattedLine).joined(separator: "\n")
             lastRefreshedAt = Date()
         } catch {
             loadError = error.localizedDescription
