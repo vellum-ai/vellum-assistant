@@ -10,9 +10,9 @@
  * Malformed files are skipped with warnings — they do not crash the migration.
  */
 
+import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 
 import { eq } from "drizzle-orm";
 
