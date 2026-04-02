@@ -199,7 +199,7 @@ Error reporting uses Sentry. Two projects exist: one for the daemon/runtime (Nod
 
 Do not introduce new callers of the daemon's internal HTTP port from CLI commands or other out-of-process code. The daemon HTTP API is an internal surface consumed by the gateway and native clients — CLI commands run **in-process** and must use the service/store layer directly (see `assistant/src/cli/AGENTS.md`).
 
-When you need to publish events to connected clients (e.g. `open_url`, `avatar_updated`), import and call the `assistantEventHub` singleton directly rather than adding a new HTTP endpoint and calling it from another process.
+When you need to publish events to connected clients (e.g. `open_url`, `avatar_updated`) from code running inside the daemon process, import and call the `assistantEventHub` singleton directly rather than adding a new HTTP endpoint. For CLI commands (which run in-process but may not share the daemon's singleton context), use the file-based signal pattern: write a JSON `ServerMessage` to `signals/emit-event` via `getSignalsDir()` — the daemon's `ConfigWatcher` picks it up and publishes via `assistantEventHub`. See `assistant/src/cli/commands/platform/connect.ts` for an example.
 
 ## See Also
 
