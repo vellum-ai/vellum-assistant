@@ -63,7 +63,6 @@ import {
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import type {
-  ClawhubDetailMeta,
   SkillDetailResponse,
   SlimSkillResponse,
 } from "../message-types/skills.js";
@@ -429,43 +428,18 @@ export async function getSkill(
 
   const slim = found.item;
 
-  // Read SKILL.md body from disk
-  let body: string | undefined;
-  const skillMdPath = join(found.summary.directoryPath, "SKILL.md");
-  try {
-    if (existsSync(skillMdPath)) {
-      body = readFileSync(skillMdPath, "utf-8");
-    }
-  } catch {
-    // Best-effort: body is optional
-  }
-
-  // Build the detail response, starting from the slim shape.
-  // SkillDetailResponse still uses the old nested sub-object shape (PR 2
-  // will flatten it); reconstruct nested objects from the flat union here.
-  const detail: SkillDetailResponse = {
-    id: slim.id,
-    name: slim.name,
-    description: slim.description,
-    emoji: slim.emoji,
-    kind: slim.kind,
-    origin: slim.origin,
-    status: slim.status,
-    ...(slim.origin === "skillssh"
-      ? {
-          skillssh: {
-            slug: slim.slug,
-            sourceRepo: slim.sourceRepo,
-            installs: slim.installs,
-          },
-        }
-      : {}),
-    ...(body !== undefined ? { body } : {}),
-  };
-
-  // For clawhub-origin skills, enrich with inspect data
+  // Build the detail response as a flat discriminated union on origin.
+  // Origin-specific fields are spread directly at the top level.
   if (slim.origin === "clawhub") {
-    const enriched: ClawhubDetailMeta = {
+    // Start with slim clawhub fields, then enrich with inspect data.
+    const detail: SkillDetailResponse = {
+      id: slim.id,
+      name: slim.name,
+      description: slim.description,
+      emoji: slim.emoji,
+      kind: slim.kind,
+      origin: slim.origin,
+      status: slim.status,
       slug: slim.slug,
       author: slim.author,
       stars: slim.stars,
@@ -477,18 +451,48 @@ export async function getSkill(
       const inspectResult = await clawhubInspect(slim.slug);
       if (inspectResult.data) {
         const data = inspectResult.data;
-        enriched.owner = data.owner;
-        enriched.stats = data.stats;
-        enriched.latestVersion = data.latestVersion;
-        enriched.createdAt = data.createdAt;
-        enriched.updatedAt = data.updatedAt;
+        (detail as { owner?: typeof data.owner }).owner = data.owner;
+        (detail as { stats?: typeof data.stats }).stats = data.stats;
+        (
+          detail as { latestVersion?: typeof data.latestVersion }
+        ).latestVersion = data.latestVersion;
+        (detail as { createdAt?: typeof data.createdAt }).createdAt =
+          data.createdAt;
+        (detail as { updatedAt?: typeof data.updatedAt }).updatedAt =
+          data.updatedAt;
       }
     } catch (err) {
       log.warn({ err, skillId }, "Failed to enrich clawhub skill detail");
     }
-    detail.clawhub = enriched;
+    return { skill: detail };
   }
 
+  if (slim.origin === "skillssh") {
+    const detail: SkillDetailResponse = {
+      id: slim.id,
+      name: slim.name,
+      description: slim.description,
+      emoji: slim.emoji,
+      kind: slim.kind,
+      origin: slim.origin,
+      status: slim.status,
+      slug: slim.slug,
+      sourceRepo: slim.sourceRepo,
+      installs: slim.installs,
+    };
+    return { skill: detail };
+  }
+
+  // vellum or custom origin — base fields only
+  const detail: SkillDetailResponse = {
+    id: slim.id,
+    name: slim.name,
+    description: slim.description,
+    emoji: slim.emoji,
+    kind: slim.kind,
+    origin: slim.origin,
+    status: slim.status,
+  };
   return { skill: detail };
 }
 
