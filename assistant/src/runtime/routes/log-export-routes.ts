@@ -569,6 +569,8 @@ function collectWorkspaceFiles(): Record<string, string> {
     const dirPath = join(wsDir, prefix);
     if (!existsSync(dirPath)) continue;
     try {
+      // Skip symlinks — they could point outside the workspace boundary
+      if (lstatSync(dirPath).isSymbolicLink()) continue;
       const manifest = buildSkippedDirManifest(dirPath);
       if (manifest) {
         result[`${prefix}/_manifest.txt`] = manifest;

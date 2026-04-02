@@ -153,6 +153,16 @@ try {
   // Symlink creation may fail on some platforms; tests will still pass
 }
 
+// Symlinked skipped directory: bin/ → outside dir (should NOT get a manifest)
+const outsideBinDir = join(testDir, "outside-bin");
+mkdirSync(outsideBinDir, { recursive: true });
+writeFileSync(join(outsideBinDir, "bun"), "fake bun binary");
+try {
+  symlinkSync(outsideBinDir, join(testWorkspaceDir, "bin"));
+} catch {
+  // Symlink creation may fail on some platforms; tests will still pass
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -242,6 +252,20 @@ describe("POST /v1/export — tar.gz archive", () => {
         "utf-8",
       );
       expect(qdrantManifest).toContain("1 file(s)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("archive skips manifest for symlinked skipped directories", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const files = listFiles(join(dir, "workspace"));
+
+      // bin/ is a symlink to an outside directory — no manifest should be emitted
+      const binFiles = files.filter((f) => f.startsWith("bin/"));
+      expect(binFiles).toHaveLength(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
