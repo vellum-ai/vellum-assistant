@@ -104,6 +104,7 @@ struct MessageListView: View {
             ScrollView {
                 scrollViewContent
             }
+            .id(conversationId)
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
@@ -156,7 +157,6 @@ struct MessageListView: View {
             .onChange(of: isSending) { handleSendingChanged() }
             .onChange(of: messages.count) { handleMessagesCountChanged() }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
-            .onChange(of: conversationId) { _, _ in handleConversationSwitched() }
             .onChange(of: activePendingRequestId) {
                 #if os(macOS)
                 handleConfirmationFocusIfNeeded()

@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 
 import type { Command } from "commander";
 
+import { getIsContainerized } from "../../../config/env-registry.js";
 import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
 import {
   getAppByProviderAndClientId,
@@ -178,15 +179,23 @@ Examples:
 
             // When opening the browser, start a local server to show a nice
             // completion page instead of redirecting to the platform website.
+            //
+            // In containerized mode the loopback server is unreachable from
+            // the host browser, so redirect to the platform's own completion
+            // page instead.
             let redirectServer:
               | { redirectUrl: string; cleanup: () => void }
               | undefined;
             if (opts.browser !== false) {
-              try {
-                redirectServer = await startManagedRedirectServer(provider);
-                body.redirect_after_connect = redirectServer.redirectUrl;
-              } catch {
-                // Non-fatal — fall back to platform default redirect
+              if (getIsContainerized()) {
+                body.redirect_after_connect = "/account/oauth/desktop-complete";
+              } else {
+                try {
+                  redirectServer = await startManagedRedirectServer(provider);
+                  body.redirect_after_connect = redirectServer.redirectUrl;
+                } catch {
+                  // Non-fatal — fall back to platform default redirect
+                }
               }
             }
 

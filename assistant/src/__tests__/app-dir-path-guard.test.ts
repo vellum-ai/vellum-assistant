@@ -18,6 +18,7 @@ import { describe, expect, test } from "bun:test";
 const ALLOWLIST = new Set([
   "assistant/src/memory/app-store.ts", // defines getAppsDir
   "assistant/src/memory/app-git-service.ts", // uses getAppsDir for git repo root, not per-app paths
+  "assistant/src/daemon/app-source-watcher.ts", // uses getAppsDir for recursive fs.watch root, not per-app paths
 ]);
 
 function isTestFile(filePath: string): boolean {

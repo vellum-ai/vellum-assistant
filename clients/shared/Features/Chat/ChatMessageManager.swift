@@ -49,25 +49,15 @@ public final class ChatMessageManager {
     @ObservationIgnored private let _messagesSubject = CurrentValueSubject<[ChatMessage], Never>([])
     public var messagesPublisher: AnyPublisher<[ChatMessage], Never> { _messagesSubject.eraseToAnyPublisher() }
 
-    /// Combine bridge for `isSending`.
-    @ObservationIgnored private let _isSendingSubject = CurrentValueSubject<Bool, Never>(false)
-    public var isSendingPublisher: AnyPublisher<Bool, Never> { _isSendingSubject.eraseToAnyPublisher() }
-
     /// Combine bridge for `isThinking`.
     @ObservationIgnored private let _isThinkingSubject = CurrentValueSubject<Bool, Never>(false)
     public var isThinkingPublisher: AnyPublisher<Bool, Never> { _isThinkingSubject.eraseToAnyPublisher() }
-
-    /// Combine bridge for `pendingQueuedCount`.
-    @ObservationIgnored private let _pendingQueuedCountSubject = CurrentValueSubject<Int, Never>(0)
-    public var pendingQueuedCountPublisher: AnyPublisher<Int, Never> { _pendingQueuedCountSubject.eraseToAnyPublisher() }
 
     init() {
         // Start the withObservationTracking sync loops that keep the
         // CurrentValueSubjects in sync with the @Observable properties.
         syncMessagesPublisher()
-        syncIsSendingPublisher()
         syncIsThinkingPublisher()
-        syncPendingQueuedCountPublisher()
 
         // Uses visibleMessages (all non-hidden) rather than paginatedMessages
         // because pending confirmations are always near the end of the list,
@@ -115,32 +105,12 @@ public final class ChatMessageManager {
         }
     }
 
-    private func syncIsSendingPublisher() {
-        withObservationTracking {
-            _isSendingSubject.send(self.isSending)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.syncIsSendingPublisher()
-            }
-        }
-    }
-
     private func syncIsThinkingPublisher() {
         withObservationTracking {
             _isThinkingSubject.send(self.isThinking)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.syncIsThinkingPublisher()
-            }
-        }
-    }
-
-    private func syncPendingQueuedCountPublisher() {
-        withObservationTracking {
-            _pendingQueuedCountSubject.send(self.pendingQueuedCount)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.syncPendingQueuedCountPublisher()
             }
         }
     }

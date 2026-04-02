@@ -51,19 +51,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     @Published var isLoadingMoreConversations: Bool = false
     private struct AssistantActivitySnapshot: Equatable {
         let messageId: UUID
-        let textLength: Int
         let toolCallCount: Int
         let completedToolCallCount: Int
         let surfaceCount: Int
         let isStreaming: Bool
-
-        static func == (lhs: Self, rhs: Self) -> Bool {
-            lhs.messageId == rhs.messageId
-                && lhs.toolCallCount == rhs.toolCallCount
-                && lhs.completedToolCallCount == rhs.completedToolCallCount
-                && lhs.surfaceCount == rhs.surfaceCount
-                && lhs.isStreaming == rhs.isStreaming
-        }
     }
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some conversations.
@@ -114,8 +105,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 pendingAnchorMessageId = nil
                 pendingAnchorConversationId = nil
             }
-            // Subscribe to the new active view model's changes
-            subscribeToActiveViewModel()
+            // Observe the new active view model's message count via the @Observable store.
+            activityStore.observeActiveViewModel(activeViewModel?.messageManager)
 
             // Manage periodic refresh polling for channel conversations.
             if let activeConversationId {
@@ -161,32 +152,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// state (`visibleConversations`, `unseenVisibleConversationCount`,
     /// `groupSortPositionMap`) in a single pass whenever either source changes.
     private var derivedStateCancellable: AnyCancellable?
-    /// Subscription to activeViewModel's messages count changes.
-    /// Drives activeMessageCount so only message-count-dependent views re-render,
-    /// not the entire window tree.
-    private var activeViewModelCancellable: AnyCancellable?
-    /// Tracks the message count of the active conversation's view model.
-    /// SwiftUI views that need to react to new messages should observe this
-    /// instead of subscribing to ConversationManager.objectWillChange, which fires
-    /// for every property change and causes full-tree re-renders.
-    @Published public private(set) var activeMessageCount: Int = 0
-    /// Subscriptions to per-conversation busy-state changes (isSending, isThinking, pendingQueuedCount).
-    private var busyStateCancellables: [UUID: Set<AnyCancellable>] = [:]
+    /// Owns per-conversation activity state (busy flags, interaction states,
+    /// active message count) on an `@Observable` class so SwiftUI views get
+    /// property-level tracking instead of broad `objectWillChange` invalidation.
+    let activityStore = ConversationActivityStore()
     /// Subscription to assistant activity per conversation.
     /// Used to mark inactive conversations as unseen when assistant output changes.
     private var assistantActivityCancellables: [UUID: AnyCancellable] = [:]
     /// Last observed assistant activity snapshot per conversation.
     private var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = [:]
-    /// Cached set of conversation IDs whose ChatViewModel indicates active processing.
-    @Published private(set) var busyConversationIds: Set<UUID> = []
-    /// Per-conversation interaction state derived from ChatViewModel properties.
-    /// Priority: error > waitingForInput > processing > idle.
-    @Published private(set) var conversationInteractionStates: [UUID: ConversationInteractionState] = [:]
-    /// Subscriptions to per-conversation interaction-state changes.
-    private var interactionStateCancellables: [UUID: Set<AnyCancellable>] = [:]
-    /// Generation counter per conversation for invalidating withObservationTracking loops
-    /// when subscriptions are cancelled (conversation switch, close, archive).
-    private var errorObservationGenerations: [UUID: Int] = [:]
     /// Pending anchor message ID for scroll-to behavior on notification deep links.
     @Published var pendingAnchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -383,6 +357,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // On normal launches, suppress writes during restoration so the saved
         // value isn't overwritten before restoreLastActiveConversation() reads it.
         self.isRestoringConversations = !isFirstLaunch
+        activityStore.onBusyToIdle = { [weak self] conversationId in
+            self?.drainPendingNotificationCatchUp(for: conversationId)
+        }
         // Enter draft mode so the window shows an empty chat without a sidebar entry
         enterDraftMode()
         conversationRestorer.delegate = self
@@ -555,7 +532,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
         draftViewModel = viewModel
         activeConversationId = nil
-        subscribeToActiveViewModel()
+        activityStore.observeActiveViewModel(viewModel.messageManager)
         log.info("Entered draft mode")
     }
 
@@ -569,9 +546,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let localId = conversation.id
         conversations.insert(conversation, at: 0)
         chatViewModels[conversation.id] = viewModel
-        subscribeToBusyState(for: conversation.id, viewModel: viewModel)
+        activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
         subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
-        subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
+        activityStore.observeInteractionState(for: conversation.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         touchVMAccessOrder(conversation.id)
         scheduleEvictionIfNeeded()
         draftViewModel = nil
@@ -619,9 +596,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
         conversations.insert(conversation, at: 0)
         chatViewModels[conversation.id] = viewModel
-        subscribeToBusyState(for: conversation.id, viewModel: viewModel)
+        activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
         subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
-        subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
+        activityStore.observeInteractionState(for: conversation.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         touchVMAccessOrder(conversation.id)
         scheduleEvictionIfNeeded()
         activeConversationId = conversation.id
@@ -698,9 +675,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         conversations.insert(conversation, at: 0)
         chatViewModels[conversation.id] = viewModel
-        subscribeToBusyState(for: conversation.id, viewModel: viewModel)
+        activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
         subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
-        subscribeToInteractionState(for: conversation.id, viewModel: viewModel)
+        activityStore.observeInteractionState(for: conversation.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         touchVMAccessOrder(conversation.id)
         scheduleEvictionIfNeeded()
 
@@ -985,9 +962,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             let viewModel = makeViewModel()
             viewModel.conversationId = conversation.conversationId
             chatViewModels[id] = viewModel
-            subscribeToBusyState(for: id, viewModel: viewModel)
+            activityStore.observeBusyState(for: id, messageManager: viewModel.messageManager)
             subscribeToAssistantActivity(for: id, viewModel: viewModel)
-            subscribeToInteractionState(for: id, viewModel: viewModel)
+            activityStore.observeInteractionState(for: id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
             scheduleEvictionIfNeeded()
         }
 
@@ -1177,9 +1154,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         conversations.insert(conversationModel, at: 0)
         chatViewModels[conversationModel.id] = viewModel
-        subscribeToBusyState(for: conversationModel.id, viewModel: viewModel)
+        activityStore.observeBusyState(for: conversationModel.id, messageManager: viewModel.messageManager)
         subscribeToAssistantActivity(for: conversationModel.id, viewModel: viewModel)
-        subscribeToInteractionState(for: conversationModel.id, viewModel: viewModel)
+        activityStore.observeInteractionState(for: conversationModel.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         touchVMAccessOrder(conversationModel.id)
         scheduleEvictionIfNeeded()
         return conversationModel.id
@@ -1326,8 +1303,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
-    /// Move a conversation to a specific group. Clears displayOrder so the
-    /// conversation sorts by recency within the target group.
+    /// Move a conversation to a specific group. When moving to a group, assigns
+    /// displayOrder to place the conversation at the end of the target group.
+    /// When ungrouping, clears displayOrder and bumps recency.
     func moveConversationToGroup(_ conversationId: UUID, groupId: String?) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
         // Save pre-pin provenance so unpinConversation can restore the original group.
@@ -1335,10 +1313,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             prePinGroupIds[conversationId] = conversations[index].groupId
         }
         conversations[index].groupId = groupId
-        conversations[index].displayOrder = nil
-        // When ungrouping, bump lastInteractedAt so the conversation appears
-        // at the top of the ungrouped list (which sorts by recency).
-        if groupId == nil {
+        if let groupId {
+            // Place at the end of the target group by assigning max + 1.
+            let maxOrder = conversations
+                .filter { $0.groupId == groupId && $0.id != conversationId }
+                .compactMap(\.displayOrder).max() ?? -1
+            conversations[index].displayOrder = maxOrder + 1
+        } else {
+            // When ungrouping, clear displayOrder and bump lastInteractedAt so
+            // the conversation appears at the top of the ungrouped list.
+            conversations[index].displayOrder = nil
             conversations[index].lastInteractedAt = Date()
         }
         sendReorderConversations()
@@ -1611,14 +1595,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func setChatViewModel(_ vm: ChatViewModel, for conversationId: UUID) {
         chatViewModels[conversationId] = vm
-        subscribeToBusyState(for: conversationId, viewModel: vm)
+        activityStore.observeBusyState(for: conversationId, messageManager: vm.messageManager)
         subscribeToAssistantActivity(for: conversationId, viewModel: vm)
-        subscribeToInteractionState(for: conversationId, viewModel: vm)
+        activityStore.observeInteractionState(for: conversationId, messageManager: vm.messageManager, errorManager: vm.errorManager)
         touchVMAccessOrder(conversationId)
         scheduleEvictionIfNeeded()
-        // Re-subscribe if this is the active view model
         if conversationId == activeConversationId {
-            subscribeToActiveViewModel()
+            activityStore.observeActiveViewModel(vm.messageManager)
         }
     }
 
@@ -1858,7 +1841,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ///    ViewModel exists and is idle (not mid-response), to avoid disrupting
     ///    active streaming. When the VM is busy, the daemon conversation ID is queued
     ///    in `pendingNotificationCatchUpIds` and drained when the VM becomes idle
-    ///    (via `subscribeToBusyState`). For inactive conversations without a ViewModel,
+    ///    (via `activityStore.onBusyToIdle`). For inactive conversations without a ViewModel,
     ///    the message will load normally when the user opens the conversation.
     func handleNotificationIntentForExistingConversation(daemonConversationId: String) {
         guard let idx = conversations.firstIndex(where: { $0.conversationId == daemonConversationId }) else { return }
@@ -2296,9 +2279,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             viewModel.isHistoryLoaded = true
         }
         chatViewModels[conversationId] = viewModel
-        subscribeToBusyState(for: conversationId, viewModel: viewModel)
+        activityStore.observeBusyState(for: conversationId, messageManager: viewModel.messageManager)
         subscribeToAssistantActivity(for: conversationId, viewModel: viewModel)
-        subscribeToInteractionState(for: conversationId, viewModel: viewModel)
+        activityStore.observeInteractionState(for: conversationId, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         touchVMAccessOrder(conversationId)
         scheduleEvictionIfNeeded()
         return viewModel
@@ -2441,40 +2424,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     /// Whether the given conversation's ChatViewModel indicates active processing.
     func isConversationBusy(_ conversationId: UUID) -> Bool {
-        busyConversationIds.contains(conversationId)
-    }
-
-    /// Subscribe to busy-state publishers on a ChatViewModel so `busyConversationIds` stays current.
-    func subscribeToBusyState(for conversationId: UUID, viewModel: ChatViewModel) {
-        // Tear down any previous subscriptions for this conversation.
-        if let old = busyStateCancellables.removeValue(forKey: conversationId) {
-            tearDownCancellables(old)
-        }
-        var subs = Set<AnyCancellable>()
-
-        let mgr = viewModel.messageManager
-        // Combine the three relevant publishers into a single derived boolean.
-        Publishers.CombineLatest3(
-            mgr.isSendingPublisher,
-            mgr.isThinkingPublisher,
-            mgr.pendingQueuedCountPublisher
-        )
-        .map { isSending, isThinking, pendingQueuedCount in
-            isSending || isThinking || pendingQueuedCount > 0
-        }
-        .removeDuplicates()
-        .sink { [weak self] isBusy in
-            guard let self else { return }
-            if isBusy {
-                self.busyConversationIds.insert(conversationId)
-            } else {
-                self.busyConversationIds.remove(conversationId)
-                self.drainPendingNotificationCatchUp(for: conversationId)
-            }
-        }
-        .store(in: &subs)
-
-        busyStateCancellables[conversationId] = subs
+        activityStore.isConversationBusy(conversationId)
     }
 
     /// If `conversationId` has a queued notification catch-up, trigger it now
@@ -2523,7 +2473,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let message = messages.reversed().first(where: { $0.role == .assistant }) else { return nil }
         return AssistantActivitySnapshot(
             messageId: message.id,
-            textLength: message.text.count,
             toolCallCount: message.toolCalls.count,
             completedToolCallCount: message.toolCalls.filter(\.isComplete).count,
             surfaceCount: message.inlineSurfaces.count,
@@ -2549,189 +2498,37 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
-    /// Remove busy-state and interaction-state subscriptions for a conversation.
+    /// Remove busy-state, interaction-state, and assistant-activity subscriptions for a conversation.
     ///
-    /// Does NOT clear `conversationInteractionStates` — the last known interaction
-    /// state is preserved so that evicted (but still visible) conversations continue
-    /// showing the correct sidebar cue.  Callers that permanently remove a
-    /// conversation (close / archive) should use `unsubscribeAllForConversation(id:)` instead.
+    /// Does NOT clear interaction states — the last known state is preserved so
+    /// that evicted (but still visible) conversations continue showing the correct
+    /// sidebar cue. Callers that permanently remove a conversation (close / archive)
+    /// should use `unsubscribeAllForConversation(id:)` instead.
     private func unsubscribeFromBusyState(for conversationId: UUID) {
-        if let subs = busyStateCancellables.removeValue(forKey: conversationId) {
-            tearDownCancellables(subs)
-        }
         if let sub = assistantActivityCancellables.removeValue(forKey: conversationId) {
             tearDownCancellables([sub])
         }
         latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
-        busyConversationIds.remove(conversationId)
-        if let subs = interactionStateCancellables.removeValue(forKey: conversationId) {
-            tearDownCancellables(subs)
-        }
-        // Invalidate any in-flight withObservationTracking loop for error bridging.
-        if let gen = errorObservationGenerations[conversationId] {
-            errorObservationGenerations[conversationId] = gen + 1
-        }
+        activityStore.unsubscribeFromBusyState(for: conversationId)
     }
 
-    /// Atomically cancel all per-conversation subscriptions and remove cached state
-    /// for a conversation that is being permanently removed (closed, archived, or
+    /// Cancel all per-conversation subscriptions and remove cached state for a
+    /// conversation that is being permanently removed (closed, archived, or
     /// conversation-backfilled-then-discarded). Unlike `unsubscribeFromBusyState`,
-    /// this also clears `conversationInteractionStates` so stale sidebar cues don't linger.
+    /// this also clears interaction states so stale sidebar cues don't linger.
     private func unsubscribeAllForConversation(id: UUID) {
-        if let subs = busyStateCancellables.removeValue(forKey: id) {
-            tearDownCancellables(subs)
-        }
         if let sub = assistantActivityCancellables.removeValue(forKey: id) {
             tearDownCancellables([sub])
         }
         latestAssistantActivitySnapshots.removeValue(forKey: id)
-        busyConversationIds.remove(id)
-        if let subs = interactionStateCancellables.removeValue(forKey: id) {
-            tearDownCancellables(subs)
-        }
-        conversationInteractionStates.removeValue(forKey: id)
-        // Invalidate any in-flight withObservationTracking loop for error bridging.
-        if let gen = errorObservationGenerations[id] {
-            errorObservationGenerations[id] = gen + 1
-        }
+        activityStore.unsubscribeAll(for: id)
     }
 
     // MARK: - Interaction State
 
     /// Returns the derived interaction state for a conversation, defaulting to `.idle`.
     func interactionState(for conversationId: UUID) -> ConversationInteractionState {
-        conversationInteractionStates[conversationId] ?? .idle
-    }
-
-    /// Subscribe to interaction-state–relevant publishers on a ChatViewModel so
-    /// `conversationInteractionStates` stays current.
-    ///
-    /// Derives state with priority: error > waitingForInput > processing > idle.
-    func subscribeToInteractionState(for conversationId: UUID, viewModel: ChatViewModel) {
-        if let old = interactionStateCancellables.removeValue(forKey: conversationId) {
-            tearDownCancellables(old)
-        }
-        var subs = Set<AnyCancellable>()
-
-        let msgMgr = viewModel.messageManager
-        let errMgr = viewModel.errorManager
-
-        // Bridge @Observable ChatErrorManager into Combine so the rest of
-        // the pipeline stays unchanged. A withObservationTracking loop
-        // detects changes to errorText / conversationError and pushes
-        // snapshots into a CurrentValueSubject.
-        let errorSubject = CurrentValueSubject<(String?, ConversationError?), Never>(
-            (errMgr.errorText, errMgr.conversationError)
-        )
-
-        // Bump the generation to invalidate any prior observation loop for this conversation.
-        let generation = (errorObservationGenerations[conversationId] ?? 0) + 1
-        errorObservationGenerations[conversationId] = generation
-
-        func observeErrors(generation: Int) {
-            // Stop re-arming if the generation has been invalidated (conversation switched/closed).
-            guard self.errorObservationGenerations[conversationId] == generation else { return }
-            withObservationTracking {
-                _ = errMgr.errorText
-                _ = errMgr.conversationError
-            } onChange: { [weak self, weak errMgr] in
-                Task { @MainActor [weak self, weak errMgr] in
-                    guard let self,
-                          let errMgr,
-                          self.errorObservationGenerations[conversationId] == generation else { return }
-                    errorSubject.send((errMgr.errorText, errMgr.conversationError))
-                    observeErrors(generation: generation) // re-arm
-                }
-            }
-        }
-        observeErrors(generation: generation)
-
-        // Combine busy-state publishers with error and message publishers.
-        // Error state: errorText or conversationError non-nil.
-        // WaitingForInput: hasPendingConfirmation (derived from messages).
-        // Processing: isSending || isThinking || pendingQueuedCount > 0.
-        Publishers.CombineLatest4(
-            msgMgr.isSendingPublisher,
-            msgMgr.isThinkingPublisher,
-            msgMgr.pendingQueuedCountPublisher,
-            msgMgr.messagesPublisher
-        )
-        .combineLatest(
-            errorSubject
-        )
-        .map { busyTuple, errorTuple in
-            let (isSending, isThinking, pendingQueuedCount, messages) = busyTuple
-            let (errorText, conversationError) = errorTuple
-            let hasError = errorText != nil || conversationError != nil
-            let hasPendingConfirmation = messages.contains(where: { $0.confirmation?.state == .pending })
-            let isBusy = isSending || isThinking || pendingQueuedCount > 0
-
-            if hasError {
-                return ConversationInteractionState.error
-            } else if hasPendingConfirmation {
-                return ConversationInteractionState.waitingForInput
-            } else if isBusy {
-                return ConversationInteractionState.processing
-            } else {
-                return ConversationInteractionState.idle
-            }
-        }
-        .removeDuplicates()
-        // Track previous state to detect transitions that trigger sounds.
-        // .dropFirst() prevents sounds from firing on initial subscription
-        // (e.g. a conversation that loads in an error state).
-        .scan((previous: ConversationInteractionState?.none, current: ConversationInteractionState.idle)) { accumulated, newState in
-            (previous: accumulated.current, current: newState)
-        }
-        .dropFirst()
-        .sink { [weak self] transition in
-            guard let self else { return }
-            let state = transition.current
-            if state == .idle {
-                self.conversationInteractionStates.removeValue(forKey: conversationId)
-            } else {
-                self.conversationInteractionStates[conversationId] = state
-            }
-
-            // Play sounds on discrete state transitions. The .removeDuplicates()
-            // upstream ensures these only fire once per transition, not on every
-            // streaming delta.
-            let previous = transition.previous
-            switch state {
-            case .idle where previous == .processing:
-                SoundManager.shared.play(.taskComplete)
-            case .waitingForInput:
-                SoundManager.shared.play(.needsInput)
-            case .error:
-                SoundManager.shared.play(.taskFailed)
-            default:
-                break
-            }
-        }
-        .store(in: &subs)
-
-        interactionStateCancellables[conversationId] = subs
-    }
-
-    /// Subscribe to the active ChatViewModel's messages publisher.
-    /// Updates activeMessageCount so only views that depend on the message count
-    /// re-render, preventing full-tree invalidation on every streaming token.
-    private func subscribeToActiveViewModel() {
-        // Cancel previous subscription
-        activeViewModelCancellable?.cancel()
-        activeViewModelCancellable = nil
-        // Reset so views don't show a stale count while the new conversation loads.
-        activeMessageCount = 0
-
-        // Subscribe to the new active view model if one exists
-        guard let viewModel = activeViewModel else { return }
-
-        activeViewModelCancellable = viewModel.messageManager.messagesPublisher
-            .map { $0.count }
-            .removeDuplicates()
-            .sink { [weak self] count in
-                self?.activeMessageCount = count
-            }
+        activityStore.interactionState(for: conversationId)
     }
 
     /// Mark assistant activity on a conversation as seen/unseen depending on whether
@@ -2754,20 +2551,21 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return
         }
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
-        // Don't bump background conversations to the top — they receive frequent
-        // automated messages (heartbeats) that would constantly re-sort them,
-        // especially when an LRU-evicted ViewModel is recreated on click.
-        if !conversations[index].isBackgroundConversation {
+        let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
+        // Only bump sort order when a genuinely new assistant message appears,
+        // not on every structural change (tool calls, surfaces, streaming state).
+        if isNewMessage && !conversations[index].isBackgroundConversation {
             updateLastInteracted(conversationId: conversationId)
         }
-        let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
         // Keep the local attention timestamp current for live assistant replies
         // so unread eligibility survives until the next conversation-list refresh.
         if conversations[index].latestAssistantMessageAt == nil || isNewMessage {
             conversations[index].latestAssistantMessageAt = Date()
         }
         if conversationId == activeConversationId {
-            conversations[index].hasUnseenLatestAssistantMessage = false
+            if conversations[index].hasUnseenLatestAssistantMessage {
+                conversations[index].hasUnseenLatestAssistantMessage = false
+            }
             // Only emit the seen signal on meaningful transitions:
             // 1. A new assistant message appeared (different messageId)
             // 2. Streaming just completed (isStreaming went true -> false)
@@ -2777,7 +2575,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                     emitConversationSeenSignal(conversationId: conversationId)
                 }
             }
-        } else {
+        } else if !conversations[index].hasUnseenLatestAssistantMessage {
             conversations[index].hasUnseenLatestAssistantMessage = true
         }
     }

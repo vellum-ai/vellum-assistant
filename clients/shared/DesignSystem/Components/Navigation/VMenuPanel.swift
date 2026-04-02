@@ -53,6 +53,9 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        // Enable mouse-moved events so the coordinator's local monitor can detect
+        // mouse movement over the panel and clear keyboard focus appropriately.
+        panel.acceptsMouseMovedEvents = true
 
         // Accessibility: configure the panel so VoiceOver can navigate its SwiftUI content.
         // - Role description "menu" preserves the announcement without the behavioral
@@ -72,10 +75,11 @@ public class VMenuPanel: NSPanel {
             panel.appearance = appearance
         }
 
-        // Inject coordinator and dismiss closure into environment.
+        // Inject coordinator, panel level, and dismiss closure into environment.
         let paddedContent = content()
             .environment(\.vMenuDismiss, { [weak coordinator] in coordinator?.dismissAll() })
             .environment(\.vMenuCoordinator, coordinator)
+            .environment(\.vMenuPanelLevel, 0)
             .padding(Self.shadowInset)
         // Use NSHostingView directly as contentView — no FirstMouseView wrapper.
         // This preserves the natural NSPanel → NSHostingView → SwiftUI accessibility
@@ -144,6 +148,7 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.acceptsMouseMovedEvents = true
         panel.setAccessibilityRoleDescription(NSLocalizedString("menu", comment: "Accessibility role description for VMenu panel"))
         panel.setAccessibilitySubrole(.standardWindow)
         panel.coordinator = coordinator
@@ -153,9 +158,11 @@ public class VMenuPanel: NSPanel {
             panel.appearance = appearance
         }
 
+        let childLevel = coordinator.panels.count
         let paddedContent = content()
             .environment(\.vMenuDismiss, { [weak coordinator] in coordinator?.dismissAll() })
             .environment(\.vMenuCoordinator, coordinator)
+            .environment(\.vMenuPanelLevel, childLevel)
             .padding(Self.shadowInset)
             .onHover { hovering in
                 if hovering {

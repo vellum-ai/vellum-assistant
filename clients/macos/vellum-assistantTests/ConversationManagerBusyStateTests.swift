@@ -27,7 +27,7 @@ final class ConversationManagerBusyStateTests: XCTestCase {
         // init creates a default conversation
         let conversationId = conversationManager.activeConversationId!
         XCTAssertFalse(conversationManager.isConversationBusy(conversationId), "Conversation should not be busy by default")
-        XCTAssertTrue(conversationManager.busyConversationIds.isEmpty)
+        XCTAssertTrue(conversationManager.activityStore.busyConversationIds.isEmpty)
     }
 
     func testBusyTrueWhenIsSending() {
@@ -35,7 +35,7 @@ final class ConversationManagerBusyStateTests: XCTestCase {
         let vm = conversationManager.activeViewModel!
         vm.isSending = true
 
-        // Allow Combine pipeline to deliver
+        // Allow observation loop to propagate
         let exp = expectation(description: "busy state propagates")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { exp.fulfill() }
         wait(for: [exp], timeout: 1.0)
@@ -91,7 +91,7 @@ final class ConversationManagerBusyStateTests: XCTestCase {
         wait(for: [expIdle], timeout: 1.0)
 
         XCTAssertFalse(conversationManager.isConversationBusy(conversationId), "Conversation should not be busy after all states return to idle")
-        XCTAssertTrue(conversationManager.busyConversationIds.isEmpty)
+        XCTAssertTrue(conversationManager.activityStore.busyConversationIds.isEmpty)
     }
 
     func testLRUEvictionSkipsBusyBackgroundConversation() {

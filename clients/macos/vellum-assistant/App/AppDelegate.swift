@@ -750,6 +750,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // the quit sequence so the new version launches after termination.
         updateManager.installDeferredUpdateIfAvailable()
 
+        // Restore the Vellum logo so the pinned dock tile caches the
+        // correct icon instead of whatever avatar was showing at quit time.
+        AvatarAppearanceManager.shared.restoreBundleIcon()
+
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
         }

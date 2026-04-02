@@ -27,6 +27,9 @@ struct MainWindowView: View {
     /// Frame of the conversation title button in the coordinate space of coreLayoutView,
     /// used to position the actions drawer directly below it.
     @State var conversationTitleFrame: CGRect = .zero
+    /// Window size tracked via onGeometryChange, used for zoom scaling
+    /// and panel width calculations without a synchronous GeometryReader.
+    @State private var windowSize: CGSize = CGSize(width: 800, height: 600)
     /// Stores the conversation ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleConversations.first
     /// (which may be a pinned conversation unrelated to what they were doing).
@@ -542,14 +545,18 @@ struct MainWindowView: View {
     }
 
     private var coreLayoutGeometryView: some View {
-        GeometryReader { geometry in
-            coreLayoutContent(geometry: geometry)
-        }
+        coreLayoutContent(windowSize: windowSize)
     }
 
     private var coreLayoutDecoratedView: some View {
         coreLayoutGeometryView
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .frame(minWidth: 800, minHeight: 600)
+            .onGeometryChange(for: CGSize.self) { proxy in
+                proxy.size
+            } action: { newSize in
+                windowSize = newSize
+            }
             .overlay(alignment: .top) {
                 MainWindowZoomIndicator(
                     showZoomIndicator: zoomManager.showZoomIndicator,
@@ -590,8 +597,8 @@ struct MainWindowView: View {
     }
 
     @ViewBuilder
-    private func coreLayoutContent(geometry: GeometryProxy) -> some View {
-        coreLayoutBase(geometry: geometry)
+    private func coreLayoutContent(windowSize: CGSize) -> some View {
+        coreLayoutBase(windowSize: windowSize)
             .overlay { preferencesDismissLayer }
             .overlay { conversationActionsDismissLayer }
             .overlay(alignment: .topLeading) { conversationActionsDrawerLayer }
@@ -600,14 +607,14 @@ struct MainWindowView: View {
             .overlay(alignment: .topLeading) { conversationSwitcherDrawerLayer }
             .ignoresSafeArea(edges: .top)
             .background(VColor.surfaceBase.ignoresSafeArea())
-            .frame(width: geometry.size.width / zoomManager.zoomLevel,
-                   height: geometry.size.height / zoomManager.zoomLevel)
+            .frame(width: windowSize.width / zoomManager.zoomLevel,
+                   height: windowSize.height / zoomManager.zoomLevel)
             .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+            .frame(width: windowSize.width, height: windowSize.height, alignment: .topLeading)
     }
 
     @ViewBuilder
-    private func coreLayoutBase(geometry: GeometryProxy) -> some View {
+    private func coreLayoutBase(windowSize: CGSize) -> some View {
         VStack(spacing: 0) {
             topBarView
 
@@ -622,7 +629,7 @@ struct MainWindowView: View {
                     .animation(VAnimation.panel, value: sidebarExpanded)
                     .animation(VAnimation.panel, value: isSettingsOpen)
 
-                chatContentView(geometry: geometry)
+                chatContentView(windowSize: windowSize)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     .animation(VAnimation.panel, value: sidebarExpanded)
                     .animation(VAnimation.panel, value: isSettingsOpen)

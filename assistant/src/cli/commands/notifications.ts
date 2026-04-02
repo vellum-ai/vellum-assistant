@@ -10,6 +10,10 @@ import {
   NOTIFICATION_SOURCE_EVENT_NAMES,
 } from "../../notifications/signal.js";
 import type { NotificationChannel } from "../../notifications/types.js";
+import {
+  initAuthSigningKey,
+  loadOrCreateSigningKey,
+} from "../../runtime/auth/token-service.js";
 import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -251,6 +255,7 @@ Examples:
           }
 
           initializeDb();
+          initAuthSigningKey(loadOrCreateSigningKey());
 
           const sourceContextId = opts.conversationId ?? `cli-${Date.now()}`;
 
