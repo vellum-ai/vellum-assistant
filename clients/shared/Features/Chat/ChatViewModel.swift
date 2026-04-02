@@ -2214,13 +2214,28 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
         Task {
             let response = await guardianClient.submitDecision(requestId: requestId, action: action, conversationId: conversationId)
-            if response == nil {
+            if let response {
+                handleGuardianActionDecisionResponse(response)
+            } else {
                 log.error("Failed to submit guardian decision for requestId \(requestId)")
                 pendingGuardianActions.removeValue(forKey: requestId)
                 // Revert submitting state on failure
                 if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }) {
                     messages[idx].guardianDecision?.isSubmitting = false
                 }
+            }
+        }
+
+        // Safety-net timeout: if the decision is still submitting after 15s,
+        // clear the spinner and re-sync with the server.
+        Task {
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }),
+               messages[idx].guardianDecision?.isSubmitting == true {
+                log.warning("Guardian decision submit timed out for requestId \(requestId, privacy: .public)")
+                messages[idx].guardianDecision?.isSubmitting = false
+                pendingGuardianActions.removeValue(forKey: requestId)
+                refreshGuardianPrompts()
             }
         }
     }
