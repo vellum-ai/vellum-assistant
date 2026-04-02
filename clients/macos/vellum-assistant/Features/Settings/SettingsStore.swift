@@ -2457,6 +2457,22 @@ public final class SettingsStore: ObservableObject {
         return postBootstrapResolved
     }
 
+    /// Fetch all managed OAuth connections at once and distribute by provider key.
+    /// Unlike `fetchManagedOAuthConnections`, this does not check the provider mode
+    /// guard, so it can be used by the integrations grid to classify providers.
+    func fetchAllManagedOAuthConnections(userId: String? = nil) async {
+        guard let assistantId = await resolvePlatformAssistantId(userId: userId) else { return }
+        do {
+            let connections = try await PlatformOAuthService.shared.listConnections(assistantId: assistantId)
+            let grouped = Dictionary(grouping: connections, by: { $0.provider })
+            for (providerKey, conns) in grouped {
+                managedOAuthConnections[providerKey] = conns
+            }
+        } catch {
+            log.error("Failed to fetch all managed OAuth connections: \(error)")
+        }
+    }
+
     func fetchManagedOAuthConnections(providerKey: String, userId: String? = nil) async {
         guard managedOAuthMode[providerKey] == "managed" else { return }
         guard let assistantId = await resolvePlatformAssistantId(userId: userId) else { return }

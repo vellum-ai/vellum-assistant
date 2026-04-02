@@ -115,10 +115,12 @@ struct IntegrationsGridView: View {
     // MARK: - Data Fetching
 
     private func fetchAllConnections() {
+        // Fetch all managed connections in one call and distribute by provider
+        Task {
+            await store.fetchAllManagedOAuthConnections()
+        }
+        // Fetch your-own apps for each provider
         for provider in store.managedOAuthProviders {
-            Task {
-                await store.fetchManagedOAuthConnections(providerKey: provider.provider_key)
-            }
             store.fetchYourOwnOAuthApps(providerKey: provider.provider_key)
         }
     }
