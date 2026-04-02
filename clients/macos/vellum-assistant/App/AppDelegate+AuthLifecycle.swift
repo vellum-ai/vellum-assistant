@@ -164,6 +164,10 @@ extension AppDelegate {
     }
 
     @objc public func performLogout() {
+        // Cancel any in-flight managed switch so it doesn't reconnect after logout.
+        managedSwitchTask?.cancel()
+        managedSwitchTask = nil
+
         Task {
             // Capture assistant ID before logout clears UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
@@ -456,8 +460,14 @@ extension AppDelegate {
         if assistant.isManaged {
             let targetId = assistant.assistantId
             managedSwitchTask = Task {
+                // Use ensureManagedAssistant() directly instead of the
+                // coordinator's activateManagedAssistant() — the coordinator
+                // calls persistManagedAssistant() which overwrites
+                // connectedAssistantId as a side effect, creating a race
+                // when a second switch fires before this task completes.
+                // We only need the org ID resolution from ensureManagedAssistant().
                 do {
-                    _ = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
+                    _ = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
                 } catch is CancellationError {
                     log.info("Managed switch to \(targetId, privacy: .public) cancelled")
                     return
@@ -561,6 +571,9 @@ extension AppDelegate {
     }
 
     @objc func performRetire() {
+        // Cancel any in-flight managed switch so it doesn't reconnect after retire.
+        managedSwitchTask?.cancel()
+        managedSwitchTask = nil
         Task { await performRetireAsync() }
     }
 
