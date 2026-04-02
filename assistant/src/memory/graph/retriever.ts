@@ -479,7 +479,6 @@ export async function loadContextMemory(
     selectedCapabilities = capabilityNodes.slice(0, CAPABILITY_RESERVE);
   }
 
-  const capabilityIds = new Set(selectedCapabilities.map((n) => n.id));
   const reservedCapabilities: ScoredNode[] = selectedCapabilities.map(
     (node) => {
       const existing = scored.find((s) => s.node.id === node.id);
