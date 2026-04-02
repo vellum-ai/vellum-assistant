@@ -166,9 +166,12 @@ export function formatEventDate(epochMs: number): string {
   const monthName = monthNames[date.getMonth()];
   const dayOfMonth = date.getDate();
 
-  // Include time only when hours/minutes are non-zero (midnight = date-only event)
-  // Use UTC methods: date-only events are stored as midnight UTC, so local timezone
-  // methods would show non-zero hours in west-of-UTC timezones, defeating the check.
+  // Heuristic: date-only events are stored as midnight UTC, so we treat
+  // midnight-UTC epochs as "no time component".  This is lossy — a timed event
+  // genuinely scheduled at 00:00 UTC will have its time display silently dropped.
+  // Fixing this properly requires the event storage layer to carry an explicit
+  // `hasTime` flag; until then this is the best available approximation.
+  // Use UTC methods so west-of-UTC local offsets don't defeat the check.
   const hasTime = date.getUTCHours() !== 0 || date.getUTCMinutes() !== 0;
   let datePart = `${dayName} ${monthName} ${dayOfMonth}`;
   if (hasTime) {
