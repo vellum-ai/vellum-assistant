@@ -156,19 +156,16 @@ struct MemoriesPanel: View {
                     // Side detail panel — slides in from right
                     if let item = selectedItem {
                         Divider()
-                        ScrollView {
-                            MemoryItemDetailSheet(
-                                item: item,
-                                store: store,
-                                onDismiss: { withAnimation(VAnimation.panel) { selectedItem = nil } },
-                                onNavigate: { newItem in
-                                    withAnimation(VAnimation.fast) { selectedItem = newItem }
-                                }
-                            )
-                            .id(item.id)
-                        }
-                        .frame(width: 400)
-                        .scrollContentBackground(.hidden)
+                        MemoryItemDetailSheet(
+                            item: item,
+                            store: store,
+                            onDismiss: { withAnimation(VAnimation.panel) { selectedItem = nil } },
+                            onNavigate: { newItem in
+                                withAnimation(VAnimation.fast) { selectedItem = newItem }
+                            }
+                        )
+                        .id(item.id)
+                        .frame(width: 400, maxHeight: .infinity)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                         .onKeyPress(.escape) {
                             withAnimation(VAnimation.panel) { selectedItem = nil }
