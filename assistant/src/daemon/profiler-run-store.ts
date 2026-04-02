@@ -182,10 +182,22 @@ export function rescanRuns(): ProfilerRunManifest[] {
     const existing = readManifest(runDir);
     const isActive = runId === activeRunId;
 
+    // For first-time manifests (no existing manifest.json), seed createdAt
+    // from the directory's mtime so legacy runs preserve their actual age
+    // for oldest-first pruning order.
+    let createdAt = existing?.createdAt ?? now;
+    if (!existing) {
+      try {
+        createdAt = statSync(runDir).mtime.toISOString();
+      } catch {
+        // Fall back to current time if stat fails
+      }
+    }
+
     const manifest: ProfilerRunManifest = {
       runId,
       status: isActive ? "active" : "completed",
-      createdAt: existing?.createdAt ?? now,
+      createdAt,
       updatedAt: now,
       totalBytes,
     };
@@ -280,16 +292,15 @@ export function runProfilerSweep(): ProfilerSweepResult {
 
     try {
       rmSync(runDir, { recursive: true, force: true });
+      totalBytes -= oldest.totalBytes;
+      freedBytes += oldest.totalBytes;
+      prunedCount++;
     } catch (err) {
       log.warn(
         { runId: oldest.runId, err },
         "Failed to remove profiler run directory",
       );
     }
-
-    totalBytes -= oldest.totalBytes;
-    freedBytes += oldest.totalBytes;
-    prunedCount++;
   }
 
   // Check if the active run alone exceeds the byte budget

@@ -37,6 +37,11 @@ const SAFE_ENV_VARS = [
   "IS_CONTAINERIZED",
   "IS_PLATFORM",
   "CES_SERVICE_TOKEN",
+  "VELLUM_PROFILER_RUN_ID",
+  "VELLUM_PROFILER_MODE",
+  "VELLUM_PROFILER_MAX_BYTES",
+  "VELLUM_PROFILER_MAX_RUNS",
+  "VELLUM_PROFILER_MIN_FREE_MB",
 ] as const;
 
 export function buildSanitizedEnv(): Record<string, string> {
