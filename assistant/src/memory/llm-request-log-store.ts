@@ -223,6 +223,25 @@ function selectUnlinkedLogsInRange(
     .all();
 }
 
+export function getRequestLogById(logId: string): LogRow | null {
+  const db = getDb();
+  return (
+    db
+      .select({
+        id: llmRequestLogs.id,
+        conversationId: llmRequestLogs.conversationId,
+        messageId: llmRequestLogs.messageId,
+        provider: llmRequestLogs.provider,
+        requestPayload: llmRequestLogs.requestPayload,
+        responsePayload: llmRequestLogs.responsePayload,
+        createdAt: llmRequestLogs.createdAt,
+      })
+      .from(llmRequestLogs)
+      .where(eq(llmRequestLogs.id, logId))
+      .get() ?? null
+  );
+}
+
 export function getRequestLogsByMessageId(messageId: string): LogRow[] {
   // Resolve all assistant message IDs in the same turn so the inspector
   // shows every LLM call from the entire agent turn, not just the queried message.
