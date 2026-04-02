@@ -169,7 +169,12 @@ extension MessageListView {
             } else if anchorMessageId == nil {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
                 scrollState.transition(to: .followingBottom)
-                scrollState.requestPinToBottom()
+                // Use scrollToEdge(.bottom) instead of requestPinToBottom()
+                // to match the declarative ScrollPosition(edge: .bottom) target.
+                // requestPinToBottom() targets "scroll-bottom-anchor" which sits
+                // inside the LazyVStack before its bottom padding, creating a
+                // visible position mismatch (snap) against the declarative edge.
+                scrollState.scrollToEdge?(.bottom)
             }
             scrollState.scrollRestoreTask = nil
         }

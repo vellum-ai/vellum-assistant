@@ -173,9 +173,10 @@ extension MessageListView {
         scrollState.anchorTimeoutTask?.cancel()
         scrollState.anchorTimeoutTask = nil
         scrollState.lastAutoFocusedRequestId = nil
-        // Transition through programmaticScroll so that any in-flight scroll
-        // operations don't interfere, then settle into followingBottom.
-        scrollState.transition(to: .programmaticScroll(reason: .conversationSwitch))
+        // reset() already set mode to .initialLoad, which allows auto-scroll.
+        // Don't override with .programmaticScroll — that would block
+        // handleMessagesCountChanged and content-growth auto-follow during
+        // the critical window while LazyVStack materializes new content.
         // Declarative position reset — processed in the same layout pass as new content.
         // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()

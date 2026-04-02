@@ -68,13 +68,11 @@ enum ScrollMode: Equatable, CustomStringConvertible {
 
 enum ProgrammaticScrollReason: Equatable, CustomStringConvertible {
     case deepLinkAnchor(id: UUID)
-    case conversationSwitch
     case scrollRestore
 
     var description: String {
         switch self {
         case .deepLinkAnchor(let id): "deepLinkAnchor(\(id))"
-        case .conversationSwitch: "conversationSwitch"
         case .scrollRestore: "scrollRestore"
         }
     }

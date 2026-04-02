@@ -433,7 +433,7 @@ final class MessageListScrollStateTests: XCTestCase {
     }
 
     func testProgrammaticScrollToFollowingBottomViaReachedBottom() {
-        state.transition(to: .programmaticScroll(reason: .conversationSwitch))
+        state.transition(to: .programmaticScroll(reason: .scrollRestore))
         state.handleReachedBottom()
         XCTAssertTrue(state.isFollowingBottom)
     }
