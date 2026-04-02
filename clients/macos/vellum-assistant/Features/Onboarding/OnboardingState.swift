@@ -217,7 +217,8 @@ final class OnboardingState {
         selectedProvider = "anthropic"
         selectedModel = "claude-opus-4-6"
 
-        // Reset cloud credentials (in-memory only; not persisted)
+        // Reset hosting selection and cloud credentials
+        selectedHostingMode = .vellumCloud
         cloudProvider = "local"
         gcpProjectId = ""
         gcpZone = "us-central1-a"
