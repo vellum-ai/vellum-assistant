@@ -272,44 +272,6 @@ function deriveOrigin(
   return meta?.origin ?? "custom";
 }
 
-/** Build the origin-specific fields for a given origin (flattened at top level). */
-function buildOriginMeta(
-  origin: SlimSkillResponse["origin"],
-  summary: SkillSummary,
-  installMeta?: SkillInstallMeta | null,
-): Record<string, unknown> {
-  switch (origin) {
-    case "vellum":
-      return {};
-    case "clawhub": {
-      const meta =
-        installMeta !== undefined
-          ? installMeta
-          : readInstallMeta(summary.directoryPath);
-      return {
-        slug: meta?.slug ?? summary.id,
-        author: "",
-        stars: 0,
-        installs: 0,
-        reports: 0,
-      };
-    }
-    case "skillssh": {
-      const meta =
-        installMeta !== undefined
-          ? installMeta
-          : readInstallMeta(summary.directoryPath);
-      return {
-        slug: meta?.slug ?? summary.id,
-        sourceRepo: meta?.sourceRepo ?? "",
-        installs: 0,
-      };
-    }
-    default:
-      return {};
-  }
-}
-
 /** Sort rank by kind: bundled first, then catalog, then installed. */
 function kindSortRank(kind: SlimSkillResponse["kind"]): number {
   if (kind === "bundled") return 0;
@@ -329,16 +291,50 @@ function toSlimSkillResponse(
     kind === "installed" ? readInstallMeta(summary.directoryPath) : undefined;
   const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
   const status: SlimSkillResponse["status"] = state;
-  return {
+
+  const base = {
     id: summary.id,
     name: summary.displayName,
     description: summary.description,
     emoji: summary.emoji,
     kind,
-    origin,
     status,
-    ...buildOriginMeta(origin, summary, installMeta),
-  } as SlimSkillResponse;
+  } as const;
+
+  switch (origin) {
+    case "vellum":
+      return { ...base, origin };
+    case "clawhub": {
+      const meta =
+        installMeta !== undefined
+          ? installMeta
+          : readInstallMeta(summary.directoryPath);
+      return {
+        ...base,
+        origin,
+        slug: meta?.slug ?? summary.id,
+        author: "",
+        stars: 0,
+        installs: 0,
+        reports: 0,
+      };
+    }
+    case "skillssh": {
+      const meta =
+        installMeta !== undefined
+          ? installMeta
+          : readInstallMeta(summary.directoryPath);
+      return {
+        ...base,
+        origin,
+        slug: meta?.slug ?? summary.id,
+        sourceRepo: meta?.sourceRepo ?? "",
+        installs: 0,
+      };
+    }
+    case "custom":
+      return { ...base, origin };
+  }
 }
 
 export function listSkills(_ctx: SkillOperationContext): SlimSkillResponse[] {
