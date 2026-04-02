@@ -1059,8 +1059,7 @@ jobs:
           gh workflow run qa-cli-staging.yaml \
             --repo vellum-ai/vellum-assistant-platform \
             --field version="${{ needs.extract-version.outputs.version }}" \
-            --field run_id="${{ github.run_id }}" \
-            --field source_repo="${{ github.repository }}"
+            --field run_id="${{ github.run_id }}"
 
   publish-meta:
     needs: [extract-version, publish-npm]
