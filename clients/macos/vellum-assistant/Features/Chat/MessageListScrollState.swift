@@ -428,13 +428,18 @@ final class MessageListScrollState {
 
     /// Low-level scroll-to-bottom execution. Does not check mode.
     ///
-    /// Uses `scrollToEdge(.bottom)` instead of `scrollTo(id: "scroll-bottom-anchor")`
-    /// because `ScrollPosition.scrollTo(id:)` is unreliable with `LazyVStack`
-    /// when the target view hasn't been materialized. With variable-height
-    /// chat messages, the lazy container's height estimation can be wrong,
-    /// leaving the viewport far from the true bottom where the anchor lives.
-    /// Edge-based scrolling targets the content edge regardless of which
-    /// views are currently materialized.
+    /// Uses both edge-based and ID-based scrolling for robustness:
+    ///   1. `scrollToEdge(.bottom)` — targets the content edge. Fast and
+    ///      reliable when LazyVStack height estimation is accurate, but
+    ///      can overshoot into blank estimated space when it isn't.
+    ///   2. `scrollTo(id: "scroll-bottom-anchor")` — targets the actual
+    ///      anchor view at the end of the LazyVStack. SwiftUI locates
+    ///      the view by ID in the ForEach data and materializes views
+    ///      around it. This bypasses height estimation entirely, catching
+    ///      cases where edge-based scrolling lands in blank space.
+    ///
+    /// Both are O(1) operations. The combination is intentionally
+    /// redundant — each covers failure modes the other misses.
     ///
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
@@ -442,9 +447,11 @@ final class MessageListScrollState {
         if animated {
             withAnimation(VAnimation.fast) {
                 scrollToEdge?(.bottom)
+                scrollTo?("scroll-bottom-anchor", .bottom)
             }
         } else {
             scrollToEdge?(.bottom)
+            scrollTo?("scroll-bottom-anchor", .bottom)
         }
     }
 

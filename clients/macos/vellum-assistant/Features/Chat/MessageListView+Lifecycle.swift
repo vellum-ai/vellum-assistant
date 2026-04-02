@@ -212,10 +212,16 @@ extension MessageListView {
         // handleMessagesCountChanged and content-growth auto-follow during
         // the critical window while LazyVStack materializes new content.
         // Declarative position reset — processed in the same layout pass as new content.
+        // Uses ID-based positioning instead of edge-based because
+        // ScrollPosition(edge: .bottom) targets the estimated content height,
+        // which is unreliable with LazyVStack. ScrollPosition(id:anchor:)
+        // targets the actual "scroll-bottom-anchor" view — SwiftUI locates it
+        // in the ForEach data and materializes views around it, bypassing the
+        // height estimation issue entirely.
         // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            scrollPosition = ScrollPosition(edge: .bottom)
+            scrollPosition = ScrollPosition(id: "scroll-bottom-anchor", anchor: .bottom)
         }
         restoreScrollToBottom()
     }

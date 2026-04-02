@@ -190,6 +190,10 @@ extension MessageListView {
             if anchorMessageId == nil,
                case .freeBrowsing = scrollState.mode {
                 // User scrolled away during the restore window — respect that.
+            } else if anchorMessageId == nil,
+                      case .programmaticScroll = scrollState.mode {
+                // A deep-link anchor scroll resolved and cleared anchorMessageId
+                // before this task fired. Don't yank the viewport back to bottom.
             } else if anchorMessageId == nil {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
                 scrollState.transition(to: .followingBottom)
