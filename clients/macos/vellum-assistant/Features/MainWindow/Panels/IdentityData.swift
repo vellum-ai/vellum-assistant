@@ -132,18 +132,22 @@ struct IdentityInfo {
     /// Most-recently loaded identity, cached in memory so that
     /// hot paths (menu bar, command palette, session overlay) never
     /// perform synchronous file I/O on the main thread.
-    private static var cached: IdentityInfo?
+    ///
+    /// All reads and writes are confined to `@MainActor` to eliminate
+    /// data races between the async `refreshCache()` writer and the
+    /// synchronous `current` reader.
+    @MainActor private static var cached: IdentityInfo?
 
     /// Returns the cached identity if available, otherwise falls back
     /// to a synchronous load (for first-access before the cache is warm).
-    static var current: IdentityInfo? {
+    @MainActor static var current: IdentityInfo? {
         cached ?? load()
     }
 
     /// Populate (or refresh) the in-memory cache from disk, off the
     /// main thread. Call this at app launch, on workspace switch, and
     /// whenever IDENTITY.md is known to have changed.
-    @discardableResult
+    @MainActor @discardableResult
     static func refreshCache() async -> IdentityInfo? {
         let info = await loadAsync()
         cached = info
@@ -152,7 +156,7 @@ struct IdentityInfo {
 
     /// Synchronously seeds the cache from the current default path.
     /// Intended for use when an async context is not available.
-    static func warmCache() {
+    @MainActor static func warmCache() {
         cached = load()
     }
 
