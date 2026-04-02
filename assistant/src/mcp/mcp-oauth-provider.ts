@@ -330,6 +330,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     }
     if (scope === "all" || scope === "verifier") {
       this._codeVerifier = undefined;
+      this._state = undefined;
     }
     if (scope === "all" || scope === "discovery") {
       const result = await deleteSecureKeyAsync(discoveryKey(this.serverId));
@@ -534,6 +535,15 @@ export class McpOAuthProvider implements OAuthClientProvider {
     if (this.callbackServer) {
       this.callbackServer.close();
       this.callbackServer = null;
+    }
+    // Gateway transport cleanup — reject the deferred promise so callers
+    // awaiting codePromise don't hang indefinitely.
+    if (this._gatewayCodeReject) {
+      this._gatewayCodeReject(
+        new Error("MCP OAuth gateway callback cancelled"),
+      );
+      this._gatewayCodeResolve = undefined;
+      this._gatewayCodeReject = undefined;
     }
   }
 }
