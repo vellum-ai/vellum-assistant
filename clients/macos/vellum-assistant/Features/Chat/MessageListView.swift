@@ -25,8 +25,8 @@ extension EnvironmentValues {
 
 /// Lightweight key that captures all inputs to `precomputedState`.
 /// All fields are O(1) to compare. The `messageListVersion` counter
-/// replaces the former O(n) hash-based fingerprint — it is incremented
-/// by `onChange` handlers when structural or content changes occur.
+/// is incremented by `onChange` handlers when structural or content
+/// changes occur.
 struct PrecomputedCacheKey: Equatable {
     let messageListVersion: Int
     let isSending: Bool
@@ -149,9 +149,8 @@ struct MessageListView: View {
 
     /// Checks whether observable message-level inputs have changed since the
     /// last body evaluation and, if so, bumps `scrollState.messageListVersion`.
-    /// This replaces the former O(n) `computeMessageFingerprint()` hash with an
-    /// O(1) version counter. Over-invalidation is safe (triggers a recompute);
-    /// under-invalidation is not.
+    /// Over-invalidation is safe (triggers a recompute); under-invalidation
+    /// is not.
     ///
     /// Tracks both the raw `messages.count` (catches new arrivals and
     /// paginated-window shifts at fixed length) and the filtered
@@ -373,9 +372,9 @@ struct MessageListView: View {
             orphanSubagents: layout.orphanSubagents,
             effectiveStatusText: layout.effectiveStatusText,
             displayMessages: {
-                // Deduplicate to match displayMessageIds — SwiftUI's ForEach
-                // requires unique identity values; duplicates during streaming
-                // or pagination cause undefined behavior.
+                // SwiftUI's ForEach requires unique identity values;
+                // duplicates during streaming or pagination cause
+                // undefined behavior.
                 var seen = Set<UUID>()
                 return liveMessages.filter { seen.insert($0.id).inserted }
             }(),
