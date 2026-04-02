@@ -2230,7 +2230,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/assistants/{assistantId}/feature-flags/": {
+      "/v1/assistants/{assistantId}/feature-flags": {
         get: {
           summary: "List feature flags (assistant-scoped)",
           description:
