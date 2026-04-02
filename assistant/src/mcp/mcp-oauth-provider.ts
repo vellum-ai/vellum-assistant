@@ -209,6 +209,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     );
 
     await openInHostBrowser(url);
+    console.log(`[MCP] If the browser did not open, visit this URL:\n${url}`);
   }
 
   // --- Invalidate Credentials ---
