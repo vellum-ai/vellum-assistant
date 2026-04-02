@@ -780,11 +780,11 @@ private struct PlatformURLMismatchInfo {
     let lockfileURL: String
 }
 
-// MARK: - Observation Boundary: Temporary Chat Toggle
+// MARK: - Temporary Chat Toggle Wrapper
 
-/// Observation boundary so MainWindowView.body does not track
-/// `ChatMessageManager.hasNonEmptyMessage`. Only this small view
-/// re-evaluates when the flag changes.
+/// Standalone view that reads `ChatViewModel.hasNonEmptyMessage` in its
+/// own body, preventing that `@Observable` dependency from propagating
+/// to `MainWindowView`'s observation scope.
 private struct TemporaryChatToggleWrapper: View {
     let activeConversation: ConversationModel?
     let activeViewModel: ChatViewModel?
@@ -803,12 +803,12 @@ private struct TemporaryChatToggleWrapper: View {
     }
 }
 
-// MARK: - Observation Boundary: Conversation Title Overlay
+// MARK: - Conversation Title Overlay
 
-/// Observation boundary so MainWindowView.body does not track
-/// `ChatMessageManager.hasNonEmptyMessage` or `.latestPersistedTipDaemonMessageId`
-/// through `ConversationHeaderPresentation`. Only this view re-evaluates
-/// when those chat properties change.
+/// Standalone view that constructs `ConversationHeaderPresentation` in its
+/// own body, keeping `@Observable` reads of `hasNonEmptyMessage` and
+/// `latestPersistedTipDaemonMessageId` out of `MainWindowView`'s
+/// observation scope.
 private struct ConversationTitleOverlay: View {
     let conversationManager: ConversationManager
     let windowState: MainWindowState
