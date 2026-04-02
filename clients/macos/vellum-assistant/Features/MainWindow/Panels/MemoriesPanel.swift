@@ -105,7 +105,7 @@ struct MemoriesPanel: View {
             // Memory count header
             HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
                 Text("\(store.total)")
-                    .font(VFont.brandSmall)
+                    .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentEmphasized)
                 Text(store.total == 1 ? "memory" : "memories")
                     .font(VFont.bodyMediumLighter)
@@ -236,7 +236,7 @@ struct MemoriesPanel: View {
             )
 
             VTabs(
-                items: MemoryViewMode.allCases.map { (label: $0.rawValue, icon: $0.icon, tag: $0) },
+                items: MemoryViewMode.allCases.map { (label: $0.rawValue, tag: $0) },
                 selection: $viewMode,
                 style: .pill,
                 size: .compact

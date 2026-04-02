@@ -29,7 +29,7 @@ struct MemoryItemRow: View {
                     // Top row: subject + timestamp + delete
                     HStack(alignment: .center, spacing: VSpacing.sm) {
                         Text(item.subject)
-                            .font(VFont.brandMini)
+                            .font(VFont.titleSmall)
                             .foregroundStyle(VColor.contentEmphasized)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -40,16 +40,15 @@ struct MemoryItemRow: View {
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
 
-                        if isHovered {
-                            VButton(
-                                label: "Delete",
-                                iconOnly: VIcon.trash.rawValue,
-                                style: .dangerGhost,
-                                size: .compact,
-                                action: onDelete
-                            )
-                            .accessibilityLabel("Delete memory")
-                        }
+                        VButton(
+                            label: "Delete",
+                            iconOnly: VIcon.trash.rawValue,
+                            style: .dangerGhost,
+                            size: .compact,
+                            action: onDelete
+                        )
+                        .opacity(isHovered ? 1 : 0)
+                        .accessibilityLabel("Delete memory")
                     }
 
                     // Metadata row: kind tag + confidence + source + importance dots
@@ -78,15 +77,6 @@ struct MemoryItemRow: View {
                         }
 
                         Spacer()
-
-                        // Importance dots
-                        HStack(spacing: 2) {
-                            ForEach(0..<item.importanceLevel.rawValue, id: \.self) { _ in
-                                Circle()
-                                    .fill(VColor.contentTertiary)
-                                    .frame(width: 8, height: 8)
-                            }
-                        }
                     }
                 }
                 .padding(.leading, VSpacing.md)
