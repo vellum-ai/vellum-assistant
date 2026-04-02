@@ -254,6 +254,29 @@ export interface ScoredNode {
 }
 
 // ---------------------------------------------------------------------------
+// Retrieval Metrics
+// ---------------------------------------------------------------------------
+
+export interface RetrievalMetrics {
+  semanticHits: number;
+  mergedCount: number;
+  selectedCount: number;
+  tier1Count: number;
+  tier2Count: number;
+  hybridSearchLatencyMs: number;
+  sparseVectorUsed: boolean;
+  embeddingProvider: string | null;
+  embeddingModel: string | null;
+  topCandidates: Array<{
+    nodeId: string;
+    type: string;
+    score: number;
+    semanticSimilarity: number;
+    recencyBoost: number;
+  }>;
+}
+
+// ---------------------------------------------------------------------------
 // Results
 // ---------------------------------------------------------------------------
 
