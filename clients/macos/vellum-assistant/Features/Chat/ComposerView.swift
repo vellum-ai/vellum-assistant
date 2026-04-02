@@ -80,6 +80,7 @@ struct ComposerView: View {
     @State var slashFilter = ""
     @State var slashSelectedIndex = 0
     @State var suppressSlashReopen = false
+    @State var suppressEmojiReopen = false
     @State var showEmojiMenu = false
     @State var emojiFilter = ""
     @State var emojiSelectedIndex = 0
@@ -181,6 +182,7 @@ struct ComposerView: View {
                 showSlashMenu = false
                 showEmojiMenu = false
                 suppressSlashReopen = false
+                suppressEmojiReopen = false
             }
         }
         .onChange(of: hasPendingConfirmation) { _, pending in

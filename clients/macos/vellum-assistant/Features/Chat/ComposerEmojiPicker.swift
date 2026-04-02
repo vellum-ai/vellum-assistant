@@ -49,6 +49,10 @@ extension ComposerView {
     }
 
     func updateEmojiState() {
+        if suppressEmojiReopen {
+            suppressEmojiReopen = false
+            return
+        }
         if let trigger = emojiTriggerRange() {
             let results = EmojiCatalog.search(prefix: trigger.filter)
             if !results.isEmpty {
@@ -98,6 +102,7 @@ extension ComposerView {
                 selectEmoji(filtered[emojiSelectedIndex])
             case .dismiss:
                 withAnimation(VAnimation.fast) { showEmojiMenu = false }
+                suppressEmojiReopen = true
             }
         }
     }
