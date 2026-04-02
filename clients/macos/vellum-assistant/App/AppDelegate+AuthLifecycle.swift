@@ -472,7 +472,16 @@ extension AppDelegate {
                     log.info("Managed switch to \(targetId, privacy: .public) cancelled")
                     return
                 } catch {
-                    log.error("Managed bootstrap failed during switch — proceeding anyway: \(error.localizedDescription, privacy: .public)")
+                    log.error("Managed bootstrap failed during switch: \(error.localizedDescription, privacy: .public)")
+                    // If resolveOrganizationId() failed, connectedOrganizationId
+                    // is still nil and the connection would fail for the same
+                    // reason this fix exists. Only proceed if the org ID was
+                    // actually resolved (it's set as a side effect of
+                    // resolveOrganizationId() inside ensureManagedAssistant()).
+                    if UserDefaults.standard.string(forKey: "connectedOrganizationId") == nil {
+                        log.error("Organization ID not resolved — aborting managed switch to \(targetId, privacy: .public)")
+                        return
+                    }
                 }
                 // Guard against a second switch that started while we were
                 // awaiting the bootstrap — only finish if this task hasn't
