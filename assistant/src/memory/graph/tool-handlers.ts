@@ -95,6 +95,17 @@ async function handleMemoryRecall(
   // Generate sparse embedding for hybrid search (dense + sparse with RRF fusion)
   const sparseVector = generateSparseEmbedding(input.query);
 
+  // Build date range filter for Qdrant-level filtering
+  const dateRange: { afterMs?: number; beforeMs?: number } = {};
+  if (input.filters?.after) {
+    const afterMs = new Date(input.filters.after).getTime();
+    if (!isNaN(afterMs)) dateRange.afterMs = afterMs;
+  }
+  if (input.filters?.before) {
+    const beforeMs = new Date(input.filters.before).getTime();
+    if (!isNaN(beforeMs)) dateRange.beforeMs = beforeMs;
+  }
+
   // Search graph nodes
   const limit = Math.max(1, Math.min(input.num_results ?? 20, 50));
   const searchResults = await searchGraphNodes(
@@ -102,6 +113,9 @@ async function handleMemoryRecall(
     limit,
     [scopeId],
     sparseVector,
+    dateRange.afterMs != null || dateRange.beforeMs != null
+      ? dateRange
+      : undefined,
   );
   if (searchResults.length === 0) {
     return { results: [], mode: "memory", query: input.query };
@@ -119,16 +133,6 @@ async function handleMemoryRecall(
     // Type filter
     if (input.filters?.types && input.filters.types.length > 0) {
       if (!input.filters.types.includes(node.type)) return [];
-    }
-
-    // Date filters
-    if (input.filters?.after) {
-      const afterMs = new Date(input.filters.after).getTime();
-      if (!isNaN(afterMs) && node.created < afterMs) return [];
-    }
-    if (input.filters?.before) {
-      const beforeMs = new Date(input.filters.before).getTime();
-      if (!isNaN(beforeMs) && node.created > beforeMs) return [];
     }
 
     return [
@@ -159,6 +163,27 @@ async function handleArchiveRecall(
     const limit = Math.max(1, Math.min(input.num_results ?? 20, 50));
     const ftsMatch = buildFtsMatchQuery(input.query.trim());
 
+    const afterMs = input.filters?.after
+      ? new Date(input.filters.after).getTime()
+      : NaN;
+    const beforeMs = input.filters?.before
+      ? new Date(input.filters.before).getTime()
+      : NaN;
+    const dateConditions: string[] = [];
+    const dateParams: number[] = [];
+    if (!isNaN(afterMs)) {
+      dateConditions.push("m.created_at >= ?");
+      dateParams.push(afterMs);
+    }
+    if (!isNaN(beforeMs)) {
+      dateConditions.push("m.created_at <= ?");
+      dateParams.push(beforeMs);
+    }
+    const dateClause =
+      dateConditions.length > 0
+        ? " AND " + dateConditions.join(" AND ")
+        : "";
+
     type ArchiveRow = {
       id: string;
       content: string;
@@ -177,11 +202,12 @@ async function handleArchiveRecall(
          JOIN messages m ON m.id = fts.message_id
          JOIN conversations c ON c.id = m.conversation_id
          WHERE messages_fts MATCH ?
-           AND c.memory_scope_id = ?
+           AND c.memory_scope_id = ?${dateClause}
          ORDER BY rank
          LIMIT ?`,
         ftsMatch,
         scopeId,
+        ...dateParams,
         limit,
       );
     } else if (!input.query.trim()) {
@@ -199,11 +225,12 @@ async function handleArchiveRecall(
         `SELECT m.id, m.content, m.role, m.created_at, c.id as conversation_id
          FROM messages m
          JOIN conversations c ON c.id = m.conversation_id
-         WHERE m.content LIKE ? ESCAPE '\\' AND c.memory_scope_id = ?
+         WHERE m.content LIKE ? ESCAPE '\\' AND c.memory_scope_id = ?${dateClause}
          ORDER BY m.created_at DESC
          LIMIT ?`,
         likePattern,
         scopeId,
+        ...dateParams,
         limit,
       );
     }

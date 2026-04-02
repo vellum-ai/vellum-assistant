@@ -43,6 +43,7 @@ export async function searchGraphNodes(
   limit: number,
   scopeIds?: string[],
   sparseVector?: QdrantSparseVector,
+  dateRange?: { afterMs?: number; beforeMs?: number },
 ): Promise<GraphSearchResult[]> {
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping graph search");
@@ -54,13 +55,20 @@ export async function searchGraphNodes(
   // Use hybrid search (dense + sparse with RRF fusion) when a non-empty
   // sparse vector is available; otherwise fall back to dense-only search.
   if (sparseVector && sparseVector.indices.length > 0) {
+    const must: Record<string, unknown>[] = [
+      { key: "target_type", match: { value: "graph_node" } },
+      ...(scopeIds && scopeIds.length > 0
+        ? [{ key: "memory_scope_id", match: { any: scopeIds } }]
+        : []),
+    ];
+    if (dateRange?.afterMs != null) {
+      must.push({ key: "created_at", range: { gte: dateRange.afterMs } });
+    }
+    if (dateRange?.beforeMs != null) {
+      must.push({ key: "created_at", range: { lte: dateRange.beforeMs } });
+    }
     const filter = {
-      must: [
-        { key: "target_type", match: { value: "graph_node" } },
-        ...(scopeIds && scopeIds.length > 0
-          ? [{ key: "memory_scope_id", match: { any: scopeIds } }]
-          : []),
-      ],
+      must,
       must_not: [{ key: "_meta", match: { value: true } }],
     };
 
@@ -82,21 +90,27 @@ export async function searchGraphNodes(
   }
 
   // Dense-only fallback
-  const filter: Record<string, unknown> = {
-    must: [
-      {
-        key: "target_type",
-        match: { value: "graph_node" },
-      },
-    ],
-  };
+  const denseMusts: Record<string, unknown>[] = [
+    {
+      key: "target_type",
+      match: { value: "graph_node" },
+    },
+  ];
 
   if (scopeIds && scopeIds.length > 0) {
-    (filter.must as unknown[]).push({
+    denseMusts.push({
       key: "memory_scope_id",
       match: { any: scopeIds },
     });
   }
+  if (dateRange?.afterMs != null) {
+    denseMusts.push({ key: "created_at", range: { gte: dateRange.afterMs } });
+  }
+  if (dateRange?.beforeMs != null) {
+    denseMusts.push({ key: "created_at", range: { lte: dateRange.beforeMs } });
+  }
+
+  const filter: Record<string, unknown> = { must: denseMusts };
 
   const results: QdrantSearchResult[] = await withQdrantBreaker(async () => {
     return client.search(queryVector, limit, filter);
