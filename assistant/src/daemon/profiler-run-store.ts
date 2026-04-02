@@ -53,6 +53,8 @@ export interface ProfilerRunManifest {
   updatedAt: string;
   /** Total bytes consumed by all files in the run directory. */
   totalBytes: number;
+  /** ISO-8601 timestamp when the run transitioned to "completed". */
+  completedAt?: string;
 }
 
 const MANIFEST_FILENAME = "manifest.json";
@@ -152,11 +154,24 @@ function getFreeDiskBytes(path: string): number {
 
 // ── Core operations ─────────────────────────────────────────────────────
 
+/** Options for {@link rescanRuns}. */
+export interface RescanRunsOptions {
+  /**
+   * When true, skip all `writeManifest()` calls — just read existing
+   * manifests and recompute sizes without mutating the filesystem.
+   * Used by health endpoints to avoid write side-effects on every poll.
+   */
+  readOnly?: boolean;
+}
+
 /**
  * Enumerate all profiler run directories, recompute sizes, and return
- * up-to-date manifests. Also writes updated manifests back to disk.
+ * up-to-date manifests. By default also writes updated manifests back
+ * to disk; pass `{ readOnly: true }` to suppress writes (e.g. from
+ * health-check callers).
  */
-export function rescanRuns(): ProfilerRunManifest[] {
+export function rescanRuns(options?: RescanRunsOptions): ProfilerRunManifest[] {
+  const readOnly = options?.readOnly ?? false;
   const runsDir = getProfilerRunsDir();
   if (!existsSync(runsDir)) return [];
 
@@ -195,21 +210,39 @@ export function rescanRuns(): ProfilerRunManifest[] {
       }
     }
 
-    const manifest: ProfilerRunManifest = {
-      runId,
-      status: isActive ? "active" : "completed",
-      createdAt,
-      updatedAt: now,
-      totalBytes,
-    };
+    const newStatus: "active" | "completed" = isActive ? "active" : "completed";
 
-    // If a previously-active run is no longer the current active run,
-    // mark it completed.
-    if (existing?.status === "active" && !isActive) {
-      manifest.status = "completed";
+    // Determine completedAt: set it when a run transitions to completed
+    // for the first time, otherwise preserve the existing value.
+    let completedAt = existing?.completedAt;
+    if (
+      newStatus === "completed" &&
+      !completedAt &&
+      (existing?.status === "active" || !existing)
+    ) {
+      completedAt = now;
     }
 
-    writeManifest(runDir, manifest);
+    // Only bump updatedAt when something meaningful changed compared to
+    // the on-disk manifest (status, totalBytes, or first creation).
+    const somethingChanged =
+      !existing ||
+      existing.status !== newStatus ||
+      existing.totalBytes !== totalBytes;
+    const updatedAt = somethingChanged ? now : existing.updatedAt;
+
+    const manifest: ProfilerRunManifest = {
+      runId,
+      status: newStatus,
+      createdAt,
+      updatedAt,
+      totalBytes,
+      ...(completedAt ? { completedAt } : {}),
+    };
+
+    if (!readOnly) {
+      writeManifest(runDir, manifest);
+    }
     manifests.push(manifest);
   }
 
@@ -445,10 +478,11 @@ export function getProfilerRuntimeStatus(): ProfilerRuntimeStatus {
   const runDir = getProfilerRunDir(runId!);
   const runsDir = getProfilerRunsDir();
 
-  // Rescan to get up-to-date manifests
+  // Rescan to get up-to-date manifests — read-only so health checks
+  // don't write to disk on every poll.
   let manifests: ProfilerRunManifest[];
   try {
-    manifests = rescanRuns();
+    manifests = rescanRuns({ readOnly: true });
   } catch {
     manifests = [];
   }
@@ -496,7 +530,7 @@ export function getProfilerRuntimeStatus(): ProfilerRuntimeStatus {
       totalBytes: latest.totalBytes,
       artifactCount: countArtifacts(latestDir),
       hasSummaries: hasSummaryFiles(latestDir),
-      completedAt: latest.updatedAt,
+      completedAt: latest.completedAt ?? latest.updatedAt,
     };
   }
 

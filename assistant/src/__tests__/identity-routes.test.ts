@@ -76,17 +76,21 @@ function writeRunManifest(
     status: "active" | "completed";
     createdAt?: string;
     updatedAt?: string;
+    completedAt?: string;
     totalBytes?: number;
   },
 ): void {
   const runDir = ensureProfilerRunDir(runId);
-  const m = {
+  const m: Record<string, unknown> = {
     runId,
     status: manifest.status,
     createdAt: manifest.createdAt ?? new Date().toISOString(),
     updatedAt: manifest.updatedAt ?? new Date().toISOString(),
     totalBytes: manifest.totalBytes ?? 0,
   };
+  if (manifest.completedAt) {
+    m.completedAt = manifest.completedAt;
+  }
   writeFileSync(join(runDir, "manifest.json"), JSON.stringify(m, null, 2));
 }
 
@@ -264,10 +268,12 @@ describe("identity routes — health endpoint", () => {
 
       // Create a completed run with artifacts and a summary file
       const completedId = "completed-run-abc";
+      const expectedCompletedAt = "2025-06-01T00:30:00Z";
       writeRunManifest(completedId, {
         status: "completed",
         createdAt: "2025-06-01T00:00:00Z",
         updatedAt: "2025-06-01T01:00:00Z",
+        completedAt: expectedCompletedAt,
         totalBytes: 4096,
       });
       writeArtifactFile(completedId, "profile.cpuprofile", 3072);
@@ -283,7 +289,9 @@ describe("identity routes — health endpoint", () => {
       expect(last.artifactCount).toBe(1); // Only .cpuprofile counts
       expect(last.hasSummaries).toBe(true);
       expect(typeof last.totalBytes).toBe("number");
-      expect(typeof last.completedAt).toBe("string");
+      // completedAt should reflect the manifest's completedAt value,
+      // not the current time or updatedAt.
+      expect(last.completedAt).toBe(expectedCompletedAt);
     });
 
     test("selects the most recent completed run when multiple exist", async () => {
