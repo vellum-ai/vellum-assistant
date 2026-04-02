@@ -182,7 +182,6 @@ extension DynamicPageSurfaceView {
                 return
             }
 
-            // Existing sendAction handling.
             guard let actionId = body["actionId"] as? String else { return }
             let data = body["data"]
             onAction(actionId, data)

@@ -88,8 +88,6 @@ extension DynamicPageSurfaceView {
     }()
 
     // MARK: - Pre-built WKUserScript objects
-    // Built once at launch and reused across all instances to avoid
-    // redundant string processing and object allocation per creation.
 
     /// Design system CSS injection script, built once from the static `designSystemCSS` string.
     static let designSystemUserScript: WKUserScript = {
