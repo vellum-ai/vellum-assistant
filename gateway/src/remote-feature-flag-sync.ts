@@ -38,7 +38,7 @@ type RemoteFetchResult =
   | { status: "error" };
 
 export type RemoteFeatureFlagSyncConfig = {
-  /** Credential cache for resolving platform URL, API key, and assistant ID dynamically. */
+  /** Credential cache for resolving platform URL and API key dynamically. */
   credentials: CredentialCache;
   /** Override the initial poll interval (ms) — useful for testing. Defaults to 10 000. */
   initialPollIntervalMs?: number;
@@ -297,12 +297,10 @@ export class RemoteFeatureFlagSync {
     // errors) are treated as retriable errors with backoff, not as "missing
     // credentials" which would pause polling indefinitely.
     let platformUrlRaw: string | undefined;
-    let assistantIdRaw: string | undefined;
     let assistantApiKeyRaw: string | undefined;
     try {
-      [platformUrlRaw, assistantIdRaw, assistantApiKeyRaw] = await Promise.all([
+      [platformUrlRaw, assistantApiKeyRaw] = await Promise.all([
         this.credentials.get(credentialKey("vellum", "platform_base_url")),
-        this.credentials.get(credentialKey("vellum", "platform_assistant_id")),
         this.credentials.get(credentialKey("vellum", "assistant_api_key")),
       ]);
     } catch (err) {
@@ -322,17 +320,11 @@ export class RemoteFeatureFlagSync {
     // for internal gateway endpoints and would produce 401s here.
     const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
 
-    const assistantId =
-      process.env.PLATFORM_ASSISTANT_ID?.trim() ||
-      assistantIdRaw?.trim() ||
-      undefined;
-
-    if (!platformUrl || !assistantApiKey || !assistantId) {
+    if (!platformUrl || !assistantApiKey) {
       log.debug(
         {
           hasPlatformUrl: !!platformUrl,
           hasApiKey: !!assistantApiKey,
-          hasAssistantId: !!assistantId,
         },
         "Remote feature flag sync skipped: missing credentials",
       );

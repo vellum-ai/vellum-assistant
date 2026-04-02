@@ -76,7 +76,6 @@ function fakeCredentialCache(
 function defaultCredentials(): Record<string, string> {
   return {
     "credential/vellum/platform_base_url": "https://platform.vellum.ai",
-    "credential/vellum/platform_assistant_id": "asst-123",
     "credential/vellum/assistant_api_key": "test-api-key",
   };
 }
@@ -85,14 +84,12 @@ function defaultCredentials(): Record<string, string> {
 // Setup / teardown
 // ---------------------------------------------------------------------------
 const savedVellumPlatformUrl = process.env.VELLUM_PLATFORM_URL;
-const savedPlatformAssistantId = process.env.PLATFORM_ASSISTANT_ID;
 const savedPlatformInternalApiKey = process.env.PLATFORM_INTERNAL_API_KEY;
 
 beforeEach(() => {
   // Clear env vars that the production code falls back to, so tests remain
   // deterministic unless they explicitly set them.
   delete process.env.VELLUM_PLATFORM_URL;
-  delete process.env.PLATFORM_ASSISTANT_ID;
   delete process.env.PLATFORM_INTERNAL_API_KEY;
   mkdirSync(protectedDir, { recursive: true });
   clearRemoteFeatureFlagStoreCache();
@@ -109,7 +106,6 @@ afterEach(() => {
     }
   };
   restoreEnv("VELLUM_PLATFORM_URL", savedVellumPlatformUrl);
-  restoreEnv("PLATFORM_ASSISTANT_ID", savedPlatformAssistantId);
   restoreEnv("PLATFORM_INTERNAL_API_KEY", savedPlatformInternalApiKey);
   try {
     rmSync(protectedDir, { recursive: true, force: true });
@@ -192,25 +188,13 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("skips sync when platform_assistant_id is missing and no PLATFORM_ASSISTANT_ID", async () => {
-    const creds = defaultCredentials();
-    delete creds["credential/vellum/platform_assistant_id"];
+  test("syncs when only platformUrl and assistantApiKey are present", async () => {
+    fetchMock = mock(async () => Response.json({ flags: { ff1: true } }));
 
-    const sync = new RemoteFeatureFlagSync({
-      credentials: fakeCredentialCache(creds),
-    });
-    await sync.start();
-    sync.stop();
-
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("falls back to PLATFORM_ASSISTANT_ID env var when credential cache is empty", async () => {
-    fetchMock = mock(async () => Response.json({ flags: {} }));
-    process.env.PLATFORM_ASSISTANT_ID = "env-asst-456";
-
-    const creds = defaultCredentials();
-    delete creds["credential/vellum/platform_assistant_id"];
+    const creds = {
+      "credential/vellum/platform_base_url": "https://platform.example.com",
+      "credential/vellum/assistant_api_key": "test-api-key",
+    };
 
     const sync = new RemoteFeatureFlagSync({
       credentials: fakeCredentialCache(creds),
@@ -219,8 +203,6 @@ describe("RemoteFeatureFlagSync", () => {
     sync.stop();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url] = fetchMock.mock.calls[0];
-    expect(url).toContain("/v1/feature-flags/assistant-flag-values/");
   });
 
   test("fetches and caches flags on successful response", async () => {
@@ -338,13 +320,12 @@ describe("RemoteFeatureFlagSync", () => {
     expect(headers.Authorization).toBe(`Api-Key ${apiKey}`);
   });
 
-  test("constructs correct URL with assistant ID", async () => {
+  test("constructs correct URL from platform base URL", async () => {
     fetchMock = mock(async () => Response.json({ flags: {} }));
 
     const creds = {
       ...defaultCredentials(),
       "credential/vellum/platform_base_url": "https://platform.example.com",
-      "credential/vellum/platform_assistant_id": "asst-abc-999",
     };
     const sync = new RemoteFeatureFlagSync({
       credentials: fakeCredentialCache(creds),
@@ -480,7 +461,6 @@ describe("RemoteFeatureFlagSync", () => {
 
     const creds = {
       "credential/vellum/platform_base_url": "  https://platform.example.com  ",
-      "credential/vellum/platform_assistant_id": "  asst-trimmed  ",
       "credential/vellum/assistant_api_key": "  trimmed-key  ",
     };
     const sync = new RemoteFeatureFlagSync({
