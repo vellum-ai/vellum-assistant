@@ -97,8 +97,10 @@ public struct VButton: View {
     private var iconOnlyForegroundColor: Color {
         if isDisabled { return VColor.contentDisabled }
         switch style {
-        case .primary, .danger:
+        case .primary:
             return VColor.contentInset
+        case .danger:
+            return VColor.auxWhite
         case .contrast:
             return VColor.contentInset
         case .ghost, .outlined:
@@ -233,7 +235,7 @@ public struct VButtonStyle: ButtonStyle {
 
         switch style {
         case .primary: return VColor.contentInset
-        case .danger: return VColor.contentInset
+        case .danger: return VColor.auxWhite
         case .contrast: return VColor.contentInset
         case .outlined: return isHovered ? VColor.primaryActive : VColor.contentDefault
         case .dangerOutline: return isHovered ? VColor.systemNegativeHover : VColor.systemNegativeStrong
@@ -257,7 +259,7 @@ public struct VButtonStyle: ButtonStyle {
             if isHovered { return VColor.borderElement }
             return VColor.borderElement
         case .dangerOutline:
-            guard isEnabled else { return VColor.borderDisabled }
+            guard isEnabled else { return VColor.primaryDisabled }
             if isPressed { return VColor.systemNegativeHover }
             if isHovered { return VColor.systemNegativeHover }
             return VColor.systemNegativeStrong
