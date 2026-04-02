@@ -181,9 +181,12 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
 
   if (existing) {
     if (existing.content === content && existing.fidelity !== "gone") {
-      // Same content — just touch lastAccessed
+      // Same content — just touch lastAccessed (and backfill lastConsolidated
+      // for nodes created before the fix so they don't decay immediately)
+      const updates: Record<string, number> = { lastAccessed: now };
+      if (existing.lastConsolidated === 0) updates.lastConsolidated = now;
       db.update(memoryGraphNodes)
-        .set({ lastAccessed: now })
+        .set(updates)
         .where(eq(memoryGraphNodes.id, existing.id))
         .run();
       return;
@@ -195,6 +198,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
         content,
         fidelity: "vivid",
         lastAccessed: now,
+        ...(existing.lastConsolidated === 0 ? { lastConsolidated: now } : {}),
       })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
