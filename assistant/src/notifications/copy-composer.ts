@@ -353,6 +353,15 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     };
   },
 
+  "guardian.channel_activation": (payload) => {
+    const code = str(payload.verificationCode, "------");
+    const channel = str(payload.sourceChannel, "a channel");
+    return {
+      title: "Guardian Verification Code",
+      body: `Your ${channel} verification code is: ${code}\n\nEnter this code in your ${channel} chat to verify your identity as guardian.`,
+    };
+  },
+
   "ingress.access_request": (payload) => ({
     title: "Access Request",
     body: buildAccessRequestContractText(payload),

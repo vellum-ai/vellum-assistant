@@ -46,6 +46,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     id: "guardian.question",
     description: "Guardian approval question requiring response",
   },
+  {
+    id: "guardian.channel_activation",
+    description:
+      "Guardian channel activation code delivered for /start verification",
+  },
   { id: "ingress.access_request", description: "Non-member requesting access" },
   {
     id: "ingress.access_request.callback_handoff",
@@ -155,9 +160,20 @@ export interface AccessRequestContextPayload {
   messagePreview: string | null;
 }
 
+export interface GuardianChannelActivationPayload {
+  verificationCode: string;
+  sourceChannel: string;
+  actorExternalId: string;
+  actorDisplayName: string | null;
+  actorUsername: string | null;
+  sessionId: string;
+  expiresAt: number;
+}
+
 export interface NotificationEventContextPayloadMap {
   "guardian.question": GuardianQuestionPayload;
   "ingress.access_request": AccessRequestContextPayload;
+  "guardian.channel_activation": GuardianChannelActivationPayload;
 }
 
 export type NotificationContextPayload<TEventName extends string = string> =

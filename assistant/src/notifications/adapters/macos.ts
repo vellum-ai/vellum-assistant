@@ -37,6 +37,7 @@ const GUARDIAN_SENSITIVE_EVENT_PREFIXES = [
   "guardian.question",
   "ingress.escalation",
   "ingress.access_request",
+  "guardian.channel_activation",
 ] as const;
 
 export function isGuardianSensitiveEvent(sourceEventName: string): boolean {
