@@ -14,21 +14,25 @@ extension MessageListView {
         // .id(conversationId) on the ScrollView destroys and recreates it on
         // conversation switch, firing onAppear for the new view. Detect the
         // switch by comparing against the last-known conversation ID.
-        // Must check BEFORE configureScrollCallbacks() which updates
-        // currentConversationId.
         //
         // Skip when currentConversationId is nil (true first mount) — reset()
         // on freshly-initialized state is redundant and its 300ms scroll-
         // indicator-hide task would cause a visual flicker on app launch.
         //
-        // Scroll callbacks are configured by the ScrollViewReader's
-        // onAppear closure inside the ScrollView body (see configureScrollCallbacks).
+        // Scroll callbacks (proxy closures) are configured by the
+        // ScrollViewReader's inner onAppear. currentConversationId is set
+        // below, AFTER the switch check, because child onAppear fires first.
         let previousConversationId = scrollState.currentConversationId
         let isConversationSwitch = previousConversationId != nil
             && previousConversationId != conversationId
         if isConversationSwitch {
             handleConversationSwitched()
         }
+        // Update currentConversationId AFTER the switch check.
+        // configureScrollCallbacks (inner onAppear) intentionally does NOT
+        // set this because child onAppear fires before parent onAppear,
+        // which would make isConversationSwitch always false.
+        scrollState.currentConversationId = conversationId
         // Seed the confirmation marker so a conversation already paused in
         // awaiting_confirmation at launch or reconnect is correctly tracked.
         if !isSending {

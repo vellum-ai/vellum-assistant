@@ -216,6 +216,8 @@ extension MessageListView {
         scrollState.clearScrollPositionBinding = {
             binding.wrappedValue = ScrollPosition()
         }
-        scrollState.currentConversationId = conversationId
+        // NOTE: currentConversationId is intentionally NOT set here.
+        // It is set in handleAppear() AFTER the conversation-switch check,
+        // because child onAppear fires before parent onAppear in SwiftUI.
     }
 }
