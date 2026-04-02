@@ -317,28 +317,53 @@ struct OnboardingFlowView: View {
                         .foregroundStyle(VColor.contentSecondary)
                 }
             } else {
-                Text("Setup failed")
-                    .font(VFont.titleMedium)
-                    .foregroundStyle(VColor.contentDefault)
+                VStack(spacing: VSpacing.xl) {
+                    VStack(spacing: VSpacing.sm) {
+                        VIconView(.circleX, size: 32)
+                            .foregroundStyle(VColor.systemNegativeStrong)
 
-                if let error = managedBootstrapError {
-                    Text(error)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 280)
-                }
+                        Text("Setup failed")
+                            .font(VFont.titleMedium)
+                            .foregroundStyle(VColor.contentDefault)
 
-                VButton(label: "Try again", style: .primary, isFullWidth: true) {
-                    Task {
-                        await performManagedBootstrap()
+                        Text("Something went wrong while setting up your assistant.")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    if let error = managedBootstrapError {
+                        VInlineMessage(humanReadableError(from: error), tone: .error)
+                    }
+
+                    VStack(spacing: VSpacing.sm) {
+                        VButton(label: "Try again", style: .primary, isFullWidth: true) {
+                            Task {
+                                await performManagedBootstrap()
+                            }
+                        }
+
+                        VButton(label: "Go back", style: .ghost) {
+                            isBootstrappingManaged = false
+                            managedBootstrapError = nil
+                        }
                     }
                 }
-                .frame(maxWidth: 280)
+                .frame(maxWidth: 320)
             }
         }
 
         Spacer()
+    }
+
+    /// Extracts a human-readable message from an error string that may be JSON.
+    private func humanReadableError(from raw: String) -> String {
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let detail = json["detail"] as? String else {
+            return raw
+        }
+        return detail
     }
 
     private func performManagedBootstrap() async {
