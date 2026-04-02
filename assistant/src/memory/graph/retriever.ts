@@ -78,7 +78,7 @@ async function rerankAndDedup(
     const provider = await getConfiguredProvider();
     if (!provider) return candidates.slice(0, maxNodes);
 
-    // Compact listing for the LLM: numbered index + age + first 100 chars
+    // Numbered listing for the LLM: index + age + full content
     const now = Date.now();
     const listing = candidates
       .map((s, i) => {
@@ -87,11 +87,7 @@ async function rerankAndDedup(
           ageDays < 1
             ? `${Math.floor(ageDays * 24)}h`
             : `${Math.floor(ageDays)}d`;
-        const preview =
-          s.node.content.length > 100
-            ? s.node.content.slice(0, 100) + "…"
-            : s.node.content;
-        return `${i + 1}. (${age}) ${preview}`;
+        return `${i + 1}. (${age}) ${s.node.content}`;
       })
       .join("\n");
 
@@ -189,11 +185,7 @@ async function dedupForTurn(
           ageDays < 1
             ? `${Math.floor(ageDays * 24)}h`
             : `${Math.floor(ageDays)}d`;
-        const preview =
-          s.node.content.length > 150
-            ? s.node.content.slice(0, 150) + "…"
-            : s.node.content;
-        return `${i + 1}. (${age}) ${preview}`;
+        return `${i + 1}. (${age}) ${s.node.content}`;
       })
       .join("\n");
 
