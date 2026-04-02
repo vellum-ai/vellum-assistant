@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildTemporalContext,
   extractUserTimeZoneFromRecall,
+  formatTurnTimestamp,
 } from "../daemon/date-context.js";
 
 // Fixed timestamps for deterministic assertions (all UTC midday to avoid DST edge cases).
@@ -291,5 +292,80 @@ describe("extractUserTimeZoneFromRecall", () => {
 </recalled>
 </memory_context>`;
     expect(extractUserTimeZoneFromRecall(text)).toBe("America/Denver");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatTurnTimestamp
+// ---------------------------------------------------------------------------
+
+describe("formatTurnTimestamp", () => {
+  /** 2026-04-02 06:52:33 UTC (Thursday) */
+  const THU_APR_02_0652 = Date.UTC(2026, 3, 2, 6, 52, 33);
+
+  test("includes seconds in the timestamp", () => {
+    const result = formatTurnTimestamp({
+      nowMs: THU_APR_02_0652,
+      timeZone: "America/Chicago",
+    });
+    expect(result).toContain("01:52:33");
+  });
+
+  test("timezone name appears in parentheses", () => {
+    const result = formatTurnTimestamp({
+      nowMs: THU_APR_02_0652,
+      timeZone: "America/Chicago",
+    });
+    expect(result).toContain("(America/Chicago)");
+  });
+
+  test("produces expected full format", () => {
+    const result = formatTurnTimestamp({
+      nowMs: THU_APR_02_0652,
+      timeZone: "America/Chicago",
+    });
+    expect(result).toBe(
+      "2026-04-02 (Thu) 01:52:33 -05:00 (America/Chicago)",
+    );
+  });
+
+  test("handles UTC fallback when no timezone provided", () => {
+    const result = formatTurnTimestamp({
+      nowMs: THU_APR_02_0652,
+      hostTimeZone: "UTC",
+    });
+    expect(result).toBe("2026-04-02 (Thu) 06:52:33 +00:00 (UTC)");
+  });
+
+  test("handles user timezone override", () => {
+    const result = formatTurnTimestamp({
+      nowMs: THU_APR_02_0652,
+      hostTimeZone: "UTC",
+      userTimeZone: "Asia/Tokyo",
+    });
+    expect(result).toBe("2026-04-02 (Thu) 15:52:33 +09:00 (Asia/Tokyo)");
+  });
+
+  test("handles DST correctly", () => {
+    // Jul 1 12:00:30 UTC = Jul 1 08:00:30 EDT (Eastern Daylight Time, -04:00)
+    const summerWithSeconds = Date.UTC(2026, 6, 1, 12, 0, 30);
+    const result = formatTurnTimestamp({
+      nowMs: summerWithSeconds,
+      timeZone: "America/New_York",
+    });
+    expect(result).toBe(
+      "2026-07-01 (Wed) 08:00:30 -04:00 (America/New_York)",
+    );
+  });
+
+  test("formats midnight as 00", () => {
+    // 2026-02-19 00:00:15 UTC
+    const justAfterMidnight = Date.UTC(2026, 1, 19, 0, 0, 15);
+    const result = formatTurnTimestamp({
+      nowMs: justAfterMidnight,
+      timeZone: "UTC",
+    });
+    expect(result).toContain("00:00:15");
+    expect(result).not.toContain("24:");
   });
 });

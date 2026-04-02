@@ -312,6 +312,59 @@ function formatCompactTimeAndOffset(
 }
 
 /**
+ * Format time as HH:MM:SS with UTC offset and timezone name.
+ *
+ * Uses the same timezone resolution cascade as `buildTemporalContext`:
+ * explicit override → configured user tz → profile user tz → host fallback.
+ *
+ * Returns format: `2026-04-02 (Thu) 01:52:33 -05:00 (America/Chicago)`
+ */
+export function formatTurnTimestamp(
+  options: TemporalContextOptions = {},
+): string {
+  const now = new Date(options.nowMs ?? Date.now());
+  const resolvedHostTimeZone =
+    canonicalizeTimeZone(
+      options.hostTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    ) ?? "UTC";
+  const resolvedConfiguredUserTimeZone = options.configuredUserTimeZone
+    ? canonicalizeTimeZone(options.configuredUserTimeZone)
+    : null;
+  const resolvedUserTimeZone = options.userTimeZone
+    ? canonicalizeTimeZone(options.userTimeZone)
+    : null;
+  const resolvedTimeZone = options.timeZone
+    ? canonicalizeTimeZone(options.timeZone)
+    : null;
+  const timeZone =
+    resolvedTimeZone ??
+    resolvedConfiguredUserTimeZone ??
+    resolvedUserTimeZone ??
+    resolvedHostTimeZone;
+
+  const dateStr = formatLocalDate(now, timeZone);
+  const todayParts = localDateParts(now, timeZone);
+  const dayName = WEEKDAY_SHORT[todayParts.weekday];
+
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "shortOffset",
+  });
+  const parts = fmt.formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const hour = get("hour");
+  const minute = get("minute");
+  const second = get("second");
+  const offset = normalizeOffsetToken(get("timeZoneName"));
+
+  return `${dateStr} (${dayName}) ${hour}:${minute}:${second} ${offset} (${timeZone})`;
+}
+
+/**
  * Build a compact temporal context string for model injection.
  */
 export function buildTemporalContext(
