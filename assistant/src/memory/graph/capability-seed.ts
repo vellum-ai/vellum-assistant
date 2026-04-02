@@ -12,7 +12,6 @@ import { buildCliProgram } from "../../cli/program.js";
 import { getConfig } from "../../config/loader.js";
 import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
-import { getCachedCatalogSync } from "../../skills/catalog-cache.js";
 import {
   fromSkillSummary,
   type SkillCapabilityInput,
@@ -108,19 +107,11 @@ export function seedSkillGraphNodes(): void {
       seenKeys.add(`${SKILL_SOURCE_PREFIX}${summary.id}`);
     }
 
-    // Include enabled catalog skill keys so pruning doesn't remove them
-    const enabledIds = new Set(enabled.map((r) => r.summary.id));
-    for (const entry of getCachedCatalogSync()) {
-      if (enabledIds.has(entry.id)) {
-        seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
-      }
-    }
-
-    if (getCachedCatalogSync().length > 0) {
-      pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
-    } else {
-      log.debug("Skipping skill capability pruning — catalog cache not yet populated");
-    }
+    // Always prune stale capability nodes — this cleans up nodes from
+    // previously-seeded uninstalled skills that are no longer refreshed.
+    // seenKeys already contains all locally-installed-and-enabled skills
+    // which is sufficient to identify what should be kept.
+    pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
   } catch (err) {
     log.warn({ err }, "Failed to seed skill graph nodes");
   }
