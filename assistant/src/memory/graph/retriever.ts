@@ -610,7 +610,12 @@ export async function loadContextMemory(
     ...reservedCapabilities,
     ...reranked,
   ].slice(0, maxNodes - serendipitySlots);
-  const serendipityPicks = sampleSerendipity(scored, serendipitySlots);
+  // Exclude procedural nodes from serendipity — they have reserved slots
+  // and shouldn't appear as random wildcard picks.
+  const serendipityPool = scored.filter(
+    (s) => s.node.type !== "procedural",
+  );
+  const serendipityPicks = sampleSerendipity(serendipityPool, serendipitySlots);
 
   // Deduplicate serendipity against deterministic
   const deterministicIds = new Set(deterministic.map((s) => s.node.id));
