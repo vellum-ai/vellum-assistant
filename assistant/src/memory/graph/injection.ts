@@ -5,8 +5,8 @@
 import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { getLogger } from "../../util/logger.js";
 import { loadImageRefData } from "./image-ref-utils.js";
-import { isCapabilityNode } from "./types.js";
 import type { MemoryNode, ScoredNode } from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Image injection budgets
