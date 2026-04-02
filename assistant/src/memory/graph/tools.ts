@@ -33,7 +33,7 @@ export const graphRecallDefinition: ToolDefinition = {
         type: "string",
         enum: ["memory", "archive"],
         description:
-          '"memory" searches the living memory graph using semantic similarity (default). "archive" searches raw conversation transcripts using keyword matching — any matching keyword will surface results, not just exact phrases.',
+          '"memory" searches the living memory graph using semantic similarity (default). "archive" searches raw conversation transcripts using keyword matching. Supports FTS5 syntax: use "quoted phrases" for exact matching, AND/OR for boolean logic, NEAR(word1 word2, N) for proximity. Without operators, all keywords must appear (implicit AND). Short words like "I" and "a" are ignored. Prefer "memory" for conceptual/emotional queries, "archive" for finding specific wording.',
       },
       filters: {
         type: "object",
