@@ -43,6 +43,12 @@ jobs:
           BRANCH="${GITHUB_REF_NAME}"
           if [[ "$BRANCH" == release/v* ]]; then
             BASE_VERSION="${BRANCH#release/v}"
+            # Only allow clean semver branches (e.g. release/v0.6.0), reject
+            # branches with suffixes like release/v0.6.0-foo.
+            if ! [[ "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Branch '$BRANCH' is not a valid release branch. Expected release/vMAJOR.MINOR.PATCH (e.g. release/v0.6.0), got suffix '$BASE_VERSION'."
+              exit 1
+            fi
           elif [ "$BRANCH" = "main" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             git fetch --tags
             LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
