@@ -1164,9 +1164,11 @@ export function loadTranscriptWithImages(
     for (let i = 0; i < parsed.length; i++) {
       const block = parsed[i];
       if (block?.type === "text") {
+        const rawText =
+          typeof block.text === "string" ? block.text : "";
         const text = prefixAdded
-          ? block.text
-          : `[${row.role}]: ${block.text}`;
+          ? rawText
+          : `[${row.role}]: ${rawText}`;
         prefixAdded = true;
         totalTextLength += text.length;
         contentBlocks.push({ type: "text", text });
