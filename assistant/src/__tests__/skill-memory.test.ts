@@ -28,6 +28,16 @@ mock.module("../config/skills.js", () => ({
   loadSkillCatalog: (..._args: unknown[]) => mockLoadSkillCatalog(),
 }));
 
+// Controllable mock for getCachedCatalogSync used by seedCatalogSkillMemories
+let mockGetCachedCatalogSync: () => import("../skills/catalog-install.js").CatalogSkill[] =
+  () => [];
+
+mock.module("../skills/catalog-cache.js", () => ({
+  getCachedCatalogSync: (..._args: unknown[]) => mockGetCachedCatalogSync(),
+  getCatalog: async () => mockGetCachedCatalogSync(),
+  invalidateCatalogCache: () => {},
+}));
+
 // Controllable mock for isAssistantFeatureFlagEnabled used by resolveSkillStates
 let mockIsFeatureFlagEnabled: (key: string) => boolean = () => true;
 
@@ -422,6 +432,10 @@ describe("seedCatalogSkillMemories", () => {
     // Reset mocks to defaults
     mockLoadSkillCatalog = () => [];
     mockIsFeatureFlagEnabled = () => true;
+    // Default: non-empty cache so pruning is allowed
+    mockGetCachedCatalogSync = () => [
+      { id: "_sentinel", name: "_sentinel", description: "" },
+    ];
   });
 
   test("upserts capability memories for all enabled skills", () => {
@@ -647,6 +661,29 @@ describe("seedCatalogSkillMemories", () => {
     const afterItems = db.select().from(memoryGraphNodes).all();
     expect(afterItems).toHaveLength(1);
     expect(afterItems[0].fidelity).toBe("gone");
+  });
+
+  test("does not prune when catalog cache is empty", () => {
+    // Pre-populate a skill
+    upsertSkillCapabilityMemory(
+      "existing-skill",
+      fromSkillSummary(makeSkillSummary({ id: "existing-skill" })),
+    );
+
+    const db = getDb();
+    const beforeItems = db.select().from(memoryGraphNodes).all();
+    expect(beforeItems).toHaveLength(1);
+    expect(beforeItems[0].fidelity).toBe("vivid");
+
+    // Seed with empty catalog AND empty cache — pruning guard should skip
+    mockLoadSkillCatalog = () => [];
+    mockGetCachedCatalogSync = () => [];
+    seedCatalogSkillMemories();
+
+    // The existing skill should NOT be pruned because the cache is empty
+    const afterItems = db.select().from(memoryGraphNodes).all();
+    expect(afterItems).toHaveLength(1);
+    expect(afterItems[0].fidelity).toBe("vivid");
   });
 
   test("does not prune non-skill capability memories", () => {
