@@ -29,7 +29,7 @@ final class AudioEngineController: @unchecked Sendable {
     /// Returns the input node's output format for bus 0.
     /// Returns `nil` if the format has zero channels or zero sample rate.
     func inputNodeFormat() -> AVAudioFormat? {
-        queue.sync {
+        queue.sync { [self] in
             let format = audioEngine.inputNode.outputFormat(forBus: 0)
             guard format.channelCount > 0, format.sampleRate > 0 else { return nil }
             return format
@@ -82,8 +82,8 @@ final class AudioEngineController: @unchecked Sendable {
     }
 
     func start() throws {
-        try queue.sync { [weak self] in
-            try self?.audioEngine.start()
+        try queue.sync { [self] in
+            try audioEngine.start()
         }
     }
 
@@ -110,10 +110,9 @@ final class AudioEngineController: @unchecked Sendable {
     /// Uses `sync` because callers depend on the tap being removed before
     /// they call `recognitionRequest?.endAudio()` or `recognitionTask?.cancel()`.
     func tearDown() {
-        queue.sync { [weak self] in
-            guard let self else { return }
-            self.audioEngine.stop()
-            self.audioEngine.inputNode.removeTap(onBus: 0)
+        queue.sync { [self] in
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
         }
     }
 
@@ -123,15 +122,14 @@ final class AudioEngineController: @unchecked Sendable {
     /// On failure, removes tap and returns `false`.
     @discardableResult
     func prepareAndStart() -> Bool {
-        queue.sync { [weak self] -> Bool in
-            guard let self else { return false }
-            self.audioEngine.prepare()
+        queue.sync { [self] in
+            audioEngine.prepare()
             do {
-                try self.audioEngine.start()
+                try audioEngine.start()
                 return true
             } catch {
                 log.error("Failed to start audio engine: \(error.localizedDescription)")
-                self.audioEngine.inputNode.removeTap(onBus: 0)
+                audioEngine.inputNode.removeTap(onBus: 0)
                 return false
             }
         }
@@ -142,12 +140,11 @@ final class AudioEngineController: @unchecked Sendable {
     /// they call `recognitionRequest?.endAudio()` — appending audio after
     /// `endAudio()` violates `SFSpeechAudioBufferRecognitionRequest`'s contract.
     func stopAndRemoveTap() {
-        queue.sync { [weak self] in
-            guard let self else { return }
-            if self.audioEngine.isRunning {
-                self.audioEngine.stop()
+        queue.sync { [self] in
+            if audioEngine.isRunning {
+                audioEngine.stop()
             }
-            self.audioEngine.inputNode.removeTap(onBus: 0)
+            audioEngine.inputNode.removeTap(onBus: 0)
         }
     }
 }
