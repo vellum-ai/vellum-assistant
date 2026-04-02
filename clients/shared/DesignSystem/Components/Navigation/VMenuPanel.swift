@@ -97,6 +97,13 @@ public class VMenuPanel: NSPanel {
         let sourceWindow = NSApp.windows.first(where: { $0.frame.contains(screenPoint) && !($0 is VMenuPanel) })
         coordinator.registerRootPanel(panel, sourceWindow: sourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
 
+        // Notify VoiceOver that a new menu appeared so it can navigate into it.
+        // Native NSMenu posts these automatically; custom panels must do it manually.
+        DispatchQueue.main.async {
+            NSAccessibility.post(element: panel, notification: .created)
+            NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+        }
+
         return panel
     }
 
@@ -167,6 +174,12 @@ public class VMenuPanel: NSPanel {
         let origin = anchoredOrigin(for: menuSize, anchorRect: itemRect)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
         panel.makeKeyAndOrderFront(nil)
+
+        // Notify VoiceOver that a new submenu appeared so it can navigate into it.
+        DispatchQueue.main.async {
+            NSAccessibility.post(element: panel, notification: .created)
+            NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+        }
 
         return panel
     }

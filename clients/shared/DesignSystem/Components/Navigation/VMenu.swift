@@ -82,8 +82,6 @@ public struct VMenu<Content: View>: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Menu")
     }
 }
 
