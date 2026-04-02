@@ -22,6 +22,7 @@ import { getLogger } from "../../util/logger.js";
 import { parseEpochMs } from "./extraction.js";
 import {
   createTrigger,
+  deduplicateParagraphs,
   deleteNode,
   getEdgesForNode,
   getTriggersForNode,
@@ -508,6 +509,10 @@ async function consolidateChunk(
       // more than just lastConsolidated
       updateNode(update.id, changes);
       result.nodesUpdated++;
+      // Sync in-memory state with what updateNode actually wrote to the DB
+      // (updateNode deduplicates content before persisting)
+      if (changes.content)
+        changes.content = deduplicateParagraphs(changes.content);
       const node = nodeMap.get(update.id);
       if (node) Object.assign(node, changes);
     }
