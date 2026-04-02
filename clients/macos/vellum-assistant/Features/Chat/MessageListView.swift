@@ -415,7 +415,13 @@ struct MessageListView: View, Equatable {
             subagentsByParent: layout.subagentsByParent,
             orphanSubagents: layout.orphanSubagents,
             effectiveStatusText: layout.effectiveStatusText,
-            displayMessages: liveMessages,
+            displayMessages: {
+                // Deduplicate to match displayMessageIds — SwiftUI's ForEach
+                // requires unique identity values; duplicates during streaming
+                // or pagination cause undefined behavior.
+                var seen = Set<UUID>()
+                return liveMessages.filter { seen.insert($0.id).inserted }
+            }(),
             activePendingRequestId: activePendingRequestId,
             nextDecidedConfirmationByIndex: nextDecidedConfirmationByIndex,
             isConfirmationRenderedInlineByIndex: isConfirmationRenderedInlineByIndex,
