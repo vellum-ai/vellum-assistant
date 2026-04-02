@@ -208,7 +208,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     type: "procedural" as const,
     created: now,
     lastAccessed: now,
-    lastConsolidated: 0,
+    lastConsolidated: now,
     eventDate: null,
     emotionalCharge: {
       valence: 0,
