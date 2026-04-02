@@ -70,6 +70,8 @@ Call the \`extract_graph_diff\` tool with the diff. Each node needs:
 
 - **content**: First-person prose — how the assistant naturally remembers this. Write naturally, not as a database entry. E.g. "He mentioned his mom used to make amazing Sunday dinners — he still misses them" not "User's mother cooked Sunday dinners."
 
+Be concise — most memories should be 1-3 sentences capturing the essential detail and emotional weight. Don't narrate every nuance; write a vivid snapshot, not a journal entry. Higher-significance (0.7+) memories can use a short paragraph, but even those should stay focused.
+
 - **type**: Classify by WHAT the memory IS, not how it FEELS. Almost every memory has emotional weight — that goes in emotionalCharge, not the type.
 
   - **episodic**: A specific moment or event. "We stayed up until 4 AM debugging the pipeline." "The first time we deployed to production." Use this for things that HAPPENED.
