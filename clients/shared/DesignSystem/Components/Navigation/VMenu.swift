@@ -181,6 +181,7 @@ public struct VMenu<Content: View>: View {
         .task {
             // Brief delay so the hosting NSPanel's focus system is ready.
             try? await Task.sleep(nanoseconds: 50_000_000)
+            guard !Task.isCancelled else { return }
             isMenuFocused = true
             // If this child menu was opened via keyboard (→ arrow), auto-focus the first item.
             if panelLevel > 0, coordinator?.consumePendingChildFocus() == true, !registeredIDs.isEmpty {
