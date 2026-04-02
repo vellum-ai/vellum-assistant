@@ -357,11 +357,11 @@ struct MemoriesPanel: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, VSpacing.md)
                             .onAppear {
+                                guard !store.isLoading else { return }
                                 Task { await store.loadMore() }
                             }
                     }
                 }
-                .id(viewMode)
                 .background { OverlayScrollerStyle() }
             }
             .scrollContentBackground(.hidden)
