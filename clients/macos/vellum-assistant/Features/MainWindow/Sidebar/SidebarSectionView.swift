@@ -56,21 +56,10 @@ struct SidebarSectionView: View {
         case subGroups(grouper: (ConversationModel) -> String?)
     }
 
-    /// Auto-show-all when hidden items beyond the truncation cutoff have unread messages.
-    private var effectiveShowAll: Bool {
-        if showAll { return true }
-        switch countMode {
-        case .items:
-            let hidden = conversations.dropFirst(maxCollapsed)
-            return hidden.contains(where: \.hasUnseenLatestAssistantMessage)
-        case .subGroups(let grouper):
-            let subGroups = buildSubGroups(grouper: grouper)
-            let hidden = subGroups.dropFirst(maxCollapsed)
-            return hidden.contains(where: { sg in
-                sg.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
-            })
-        }
-    }
+    /// Whether the section is manually expanded to show all items.
+    /// The collapsed section header already shows an unread indicator dot,
+    /// so we no longer auto-expand for unread messages.
+    private var effectiveShowAll: Bool { showAll }
 
     private var unreadCount: Int {
         conversations.filter(\.hasUnseenLatestAssistantMessage).count
@@ -290,8 +279,6 @@ struct SidebarSectionView: View {
 
         if isSubGroupExpanded {
             let subGroupShowAll = showAllInSubGroup.contains(subGroup.key)
-                || subGroup.conversations.dropFirst(maxCollapsed)
-                    .contains(where: \.hasUnseenLatestAssistantMessage)
             let displayedInSubGroup = subGroupShowAll
                 ? subGroup.conversations
                 : Array(subGroup.conversations.prefix(maxCollapsed))
@@ -304,16 +291,15 @@ struct SidebarSectionView: View {
                         .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                 }
 
-                if subGroup.conversations.count > maxCollapsed,
-                   showAllInSubGroup.contains(subGroup.key) || !subGroupShowAll {
+                if subGroup.conversations.count > maxCollapsed {
                     HStack {
                         VButton(
-                            label: showAllInSubGroup.contains(subGroup.key) ? "Show less" : "Show more",
+                            label: subGroupShowAll ? "Show less" : "Show more",
                             style: .ghost,
                             size: .compact
                         ) {
                             withAnimation(VAnimation.fast) {
-                                if showAllInSubGroup.contains(subGroup.key) {
+                                if subGroupShowAll {
                                     showAllInSubGroup.remove(subGroup.key)
                                 } else {
                                     showAllInSubGroup.insert(subGroup.key)
@@ -346,7 +332,7 @@ struct SidebarSectionView: View {
 
     @ViewBuilder
     private var showMoreLessButton: some View {
-        if conversations.count > maxCollapsed, showAll || !effectiveShowAll {
+        if conversations.count > maxCollapsed {
             HStack {
                 VButton(
                     label: showAll ? "Show less" : "Show more",
