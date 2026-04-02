@@ -477,23 +477,26 @@ struct MainWindowView: View {
                 .animation(VAnimation.fast, value: updateManager.isDeferredUpdateReady)
             }
             if windowState.isConversationVisible {
-                // Temporary chat toggle — always visible on private conversations (so users can exit temp chat),
-                // only visible on normal conversations when no messages exist yet
-                if conversationManager.activeConversation?.kind == .private || conversationManager.activeViewModel?.hasNonEmptyMessage != true {
-                    TemporaryChatToggle(
-                        isActive: conversationManager.activeConversation?.kind == .private,
-                        tooltip: conversationManager.activeConversation?.kind == .private ? "Exit temporary chat" : "Temporary chat",
-                        onToggle: { toggleTemporaryChat() }
-                    )
-                }
+                TemporaryChatToggleWrapper(
+                    activeConversation: conversationManager.activeConversation,
+                    activeViewModel: conversationManager.activeViewModel,
+                    onToggle: { toggleTemporaryChat() }
+                )
             }
         }
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
         .overlay {
             if windowState.isConversationVisible {
-                ConversationTitleActionsControl(
-                    presentation: conversationHeaderPresentation,
+                ConversationTitleOverlay(
+                    conversationManager: conversationManager,
+                    windowState: windowState,
+                    sidebarExpanded: sidebarExpanded,
+                    sidebarExpandedWidth: sidebarExpandedWidth,
+                    sidebarCollapsedWidth: sidebarCollapsedWidth,
+                    isSettingsOpen: isSettingsOpen,
+                    showDrawer: $showConversationActionsDrawer,
+                    conversationTitleFrame: $conversationTitleFrame,
                     onCopy: { copyActiveConversationToClipboard(); dismissConversationDrawer() },
                     onForkConversation: {
                         Task {
@@ -519,21 +522,8 @@ struct MainWindowView: View {
                         dismissConversationDrawer()
                     },
                     onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
-                    onOpenForkParent: { openForkParentConversation() },
-                    showDrawer: $showConversationActionsDrawer
+                    onOpenForkParent: { openForkParentConversation() }
                 )
-                .onGeometryChange(for: CGRect.self) { proxy in
-                    proxy.frame(in: .named("coreLayout"))
-                } action: { newFrame in
-                    conversationTitleFrame = newFrame
-                }
-                .padding(.horizontal, 120)
-                // Shift the title right so it centers above the chat content area
-                // (not the full window). Content starts after outer padding (16) +
-                // sidebar + spacing (16), so its center is offset from the window
-                // center by (sidebarWidth + 16) / 2.
-                .offset(x: isSettingsOpen ? 0 : ((sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth) + 16) / 2)
-                .animation(VAnimation.panel, value: sidebarExpanded)
             }
         }
         .frame(height: 48)
@@ -788,4 +778,81 @@ private struct AssistantLoadingOverlayContent: View {
 private struct PlatformURLMismatchInfo {
     let configuredURL: String
     let lockfileURL: String
+}
+
+// MARK: - Observation Boundary: Temporary Chat Toggle
+
+/// Observation boundary so MainWindowView.body does not track
+/// `ChatMessageManager.hasNonEmptyMessage`. Only this small view
+/// re-evaluates when the flag changes.
+private struct TemporaryChatToggleWrapper: View {
+    let activeConversation: ConversationModel?
+    let activeViewModel: ChatViewModel?
+    let onToggle: () -> Void
+
+    var body: some View {
+        if activeConversation?.kind == .private
+            || activeViewModel?.hasNonEmptyMessage != true {
+            TemporaryChatToggle(
+                isActive: activeConversation?.kind == .private,
+                tooltip: activeConversation?.kind == .private
+                    ? "Exit temporary chat" : "Temporary chat",
+                onToggle: onToggle
+            )
+        }
+    }
+}
+
+// MARK: - Observation Boundary: Conversation Title Overlay
+
+/// Observation boundary so MainWindowView.body does not track
+/// `ChatMessageManager.hasNonEmptyMessage` or `.latestPersistedTipDaemonMessageId`
+/// through `ConversationHeaderPresentation`. Only this view re-evaluates
+/// when those chat properties change.
+private struct ConversationTitleOverlay: View {
+    let conversationManager: ConversationManager
+    let windowState: MainWindowState
+    let sidebarExpanded: Bool
+    let sidebarExpandedWidth: CGFloat
+    let sidebarCollapsedWidth: CGFloat
+    let isSettingsOpen: Bool
+    @Binding var showDrawer: Bool
+    @Binding var conversationTitleFrame: CGRect
+    let onCopy: () -> Void
+    let onForkConversation: () -> Void
+    let onPin: () -> Void
+    let onUnpin: () -> Void
+    let onArchive: () -> Void
+    let onRename: () -> Void
+    let onOpenForkParent: () -> Void
+
+    private var presentation: ConversationHeaderPresentation {
+        ConversationHeaderPresentation(
+            activeConversation: conversationManager.activeConversation,
+            activeViewModel: conversationManager.activeViewModel,
+            isConversationVisible: true
+        )
+    }
+
+    var body: some View {
+        ConversationTitleActionsControl(
+            presentation: presentation,
+            onCopy: onCopy,
+            onForkConversation: onForkConversation,
+            onPin: onPin,
+            onUnpin: onUnpin,
+            onArchive: onArchive,
+            onRename: onRename,
+            onOpenForkParent: onOpenForkParent,
+            showDrawer: $showDrawer
+        )
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .named("coreLayout"))
+        } action: { newFrame in
+            conversationTitleFrame = newFrame
+        }
+        .padding(.horizontal, 120)
+        .offset(x: isSettingsOpen ? 0 : ((sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth) + 16) / 2)
+        .animation(VAnimation.panel, value: sidebarExpanded)
+    }
 }
