@@ -32,8 +32,12 @@ struct AppSharePanelView: View {
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
         .shadow(color: VColor.auxBlack.opacity(0.15), radius: 6, y: 2)
-        .onAppear {
-            services = Self.availableSharingServices(for: fileURL)
+        .task {
+            let url = fileURL
+            let loaded = await Task.detached(priority: .userInitiated) {
+                NSSharingService.sharingServices(forItems: [url])
+            }.value
+            services = loaded
         }
         .task {
             formattedFileSize = await computeFileSize()
@@ -171,14 +175,6 @@ struct AppSharePanelView: View {
     }
 
     // MARK: - Helpers
-
-    /// Queries available sharing services. The API was deprecated in macOS 13 in favor of
-    /// NSSharingServicePicker.standardShareMenuItem, but the replacement doesn't expose
-    /// individual services for custom UI. No functional replacement exists.
-    @available(macOS, deprecated: 13.0)
-    private static func availableSharingServices(for url: URL) -> [NSSharingService] {
-        NSSharingService.sharingServices(forItems: [url])
-    }
 
     private func computeFileSize() async -> String {
         var isDirectory: ObjCBool = false
