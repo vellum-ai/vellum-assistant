@@ -36,6 +36,26 @@ export interface GuardianActivationInterceptParams {
   replyCallbackUrl: string | undefined;
   mintBearerToken: () => string;
   assistantId: string;
+  externalMessageId: string;
+}
+
+/**
+ * Lightweight dedup set for guardian activation intercepts.
+ * Prevents duplicate replies when Telegram retries the same webhook.
+ * Entries are evicted after DEDUP_TTL_MS to avoid unbounded growth.
+ */
+const DEDUP_TTL_MS = 60_000;
+const processedMessageIds = new Map<string, number>();
+
+function isDuplicateActivation(messageId: string): boolean {
+  const now = Date.now();
+  // Evict stale entries
+  for (const [key, ts] of processedMessageIds) {
+    if (now - ts > DEDUP_TTL_MS) processedMessageIds.delete(key);
+  }
+  if (processedMessageIds.has(messageId)) return true;
+  processedMessageIds.set(messageId, now);
+  return false;
 }
 
 export async function handleGuardianActivationIntercept(
@@ -51,6 +71,7 @@ export async function handleGuardianActivationIntercept(
     replyCallbackUrl,
     mintBearerToken,
     assistantId,
+    externalMessageId,
   } = params;
 
   // ── Extract commandIntent ──
@@ -83,26 +104,43 @@ export async function handleGuardianActivationIntercept(
   // Can't bind a session without sender identity
   if (!rawSenderId) return null;
 
-  // ── Idempotency: check for an existing active session ──
+  // ── Webhook retry dedup ──
+  // The intercept runs before recordInbound, so use a lightweight in-memory
+  // dedup to prevent duplicate replies when Telegram retries the webhook.
+  if (isDuplicateActivation(externalMessageId)) {
+    return Response.json({ accepted: true, guardianActivation: true });
+  }
+
+  // ── Idempotency: check for an existing active session from this sender ──
   const existingSession = findActiveSession(sourceChannel);
   if (existingSession) {
-    if (replyCallbackUrl) {
-      deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId: conversationExternalId,
-          text: "A verification is already in progress. Check your assistant app for the code and enter it here.",
-          assistantId,
-        },
-        mintBearerToken(),
-      ).catch((err) => {
-        log.error(
-          { err, sourceChannel, conversationExternalId },
-          "Failed to deliver guardian activation idempotency reply",
-        );
-      });
+    // Only block if the session belongs to the same sender. If a different
+    // user triggered the session, let this sender proceed (they'll supersede
+    // the stale session via createOutboundSession's revocation logic).
+    const sessionOwner =
+      existingSession.expectedExternalUserId ?? existingSession.expectedChatId;
+    if (
+      sessionOwner === rawSenderId ||
+      sessionOwner === conversationExternalId
+    ) {
+      if (replyCallbackUrl) {
+        deliverChannelReply(
+          replyCallbackUrl,
+          {
+            chatId: conversationExternalId,
+            text: "A verification is already in progress. Check your assistant app for the code and enter it here.",
+            assistantId,
+          },
+          mintBearerToken(),
+        ).catch((err) => {
+          log.error(
+            { err, sourceChannel, conversationExternalId },
+            "Failed to deliver guardian activation idempotency reply",
+          );
+        });
+      }
+      return Response.json({ accepted: true, guardianActivationPending: true });
     }
-    return Response.json({ accepted: true, guardianActivationPending: true });
   }
 
   // ── Create verification session ──

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 let mockGuardian: { contact: unknown; channel: unknown } | null = null;
-let mockActiveSession: unknown = null;
+let mockActiveSession: Record<string, unknown> | null = null;
 let mockSessionResult = {
   sessionId: "sess-1",
   secret: "123456",
@@ -18,6 +18,7 @@ let mockSessionResult = {
 let createOutboundSessionCalls: unknown[] = [];
 let deliverChannelReplyCalls: unknown[][] = [];
 let emitNotificationSignalCalls: unknown[] = [];
+let messageIdCounter = 0;
 
 mock.module("../../../contacts/contact-store.js", () => ({
   findGuardianForChannel: () => mockGuardian,
@@ -73,6 +74,7 @@ function makeParams(
     Parameters<typeof handleGuardianActivationIntercept>[0]
   > = {},
 ) {
+  messageIdCounter++;
   return {
     sourceChannel: "telegram" as const,
     conversationExternalId: "chat-123",
@@ -84,6 +86,7 @@ function makeParams(
     replyCallbackUrl: "https://gateway/reply",
     mintBearerToken: () => "token-123",
     assistantId: "self",
+    externalMessageId: `msg-${messageIdCounter}`,
     ...overrides,
   };
 }
@@ -214,11 +217,13 @@ describe("handleGuardianActivationIntercept", () => {
     expect(createOutboundSessionCalls).toHaveLength(0);
   });
 
-  test("existing active session sends 'already in progress' reply", async () => {
+  test("existing active session from same sender sends 'already in progress' reply", async () => {
     mockActiveSession = {
       id: "existing-sess",
       channel: "telegram",
       status: "awaiting_response",
+      expectedExternalUserId: "user-42",
+      expectedChatId: "chat-123",
     };
 
     const result = await handleGuardianActivationIntercept(makeParams());
@@ -240,5 +245,48 @@ describe("handleGuardianActivationIntercept", () => {
 
     // emitNotificationSignal should NOT be called
     expect(emitNotificationSignalCalls).toHaveLength(0);
+  });
+
+  test("existing active session from different sender allows superseding", async () => {
+    mockActiveSession = {
+      id: "existing-sess",
+      channel: "telegram",
+      status: "awaiting_response",
+      expectedExternalUserId: "user-OTHER",
+      expectedChatId: "chat-OTHER",
+    };
+
+    const result = await handleGuardianActivationIntercept(makeParams());
+
+    // Should proceed and create a new session (superseding the stale one)
+    expect(result).not.toBeNull();
+    const body = await result!.json();
+    expect(body).toEqual({ accepted: true, guardianActivation: true });
+    expect(createOutboundSessionCalls).toHaveLength(1);
+    expect(emitNotificationSignalCalls).toHaveLength(1);
+  });
+
+  test("duplicate webhook retry is silently deduped", async () => {
+    const params = makeParams({ externalMessageId: "dedup-test-msg" });
+
+    // First call should process normally
+    const result1 = await handleGuardianActivationIntercept(params);
+    expect(result1).not.toBeNull();
+    const body1 = await result1!.json();
+    expect(body1).toEqual({ accepted: true, guardianActivation: true });
+    expect(createOutboundSessionCalls).toHaveLength(1);
+    expect(deliverChannelReplyCalls).toHaveLength(1);
+    expect(emitNotificationSignalCalls).toHaveLength(1);
+
+    // Second call with same externalMessageId should be deduped
+    const result2 = await handleGuardianActivationIntercept(params);
+    expect(result2).not.toBeNull();
+    const body2 = await result2!.json();
+    expect(body2).toEqual({ accepted: true, guardianActivation: true });
+
+    // No additional session/reply/signal calls
+    expect(createOutboundSessionCalls).toHaveLength(1);
+    expect(deliverChannelReplyCalls).toHaveLength(1);
+    expect(emitNotificationSignalCalls).toHaveLength(1);
   });
 });

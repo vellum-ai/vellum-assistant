@@ -214,6 +214,7 @@ export async function handleChannelInbound(
     replyCallbackUrl: body.replyCallbackUrl,
     mintBearerToken,
     assistantId,
+    externalMessageId,
   });
   if (guardianActivationResponse) return guardianActivationResponse;
 
