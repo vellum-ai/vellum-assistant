@@ -41,6 +41,7 @@ public final class VMenuCoordinator {
     @ObservationIgnored private var windowObserver: Any?
     @ObservationIgnored private var appDeactivationObserver: Any?
     @ObservationIgnored private var mouseMoveMonitor: Any?
+    @ObservationIgnored private var lastKeyboardEventTime: TimeInterval = 0
     @ObservationIgnored private var graceTimer: DispatchWorkItem?
     @ObservationIgnored private var rootDismissHandler: (() -> Void)?
     /// Screen rect to exclude from click-outside dismiss (e.g., the trigger button).
@@ -92,9 +93,20 @@ public final class VMenuCoordinator {
     }
 
     /// Register an action closure for a menu item at the given level.
+    /// Also ensures the item is tracked in `itemOrder`/`itemCounts` as a fallback
+    /// in case `onPreferenceChange` hasn't fired yet.
     func registerItemAction(level: Int, id: UUID, action: @escaping () -> Void) {
         if itemActions[level] == nil { itemActions[level] = [:] }
         itemActions[level]?[id] = action
+
+        // Belt-and-suspenders: ensure this item is counted even if the preference
+        // key collection hasn't fired yet. The preference-based `updateItemOrder`
+        // will override with the correct layout order when it fires.
+        if itemOrder[level] == nil { itemOrder[level] = [] }
+        if !itemOrder[level]!.contains(id) {
+            itemOrder[level]!.append(id)
+            itemCounts[level] = itemOrder[level]!.count
+        }
     }
 
     /// Register a submenu-open closure for a VSubMenuItem at the given level.
@@ -319,6 +331,10 @@ public final class VMenuCoordinator {
         let level = panels.count - 1
         guard level >= 0 else { return false }
 
+        // Record the time of this keyboard event so the mouse-move monitor
+        // can ignore micro-movements that would immediately clear the focus.
+        lastKeyboardEventTime = ProcessInfo.processInfo.systemUptime
+
         switch event.keyCode {
         case 126: // Up arrow
             moveFocus(direction: -1, level: level)
@@ -403,10 +419,19 @@ public final class VMenuCoordinator {
 
     /// Install a mouse movement monitor that clears keyboard focus when the user moves the mouse.
     /// This matches native NSMenu behavior: arrow keys enter keyboard mode, mouse movement exits.
+    ///
+    /// A 200ms debounce after the last keyboard event prevents trackpad/mouse micro-jitter
+    /// from clearing the focus highlight before SwiftUI has a chance to render it.
     private func installMouseMoveMonitor() {
         removeMouseMoveMonitor()
         mouseMoveMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
-            self?.clearKeyboardFocus()
+            guard let self else { return event }
+            // Ignore mouse movements within 200ms of a keyboard event to prevent
+            // micro-movements from clearing focus before SwiftUI renders the highlight.
+            let now = ProcessInfo.processInfo.systemUptime
+            if now - self.lastKeyboardEventTime > 0.2 {
+                self.clearKeyboardFocus()
+            }
             return event
         }
     }
