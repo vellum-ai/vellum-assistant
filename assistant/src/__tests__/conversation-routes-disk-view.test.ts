@@ -18,7 +18,7 @@ import {
   getConversationByKey,
   getOrCreateConversation as getOrCreateConversationMapping,
 } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
@@ -58,8 +58,6 @@ mock.module("../config/loader.js", () => ({
     },
   }),
 }));
-
-initializeDb();
 
 const conversationInstances = new Map<string, Conversation>();
 

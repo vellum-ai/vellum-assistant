@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   ToolExecutionResult,
@@ -129,11 +121,6 @@ function makePrompter(): PermissionPrompter {
   } as unknown as PermissionPrompter;
 }
 
-import { initializeDb } from "../memory/db-init.js";
-
-beforeAll(() => {
-  initializeDb();
-});
 afterAll(() => {
   mock.restore();
 });

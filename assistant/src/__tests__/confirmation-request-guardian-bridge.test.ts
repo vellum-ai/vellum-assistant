@@ -76,10 +76,8 @@ import {
   generateCanonicalRequestCode,
   listCanonicalGuardianDeliveries,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

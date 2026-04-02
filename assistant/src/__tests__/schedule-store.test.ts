@@ -9,7 +9,7 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   cancelSchedule,
   claimDueSchedules,
@@ -21,8 +21,6 @@ import {
   listSchedules,
   updateSchedule,
 } from "../schedule/schedule-store.js";
-
-initializeDb();
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {

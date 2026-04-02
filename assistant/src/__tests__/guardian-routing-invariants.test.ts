@@ -38,14 +38,12 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   type GuardianReplyContext,
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

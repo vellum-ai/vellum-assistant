@@ -23,10 +23,8 @@ import {
   createConversation,
   getAssistantMessageIdsInTurn,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

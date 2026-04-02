@@ -31,10 +31,8 @@ import {
   uploadAttachment,
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
-
-initializeDb();
 
 function resetTables() {
   const db = getDb();

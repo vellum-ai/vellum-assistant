@@ -90,10 +90,7 @@ mock.module("../memory/conversation-title-service.js", () => ({
 
 import { startVerificationCall } from "../calls/call-domain.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb } from "../memory/db.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
-
-initializeDb();
 
 describe("startVerificationCall — voice binding", () => {
   beforeEach(() => {

@@ -69,14 +69,12 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-
-initializeDb();
 
 // ---------------------------------------------------------------------------
 // Conversation helpers

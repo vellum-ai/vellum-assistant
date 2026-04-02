@@ -38,7 +38,7 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getDb, resetDb, resetTestTables } from "../memory/db.js";
 import * as deliveryChannels from "../memory/delivery-channels.js";
 import {
   createApprovalRequest,
@@ -57,7 +57,6 @@ import {
   sweepExpiredGuardianApprovals,
 } from "../runtime/routes/channel-routes.js";
 
-initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
 
 afterAll(() => {

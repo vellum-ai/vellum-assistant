@@ -120,10 +120,8 @@ import {
 } from "../calls/call-domain.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
-
-initializeDb();
 
 beforeEach(() => {
   resetTables();

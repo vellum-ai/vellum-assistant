@@ -8,7 +8,7 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import {
   _internal,
@@ -26,8 +26,6 @@ import {
   canonicalJsonSerialize,
   computeToolApprovalDigest,
 } from "../security/tool-approval-digest.js";
-
-initializeDb();
 
 function clearTables(): void {
   const db = getDb();

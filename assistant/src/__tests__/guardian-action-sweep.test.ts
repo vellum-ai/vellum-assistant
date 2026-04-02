@@ -28,7 +28,7 @@ import {
   stopGuardianActionSweep,
   sweepExpiredGuardianActions,
 } from "../calls/guardian-action-sweep.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db.js";
 import {
   createGuardianActionDelivery,
   createGuardianActionRequest,
@@ -37,8 +37,6 @@ import {
   updateDeliveryStatus,
 } from "../memory/guardian-action-store.js";
 import { conversations } from "../memory/schema.js";
-
-initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();

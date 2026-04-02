@@ -24,11 +24,9 @@ import {
   getMessages,
 } from "../memory/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 
 // Initialize db once before all tests
-initializeDb();
-
 describe("deleteLastExchange", () => {
   beforeEach(() => {
     // Reset database between tests by dropping and recreating tables

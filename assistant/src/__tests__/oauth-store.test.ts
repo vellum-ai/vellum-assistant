@@ -23,7 +23,7 @@ mock.module("../security/secure-keys.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getDb, resetDb, resetTestTables } from "../memory/db.js";
 import { oauthProviders } from "../memory/schema/oauth.js";
 import {
   createConnection,
@@ -45,8 +45,6 @@ import {
   updateConnection,
   upsertApp,
 } from "../oauth/oauth-store.js";
-
-initializeDb();
 
 /** Seed a minimal provider row for FK satisfaction. */
 function seedTestProvider(providerKey = "github"): void {

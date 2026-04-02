@@ -15,12 +15,10 @@ import {
   getMessages,
   wipeConversation,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 
 // Initialize db once before all tests
-initializeDb();
-
 describe("wipeConversation", () => {
   beforeEach(() => {
     const db = getDb();

@@ -38,12 +38,10 @@ mock.module("../config/loader.js", () => ({
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-
-initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

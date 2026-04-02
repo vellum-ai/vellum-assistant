@@ -11,7 +11,7 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   createGuardianActionDelivery,
   createGuardianActionRequest,
@@ -31,8 +31,6 @@ import type {
   GuardianFollowUpConversationGenerator,
   GuardianFollowUpTurnResult,
 } from "../runtime/http-types.js";
-
-initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();

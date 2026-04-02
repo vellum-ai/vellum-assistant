@@ -20,21 +20,13 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import {
-  getDb,
-  getSqlite,
-  initializeDb,
-  rawGet,
-  rawRun,
-} from "../memory/db.js";
+import { getDb, getSqlite, rawGet, rawRun } from "../memory/db.js";
 import { migrateBackfillUsageCacheAccounting } from "../memory/migrations/140-backfill-usage-cache-accounting.js";
 import type { PricingUsage } from "../usage/types.js";
 import {
   resolvePricing,
   resolvePricingForUsageWithOverrides,
 } from "../util/pricing.js";
-
-initializeDb();
 
 const CHECKPOINT_KEY = "migration_backfill_usage_cache_accounting_v1";
 

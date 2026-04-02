@@ -12,7 +12,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { initializeDb, resetDb } from "../memory/db.js";
 import { getSqlite } from "../memory/db-connection.js";
 import {
   getRecentInvocations,
@@ -56,8 +55,6 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 describe("audit log rotation", () => {
   beforeAll(() => {
-    resetDb();
-    initializeDb();
     // Insert a conversations row so FK-enforced ORM inserts succeed
     getSqlite().run(
       `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'test', ${Date.now()}, ${Date.now()})`,

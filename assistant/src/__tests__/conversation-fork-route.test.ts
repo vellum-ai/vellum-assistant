@@ -49,12 +49,10 @@ import {
   createConversation,
   PRIVATE_CONVERSATION_FORK_ERROR,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db.js";
 import { getPolicy } from "../runtime/auth/route-policy.js";
 import { mintToken } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
-
-initializeDb();
 
 const CHAT_WRITE_JWT = mintToken({
   aud: "vellum-daemon",

@@ -7,12 +7,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { renderTemplate, runTask } from "../tasks/task-runner.js";
 import { createTask } from "../tasks/task-store.js";
-
-initializeDb();
 
 // ── renderTemplate ──────────────────────────────────────────────────
 

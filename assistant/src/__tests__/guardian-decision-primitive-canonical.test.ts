@@ -23,10 +23,8 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

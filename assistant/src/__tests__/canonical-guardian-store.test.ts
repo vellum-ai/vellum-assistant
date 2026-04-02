@@ -21,9 +21,7 @@ import {
   updateCanonicalGuardianDelivery,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
-
-initializeDb();
+import { getDb } from "../memory/db.js";
 
 // All decisionable kinds (tool_approval, pending_question, access_request)
 // require a guardianPrincipalId. Use a constant for test fixtures.

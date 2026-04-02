@@ -22,7 +22,7 @@ mock.module("../tools/registry.js", () => ({
 
 import type { Database } from "bun:sqlite";
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { renderTemplate } from "../tasks/task-runner.js";
 import {
   createTask,
@@ -55,8 +55,6 @@ import {
   resolveWorkItem,
   updateWorkItem,
 } from "../work-items/work-item-store.js";
-
-initializeDb();
 
 const ctx: ToolContext = {
   workingDir: "/tmp",

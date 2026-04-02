@@ -22,7 +22,7 @@ mock.module("../util/logger.js", () => ({
 import { GRANT_TTL_MS } from "../approvals/guardian-decision-primitive.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   createApprovalRequest,
   getPendingApprovalForRequest,
@@ -35,8 +35,6 @@ import { handleApprovalInterception } from "../runtime/routes/guardian-approval-
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
 import "../memory/scoped-approval-grants.js";
-
-initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

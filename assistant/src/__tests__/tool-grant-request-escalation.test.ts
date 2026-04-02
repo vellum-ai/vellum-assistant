@@ -109,7 +109,7 @@ import {
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import {
@@ -120,8 +120,6 @@ import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
 
 /** Short wait config for tests — avoids blocking test suite on the 60s default. */
 const TEST_INLINE_WAIT_CONFIG = { maxWaitMs: 100, intervalMs: 20 };
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

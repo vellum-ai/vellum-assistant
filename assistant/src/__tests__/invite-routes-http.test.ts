@@ -39,7 +39,7 @@ mock.module("../calls/call-domain.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { getSqlite, initializeDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db.js";
 import {
   handleCreateInvite,
   handleListInvites,
@@ -47,8 +47,6 @@ import {
   handleRevokeInvite,
   handleTriggerInviteCall,
 } from "../runtime/routes/invite-routes.js";
-
-initializeDb();
 
 /** Create a throwaway contact and return its ID, for use as the invite's contactId. */
 function createTargetContact(displayName = "Test Contact"): string {

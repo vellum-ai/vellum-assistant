@@ -47,10 +47,8 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { conversationKeys, conversations } from "../memory/schema.js";
-
-initializeDb();
 
 beforeEach(() => {
   const db = getDb();

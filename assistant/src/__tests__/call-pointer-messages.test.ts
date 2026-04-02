@@ -14,10 +14,8 @@ import {
   setPointerMessageProcessor,
 } from "../calls/call-pointer-messages.js";
 import { addMessage, getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
-
-initializeDb();
 
 function ensureConversation(
   id: string,

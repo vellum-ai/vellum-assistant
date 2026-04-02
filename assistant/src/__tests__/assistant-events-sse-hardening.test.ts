@@ -29,11 +29,9 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
-
-initializeDb();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

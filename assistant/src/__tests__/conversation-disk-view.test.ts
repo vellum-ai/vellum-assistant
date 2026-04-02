@@ -61,9 +61,7 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, rawRun } from "../memory/db.js";
-
-initializeDb();
+import { getDb, rawRun } from "../memory/db.js";
 
 function resetTables() {
   const db = getDb();

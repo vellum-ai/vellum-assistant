@@ -42,7 +42,7 @@ import type { Database } from "bun:sqlite";
 import { executeContactMerge } from "../config/bundled-skills/contacts/tools/contact-merge.js";
 import { executeContactSearch } from "../config/bundled-skills/contacts/tools/contact-search.js";
 import { executeContactUpsert } from "../config/bundled-skills/contacts/tools/contact-upsert.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db.js";
 import {
   handleGetContact,
   handleListContacts,
@@ -50,8 +50,6 @@ import {
   handleUpsertContact,
 } from "../runtime/routes/contact-routes.js";
 import type { ToolContext } from "../tools/types.js";
-
-initializeDb();
 
 // ── Lightweight gateway stub ─────────────────────────────────────────────────
 

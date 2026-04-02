@@ -23,11 +23,9 @@ import {
   createConversation,
   getConversation,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
 import { createSchedule, getSchedule } from "../schedule/schedule-store.js";
-
-initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

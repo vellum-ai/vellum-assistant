@@ -9,10 +9,8 @@ mock.module("../util/logger.js", () => ({
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { healGuardianBindingDrift } from "../runtime/guardian-vellum-migration.js";
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

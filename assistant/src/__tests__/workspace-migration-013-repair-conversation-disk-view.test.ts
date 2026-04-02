@@ -40,7 +40,7 @@ mock.module("../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, rawRun } from "../memory/db.js";
+import { getDb, rawRun } from "../memory/db.js";
 import {
   attachments,
   conversations,
@@ -48,8 +48,6 @@ import {
   messages,
 } from "../memory/schema.js";
 import { repairConversationDiskViewMigration } from "../workspace/migrations/013-repair-conversation-disk-view.js";
-
-initializeDb();
 
 function resetTables() {
   const db = getDb();

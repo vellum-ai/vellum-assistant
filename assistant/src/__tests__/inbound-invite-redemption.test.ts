@@ -69,11 +69,9 @@ import {
   upsertContact,
 } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
-
-initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

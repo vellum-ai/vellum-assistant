@@ -56,7 +56,6 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { initializeDb } from "../memory/db.js";
 import { getDb } from "../memory/db.js";
 import {
   createGuardianActionDelivery,
@@ -70,8 +69,6 @@ import {
 import { conversations } from "../memory/schema.js";
 import { executeFollowupAction } from "../runtime/guardian-action-followup-executor.js";
 import { resolveCounterparty } from "../runtime/guardian-action-followup-executor.js";
-
-initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();

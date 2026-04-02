@@ -68,8 +68,6 @@ import { memoryGraphNodes, memoryJobs } from "../memory/schema.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 
 ensureDataDir();
-initializeDb();
-
 afterAll(() => {
   resetDb();
 });
@@ -85,7 +83,10 @@ function resetTables() {
 
 describe("buildCliCapabilityStatement", () => {
   test("includes 'assistant' prefix, name, and description", () => {
-    const result = buildCliCapabilityStatement("doctor", "Run diagnostic checks");
+    const result = buildCliCapabilityStatement(
+      "doctor",
+      "Run diagnostic checks",
+    );
     expect(result).toContain('"assistant doctor"');
     expect(result).toContain("Run diagnostic checks");
   });
@@ -239,11 +240,7 @@ describe("seedCliCommandMemories", () => {
     expect(items).toHaveLength(3);
 
     const contentPrefixes = items.map((i) => i.content.split("\n")[0]).sort();
-    expect(contentPrefixes).toEqual([
-      "cli:config",
-      "cli:doctor",
-      "cli:keys",
-    ]);
+    expect(contentPrefixes).toEqual(["cli:config", "cli:doctor", "cli:keys"]);
 
     // All should be vivid
     for (const item of items) {
@@ -270,9 +267,7 @@ describe("seedCliCommandMemories", () => {
     expect(beforeItems.every((i) => i.fidelity === "vivid")).toBe(true);
 
     // Now seed with only doctor — config and keys should be pruned
-    mockCommands = [
-      { name: "doctor", description: "Run diagnostic checks" },
-    ];
+    mockCommands = [{ name: "doctor", description: "Run diagnostic checks" }];
     seedCliCommandMemories();
 
     const afterItems = db
@@ -329,7 +324,8 @@ describe("seedCliCommandMemories", () => {
         created: now,
         lastAccessed: now,
         lastConsolidated: now,
-        emotionalCharge: '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}',
+        emotionalCharge:
+          '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}',
         stability: 14,
         reinforcementCount: 0,
         lastReinforced: now,
@@ -353,9 +349,7 @@ describe("seedCliCommandMemories", () => {
   });
 
   test("does not throw on error", () => {
-    mockCommands = [
-      { name: "doctor", description: "Run diagnostic checks" },
-    ];
+    mockCommands = [{ name: "doctor", description: "Run diagnostic checks" }];
 
     // Drop memory_graph_nodes to force a DB error during the prune phase
     resetDb();

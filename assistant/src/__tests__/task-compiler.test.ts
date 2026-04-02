@@ -21,15 +21,13 @@ mock.module("./indexer.js", () => ({
 
 import type { Database } from "bun:sqlite";
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   compileTaskFromConversation,
   saveCompiledTask,
 } from "../tasks/task-compiler.js";
 import { renderTemplate } from "../tasks/task-runner.js";
 import { getTask } from "../tasks/task-store.js";
-
-initializeDb();
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

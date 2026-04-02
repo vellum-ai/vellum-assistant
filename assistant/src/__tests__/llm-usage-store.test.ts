@@ -7,7 +7,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
@@ -19,8 +19,6 @@ import {
 import type { PricingResult, UsageEventInput } from "../usage/types.js";
 
 // Initialize db once before all tests
-initializeDb();
-
 function makeInput(overrides?: Partial<UsageEventInput>): UsageEventInput {
   return {
     provider: "anthropic",

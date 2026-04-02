@@ -78,8 +78,6 @@ const nonLoopbackServer = mockServer("203.0.113.50");
 /** Mock LAN peer -- returns a private RFC 1918 IP (not loopback). */
 const lanPeerServer = mockServer("192.168.1.100");
 
-initializeDb();
-
 beforeEach(() => {
   // Initialize signing key for JWT verification
   initAuthSigningKey(TEST_KEY);

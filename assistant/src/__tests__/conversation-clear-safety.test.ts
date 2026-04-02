@@ -31,12 +31,10 @@ import {
   createConversation,
   getConversation,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { enforcePolicy, getPolicy } from "../runtime/auth/route-policy.js";
 import type { AuthContext, Scope } from "../runtime/auth/types.js";
 import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
-
-initializeDb();
 
 /** Build a synthetic AuthContext for testing. */
 function buildAuthContext(overrides?: {

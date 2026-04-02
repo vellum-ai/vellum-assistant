@@ -285,7 +285,7 @@ import {
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 import {
   handleAssignTwilioNumber,
@@ -294,8 +294,6 @@ import {
   handleSetTwilioCredentials,
 } from "../runtime/routes/integrations/twilio.js";
 import { credentialKey } from "../security/credential-key.js";
-
-initializeDb();
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

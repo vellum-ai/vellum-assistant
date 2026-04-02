@@ -9,7 +9,7 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { sequenceEnrollments, sequences } from "../memory/schema.js";
 import {
   advanceEnrollment,
@@ -27,8 +27,6 @@ import {
   updateSequence,
 } from "../sequence/store.js";
 import type { SequenceStep } from "../sequence/types.js";
-
-initializeDb();
 
 function clearTables() {
   const db = getDb();

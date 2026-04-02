@@ -9,12 +9,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import * as deliveryCrud from "../memory/delivery-crud.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

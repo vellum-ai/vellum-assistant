@@ -145,10 +145,8 @@ import {
   getPendingCanonicalRequestByCallSessionId,
 } from "../memory/canonical-guardian-store.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getDb, resetDb, resetTestTables } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
-
-initializeDb();
 
 afterAll(() => {
   resetDb();

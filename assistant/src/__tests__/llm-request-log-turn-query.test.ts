@@ -25,7 +25,7 @@ import {
   createConversation,
   forkConversation,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   backfillMessageIdOnLogs,
   getRequestLogsByMessageId,
@@ -33,8 +33,6 @@ import {
   relinkLlmRequestLogs,
 } from "../memory/llm-request-log-store.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

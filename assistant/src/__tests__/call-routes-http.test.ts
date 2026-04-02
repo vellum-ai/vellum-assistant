@@ -105,13 +105,11 @@ import {
   createPendingQuestion,
   updateCallSession,
 } from "../calls/call-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 import "../calls/call-state.js";
-
-initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

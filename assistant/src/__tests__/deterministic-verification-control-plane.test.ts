@@ -9,7 +9,7 @@
  * 4. Channel verification reply templates are non-empty and deterministic.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -32,19 +32,10 @@ mock.module("../config/env.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { generateTwiML } from "../calls/twilio-routes.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
-
-// ---------------------------------------------------------------------------
-// DB initialization
-// ---------------------------------------------------------------------------
-
-beforeEach(() => {
-  initializeDb();
-});
 
 // ---------------------------------------------------------------------------
 // Template tests: channel verification reply templates are deterministic

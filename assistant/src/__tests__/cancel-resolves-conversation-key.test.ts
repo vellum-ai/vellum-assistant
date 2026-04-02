@@ -43,10 +43,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb } from "../memory/db.js";
 import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
-
-initializeDb();
 
 describe("POST /v1/conversations/:id/cancel", () => {
   test("resolves conversation key to internal ID before cancelling", () => {

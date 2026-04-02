@@ -182,7 +182,7 @@ import {
   createVerificationSession,
 } from "../memory/channel-verification-sessions.js";
 import { addMessage, getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getDb, resetDb, resetTestTables } from "../memory/db.js";
 import { createInvite } from "../memory/invite-store.js";
 import { conversations } from "../memory/schema.js";
 import {
@@ -190,8 +190,6 @@ import {
   getGuardianBinding,
 } from "../runtime/channel-verification-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
-
-initializeDb();
 
 afterAll(() => {
   resetDb();

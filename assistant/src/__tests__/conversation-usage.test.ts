@@ -37,12 +37,10 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 import { recordUsage } from "../daemon/conversation-usage.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { listUsageEvents } from "../memory/llm-usage-store.js";
 import type { PricingUsage } from "../usage/types.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
-
-initializeDb();
 
 describe("recordUsage", () => {
   beforeEach(() => {

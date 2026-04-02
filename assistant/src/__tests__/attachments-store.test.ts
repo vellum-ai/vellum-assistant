@@ -37,10 +37,8 @@ import {
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, rawGet, rawRun } from "../memory/db.js";
+import { getDb, rawGet, rawRun } from "../memory/db.js";
 import { getConversationsDir } from "../util/platform.js";
-
-initializeDb();
 
 function resetTables() {
   const db = getDb();

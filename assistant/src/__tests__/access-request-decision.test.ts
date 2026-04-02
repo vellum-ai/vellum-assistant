@@ -35,7 +35,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   createApprovalRequest,
   getApprovalRequestById,
@@ -48,8 +48,6 @@ import {
   notifyRequesterOfDeliveryFailure,
   notifyRequesterOfDenial,
 } from "../runtime/routes/access-request-decision.js";
-
-initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

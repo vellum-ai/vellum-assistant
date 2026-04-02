@@ -13,12 +13,10 @@ import {
   upsertContact,
 } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getSqlite, initializeDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
-
-initializeDb();
 
 function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");

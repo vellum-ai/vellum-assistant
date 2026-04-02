@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -39,7 +39,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import {
   conversations,
@@ -63,10 +63,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   const now = 1_701_100_000_000;
   const convId = "conv-task-cleanup";
   const otherConvId = "conv-other";
-
-  beforeAll(() => {
-    initializeDb();
-  });
 
   beforeEach(() => {
     const db = getDb();
@@ -523,7 +519,8 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     db.insert(memoryGraphNodes)
       .values({
         id: "item-cross-sched",
-        content: "cross-sourced schedule claim\nClaim from two failed schedules.",
+        content:
+          "cross-sourced schedule claim\nClaim from two failed schedules.",
         type: "semantic",
         created: now + 10,
         lastAccessed: now + 20,

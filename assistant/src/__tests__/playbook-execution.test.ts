@@ -26,13 +26,11 @@ import { executePlaybookCreate } from "../config/bundled-skills/playbooks/tools/
 import { executePlaybookDelete } from "../config/bundled-skills/playbooks/tools/playbook-delete.js";
 import { executePlaybookList } from "../config/bundled-skills/playbooks/tools/playbook-list.js";
 import { executePlaybookUpdate } from "../config/bundled-skills/playbooks/tools/playbook-update.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { getNode } from "../memory/graph/store.js";
 import { compilePlaybooks } from "../playbooks/playbook-compiler.js";
 import { parsePlaybookStatement } from "../playbooks/types.js";
 import type { ToolContext } from "../tools/types.js";
-
-initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

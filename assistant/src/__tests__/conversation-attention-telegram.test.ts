@@ -24,13 +24,11 @@ mock.module("../daemon/handlers/shared.js", () => ({
 import { eq } from "drizzle-orm";
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getDb, resetDb, resetTestTables } from "../memory/db.js";
 import * as deliveryChannels from "../memory/delivery-channels.js";
 import { attachments, conversationAttentionEvents } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
-
-initializeDb();
 
 afterAll(() => {
   resetDb();

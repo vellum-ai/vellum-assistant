@@ -86,7 +86,7 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-verification-sessions.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db.js";
 import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
 import {
   createApprovalRequest,
@@ -125,8 +125,6 @@ import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
-
-initializeDb();
 
 afterAll(() => {
   globalThis.fetch = originalFetch;

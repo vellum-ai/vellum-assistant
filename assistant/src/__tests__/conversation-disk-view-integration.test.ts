@@ -59,9 +59,7 @@ import {
   getConversationDirPath,
   syncMessageToDisk,
 } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb } from "../memory/db.js";
-
-initializeDb();
+import { getDb } from "../memory/db.js";
 
 function resetTables() {
   const db = getDb();

@@ -39,7 +39,7 @@ import {
   PRIVATE_CONVERSATION_FORK_ERROR,
 } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { getRequestLogsByMessageId } from "../memory/llm-request-log-store.js";
 import {
   channelInboundEvents,
@@ -50,8 +50,6 @@ import {
   memoryJobs,
   toolInvocations,
 } from "../memory/schema.js";
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

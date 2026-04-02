@@ -82,7 +82,7 @@ import {
 } from "../calls/voice-session-bridge.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import {
   _internal,
@@ -92,8 +92,6 @@ import {
 
 const { createScopedApprovalGrant } = _internal;
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-
-initializeDb();
 
 // ---------------------------------------------------------------------------
 // Mock session that triggers a confirmation_request on processMessage

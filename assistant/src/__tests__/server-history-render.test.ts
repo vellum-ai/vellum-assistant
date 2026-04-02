@@ -14,9 +14,7 @@ import {
   uploadAttachment,
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
-
-initializeDb();
+import { getDb } from "../memory/db.js";
 
 describe("renderHistoryContent", () => {
   test("renders text-only content unchanged", () => {

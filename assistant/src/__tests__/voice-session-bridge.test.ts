@@ -32,9 +32,7 @@ import {
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
 import { createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
-
-initializeDb();
+import { getDb } from "../memory/db.js";
 
 /**
  * Build a session that emits multiple events via the onEvent callback,

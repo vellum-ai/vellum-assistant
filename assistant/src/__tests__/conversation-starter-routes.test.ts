@@ -9,13 +9,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getSqlite, initializeDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db.js";
 import {
   conversationStarterRouteDefinitions,
   orderStrongestFirst,
 } from "../runtime/routes/conversation-starter-routes.js";
-
-initializeDb();
 
 const routes = conversationStarterRouteDefinitions();
 

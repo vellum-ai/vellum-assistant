@@ -28,7 +28,7 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   createGuardianActionRequest,
   resolveGuardianActionRequest,
@@ -40,8 +40,6 @@ const { consumeScopedApprovalGrantByToolSignature } = _internal;
 import { tryMintGuardianActionGrant } from "../runtime/guardian-action-grant-minter.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-
-initializeDb();
 
 // ── Constants ───────────────────────────────────────────────────────
 

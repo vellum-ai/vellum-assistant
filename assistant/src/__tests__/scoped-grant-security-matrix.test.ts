@@ -44,8 +44,6 @@ const { consumeScopedApprovalGrantByToolSignature, createScopedApprovalGrant } =
   _internal;
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
-initializeDb();
-
 function clearTables(): void {
   const db = getDb();
   db.delete(scopedApprovalGrants).run();

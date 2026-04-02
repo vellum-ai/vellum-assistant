@@ -18,15 +18,13 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   backfillMemoryRecallLogMessageId,
   getMemoryRecallLogByMessageIds,
   recordMemoryRecallLog,
 } from "../memory/memory-recall-log-store.js";
 import { memoryRecallLogs } from "../memory/schema.js";
-
-initializeDb();
 
 function resetTables(): void {
   const db = getDb();

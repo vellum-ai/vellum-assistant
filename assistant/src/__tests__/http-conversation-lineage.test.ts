@@ -35,10 +35,8 @@ import {
   createConversation,
   updateConversationTitle,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, rawRun, resetDb } from "../memory/db.js";
+import { getDb, rawRun, resetDb } from "../memory/db.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
-
-initializeDb();
 
 type ConversationSummary = {
   id: string;

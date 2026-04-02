@@ -11,7 +11,7 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   createGuardianActionRequest,
   expireGuardianActionRequest,
@@ -23,8 +23,6 @@ import {
   startFollowupFromExpiredRequest,
 } from "../memory/guardian-action-store.js";
 import { conversations } from "../memory/schema.js";
-
-initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();

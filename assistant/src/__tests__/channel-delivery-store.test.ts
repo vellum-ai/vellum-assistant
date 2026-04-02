@@ -13,7 +13,7 @@ import {
   getConversationByKey,
   setConversationKey,
 } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import {
   clearPayload,
   findMessageBySourceId,
@@ -37,8 +37,6 @@ import {
   messages,
 } from "../memory/schema.js";
 import { handleDeleteConversation } from "../runtime/routes/channel-routes.js";
-
-initializeDb();
 
 function resetTables() {
   const db = getDb();

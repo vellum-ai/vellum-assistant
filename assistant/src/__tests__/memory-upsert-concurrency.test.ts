@@ -59,13 +59,11 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";
 
 // Initialize DB once for the entire file. Each test cleans its own tables.
-initializeDb();
-
 function resetTables() {
   const db = getDb();
   db.run("DELETE FROM memory_embeddings");
@@ -548,4 +546,3 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
     expect(storedSegments.length).toBe(firstCount);
   });
 });
-

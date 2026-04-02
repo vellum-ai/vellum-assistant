@@ -7,11 +7,9 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getSqlite, initializeDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import { usageRouteDefinitions } from "../runtime/routes/usage-routes.js";
-
-initializeDb();
 
 function clearUsageEvents() {
   getSqlite().run("DELETE FROM llm_usage_events");

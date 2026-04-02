@@ -31,14 +31,12 @@ import {
   revokeMember,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import {
   createOutboundSession,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
-
-initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

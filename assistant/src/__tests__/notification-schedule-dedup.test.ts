@@ -24,7 +24,7 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { notificationEvents } from "../memory/schema.js";
 import { runDeterministicChecks } from "../notifications/deterministic-checks.js";
 import {
@@ -33,8 +33,6 @@ import {
 } from "../notifications/events-store.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type { NotificationDecision } from "../notifications/types.js";
-
-initializeDb();
 
 beforeEach(() => {
   // Clear notification events between tests for isolation

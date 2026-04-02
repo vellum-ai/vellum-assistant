@@ -66,12 +66,10 @@ import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
-
-initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
