@@ -291,7 +291,11 @@ struct MarkdownSegmentView: View, Equatable {
     }
 
     #if os(macOS)
-    private func resolveSelectableRunMeasurement(
+    /// Computes or retrieves from cache the `(NSAttributedString, CGSize)` pair
+    /// for a selectable text run.  `internal` so `@testable import` tests can
+    /// exercise the cache directly (SwiftUI `body` evaluation does not force
+    /// `ForEach` row closures to execute in a unit-test context).
+    func resolveSelectableRunMeasurement(
         _ runSegments: [MarkdownSegment]
     ) -> (NSAttributedString, CGSize) {
         var hasher = Hasher()
