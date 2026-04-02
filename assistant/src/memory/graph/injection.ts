@@ -14,7 +14,6 @@ import { isCapabilityNode } from "./types.js";
 
 export const MAX_CONTEXT_LOAD_IMAGES = 3;
 export const MAX_PER_TURN_IMAGES = 1;
-export const MAX_REFRESH_IMAGES = 2;
 
 // ---------------------------------------------------------------------------
 // Types
