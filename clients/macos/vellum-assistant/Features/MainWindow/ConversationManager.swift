@@ -1394,7 +1394,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             }
         }
 
-        // Single write — triggers objectWillChange exactly once.
+        // Single write — triggers one observation notification.
         conversations = draft
         sendReorderConversations()
         return true
