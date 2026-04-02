@@ -220,17 +220,28 @@ describe("POST /v1/export — tar.gz archive", () => {
     }
   });
 
-  test("archive excludes embedding-models/ and data/qdrant/", async () => {
+  test("archive excludes embedding-models/ and data/qdrant/ data but includes redacted manifests", async () => {
     const res = await callExport();
     const dir = await extractArchive(res);
     try {
       const files = listFiles(join(dir, "workspace"));
-      const embeddingFiles = files.filter((f) =>
-        f.startsWith("embedding-models/"),
+
+      // Original data files are excluded
+      expect(files).not.toContain("embedding-models/model.bin");
+      expect(files).not.toContain("data/qdrant/index.bin");
+
+      // Redacted manifests show entry counts and sizes, not filenames
+      const embeddingManifest = readFileSync(
+        join(dir, "workspace", "embedding-models", "_manifest.txt"),
+        "utf-8",
       );
-      const qdrantFiles = files.filter((f) => f.startsWith("data/qdrant/"));
-      expect(embeddingFiles).toHaveLength(0);
-      expect(qdrantFiles).toHaveLength(0);
+      expect(embeddingManifest).toContain("1 file(s)");
+
+      const qdrantManifest = readFileSync(
+        join(dir, "workspace", "data", "qdrant", "_manifest.txt"),
+        "utf-8",
+      );
+      expect(qdrantManifest).toContain("1 file(s)");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
