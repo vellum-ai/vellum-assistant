@@ -108,6 +108,7 @@ struct MemoryItemDetailSheet: View {
                         .padding(VSpacing.sm)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("More options")
                 .padding(.top, VSpacing.md)
                 .padding(.trailing, VSpacing.md)
             }
