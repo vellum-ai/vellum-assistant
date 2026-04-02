@@ -15,6 +15,8 @@ public class VMenuPanel: NSPanel {
     private var managedByCoordinator: Bool = false
     /// Guard to prevent recursive coordinator notification from `close()`.
     private var isClosingFromCoordinator: Bool = false
+    /// Weak reference to the NSHostingView for accessibility hierarchy flattening.
+    private weak var menuHostingView: NSView?
 
     /// Extra padding added around the VMenu content so its shadow can render
     /// without being clipped by the hosting view's bounds.
@@ -51,13 +53,14 @@ public class VMenuPanel: NSPanel {
         panel.backgroundColor = .clear
         panel.hasShadow = false
 
-        // Accessibility: use role description instead of setAccessibilityRole(.menu).
-        // Setting .menu role causes VoiceOver to enter a specialized menu navigation
-        // mode that expects native NSMenu-style .menuItem children. Since our items are
-        // SwiftUI views with .isButton trait, VoiceOver can't navigate them in that mode.
-        // Using role description preserves the "menu" announcement without the behavioral
-        // implications of the .menu role.
-        panel.setAccessibilityRoleDescription("menu")
+        // Accessibility: configure the panel so VoiceOver can navigate its SwiftUI content.
+        // - Role description "menu" preserves the announcement without the behavioral
+        //   implications of setAccessibilityRole(.menu), which expects native NSMenu-style
+        //   .menuItem children that SwiftUI can't provide.
+        // - Subrole .standardWindow prevents VoiceOver from treating it as "system dialog"
+        //   which blocks direct item navigation.
+        panel.setAccessibilityRoleDescription(NSLocalizedString("menu", comment: "Accessibility role description for VMenu panel"))
+        panel.setAccessibilitySubrole(.standardWindow)
 
         // Create coordinator for this panel tree
         let coordinator = VMenuCoordinator()
@@ -89,6 +92,7 @@ public class VMenuPanel: NSPanel {
             hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
         panel.contentView = container
+        panel.menuHostingView = hostingView
 
         let fittingSize = hostingView.fittingSize
         let menuSize = CGSize(
@@ -104,11 +108,16 @@ public class VMenuPanel: NSPanel {
         let sourceWindow = NSApp.windows.first(where: { $0.frame.contains(screenPoint) && !($0 is VMenuPanel) })
         coordinator.registerRootPanel(panel, sourceWindow: sourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
 
-        // Notify VoiceOver that a new menu appeared so it can navigate into it.
-        // Native NSMenu posts these automatically; custom panels must do it manually.
+        // Notify VoiceOver that a new menu appeared and move focus to the first
+        // accessible child element (not the container). This lets VoiceOver start
+        // reading menu items directly without requiring VO+Shift+Down to drill in.
         DispatchQueue.main.async {
             NSAccessibility.post(element: panel, notification: .created)
-            NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+            if let firstChild = hostingView.accessibilityChildren()?.first {
+                NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
+            } else {
+                NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+            }
         }
 
         return panel
@@ -135,7 +144,8 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.setAccessibilityRoleDescription("menu")
+        panel.setAccessibilityRoleDescription(NSLocalizedString("menu", comment: "Accessibility role description for VMenu panel"))
+        panel.setAccessibilitySubrole(.standardWindow)
         panel.coordinator = coordinator
         panel.managedByCoordinator = true
 
@@ -171,6 +181,7 @@ public class VMenuPanel: NSPanel {
             hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
         panel.contentView = container
+        panel.menuHostingView = hostingView
 
         let fittingSize = hostingView.fittingSize
         let menuSize = CGSize(
@@ -182,10 +193,14 @@ public class VMenuPanel: NSPanel {
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
         panel.makeKeyAndOrderFront(nil)
 
-        // Notify VoiceOver that a new submenu appeared so it can navigate into it.
+        // Notify VoiceOver that a new submenu appeared and move focus to first child.
         DispatchQueue.main.async {
             NSAccessibility.post(element: panel, notification: .created)
-            NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+            if let firstChild = hostingView.accessibilityChildren()?.first {
+                NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
+            } else {
+                NSAccessibility.post(element: hostingView, notification: .focusedUIElementChanged)
+            }
         }
 
         return panel
@@ -303,6 +318,27 @@ public class VMenuPanel: NSPanel {
 
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { false }
+
+    // MARK: - Accessibility
+
+    /// Flatten the accessibility hierarchy so VoiceOver sees SwiftUI elements as
+    /// direct children of the panel, bypassing the FirstMouseView → NSHostingView
+    /// container chain that VoiceOver cannot traverse in a non-activating panel.
+    public override func accessibilityChildren() -> [Any]? {
+        if let hostingView = menuHostingView {
+            return hostingView.accessibilityChildren()
+        }
+        return super.accessibilityChildren()
+    }
+
+    /// Return the first accessible child as the focused element so VoiceOver
+    /// starts reading menu items immediately when the panel appears.
+    public override func accessibilityFocusedUIElement() -> Any? {
+        if let children = menuHostingView?.accessibilityChildren(), let first = children.first {
+            return first
+        }
+        return super.accessibilityFocusedUIElement()
+    }
 }
 
 // MARK: - FirstMouseView
