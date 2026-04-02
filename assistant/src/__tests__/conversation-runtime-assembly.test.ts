@@ -1951,3 +1951,128 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(text).toContain("contact_interaction_count: 42");
   });
 });
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections with unifiedTurnContext
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections with unifiedTurnContext", () => {
+  const baseMessages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Hello there" }],
+    },
+  ];
+
+  const sampleBlock =
+    "<turn_context>\ntimestamp: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
+
+  test("injects unifiedTurnContext when provided", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      unifiedTurnContext: sampleBlock,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toHaveLength(2);
+    const injected = (result[0].content[0] as { type: "text"; text: string })
+      .text;
+    expect(injected).toBe(sampleBlock);
+    // Original content preserved
+    expect(
+      (result[0].content[1] as { type: "text"; text: string }).text,
+    ).toBe("Hello there");
+  });
+
+  test("does not inject when unifiedTurnContext is null", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      unifiedTurnContext: null,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toHaveLength(1);
+  });
+
+  test("does not inject when unifiedTurnContext is omitted", () => {
+    const result = applyRuntimeInjections(baseMessages, {});
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toHaveLength(1);
+  });
+
+  test("injected in full mode", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      unifiedTurnContext: sampleBlock,
+      mode: "full",
+    });
+
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    expect(allText).toContain("<turn_context>");
+  });
+
+  test("injected in minimal mode (no mode guard)", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      unifiedTurnContext: sampleBlock,
+      mode: "minimal",
+    });
+
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    expect(allText).toContain("<turn_context>");
+  });
+
+  test("coexists with inboundActorContext (both present during migration)", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      unifiedTurnContext: sampleBlock,
+      inboundActorContext: {
+        sourceChannel: "telegram",
+        canonicalActorIdentity: "user-1",
+        trustClass: "trusted_contact",
+        guardianIdentity: "guardian-1",
+      },
+    });
+
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    // Both blocks present
+    expect(allText).toContain("<turn_context>");
+    expect(allText).toContain("<inbound_actor_context>");
+    // Original user content preserved
+    expect(allText).toContain("Hello there");
+  });
+
+  test("coexists with channelTurnContext and temporalContext (migration overlap)", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      unifiedTurnContext: sampleBlock,
+      channelTurnContext: {
+        turnContext: {
+          userMessageChannel: "telegram",
+          assistantMessageChannel: "telegram",
+        },
+        conversationOriginChannel: "telegram",
+      },
+      temporalContext:
+        "<temporal_context>\nToday: 2026-04-02 (Wed)\n</temporal_context>",
+    });
+
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    // All three blocks present
+    expect(allText).toContain(sampleBlock);
+    expect(allText).toContain("<temporal_context>");
+    // The channel turn context also uses <turn_context> tags
+    expect(allText).toContain("user_message_channel: telegram");
+  });
+});

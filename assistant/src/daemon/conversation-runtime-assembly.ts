@@ -1270,6 +1270,7 @@ export function applyRuntimeInjections(
     channelTurnContext?: ChannelTurnContextParams | null;
     interfaceTurnContext?: InterfaceTurnContextParams | null;
     inboundActorContext?: InboundActorContext | null;
+    unifiedTurnContext?: string | null;
     temporalContext?: string | null;
     voiceCallControlPrompt?: string | null;
     nowScratchpad?: string | null;
@@ -1372,6 +1373,22 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectInboundActorContext(userTail, options.inboundActorContext),
+      ];
+    }
+  }
+
+  if (options.unifiedTurnContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        {
+          ...userTail,
+          content: [
+            { type: "text" as const, text: options.unifiedTurnContext },
+            ...userTail.content,
+          ],
+        },
       ];
     }
   }
