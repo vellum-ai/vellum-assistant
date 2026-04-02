@@ -53,19 +53,23 @@ export function migrateScrubCorruptedImageAttachments(
       }
 
       // Step A — Find and remove corrupted attachments stored inline (data_base64)
-      // Process in batches, deleting corrupted rows immediately so the LIMIT
-      // query advances through the table.
+      // Process in batches using rowid cursor to ensure all rows are scanned
+      // even when corrupted rows are non-contiguous.
       const BATCH_SIZE = 100;
+      let lastRowid = 0;
       for (;;) {
         const rows = raw
           .query(
-            `SELECT id, data_base64, file_path FROM attachments
+            `SELECT rowid, id, data_base64, file_path FROM attachments
              WHERE mime_type LIKE 'image/%'
                AND data_base64 IS NOT NULL
                AND data_base64 != ''
+               AND rowid > ?
+             ORDER BY rowid
              LIMIT ?`,
           )
-          .all(BATCH_SIZE) as Array<{
+          .all(lastRowid, BATCH_SIZE) as Array<{
+          rowid: number;
           id: string;
           data_base64: string;
           file_path: string | null;
@@ -73,8 +77,8 @@ export function migrateScrubCorruptedImageAttachments(
 
         if (rows.length === 0) break;
 
-        let deletedAny = false;
         for (const row of rows) {
+          lastRowid = row.rowid;
           try {
             const decoded = Buffer.from(
               row.data_base64.slice(0, 200),
@@ -82,16 +86,11 @@ export function migrateScrubCorruptedImageAttachments(
             );
             if (looksLikeHtml(decoded)) {
               deleteCorruptedAttachment(row.id, row.file_path);
-              deletedAny = true;
             }
           } catch {
             // Skip rows with invalid base64
           }
         }
-
-        // If no corrupted rows were found (and deleted) in this batch, every
-        // remaining image attachment with inline data is valid — stop scanning.
-        if (!deletedAny) break;
       }
 
       // Step B — Find and remove corrupted attachments stored on disk (file_path)
