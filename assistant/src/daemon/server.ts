@@ -6,12 +6,12 @@ import {
   getAcpSessionManager,
   setBroadcastToAllClients,
 } from "../acp/index.js";
-import { compileApp } from "../bundler/app-compiler.js";
 import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
+import { compileApp } from "../bundler/app-compiler.js";
 import {
   type ChannelId,
   type InterfaceId,
@@ -77,9 +77,9 @@ import {
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { formatCompactResult } from "./conversation-process.js";
-import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
+import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
