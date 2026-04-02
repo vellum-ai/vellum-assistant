@@ -143,6 +143,7 @@ export async function handleGuardianActivationIntercept(
           );
         });
       }
+      markProcessed(externalMessageId);
       return Response.json({ accepted: true, guardianActivationPending: true });
     }
   }
