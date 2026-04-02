@@ -151,6 +151,8 @@ export interface DisposeContext extends AbortContext {
   lastSurfaceAction: Map<string, unknown>;
   workspaceTopLevelContext: string | null;
   trustContext?: { trustClass: TrustClass };
+  /** Active memory node IDs snapshotted from the conversation's InContextTracker before disposal. */
+  activeContextNodeIds?: string[];
   abort(): void;
 }
 
@@ -309,6 +311,9 @@ export function disposeConversation(ctx: DisposeContext): void {
     try {
       enqueueMemoryJob("graph_extract", {
         conversationId: ctx.conversationId,
+        ...(ctx.activeContextNodeIds?.length
+          ? { activeContextNodeIds: ctx.activeContextNodeIds }
+          : {}),
       });
     } catch {
       // Best-effort — don't block conversation disposal
