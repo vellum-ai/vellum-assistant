@@ -444,7 +444,7 @@ interface RawUpdateNode {
   significance?: number;
   confidence?: number;
   fidelity?: string;
-  event_date?: number;
+  event_date?: number | null;
 }
 
 interface RawNewEdge {
@@ -646,15 +646,16 @@ export function parseExtractionResponse(
       (!Array.isArray(raw.triggers) ||
         !raw.triggers.some((t) => t.type === "event" && t.event_date != null))
     ) {
-      // Remove any malformed event triggers (type=event but missing event_date)
-      const malformedIdx = deferredTriggers.findIndex(
-        (dt) =>
+      // Remove all malformed event triggers (type=event but missing event_date)
+      for (let i = deferredTriggers.length - 1; i >= 0; i--) {
+        const dt = deferredTriggers[i];
+        if (
           dt.newNodeIndex === nodeIndex &&
           dt.trigger.type === "event" &&
-          dt.trigger.eventDate == null,
-      );
-      if (malformedIdx !== -1) {
-        deferredTriggers.splice(malformedIdx, 1);
+          dt.trigger.eventDate == null
+        ) {
+          deferredTriggers.splice(i, 1);
+        }
       }
 
       deferredTriggers.push({
