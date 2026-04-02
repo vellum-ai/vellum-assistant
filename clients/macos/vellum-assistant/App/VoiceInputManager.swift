@@ -113,7 +113,7 @@ final class VoiceInputManager {
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private let engineController = AudioEngineController()
+    private let engineController = AudioEngineController(label: "com.vellum.audioEngine.voiceInput")
     private var enginePrewarmed = false
 
     init(dictationClient: any DictationClientProtocol = DictationClient()) {

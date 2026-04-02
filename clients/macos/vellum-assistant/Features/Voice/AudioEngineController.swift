@@ -21,8 +21,12 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Audio
 /// See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
 final class AudioEngineController: @unchecked Sendable {
 
-    private lazy var audioEngine = AVAudioEngine()
-    private let queue = DispatchQueue(label: "com.vellum.audioEngine", qos: .userInitiated)
+    private let audioEngine = AVAudioEngine()
+    private let queue: DispatchQueue
+
+    init(label: String = "com.vellum.audioEngine") {
+        self.queue = DispatchQueue(label: label, qos: .userInitiated)
+    }
 
     // MARK: - Input Node Format
 

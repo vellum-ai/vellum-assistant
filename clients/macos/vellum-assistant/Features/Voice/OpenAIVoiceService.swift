@@ -38,7 +38,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
     // MARK: - Recording State
 
-    @ObservationIgnored private let engineController = AudioEngineController()
+    @ObservationIgnored private let engineController = AudioEngineController(label: "com.vellum.audioEngine.voiceService")
     @ObservationIgnored private var isRecording = false
 
     /// Fires once when silence is detected after speech.
@@ -271,6 +271,8 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             }
         }
 
+        // prepare() is async, start() is sync — serial queue guarantees
+        // prepare() completes before start() executes.
         engineController.prepare()
         do {
             try engineController.start()
