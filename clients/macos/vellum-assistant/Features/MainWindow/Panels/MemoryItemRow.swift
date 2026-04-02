@@ -48,6 +48,7 @@ struct MemoryItemRow: View {
                             action: onDelete
                         )
                         .opacity(isHovered ? 1 : 0)
+                        .allowsHitTesting(isHovered)
                         .accessibilityLabel("Delete memory")
                     }
 
