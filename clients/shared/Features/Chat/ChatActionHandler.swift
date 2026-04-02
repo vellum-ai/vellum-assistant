@@ -346,6 +346,15 @@ final class ChatActionHandler {
 
     private func handleMessageComplete(_ complete: MessageCompleteMessage, vm: ChatViewModel) {
         guard belongsToConversation(complete.conversationId) else { return }
+        // Auxiliary message_complete events (watch notifiers, call notifications)
+        // that lack a messageId should not reset the main agent turn state.
+        // Without this guard, a watch commentary/summary message_complete arriving
+        // mid-stream clears currentAssistantMessageId, causing the main agent
+        // loop's subsequent message_complete to set daemonMessageId on the wrong
+        // (newly created) message — breaking the LLM Context Inspector until restart.
+        if complete.messageId == nil && vm.isSending {
+            return
+        }
         // Flush any buffered streaming text before finalizing the message.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
