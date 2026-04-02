@@ -5,6 +5,7 @@ struct MemoryItemDetailSheet: View {
     let item: MemoryItemPayload
     let store: MemoryItemsStore
     let onDismiss: () -> Void
+    let onNavigate: ((MemoryItemPayload) -> Void)?
 
     @State var isEditing = false
     @State var editSubject: String
@@ -22,10 +23,11 @@ struct MemoryItemDetailSheet: View {
     /// The item with full detail (supersession subjects resolved), falling back to the list item.
     var displayItem: MemoryItemPayload { detailItem ?? item }
 
-    init(item: MemoryItemPayload, store: MemoryItemsStore, onDismiss: @escaping () -> Void) {
+    init(item: MemoryItemPayload, store: MemoryItemsStore, onDismiss: @escaping () -> Void, onNavigate: ((MemoryItemPayload) -> Void)? = nil) {
         self.item = item
         self.store = store
         self.onDismiss = onDismiss
+        self.onNavigate = onNavigate
         _editSubject = State(initialValue: item.subject)
         _editStatement = State(initialValue: item.statement)
         _editKind = State(initialValue: item.kind)

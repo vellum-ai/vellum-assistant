@@ -115,7 +115,10 @@ struct MemoriesPanel: View {
                     MemoryItemDetailSheet(
                         item: item,
                         store: store,
-                        onDismiss: { withAnimation(VAnimation.fast) { selectedItem = nil } }
+                        onDismiss: { withAnimation(VAnimation.fast) { selectedItem = nil } },
+                        onNavigate: { newItem in
+                            withAnimation(VAnimation.fast) { selectedItem = newItem }
+                        }
                     )
                     .id(selectedItem?.id)
                 }

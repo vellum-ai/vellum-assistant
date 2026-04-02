@@ -7,6 +7,21 @@ extension MemoryItemDetailSheet {
 
     @ViewBuilder
     var viewModeContent: some View {
+        // Skill/procedural banner
+        if displayItem.kind == MemoryKind.procedural.rawValue {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.zap, size: 14)
+                    .foregroundStyle(VColor.funRed)
+                Text("Capability — not a personal memory")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.funRed)
+            }
+            .padding(VSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(VColor.funRed.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        }
+
         // Statement — no label, the VModal title already shows the subject
         Text(displayItem.statement)
             .font(VFont.bodyMediumLighter)
@@ -91,6 +106,58 @@ extension MemoryItemDetailSheet {
                 }
             }
         }
+
+        // Possibly Related section
+        let related = relatedItems
+        if !related.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Possibly Related")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentTertiary)
+                ForEach(related) { relatedItem in
+                    Button {
+                        onNavigate?(relatedItem)
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            Circle()
+                                .fill(MemoryKind(rawValue: relatedItem.kind)?.color ?? VColor.contentTertiary)
+                                .frame(width: 6, height: 6)
+                            Text(relatedItem.subject)
+                                .font(VFont.bodySmallDefault)
+                                .foregroundStyle(VColor.contentSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var relatedItems: [MemoryItemPayload] {
+        let stopWords: Set<String> = ["the", "and", "that", "this", "with", "from", "have", "been", "was", "were", "are", "for", "not"]
+        let words = Set(
+            displayItem.subject
+                .lowercased()
+                .split(separator: " ")
+                .map(String.init)
+                .filter { $0.count > 3 && !stopWords.contains($0) }
+        )
+        guard !words.isEmpty else { return [] }
+
+        return store.items
+            .filter { $0.id != displayItem.id && $0.kind == displayItem.kind }
+            .filter { candidate in
+                let candidateWords = Set(
+                    candidate.subject.lowercased()
+                        .split(separator: " ")
+                        .map(String.init)
+                        .filter { $0.count > 3 && !stopWords.contains($0) }
+                )
+                return !words.isDisjoint(with: candidateWords)
+            }
+            .prefix(3)
+            .map { $0 }
     }
 }
 
