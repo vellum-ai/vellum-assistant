@@ -419,13 +419,24 @@ final class MessageListScrollState {
     }
 
     /// Low-level scroll-to-bottom execution. Does not check mode.
+    ///
+    /// Uses `scrollToEdge(.bottom)` instead of `scrollTo(id: "scroll-bottom-anchor")`
+    /// because `ScrollPosition.scrollTo(id:)` is unreliable with `LazyVStack`
+    /// when the target view hasn't been materialized. With variable-height
+    /// chat messages, the lazy container's height estimation can be wrong,
+    /// leaving the viewport far from the true bottom where the anchor lives.
+    /// Edge-based scrolling targets the content edge regardless of which
+    /// views are currently materialized.
+    ///
+    /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
+    /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
     private func executeScrollToBottom(animated: Bool) {
         if animated {
             withAnimation(VAnimation.fast) {
-                performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+                scrollToEdge?(.bottom)
             }
         } else {
-            performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+            scrollToEdge?(.bottom)
         }
     }
 
