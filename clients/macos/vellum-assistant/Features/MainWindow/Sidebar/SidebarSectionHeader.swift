@@ -139,7 +139,8 @@ struct SidebarSectionHeader: View {
         }
         .modifier(ConditionalGroupContextMenu(
             onRename: onRename.map { rename in { rename(group.name) } },
-            onDelete: onDelete
+            onDelete: onDelete,
+            hasConversations: conversationCount > 0
         ))
         .conditionalOnDrag(enabled: !group.isSystemGroup) {
             sidebar?.draggingGroupId = group.id
@@ -155,6 +156,7 @@ struct SidebarSectionHeader: View {
 private struct ConditionalGroupContextMenu: ViewModifier {
     let onRename: (() -> Void)?
     let onDelete: (() -> Void)?
+    let hasConversations: Bool
 
     func body(content: Content) -> some View {
         if onRename != nil || onDelete != nil {
@@ -163,7 +165,7 @@ private struct ConditionalGroupContextMenu: ViewModifier {
                     VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") { onRename() }
                 }
                 if let onDelete {
-                    VMenuItem(icon: VIcon.trash.rawValue, label: "Delete group\u{2026}") { onDelete() }
+                    VMenuItem(icon: VIcon.trash.rawValue, label: hasConversations ? "Delete group\u{2026}" : "Delete group") { onDelete() }
                 }
             }
         } else {

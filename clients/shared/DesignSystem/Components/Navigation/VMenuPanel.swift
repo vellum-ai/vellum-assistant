@@ -45,8 +45,11 @@ public class VMenuPanel: NSPanel {
             backing: .buffered,
             defer: true
         )
+        // isFloatingPanel sets level to .floating by default — do not
+        // override with .popUpMenu, which is level 101 and causes the panel
+        // to render above *all* windows on the desktop, including other apps.
+        // See: https://developer.apple.com/documentation/appkit/nswindow/level
         panel.isFloatingPanel = true
-        panel.level = .popUpMenu
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -90,10 +93,21 @@ public class VMenuPanel: NSPanel {
 
         let origin = clampedOrigin(for: menuSize, cursorAt: screenPoint)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
+
+        // Detect the source window before ordering the panel to avoid
+        // picking up the panel itself in the window list.
+        let sourceWindow = NSApp.windows.first(where: { $0.frame.contains(screenPoint) && !($0 is VMenuPanel) })
+
         panel.makeKeyAndOrderFront(nil)
 
+        // Attach as a child window so the menu stays grouped with its
+        // parent and doesn't float above unrelated windows from other apps.
+        // See: https://developer.apple.com/documentation/appkit/nswindow/addchildwindow(_:ordered:)
+        if let sourceWindow {
+            sourceWindow.addChildWindow(panel, ordered: .above)
+        }
+
         // Register with coordinator — it installs the unified click monitor
-        let sourceWindow = NSApp.windows.first(where: { $0.frame.contains(screenPoint) && !($0 is VMenuPanel) })
         coordinator.registerRootPanel(panel, sourceWindow: sourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
 
         return panel
@@ -116,7 +130,6 @@ public class VMenuPanel: NSPanel {
             defer: true
         )
         panel.isFloatingPanel = true
-        panel.level = .popUpMenu
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -245,6 +258,12 @@ public class VMenuPanel: NSPanel {
     public override func close() {
         clickMonitor.flatMap(NSEvent.removeMonitor)
         clickMonitor = nil
+
+        // Detach from parent window before closing so the parent's
+        // child window list stays clean.
+        if let parentWindow = parent {
+            parentWindow.removeChildWindow(self)
+        }
 
         let handler = dismissHandler
         dismissHandler = nil

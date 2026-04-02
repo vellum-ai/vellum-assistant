@@ -148,6 +148,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cancelled before creating a new subscription (e.g. on reconnection or
     /// assistant switch), preventing duplicate event processing.
     var eventSubscriptionTask: Task<Void, Never>?
+    /// In-flight managed-assistant switch task. Cancelled when a new switch
+    /// begins so a stale bootstrap cannot reconnect the wrong assistant.
+    var managedSwitchTask: Task<Void, Never>?
     /// Pending fallback notification tokens, keyed by conversationId.
     /// Used to avoid duplicate native alerts when notification_intent arrives.
     var pendingFallbackNotifications: [String: UUID] = [:]
@@ -774,6 +777,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         pulseTimer?.invalidate()
         pulseTimer = nil
         threadWindowManager?.closeAll()
+        voiceInput?.prepareForTermination()
         voiceInput?.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()

@@ -164,7 +164,7 @@ function getTemplateDbPath(): string {
   }
   return join(
     tmpdir(),
-    `vellum-test-db-template-${hash.digest("hex").slice(0, 12)}.db`
+    `vellum-test-db-template-${hash.digest("hex").slice(0, 12)}.db`,
   );
 }
 
@@ -564,7 +564,12 @@ export function initializeDb(): void {
   // 101. Memory graph tables (nodes, edges, triggers)
   migrateCreateMemoryGraphTables(database);
 
-  // 101b. Migrate tool-created items from legacy memory_items → graph nodes
+  // 101a. Add nullable image_refs TEXT column to memory_graph_nodes.
+  // MUST run before migrateToolCreatedItems (101b) because that migration
+  // inserts rows into memory_graph_nodes including the image_refs column.
+  migrateMemoryGraphImageRefs(database);
+
+  // 101b. Migrate tool-created items from legacy memory_items → graph nodes.
   // MUST run before migration 102 drops memory_items so data is preserved.
   migrateToolCreatedItems();
 
@@ -574,10 +579,7 @@ export function initializeDb(): void {
   // 103. Rename legacy memory graph node type values: style → behavioral, relationship → semantic
   migrateRenameMemoryGraphTypeValues(database);
 
-  // 104. Add nullable image_refs TEXT column to memory_graph_nodes
-  migrateMemoryGraphImageRefs(database);
-
-  // 105. Memory graph node edit history
+  // 104. Memory graph node edit history
   migrateCreateMemoryGraphNodeEdits(database);
 
   validateMigrationState(database);

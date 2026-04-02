@@ -149,6 +149,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// send-in-progress indicator gets stuck.
     @ObservationIgnored private var sendingWatchdogTask: Task<Void, Never>?
 
+    /// Per-requestId safety-net timeouts that clear the submitting spinner if
+    /// a guardian decision HTTP response takes longer than 15 seconds.  Keyed
+    /// by requestId so concurrent submissions each get an independent timeout.
+    @ObservationIgnored private var guardianDecisionTimeoutTasks: [String: Task<Void, Never>] = [:]
+
     // MARK: - Observation compatibility
 
     /// No-op — retained for protocol conformance (MessageSendCoordinatorDelegate).
@@ -2168,6 +2173,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
+        guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -2214,7 +2220,28 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
         Task {
             let response = await guardianClient.submitDecision(requestId: requestId, action: action, conversationId: conversationId)
-            if response == nil {
+
+            // Cancel the safety-net timeout for this specific requestId — we have an HTTP response.
+            guardianDecisionTimeoutTasks[requestId]?.cancel()
+            guardianDecisionTimeoutTasks[requestId] = nil
+
+            if let response {
+                if response.applied {
+                    // Real server decision — route to the handler for resolved state.
+                    handleGuardianActionDecisionResponse(response)
+                } else {
+                    // Transport failure (HTTP error, network timeout) or server
+                    // explicitly said stale/not-found. GuardianClient synthesizes
+                    // applied=false for HTTP errors — don't mark the prompt as
+                    // .stale on a transient 5xx. Instead, revert submitting state
+                    // and let the user retry.
+                    pendingGuardianActions.removeValue(forKey: requestId)
+                    if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }) {
+                        messages[idx].guardianDecision?.isSubmitting = false
+                    }
+                    refreshGuardianPrompts()
+                }
+            } else {
                 log.error("Failed to submit guardian decision for requestId \(requestId)")
                 pendingGuardianActions.removeValue(forKey: requestId)
                 // Revert submitting state on failure
@@ -2222,6 +2249,25 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     messages[idx].guardianDecision?.isSubmitting = false
                 }
             }
+        }
+
+        // Safety-net timeout: if the decision is still submitting after 15s,
+        // clear the spinner and re-sync with the server. Don't remove from
+        // pendingGuardianActions — let the main response handler or refresh
+        // handle the cleanup so the action label is preserved.
+        // Cancel any previous timeout for the SAME requestId only — other
+        // in-flight submissions keep their own independent timeouts.
+        guardianDecisionTimeoutTasks[requestId]?.cancel()
+        guardianDecisionTimeoutTasks[requestId] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if let idx = self.messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }),
+               self.messages[idx].guardianDecision?.isSubmitting == true {
+                log.warning("Guardian decision submit timed out for requestId \(requestId, privacy: .public)")
+                self.messages[idx].guardianDecision?.isSubmitting = false
+                self.refreshGuardianPrompts()
+            }
+            self.guardianDecisionTimeoutTasks[requestId] = nil
         }
     }
 

@@ -1,5 +1,6 @@
 import { fileTypeFromBuffer } from "file-type";
 import type { GatewayConfig } from "../config.js";
+import { validateDownloadedContent } from "../download-validation.js";
 import {
   getWhatsAppMediaMetadata,
   downloadWhatsAppMediaBytes,
@@ -78,6 +79,8 @@ export async function downloadWhatsAppFile(
     hint?.mimeType ||
     response.headers.get("Content-Type")?.split(";")[0].trim() ||
     "application/octet-stream";
+
+  await validateDownloadedContent(new Uint8Array(buffer), mimeType, mediaId);
 
   const filename = hint?.fileName || inferFilename(mediaId, mimeType);
   const data = Buffer.from(buffer).toString("base64");

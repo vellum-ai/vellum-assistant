@@ -16,6 +16,7 @@ extension Notification.Name {
 private struct InlineToolCallImageView: View {
     let image: NSImage
     @Environment(\.displayScale) private var displayScale
+    @State private var sharingServices: [NSSharingService] = []
 
     @available(macOS, deprecated: 13.0)
     var body: some View {
@@ -26,7 +27,14 @@ private struct InlineToolCallImageView: View {
                 )
             }
             .contextMenu {
-                ImageActions.contextMenuItems(image: image, filename: "image.png")
+                ImageActions.contextMenuItems(
+                    image: image,
+                    filename: "image.png",
+                    sharingServices: sharingServices
+                )
+            }
+            .task {
+                sharingServices = await ImageActions.loadSharingServices(for: "image.png")
             }
             .onDrag {
                 NotificationCenter.default.post(name: .internalImageDragStarted, object: nil)
@@ -94,6 +102,9 @@ private struct AttachmentImageGrid<Fallback: View>: View {
     /// racing with the final decode failure always transitions the attachment out of the
     /// gray-placeholder state.
     @State private var failedIds: Set<String> = []
+    /// Sharing services pre-loaded per file extension so the context menu Share
+    /// submenu never triggers a synchronous XPC call during body evaluation.
+    @State private var sharingServicesByExt: [String: [NSSharingService]] = [:]
 
     @Environment(\.displayScale) private var displayScale
 
@@ -120,11 +131,14 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                             onTap(attachment, nsImage)
                         }
                         .contextMenu {
+                            let ext = (attachment.filename as NSString).pathExtension.lowercased()
+                            let key = ext.isEmpty ? "png" : ext
                             ImageActions.contextMenuItems(
                                 image: nsImage,
                                 filename: attachment.filename,
                                 base64Data: attachment.data.isEmpty ? nil : attachment.data,
-                                lazyAttachmentId: attachment.isLazyLoad ? attachment.id : nil
+                                lazyAttachmentId: attachment.isLazyLoad ? attachment.id : nil,
+                                sharingServices: sharingServicesByExt[key] ?? []
                             )
                         }
                         .onDrag {
@@ -256,11 +270,23 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 }
             }
 
-        if isSingleImage {
-            content
-        } else {
-            LazyVGrid(columns: gridColumns, alignment: .leading, spacing: VSpacing.sm) {
+        Group {
+            if isSingleImage {
                 content
+            } else {
+                LazyVGrid(columns: gridColumns, alignment: .leading, spacing: VSpacing.sm) {
+                    content
+                }
+            }
+        }
+        .task(id: imageAttachments.map(\.filename)) {
+            let extensions = Set(imageAttachments.map {
+                let ext = ($0.filename as NSString).pathExtension.lowercased()
+                return ext.isEmpty ? "png" : ext
+            })
+            for ext in extensions where sharingServicesByExt[ext] == nil {
+                let services = await ImageActions.loadSharingServices(for: "probe.\(ext)")
+                sharingServicesByExt[ext] = services
             }
         }
     }
