@@ -1326,8 +1326,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
-    /// Move a conversation to a specific group. Clears displayOrder so the
-    /// conversation sorts by recency within the target group.
+    /// Move a conversation to a specific group. When moving to a group, assigns
+    /// displayOrder to place the conversation at the end of the target group.
+    /// When ungrouping, clears displayOrder and bumps recency.
     func moveConversationToGroup(_ conversationId: UUID, groupId: String?) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
         // Save pre-pin provenance so unpinConversation can restore the original group.
@@ -1335,10 +1336,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             prePinGroupIds[conversationId] = conversations[index].groupId
         }
         conversations[index].groupId = groupId
-        conversations[index].displayOrder = nil
-        // When ungrouping, bump lastInteractedAt so the conversation appears
-        // at the top of the ungrouped list (which sorts by recency).
-        if groupId == nil {
+        if let groupId {
+            // Place at the end of the target group by assigning max + 1.
+            let maxOrder = conversations
+                .filter { $0.groupId == groupId && $0.id != conversationId }
+                .compactMap(\.displayOrder).max() ?? -1
+            conversations[index].displayOrder = maxOrder + 1
+        } else {
+            // When ungrouping, clear displayOrder and bump lastInteractedAt so
+            // the conversation appears at the top of the ungrouped list.
+            conversations[index].displayOrder = nil
             conversations[index].lastInteractedAt = Date()
         }
         sendReorderConversations()
