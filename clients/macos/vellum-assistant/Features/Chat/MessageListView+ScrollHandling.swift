@@ -65,12 +65,16 @@ extension MessageListView {
             }
         }
 
-        // --- Content-growth auto-follow ---
-        // When in followingBottom (or initialLoad), continuously pin to bottom
-        // as content height grows (e.g. during streaming). The 0.5pt threshold
-        // filters sub-pixel layout noise. This is safe from feedback loops
-        // because pinning changes contentOffsetY, not contentHeight.
-        if effectiveContentHeight > previousContentHeight + 0.5,
+        // --- Content-height-change auto-follow ---
+        // Pin to bottom when content height changes in either direction:
+        //   Growth  → streaming, new messages
+        //   Shrinkage → LazyVStack height-estimate convergence after a
+        //               conversation switch (estimated height overshoots,
+        //               then shrinks as views materialize with actual heights)
+        // The 0.5pt threshold filters sub-pixel layout noise. Safe from
+        // feedback loops because pinning changes contentOffsetY, not
+        // contentHeight.
+        if abs(effectiveContentHeight - previousContentHeight) > 0.5,
            scrollState.mode.allowsAutoScroll {
             scrollState.requestPinToBottom()
         }
