@@ -235,6 +235,24 @@ async function dedupForTurn(
 // Cross-category dedup — dedup-only (no relevance filtering)
 // ---------------------------------------------------------------------------
 
+const DEDUP_ITEMS_TOOL = {
+  name: "select_items",
+  description:
+    "Select ALL items that survive deduplication. When multiple items describe the same event/fact, keep only the richest version. Do not filter by relevance — keep everything that is not a duplicate.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      items: {
+        type: "array" as const,
+        description:
+          "Item numbers to keep (1-indexed). Remove duplicates — when multiple entries describe the same event/fact, keep ONLY the richest version. Keep all non-duplicate items.",
+        items: { type: "number" as const },
+      },
+    },
+    required: ["items"] as const,
+  },
+};
+
 /**
  * Dedup-only pass for cross-category duplicate removal. Unlike `dedupForTurn`,
  * this does NOT filter by relevance to a query — it ONLY removes duplicates
@@ -263,7 +281,7 @@ async function dedupCrossCategory(
 
     const response = await provider.sendMessage(
       [userMessage(listing)],
-      [SELECT_ITEMS_TOOL],
+      [DEDUP_ITEMS_TOOL],
       `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
       {
         config: {
