@@ -416,14 +416,15 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       payload.requesterExternalUserId.length > 0
         ? payload.requesterExternalUserId
         : undefined;
-    const requesterLabel =
+    const requesterLabel = sanitizeIdentityField(
       requesterDisplayName ??
-      (sourceChannel === "slack" &&
-      requesterExternalUserId &&
-      /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
-        ? `<@${requesterExternalUserId}>`
-        : requesterExternalUserId) ??
-      "Someone";
+        (sourceChannel === "slack" &&
+        requesterExternalUserId &&
+        /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
+          ? `<@${requesterExternalUserId}>`
+          : requesterExternalUserId) ??
+        "Someone",
+    );
 
     const decidedByDisplayName =
       typeof payload.decidedByDisplayName === "string" &&
@@ -435,14 +436,15 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       payload.decidedByExternalUserId.length > 0
         ? payload.decidedByExternalUserId
         : undefined;
-    const decidedByLabel =
+    const decidedByLabel = sanitizeIdentityField(
       decidedByDisplayName ??
-      (sourceChannel === "slack" &&
-      decidedByExternalUserId &&
-      /^U[A-Z0-9]+$/i.test(decidedByExternalUserId)
-        ? `<@${decidedByExternalUserId}>`
-        : decidedByExternalUserId) ??
-      "a guardian";
+        (sourceChannel === "slack" &&
+        decidedByExternalUserId &&
+        /^U[A-Z0-9]+$/i.test(decidedByExternalUserId)
+          ? `<@${decidedByExternalUserId}>`
+          : decidedByExternalUserId) ??
+        "a guardian",
+    );
 
     const verb = decision === "approved" ? "approved" : "denied";
     return {
@@ -467,14 +469,15 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       payload.requesterExternalUserId.length > 0
         ? payload.requesterExternalUserId
         : undefined;
-    const requesterLabel =
+    const requesterLabel = sanitizeIdentityField(
       requesterDisplayName ??
-      (sourceChannel === "slack" &&
-      requesterExternalUserId &&
-      /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
-        ? `<@${requesterExternalUserId}>`
-        : requesterExternalUserId) ??
-      "Someone";
+        (sourceChannel === "slack" &&
+        requesterExternalUserId &&
+        /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
+          ? `<@${requesterExternalUserId}>`
+          : requesterExternalUserId) ??
+        "Someone",
+    );
 
     return {
       title: "Trusted Contact Denied",
