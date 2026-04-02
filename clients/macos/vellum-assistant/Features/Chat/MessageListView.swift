@@ -25,8 +25,8 @@ extension EnvironmentValues {
 
 /// Lightweight key that captures all inputs to `precomputedState`.
 /// All fields are O(1) to compare. The `messageListVersion` counter
-/// replaces the former O(n) hash-based fingerprint — it is incremented
-/// by `onChange` handlers when structural or content changes occur.
+/// is incremented by `onChange` handlers when structural or content
+/// changes occur.
 struct PrecomputedCacheKey: Equatable {
     let messageListVersion: Int
     let isSending: Bool
@@ -48,6 +48,7 @@ private struct ScrollGeometrySnapshot: Equatable {
 }
 
 struct MessageListView: View {
+
     let messages: [ChatMessage]
     let isSending: Bool
     let isThinking: Bool
@@ -148,9 +149,8 @@ struct MessageListView: View {
 
     /// Checks whether observable message-level inputs have changed since the
     /// last body evaluation and, if so, bumps `scrollState.messageListVersion`.
-    /// This replaces the former O(n) `computeMessageFingerprint()` hash with an
-    /// O(1) version counter. Over-invalidation is safe (triggers a recompute);
-    /// under-invalidation is not.
+    /// Over-invalidation is safe (triggers a recompute); under-invalidation
+    /// is not.
     ///
     /// Tracks both the raw `messages.count` (catches new arrivals and
     /// paginated-window shifts at fixed length) and the filtered
@@ -164,8 +164,7 @@ struct MessageListView: View {
         let currentIncompleteToolCalls = visibleMessages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
 
         // O(n) hash of visible message IDs — catches "same count, different
-        // IDs" scenarios where hasRenderableContent changes cause different
-        // messages to pass the visibility filter without changing the count.
+        // IDs" scenarios (e.g. mid-array swaps during streaming or pagination).
         var idHasher = Hasher()
         for msg in visibleMessages { idHasher.combine(msg.id) }
         let currentIdFingerprint = idHasher.finalize()
@@ -244,10 +243,6 @@ struct MessageListView: View {
             assistantStatusText: assistantStatusText,
             activeSubagentFingerprint: Self.computeSubagentFingerprint(activeSubagents),
             displayedMessageCount: displayedMessageCount
-        )
-        let liveMessageById = Dictionary(
-            liveMessages.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
         )
 
         // --- Stage 1: Cached structural metadata ---
@@ -368,7 +363,6 @@ struct MessageListView: View {
         let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
 
         let result = MessageListDerivedState(
-            displayMessageIds: layout.displayMessageIds,
             messageIndexById: layout.messageIndexById,
             showTimestamp: layout.showTimestamp,
             hasPrecedingAssistantByIndex: layout.hasPrecedingAssistantByIndex,
@@ -377,7 +371,13 @@ struct MessageListView: View {
             subagentsByParent: layout.subagentsByParent,
             orphanSubagents: layout.orphanSubagents,
             effectiveStatusText: layout.effectiveStatusText,
-            displayMessageById: liveMessageById,
+            displayMessages: {
+                // SwiftUI's ForEach requires unique identity values;
+                // duplicates during streaming or pagination cause
+                // undefined behavior.
+                var seen = Set<UUID>()
+                return liveMessages.filter { seen.insert($0.id).inserted }
+            }(),
             activePendingRequestId: activePendingRequestId,
             nextDecidedConfirmationByIndex: nextDecidedConfirmationByIndex,
             isConfirmationRenderedInlineByIndex: isConfirmationRenderedInlineByIndex,
@@ -592,180 +592,54 @@ struct MessageListView: View {
         return nil
     }
 
-    @ViewBuilder
-    private func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
-        RunningIndicator(
-            label: !hasEverSentMessage && hasUserMessage
-                ? "Waking up..."
-                : assistantStatusText ?? "Thinking",
-            showIcon: false
-        )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-        .id("thinking-indicator")
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-    }
-
-    @ViewBuilder
-    private func compactingIndicatorRow() -> some View {
-        RunningIndicator(
-            label: "Compacting context\u{2026}",
-            showIcon: false
-        )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-        .id("compacting-indicator")
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-    }
-
-    @ViewBuilder
-    private var thinkingAvatarRow: some View {
-        let avatarSize = ConversationAvatarFollower.avatarSize
-        if appearance.customAvatarImage != nil {
-            HStack {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                Spacer()
-            }
-            .accessibilityHidden(true)
-        } else if let body = appearance.characterBodyShape,
-                  let eyes = appearance.characterEyeStyle,
-                  let color = appearance.characterColor {
-            HStack {
-                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
-                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
-                                   isStreaming: true)
-                    .frame(width: avatarSize, height: avatarSize)
-                Spacer()
-            }
-            .accessibilityHidden(true)
-        } else {
-            HStack {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                Spacer()
-            }
-            .accessibilityHidden(true)
-        }
-    }
-
-    /// The scroll view's main content: LazyVStack of message cells,
-    /// pagination sentinel, thinking indicators, and tail spacer.
+    /// Computes derived state and wraps the inner equatable content view.
+    ///
+    /// The outer `MessageListView.body` is cheap — it creates the inner struct
+    /// and applies lifecycle modifiers. The expensive `LazyVStack` + `ForEach`
+    /// rendering lives in `MessageListContentView` which is guarded by
+    /// `Equatable` + `.equatable()`, preventing redundant layout passes.
     @ViewBuilder
     private var scrollViewContent: some View {
-        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-            // MARK: - Pagination sentinel
-
-            if isLoadingMoreMessages {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Spacer()
-                }
-                .padding(.vertical, VSpacing.sm)
-                .id("page-loading-indicator")
-            }
-
-            let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
-            let state = derivedState
-            let catalogHash = MessageCellView.hashCatalog(providerCatalog)
-            ForEach(state.displayMessageIds, id: \.self) { messageId in
-                if let message = state.displayMessageById[messageId] {
-                    let index = state.messageIndexById[messageId] ?? 0
-                    MessageCellView(
-                        message: message,
-                        index: index,
-                        showTimestamp: state.showTimestamp.contains(messageId),
-                        nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
-                        isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
-                        hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
-                        hasUserMessage: state.hasUserMessage,
-                        hasEverSentMessage: hasEverSentMessage,
-                        activePendingRequestId: state.activePendingRequestId,
-                        latestAssistantId: state.latestAssistantId,
-                        anchoredThinkingIndex: state.anchoredThinkingIndex,
-                        subagentsByParent: state.subagentsByParent,
-                        canInlineProcessing: state.canInlineProcessing,
-                        shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
-                        assistantStatusText: state.effectiveStatusText,
-                        dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                        activeSurfaceId: taskProgressManager.activeSurfaceId,
-                        isHighlighted: highlightedMessageId == messageId,
-                        mediaEmbedSettings: mediaEmbedSettings,
-                        onConfirmationAllow: onConfirmationAllow,
-                        onConfirmationDeny: onConfirmationDeny,
-                        onAlwaysAllow: onAlwaysAllow,
-                        onTemporaryAllow: onTemporaryAllow,
-                        onGuardianAction: onGuardianAction,
-                        onSurfaceAction: onSurfaceAction,
-                        onDismissDocumentWidget: onDismissDocumentWidget,
-                        onForkFromMessage: forkFromMessageAction,
-                        showInspectButton: showInspectButton,
-                        isTTSEnabled: isTTSEnabled,
-                        onInspectMessage: onInspectMessage,
-                        onRehydrateMessage: onRehydrateMessage,
-                        onSurfaceRefetch: onSurfaceRefetch,
-                        onRetryFailedMessage: onRetryFailedMessage,
-                        onRetryConversationError: onRetryConversationError,
-                        onAbortSubagent: onAbortSubagent,
-                        onSubagentTap: onSubagentTap,
-                        subagentDetailStore: subagentDetailStore,
-                        selectedModel: selectedModel,
-                        configuredProviders: configuredProviders,
-                        providerCatalog: providerCatalog,
-                        providerCatalogHash: catalogHash
-                    )
-                    .equatable()
-                }
-            }
-
-            ForEach(state.orphanSubagents) { subagent in
-                SubagentEventsReader(
-                    store: subagentDetailStore,
-                    subagent: subagent,
-                    onAbort: { onAbortSubagent?(subagent.id) },
-                    onTap: { onSubagentTap?(subagent.id) }
-                )
-                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-                    .id("subagent-\(subagent.id)")
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-
-            if state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil {
-                if isCompacting {
-                    compactingIndicatorRow()
-                } else {
-                    thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
-                }
-                // Show avatar below thinking indicator so it moves
-                // immediately when the user sends a message.
-                thinkingAvatarRow
-            } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
-                compactingIndicatorRow()
-            }
-
-
-            Color.clear.frame(height: 1)
-                .id("scroll-bottom-anchor")
-                .onAppear {
-                    // Only auto-tether on initial load (before any scroll events).
-                    // After the user has scrolled, rely on onScrollPhaseChange and
-                    // onScrollGeometryChange tracking to manage mode —
-                    // LazyVStack fires onAppear in the prefetch zone (several screens
-                    // ahead) which would prematurely re-tether during normal scrolling.
-                    if !scrollState.hasBeenInteracted {
-                        scrollState.handleReachedBottom()
-                    }
-                }
-
-            TailSpacerView(scrollState: scrollState)
-        }
-        .disabled(!isInteractionEnabled)
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.top, VSpacing.md)
-        .padding(.bottom, VSpacing.md)
-        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-        .frame(maxWidth: .infinity)
-        .environment(\.bubbleMaxWidth, containerWidth > 0
-            ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
-            : VSpacing.chatBubbleMaxWidth)
+        let state = derivedState
+        let catalogHash = MessageCellView.hashCatalog(providerCatalog)
+        MessageListContentView(
+            state: state,
+            providerCatalog: providerCatalog,
+            providerCatalogHash: catalogHash,
+            isLoadingMoreMessages: isLoadingMoreMessages,
+            isCompacting: isCompacting,
+            isInteractionEnabled: isInteractionEnabled,
+            containerWidth: containerWidth,
+            dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+            activeSurfaceId: taskProgressManager.activeSurfaceId,
+            highlightedMessageId: highlightedMessageId,
+            mediaEmbedSettings: mediaEmbedSettings,
+            hasEverSentMessage: hasEverSentMessage,
+            showInspectButton: showInspectButton,
+            isTTSEnabled: isTTSEnabled,
+            selectedModel: selectedModel,
+            configuredProviders: configuredProviders,
+            subagentDetailStore: subagentDetailStore,
+            assistantStatusText: assistantStatusText,
+            scrollState: scrollState,
+            appearance: appearance,
+            onConfirmationAllow: onConfirmationAllow,
+            onConfirmationDeny: onConfirmationDeny,
+            onAlwaysAllow: onAlwaysAllow,
+            onTemporaryAllow: onTemporaryAllow,
+            onGuardianAction: onGuardianAction,
+            onSurfaceAction: onSurfaceAction,
+            onDismissDocumentWidget: onDismissDocumentWidget,
+            onForkFromMessage: forkFromMessageAction,
+            onInspectMessage: onInspectMessage,
+            onRehydrateMessage: onRehydrateMessage,
+            onSurfaceRefetch: onSurfaceRefetch,
+            onRetryFailedMessage: onRetryFailedMessage,
+            onRetryConversationError: onRetryConversationError,
+            onAbortSubagent: onAbortSubagent,
+            onSubagentTap: onSubagentTap
+        )
+        .equatable()
     }
 
     // MARK: - Scroll geometry handler
@@ -1218,6 +1092,270 @@ private struct ScrollToLatestOverlayView: View {
     }
 }
 
+// MARK: - MessageListContentView
+
+/// Inner rendering view that owns the expensive `LazyVStack` + `ForEach`.
+///
+/// `Equatable` + `.equatable()` prevents body re-evaluation when only the
+/// outer `MessageListView`'s lifecycle properties (`@Binding`, `@State`,
+/// `@Observable` reads) change. The outer view's body is cheap — it creates
+/// this struct and applies scroll/lifecycle modifiers. This view's body is
+/// expensive — it drives `LazyStack.measureEstimates` over all visible cells.
+///
+/// Closures and `@Observable` references (`scrollState`, `appearance`) are
+/// intentionally skipped in `==` — closures are never equal, and `@Observable`
+/// objects are identity-stable. Only data properties that affect rendered
+/// output are compared.
+///
+/// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
+/// - SeeAlso: [Airbnb — Understanding and Improving SwiftUI Performance](https://airbnb.tech/mobile/understanding-and-improving-swiftui-performance/)
+private struct MessageListContentView: View, Equatable {
+
+    // MARK: - Equatable
+
+    static func == (lhs: MessageListContentView, rhs: MessageListContentView) -> Bool {
+        lhs.state.displayMessages == rhs.state.displayMessages
+            && lhs.state.showTimestamp == rhs.state.showTimestamp
+            && lhs.state.hasPrecedingAssistantByIndex == rhs.state.hasPrecedingAssistantByIndex
+            && lhs.state.hasUserMessage == rhs.state.hasUserMessage
+            && lhs.state.latestAssistantId == rhs.state.latestAssistantId
+            && lhs.state.subagentsByParent == rhs.state.subagentsByParent
+            && lhs.state.orphanSubagents == rhs.state.orphanSubagents
+            && lhs.state.effectiveStatusText == rhs.state.effectiveStatusText
+            && lhs.state.activePendingRequestId == rhs.state.activePendingRequestId
+            && lhs.state.nextDecidedConfirmationByIndex == rhs.state.nextDecidedConfirmationByIndex
+            && lhs.state.isConfirmationRenderedInlineByIndex == rhs.state.isConfirmationRenderedInlineByIndex
+            && lhs.state.anchoredThinkingIndex == rhs.state.anchoredThinkingIndex
+            && lhs.state.hasActiveToolCall == rhs.state.hasActiveToolCall
+            && lhs.state.canInlineProcessing == rhs.state.canInlineProcessing
+            && lhs.state.shouldShowThinkingIndicator == rhs.state.shouldShowThinkingIndicator
+            && lhs.state.hasMessages == rhs.state.hasMessages
+            && lhs.providerCatalogHash == rhs.providerCatalogHash
+            && lhs.isLoadingMoreMessages == rhs.isLoadingMoreMessages
+            && lhs.isCompacting == rhs.isCompacting
+            && lhs.isInteractionEnabled == rhs.isInteractionEnabled
+            && lhs.containerWidth == rhs.containerWidth
+            && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
+            && lhs.activeSurfaceId == rhs.activeSurfaceId
+            && lhs.highlightedMessageId == rhs.highlightedMessageId
+            && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
+            && lhs.hasEverSentMessage == rhs.hasEverSentMessage
+            && lhs.showInspectButton == rhs.showInspectButton
+            && lhs.isTTSEnabled == rhs.isTTSEnabled
+            && lhs.selectedModel == rhs.selectedModel
+            && lhs.configuredProviders == rhs.configuredProviders
+            && lhs.subagentDetailStore === rhs.subagentDetailStore
+            && lhs.assistantStatusText == rhs.assistantStatusText
+    }
+
+    // MARK: - Data properties (compared in ==)
+
+    let state: MessageListDerivedState
+    let providerCatalog: [ProviderCatalogEntry]
+    let providerCatalogHash: Int
+    let isLoadingMoreMessages: Bool
+    let isCompacting: Bool
+    let isInteractionEnabled: Bool
+    let containerWidth: CGFloat
+    let dismissedDocumentSurfaceIds: Set<String>
+    let activeSurfaceId: String?
+    let highlightedMessageId: UUID?
+    let mediaEmbedSettings: MediaEmbedResolverSettings?
+    let hasEverSentMessage: Bool
+    let showInspectButton: Bool
+    let isTTSEnabled: Bool
+    let selectedModel: String
+    let configuredProviders: Set<String>
+    let subagentDetailStore: SubagentDetailStore
+    let assistantStatusText: String?
+
+    // MARK: - @Observable references (not compared in ==; reads occur in closures or child views)
+
+    let scrollState: MessageListScrollState
+    let appearance: AvatarAppearanceManager
+
+    // MARK: - Closures (skipped in ==)
+
+    var onConfirmationAllow: ((String) -> Void)?
+    var onConfirmationDeny: ((String) -> Void)?
+    var onAlwaysAllow: ((String, String, String, String) -> Void)?
+    var onTemporaryAllow: ((String, String) -> Void)?
+    var onGuardianAction: ((String, String) -> Void)?
+    var onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
+    var onDismissDocumentWidget: ((String) -> Void)?
+    var onForkFromMessage: ((String) -> Void)?
+    var onInspectMessage: ((String?) -> Void)?
+    var onRehydrateMessage: ((UUID) -> Void)?
+    var onSurfaceRefetch: ((String, String) -> Void)?
+    var onRetryFailedMessage: ((UUID) -> Void)?
+    var onRetryConversationError: ((UUID) -> Void)?
+    var onAbortSubagent: ((String) -> Void)?
+    var onSubagentTap: ((String) -> Void)?
+
+    // MARK: - Thinking indicator helpers
+
+    @ViewBuilder
+    private func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
+        RunningIndicator(
+            label: !hasEverSentMessage && hasUserMessage
+                ? "Waking up..."
+                : assistantStatusText ?? "Thinking",
+            showIcon: false
+        )
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        .id("thinking-indicator")
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    @ViewBuilder
+    private func compactingIndicatorRow() -> some View {
+        RunningIndicator(
+            label: "Compacting context\u{2026}",
+            showIcon: false
+        )
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        .id("compacting-indicator")
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    @ViewBuilder
+    private var thinkingAvatarRow: some View {
+        let avatarSize = ConversationAvatarFollower.avatarSize
+        if appearance.customAvatarImage != nil {
+            HStack {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                Spacer()
+            }
+            .accessibilityHidden(true)
+        } else if let body = appearance.characterBodyShape,
+                  let eyes = appearance.characterEyeStyle,
+                  let color = appearance.characterColor {
+            HStack {
+                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
+                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
+                                   isStreaming: true)
+                    .frame(width: avatarSize, height: avatarSize)
+                Spacer()
+            }
+            .accessibilityHidden(true)
+        } else {
+            HStack {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                Spacer()
+            }
+            .accessibilityHidden(true)
+        }
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+            if isLoadingMoreMessages {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                }
+                .padding(.vertical, VSpacing.sm)
+                .id("page-loading-indicator")
+            }
+
+            let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+            ForEach(state.displayMessages, id: \.id) { message in
+                let index = state.messageIndexById[message.id] ?? 0
+                MessageCellView(
+                    message: message,
+                    index: index,
+                    showTimestamp: state.showTimestamp.contains(message.id),
+                    nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
+                    isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
+                    hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
+                    hasUserMessage: state.hasUserMessage,
+                    hasEverSentMessage: hasEverSentMessage,
+                    activePendingRequestId: state.activePendingRequestId,
+                    latestAssistantId: state.latestAssistantId,
+                    anchoredThinkingIndex: state.anchoredThinkingIndex,
+                    subagentsByParent: state.subagentsByParent,
+                    canInlineProcessing: state.canInlineProcessing,
+                    shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
+                    assistantStatusText: state.effectiveStatusText,
+                    dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                    activeSurfaceId: activeSurfaceId,
+                    isHighlighted: highlightedMessageId == message.id,
+                    mediaEmbedSettings: mediaEmbedSettings,
+                    onConfirmationAllow: onConfirmationAllow,
+                    onConfirmationDeny: onConfirmationDeny,
+                    onAlwaysAllow: onAlwaysAllow,
+                    onTemporaryAllow: onTemporaryAllow,
+                    onGuardianAction: onGuardianAction,
+                    onSurfaceAction: onSurfaceAction,
+                    onDismissDocumentWidget: onDismissDocumentWidget,
+                    onForkFromMessage: onForkFromMessage,
+                    showInspectButton: showInspectButton,
+                    isTTSEnabled: isTTSEnabled,
+                    onInspectMessage: onInspectMessage,
+                    onRehydrateMessage: onRehydrateMessage,
+                    onSurfaceRefetch: onSurfaceRefetch,
+                    onRetryFailedMessage: onRetryFailedMessage,
+                    onRetryConversationError: onRetryConversationError,
+                    onAbortSubagent: onAbortSubagent,
+                    onSubagentTap: onSubagentTap,
+                    subagentDetailStore: subagentDetailStore,
+                    selectedModel: selectedModel,
+                    configuredProviders: configuredProviders,
+                    providerCatalog: providerCatalog,
+                    providerCatalogHash: providerCatalogHash
+                )
+                .equatable()
+            }
+
+            ForEach(state.orphanSubagents) { subagent in
+                SubagentEventsReader(
+                    store: subagentDetailStore,
+                    subagent: subagent,
+                    onAbort: { onAbortSubagent?(subagent.id) },
+                    onTap: { onSubagentTap?(subagent.id) }
+                )
+                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                    .id("subagent-\(subagent.id)")
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
+            if state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil {
+                if isCompacting {
+                    compactingIndicatorRow()
+                } else {
+                    thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                }
+                thinkingAvatarRow
+            } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
+                compactingIndicatorRow()
+            }
+
+            Color.clear.frame(height: 1)
+                .id("scroll-bottom-anchor")
+                .onAppear {
+                    if !scrollState.hasBeenInteracted {
+                        scrollState.handleReachedBottom()
+                    }
+                }
+
+            TailSpacerView(scrollState: scrollState)
+        }
+        .disabled(!isInteractionEnabled)
+        .padding(.horizontal, VSpacing.xl)
+        .padding(.top, VSpacing.md)
+        .padding(.bottom, VSpacing.md)
+        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+        .frame(maxWidth: .infinity)
+        .environment(\.bubbleMaxWidth, containerWidth > 0
+            ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
+            : VSpacing.chatBubbleMaxWidth)
+    }
+}
+
 // MARK: - MessageCellView
 
 /// Per-message cell extracted from the ForEach body so SwiftUI has a typed
@@ -1497,7 +1635,6 @@ struct CachedMessageLayoutMetadata {
 /// are always live so SwiftUI's `.equatable()` diffing sees every mutation.
 struct MessageListDerivedState {
     // --- Cached structural metadata (from CachedMessageLayoutMetadata) ---
-    let displayMessageIds: [UUID]
     let messageIndexById: [UUID: Int]
     let showTimestamp: Set<UUID>
     let hasPrecedingAssistantByIndex: Set<Int>
@@ -1508,7 +1645,7 @@ struct MessageListDerivedState {
     let effectiveStatusText: String?
 
     // --- Live content-derived state (always fresh) ---
-    let displayMessageById: [UUID: ChatMessage]
+    let displayMessages: [ChatMessage]
     let activePendingRequestId: String?
     let nextDecidedConfirmationByIndex: [Int: ToolConfirmationData]
     let isConfirmationRenderedInlineByIndex: Set<Int>
