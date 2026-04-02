@@ -519,14 +519,18 @@ export class ConversationGraphMemory {
  * We strip all leading blocks that match this pattern so that
  * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
  */
-function stripExistingMemoryInjections(messages: Message[]): Message[] {
+export function stripExistingMemoryInjections(messages: Message[]): Message[] {
   if (messages.length === 0) return messages;
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") return messages;
 
   // Walk from the front and skip all memory-injected blocks.
   // The injection prefix is always contiguous at the start of content.
+  // Memory-injected images are always preceded by a <memory_image> text
+  // marker (see injectMemoryBlock). Only strip image blocks that follow
+  // such a marker — user-attached images must be preserved.
   let firstNonMemory = 0;
+  let prevWasMemoryImageMarker = false;
   const content = last.content;
   while (firstNonMemory < content.length) {
     const block = content[firstNonMemory];
@@ -535,13 +539,16 @@ function stripExistingMemoryInjections(messages: Message[]): Message[] {
       block.text.startsWith("<memory __injected>\n")
     ) {
       firstNonMemory++;
+      prevWasMemoryImageMarker = false;
     } else if (
       block.type === "text" &&
       block.text.startsWith("<memory_image>")
     ) {
       firstNonMemory++;
-    } else if (block.type === "image") {
+      prevWasMemoryImageMarker = true;
+    } else if (block.type === "image" && prevWasMemoryImageMarker) {
       firstNonMemory++;
+      prevWasMemoryImageMarker = false;
     } else {
       break;
     }
