@@ -15,6 +15,12 @@ const log = getLogger("conversation-store");
  * Used for messages_fts full-text search over conversation content.
  */
 export function buildFtsMatchQuery(text: string): string | null {
+  // If the query already contains FTS5 operators, pass it through directly
+  // so users (and callers) can use exact-phrase, AND, OR, NOT, NEAR syntax.
+  if (/\bAND\b|\bOR\b|\bNOT\b|\bNEAR\s*\(|"/i.test(text)) {
+    return text.trim();
+  }
+
   const tokens = text
     .toLowerCase()
     .split(/[^a-z0-9_]+/g)
@@ -22,7 +28,8 @@ export function buildFtsMatchQuery(text: string): string | null {
     .filter((token) => token.length >= 2);
   if (tokens.length === 0) return null;
   const unique = [...new Set(tokens)].slice(0, 24);
-  return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" OR ");
+  // Space-separated quoted tokens are implicit AND in FTS5.
+  return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" ");
 }
 
 export function listConversations(
