@@ -14,10 +14,19 @@ const log = getLogger("conversation-store");
  * Build an FTS5 MATCH query string from natural text by extracting tokens.
  * Used for messages_fts full-text search over conversation content.
  */
-export function buildFtsMatchQuery(text: string): string | null {
+export function buildFtsMatchQuery(
+  text: string,
+  opts?: { allowFts5Syntax?: boolean },
+): string | null {
   // If the query already contains FTS5 operators, pass it through directly
-  // so users (and callers) can use exact-phrase, AND, OR, NOT, NEAR syntax.
-  if (/\bAND\b|\bOR\b|\bNOT\b|\bNEAR\s*\(|"[^"]+"/.test(text)) {
+  // so callers (e.g. the archive recall tool) can use exact-phrase, AND, OR,
+  // NOT, NEAR syntax. Only enabled when the caller explicitly opts in —
+  // user-facing search should always go through normal tokenization to avoid
+  // FTS5 boolean semantics leaking into sidebar/global search.
+  if (
+    opts?.allowFts5Syntax &&
+    /\bAND\b|\bOR\b|\bNOT\b|\bNEAR\s*\(|"[^"]+"/.test(text)
+  ) {
     return text.trim();
   }
 

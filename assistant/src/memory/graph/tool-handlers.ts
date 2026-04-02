@@ -161,7 +161,9 @@ async function handleArchiveRecall(
 
   try {
     const limit = Math.max(1, Math.min(input.num_results ?? 20, 50));
-    const ftsMatch = buildFtsMatchQuery(input.query.trim());
+    const ftsMatch = buildFtsMatchQuery(input.query.trim(), {
+      allowFts5Syntax: true,
+    });
 
     const afterMs = input.filters?.after
       ? new Date(input.filters.after).getTime()
