@@ -184,6 +184,10 @@ async function handleArchiveRecall(
         scopeId,
         limit,
       );
+    } else if (!input.query.trim()) {
+      // Empty or whitespace-only query — return nothing rather than matching
+      // every message via a `%%` LIKE pattern.
+      rows = [];
     } else {
       // All FTS tokens dropped (non-ASCII, single-char, etc.) — fall back to
       // LIKE-based search so queries like CJK characters still match.
