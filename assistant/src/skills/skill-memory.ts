@@ -42,25 +42,3 @@ export function fromCatalogSkill(entry: CatalogSkill): SkillCapabilityInput {
   };
 }
 
-/**
- * Build a semantically rich capability statement from a skill capability input.
- * Truncated to 500 chars max (matching the limit used by memory item extraction).
- */
-export function buildCapabilityStatement(input: SkillCapabilityInput): string {
-  const { displayName, activationHints, avoidWhen } = input;
-
-  let statement = `The "${displayName}" skill (${input.id}) is available. ${input.description}.`;
-  if (activationHints && activationHints.length > 0) {
-    statement += ` Use when: ${activationHints.join("; ")}.`;
-  }
-  if (avoidWhen && avoidWhen.length > 0) {
-    statement += ` Avoid when: ${avoidWhen.join("; ")}.`;
-  }
-
-  // Truncate to 500 chars max
-  if (statement.length > 500) {
-    statement = statement.slice(0, 500);
-  }
-
-  return statement;
-}

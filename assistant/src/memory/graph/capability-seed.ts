@@ -2,8 +2,7 @@
 // Memory Graph — Capability seeding for skills and CLI commands
 //
 // Creates graph nodes for skill/CLI capabilities so they participate in
-// semantic retrieval. Mirrors the old memoryItems-based seeding in
-// skill-memory.ts and cli-memory.ts.
+// semantic retrieval.
 // ---------------------------------------------------------------------------
 
 import { and, eq, like, sql } from "drizzle-orm";

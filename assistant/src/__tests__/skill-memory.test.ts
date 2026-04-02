@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import type { SkillSummary } from "../config/skills.js";
 import {
-  buildCapabilityStatement,
   fromSkillSummary,
   type SkillCapabilityInput,
 } from "../skills/skill-memory.js";
@@ -21,84 +20,6 @@ function makeSkillSummary(
     ...overrides,
   };
 }
-
-// ─── buildCapabilityStatement ────────────────────────────────────────────────
-
-describe("buildCapabilityStatement", () => {
-  test("includes display name, id, and description", () => {
-    const input: SkillCapabilityInput = {
-      id: "test-skill",
-      displayName: "My Skill",
-      description: "A skill for testing",
-    };
-    const result = buildCapabilityStatement(input);
-    expect(result).toContain('"My Skill"');
-    expect(result).toContain("(test-skill)");
-    expect(result).toContain("A skill for testing");
-  });
-
-  test("includes activation hints when present", () => {
-    const input: SkillCapabilityInput = {
-      id: "test-skill",
-      displayName: "My Skill",
-      description: "A skill for testing",
-      activationHints: ["user asks to search", "needs web data"],
-    };
-    const result = buildCapabilityStatement(input);
-    expect(result).toContain("Use when:");
-    expect(result).toContain("user asks to search");
-    expect(result).toContain("needs web data");
-  });
-
-  test("includes avoidWhen routing cues when present", () => {
-    const input: SkillCapabilityInput = {
-      id: "test-skill",
-      displayName: "My Skill",
-      description: "A skill for testing",
-      avoidWhen: ["user wants local files only", "offline mode"],
-    };
-    const result = buildCapabilityStatement(input);
-    expect(result).toContain("Avoid when:");
-    expect(result).toContain("user wants local files only");
-    expect(result).toContain("offline mode");
-  });
-
-  test("includes both activationHints and avoidWhen when present", () => {
-    const input: SkillCapabilityInput = {
-      id: "test-skill",
-      displayName: "My Skill",
-      description: "A skill for testing",
-      activationHints: ["user asks to search"],
-      avoidWhen: ["offline mode"],
-    };
-    const result = buildCapabilityStatement(input);
-    expect(result).toContain("Use when: user asks to search.");
-    expect(result).toContain("Avoid when: offline mode.");
-  });
-
-  test("works with just name as displayName", () => {
-    const input: SkillCapabilityInput = {
-      id: "test-skill",
-      displayName: "Test Skill",
-      description: "A skill for testing",
-    };
-    const result = buildCapabilityStatement(input);
-    expect(result).toContain('"Test Skill"');
-    expect(result).toContain("(test-skill)");
-    expect(result).toContain("A skill for testing");
-  });
-
-  test("truncates long statements to 500 chars", () => {
-    const longDesc = "x".repeat(600);
-    const input: SkillCapabilityInput = {
-      id: "test-skill",
-      displayName: "Test Skill",
-      description: longDesc,
-    };
-    const result = buildCapabilityStatement(input);
-    expect(result.length).toBe(500);
-  });
-});
 
 // ─── fromSkillSummary ────────────────────────────────────────────────────────
 
