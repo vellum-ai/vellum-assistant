@@ -44,6 +44,7 @@ import { processChannelMessageInBackground } from "./inbound-stages/background-d
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
 import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
+import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio.js";
@@ -198,6 +199,23 @@ export async function handleChannelInbound(
   // represents an explicit (malformed) identity claim that must enter the
   // ACL deny path rather than bypassing it.
   const hasSenderIdentityClaim = rawSenderId !== undefined;
+
+  // ── Guardian channel activation ──
+  // When a bare /start arrives on a channel with no guardian, auto-initiate
+  // guardian verification so the first user can claim the channel.
+  const guardianActivationResponse = await handleGuardianActivationIntercept({
+    sourceChannel,
+    conversationExternalId,
+    rawSenderId,
+    canonicalSenderId,
+    actorDisplayName: body.actorDisplayName,
+    actorUsername: body.actorUsername,
+    sourceMetadata: body.sourceMetadata,
+    replyCallbackUrl: body.replyCallbackUrl,
+    mintBearerToken,
+    assistantId,
+  });
+  if (guardianActivationResponse) return guardianActivationResponse;
 
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
