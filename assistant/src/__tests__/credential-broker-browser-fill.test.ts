@@ -25,7 +25,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Use encrypted backend with a temp store path
+// Per-test credential store isolation.
+//
+// The test-preload already redirects the encrypted store to a temp directory
+// (defense-in-depth so tests never touch ~/.vellum/protected/). This file
+// uses its own TEST_DIR so each test case starts with a clean store.
 // ---------------------------------------------------------------------------
 
 import { _setStorePath } from "../security/encrypted-store.js";
@@ -81,7 +85,10 @@ describe("CredentialBroker.browserFill", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    // Keep _setStorePath pointing at the test dir rather than resetting to
+    // null — null falls back to ~/.vellum/protected/keys.enc (the real
+    // credential store). The next beforeEach will set it again, and the
+    // preload provides a safe default for the gap after the last test.
     _resetBackend();
   });
 
