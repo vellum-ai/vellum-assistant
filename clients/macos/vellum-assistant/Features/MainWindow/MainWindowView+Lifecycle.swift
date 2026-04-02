@@ -12,7 +12,7 @@ extension MainWindowView {
             .onDisappear { handleCoreLayoutDisappear() }
             .onReceive(NotificationCenter.default.publisher(for: .identityFileDidChange)) { _ in
                 Task {
-                    let info = await IdentityInfo.loadAsync()
+                    let info = await IdentityInfo.refreshCache()
                     cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
                     if info != nil { assistantNameResolved = true }
                 }

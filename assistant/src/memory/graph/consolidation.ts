@@ -29,6 +29,7 @@ import {
   updateNode,
 } from "./store.js";
 import type { MemoryNode } from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-consolidation");
 
@@ -182,7 +183,7 @@ function getRecentNodes(scopeId: string, days: number = 7): MemoryNode[] {
     fidelityNot: ["gone"],
     createdAfter: cutoff,
     limit: 10000,
-  }).filter((n) => n.type !== "procedural");
+  }).filter((n) => !isCapabilityNode(n));
 }
 
 function getTopSignificanceNodes(
@@ -193,8 +194,7 @@ function getTopSignificanceNodes(
     scopeId,
     fidelityNot: ["gone"],
     minSignificance: 0.6,
-    limit: n,
-  }).filter((n) => n.type !== "procedural");
+  }).filter((n) => !isCapabilityNode(n)).slice(0, n);
 }
 
 function getDecayedNodes(scopeId: string): MemoryNode[] {
@@ -202,7 +202,7 @@ function getDecayedNodes(scopeId: string): MemoryNode[] {
     scopeId,
     limit: 10000,
   });
-  return all.filter((n) => (n.fidelity === "faded" || n.fidelity === "gist") && n.type !== "procedural");
+  return all.filter((n) => (n.fidelity === "faded" || n.fidelity === "gist") && !isCapabilityNode(n));
 }
 
 function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
@@ -210,7 +210,7 @@ function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
     scopeId,
     fidelityNot: ["gone"],
     limit: 10000,
-  }).filter((n) => n.type !== "procedural");
+  }).filter((n) => !isCapabilityNode(n));
   // Fisher-Yates shuffle, take first n
   for (let i = all.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -581,8 +581,7 @@ async function consolidateChunk(
   for (const id of input.delete_ids ?? []) {
     if (!nodeIds.has(id)) continue; // safety
     try {
-      const deletedNode = nodeMap.get(id);
-      log.info({ nodeId: id, contentPreview: deletedNode?.content?.slice(0, 80) }, "Consolidation deleting node");
+      log.info({ nodeId: id }, "Consolidation deleting node");
       deleteNode(id);
       result.nodesDeleted++;
       result.deletedIds.push(id);

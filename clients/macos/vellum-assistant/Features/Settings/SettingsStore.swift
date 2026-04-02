@@ -325,6 +325,14 @@ public final class SettingsStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
+    /// In-memory cache of `connectedAssistantId` to avoid repeated
+    /// UserDefaults IPC on every access. Seeded once in `init` and
+    /// kept in sync via `UserDefaults.publisher(for:)`.
+    private var cachedAssistantId: String?
+
+    /// In-memory cache of `connectedOrganizationId`.
+    private var cachedOrgId: String?
+
     /// Whether the connected assistant is remote (not running locally).
     /// When true, local workspace config writes are skipped to avoid creating
     /// a `.vellum/` directory that doesn't belong to any local assistant.
@@ -359,17 +367,10 @@ public final class SettingsStore: ObservableObject {
     /// Debounce work item for config file change handling.
     private var configRefreshWorkItem: DispatchWorkItem?
 
-    private var workspaceConfigURL: URL {
-        let base: String
-        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-           let assistant = LockfileAssistant.loadByName(assistantId),
-           let workspace = assistant.workspaceDir {
-            base = workspace
-        } else {
-            base = NSHomeDirectory() + "/.vellum/workspace"
-        }
-        return URL(fileURLWithPath: base).appendingPathComponent("config.json")
-    }
+    /// Cached workspace config URL. Resolved off the main thread in
+    /// `loadLockfileState()` and applied via `applyLockfileState()` so
+    /// that file-backed lockfile I/O never blocks the main thread.
+    private var workspaceConfigURL: URL = URL(fileURLWithPath: NSHomeDirectory() + "/.vellum/workspace/config.json")
 
     private static func reflectedString(_ value: Any, key: String) -> String? {
         for child in Mirror(reflecting: value).children {
@@ -409,6 +410,11 @@ public final class SettingsStore: ObservableObject {
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
         self.verificationStatusPollWindow = max(self.verificationStatusPollInterval, verificationStatusPollWindow)
+
+        // Seed cached UserDefaults values with a single read each so that
+        // the ~50 call sites throughout SettingsStore never hit IPC again.
+        self.cachedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        self.cachedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
 
         // Credential reads are deferred to a Task so that file-backed
         // CredentialStorage I/O does not block the main thread during init.
@@ -563,11 +569,15 @@ public final class SettingsStore: ObservableObject {
             .store(in: &cancellables)
 
         // Re-resolve lockfile-derived state whenever the connected assistant changes
-        // so that isCurrentAssistantRemote and localGatewayTarget stay in sync.
+        // so that isCurrentAssistantRemote, localGatewayTarget, and workspaceConfigURL stay in sync.
         UserDefaults.standard.publisher(for: \.connectedAssistantId)
             .dropFirst()
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.refreshLockfileState() }
+            .sink { [weak self] _ in
+                self?.cachedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                self?.refreshLockfileState()
+                Task { await IdentityInfo.refreshCache() }
+            }
             .store(in: &cancellables)
 
         // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons
@@ -648,6 +658,7 @@ public final class SettingsStore: ObservableObject {
             .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
             .removeDuplicates()
             .sink { [weak self] _ in
+                self?.cachedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
                 guard let self else { return }
                 // Same as the connectedAssistantId sink: clear in-flight flags so
                 // the new context's UI starts clean.
@@ -691,6 +702,7 @@ public final class SettingsStore: ObservableObject {
     private struct LockfileState {
         let gatewayUrl: String
         let isRemote: Bool
+        let workspaceConfigURL: URL
     }
 
     /// Reads lockfile-derived state off the main thread. The result is applied
@@ -699,15 +711,28 @@ public final class SettingsStore: ObservableObject {
         let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let gatewayUrl = LockfilePaths.resolveGatewayUrl(connectedAssistantId: assistantId)
         let assistant = assistantId.flatMap { LockfileAssistant.loadByName($0) }
+        let base: String
+        if let workspace = assistant?.workspaceDir {
+            base = workspace
+        } else {
+            base = NSHomeDirectory() + "/.vellum/workspace"
+        }
+        let configURL = URL(fileURLWithPath: base).appendingPathComponent("config.json")
         return LockfileState(
             gatewayUrl: gatewayUrl,
-            isRemote: assistant?.isRemote ?? false
+            isRemote: assistant?.isRemote ?? false,
+            workspaceConfigURL: configURL
         )
     }
 
     private func applyLockfileState(_ state: LockfileState) {
         localGatewayTarget = state.gatewayUrl
         isCurrentAssistantRemote = state.isRemote
+        let urlChanged = workspaceConfigURL != state.workspaceConfigURL
+        workspaceConfigURL = state.workspaceConfigURL
+        if urlChanged {
+            watchConfigFile()
+        }
     }
 
     /// In-flight lockfile refresh task. Cancelled when a new refresh is
@@ -1209,7 +1234,7 @@ public final class SettingsStore: ObservableObject {
 
     /// Notify the daemon that an API key was set, so it updates its encrypted store.
     private func syncKeyToDaemon(provider: String, value: String) {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+        guard let assistantId = cachedAssistantId else { return }
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
@@ -1220,7 +1245,7 @@ public final class SettingsStore: ObservableObject {
     /// Sync an API key to the daemon with server-side validation.
     /// Returns a result indicating success or a validation error message.
     private func syncKeyToDaemonWithValidation(provider: String, value: String) async -> (success: Bool, error: String?, isTransient: Bool) {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard let assistantId = cachedAssistantId else {
             return (false, "No connected assistant. Please restart the app.", true)
         }
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
@@ -1278,7 +1303,7 @@ public final class SettingsStore: ObservableObject {
         guard !tombstones.isEmpty else { return }
         // Bail out early if no assistant is connected — preserve all tombstones
         // for the next reconnect attempt.
-        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else { return }
+        guard cachedAssistantId != nil else { return }
         var remaining: [[String: String]] = []
         for entry in tombstones {
             guard let type = entry["type"], let name = entry["name"] else { continue }
@@ -1303,7 +1328,7 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteKeyFromDaemon(provider: String) -> Bool {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
+        guard let assistantId = cachedAssistantId else { return false }
         let body: [String: String] = ["type": "api_key", "name": provider]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
@@ -1314,7 +1339,7 @@ public final class SettingsStore: ObservableObject {
 
     /// Notify the daemon that a credential was set (type: "credential", name: "service:field").
     private func syncCredentialToDaemon(name: String, value: String) {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+        guard let assistantId = cachedAssistantId else { return }
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
@@ -1326,7 +1351,7 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteCredentialFromDaemon(name: String) -> Bool {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
+        guard let assistantId = cachedAssistantId else { return false }
         let body: [String: String] = ["type": "credential", "name": name]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
@@ -1345,7 +1370,7 @@ public final class SettingsStore: ObservableObject {
             // In managed mode, auth is handled by SessionTokenManager — no actor token needed.
             // In local mode, wait for the JWT to be populated; on reconnect the async
             // credential bootstrap may still be in-flight.
-            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let connectedId = cachedAssistantId
             let isManagedMode = connectedId
                 .flatMap { LockfileAssistant.loadByName($0) }?.isManaged ?? false
             if !isManagedMode {
@@ -1363,7 +1388,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func fetchSlackChannelConfig() {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+        guard let assistantId = cachedAssistantId else { return }
         Task {
             do {
                 let (config, response): (SlackChannelConfigResponse?, _) = try await GatewayHTTPClient.get(
@@ -1400,7 +1425,7 @@ public final class SettingsStore: ObservableObject {
         guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard let assistantId = cachedAssistantId else {
             slackChannelSaveInProgress = false
             return
         }
@@ -1452,7 +1477,7 @@ public final class SettingsStore: ObservableObject {
     func clearSlackChannelConfig() {
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard let assistantId = cachedAssistantId else {
             slackChannelSaveInProgress = false
             return
         }
@@ -1496,7 +1521,7 @@ public final class SettingsStore: ObservableObject {
         applyPhoneNumber: Bool = false,
         applyNumbers: Bool = false
     ) async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard let assistantId = cachedAssistantId else {
             twilioError = "No connected assistant"
             return
         }
@@ -2228,7 +2253,7 @@ public final class SettingsStore: ObservableObject {
     /// Fetches provider routing sources from the daemon debug endpoint and
     /// updates `providerRoutingSources`. Non-fatal — silently ignores errors.
     func loadProviderRoutingSources() {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+        guard let assistantId = cachedAssistantId else {
             providerRoutingSources = [:]
             return
         }
@@ -2390,14 +2415,14 @@ public final class SettingsStore: ObservableObject {
     /// For self-hosted local assistants, looks up the persisted mapping via PlatformAssistantIdResolver,
     /// triggering bootstrap lazily if the mapping is not yet cached.
     private func resolvePlatformAssistantId(userId: String?) async -> String? {
-        guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !connectedId.isEmpty,
+        guard let connectedId = cachedAssistantId, !connectedId.isEmpty,
               let assistant = LockfileAssistant.loadByName(connectedId) else {
             return nil
         }
 
         let credentialStorage = FileCredentialStorage()
 
-        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        let orgId = cachedOrgId
 
         // Try the fast synchronous path first.
         if let resolved = PlatformAssistantIdResolver.resolve(
@@ -2440,7 +2465,7 @@ public final class SettingsStore: ObservableObject {
             let session = try? await AuthService.shared.getSession()
             postBootstrapUserId = session?.data?.user?.id
         }
-        let postBootstrapOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        let postBootstrapOrgId = cachedOrgId
 
         let postBootstrapResolved = PlatformAssistantIdResolver.resolve(
             lockfileAssistantId: assistant.assistantId,
@@ -2570,7 +2595,7 @@ public final class SettingsStore: ObservableObject {
     ///
     /// This is a no-op when the connected assistant is not managed.
     func refreshManagedAssistantRecoveryMode() async {
-        guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        guard let connectedId = cachedAssistantId,
               !connectedId.isEmpty,
               let assistant = LockfileAssistant.loadByName(connectedId),
               assistant.isManaged else {
@@ -2580,7 +2605,7 @@ public final class SettingsStore: ObservableObject {
             return
         }
 
-        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+        let orgId = cachedOrgId ?? ""
         guard !orgId.isEmpty else {
             log.warning("Cannot refresh recovery mode: no connectedOrganizationId set")
             return
@@ -2592,8 +2617,8 @@ public final class SettingsStore: ObservableObject {
         recoveryModeRefreshing = true
         recoveryModeRefreshError = nil
         defer {
-            let stillSameAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId
-            let stillSameOrg = UserDefaults.standard.string(forKey: "connectedOrganizationId") == taskOrgId
+            let stillSameAssistant = cachedAssistantId == taskAssistantId
+            let stillSameOrg = cachedOrgId == taskOrgId
             if stillSameAssistant && stillSameOrg {
                 recoveryModeRefreshing = false
             }
@@ -2606,12 +2631,12 @@ public final class SettingsStore: ObservableObject {
             )
             // Guard against stale responses: only apply the result if both the connected
             // assistant and connected organization haven't changed while the request was in flight.
-            let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            let currentConnectedId = cachedAssistantId ?? ""
             guard currentConnectedId == connectedId else {
                 log.info("Discarding stale recovery-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
                 return
             }
-            let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+            let currentOrgId = cachedOrgId ?? ""
             guard currentOrgId == orgId else {
                 log.info("Discarding stale recovery-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
                 return
@@ -2621,8 +2646,8 @@ public final class SettingsStore: ObservableObject {
         } catch {
             // Only apply the error if the context hasn't changed mid-flight — a stale error
             // from a previous assistant/org must not overwrite clean state for the new context.
-            let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
-            let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+            let currentConnectedId = cachedAssistantId ?? ""
+            let currentOrgId = cachedOrgId ?? ""
             guard currentConnectedId == connectedId && currentOrgId == orgId else {
                 log.info("Discarding stale refresh error for assistant \(assistant.assistantId, privacy: .public): context changed while request was in flight")
                 return
@@ -2638,7 +2663,7 @@ public final class SettingsStore: ObservableObject {
     /// `managedAssistantRecoveryMode` on success.
     func enterManagedAssistantRecoveryMode() {
         Task {
-            guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+            guard let connectedId = cachedAssistantId,
                   !connectedId.isEmpty,
                   let assistant = LockfileAssistant.loadByName(connectedId),
                   assistant.isManaged else {
@@ -2646,7 +2671,7 @@ public final class SettingsStore: ObservableObject {
                 return
             }
 
-            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+            let orgId = cachedOrgId ?? ""
             guard !orgId.isEmpty else {
                 recoveryModeEnterError = "No organization ID available"
                 return
@@ -2658,8 +2683,8 @@ public final class SettingsStore: ObservableObject {
             recoveryModeEntering = true
             recoveryModeEnterError = nil
             defer {
-                let stillSameAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId
-                let stillSameOrg = UserDefaults.standard.string(forKey: "connectedOrganizationId") == taskOrgId
+                let stillSameAssistant = cachedAssistantId == taskAssistantId
+                let stillSameOrg = cachedOrgId == taskOrgId
                 if stillSameAssistant && stillSameOrg {
                     recoveryModeEntering = false
                 }
@@ -2673,12 +2698,12 @@ public final class SettingsStore: ObservableObject {
                 // Guard against stale responses: only apply the result if both the
                 // connected assistant and connected organization haven't changed while
                 // the request was in flight (same pattern as refreshManagedAssistantRecoveryMode).
-                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                let currentConnectedId = cachedAssistantId ?? ""
                 guard currentConnectedId == connectedId else {
                     log.info("Discarding stale enter-recovery-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
                     return
                 }
-                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                let currentOrgId = cachedOrgId ?? ""
                 guard currentOrgId == orgId else {
                     log.info("Discarding stale enter-recovery-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
                     return
@@ -2687,8 +2712,8 @@ public final class SettingsStore: ObservableObject {
                 log.info("Entered recovery mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
                 // Only apply the error if the context hasn't changed mid-flight.
-                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
-                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                let currentConnectedId = cachedAssistantId ?? ""
+                let currentOrgId = cachedOrgId ?? ""
                 guard currentConnectedId == connectedId && currentOrgId == orgId else {
                     log.info("Discarding stale enter error for assistant \(assistant.assistantId, privacy: .public): context changed while request was in flight")
                     return
@@ -2705,7 +2730,7 @@ public final class SettingsStore: ObservableObject {
     /// `managedAssistantRecoveryMode` on success.
     func exitManagedAssistantRecoveryMode() {
         Task {
-            guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+            guard let connectedId = cachedAssistantId,
                   !connectedId.isEmpty,
                   let assistant = LockfileAssistant.loadByName(connectedId),
                   assistant.isManaged else {
@@ -2713,7 +2738,7 @@ public final class SettingsStore: ObservableObject {
                 return
             }
 
-            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+            let orgId = cachedOrgId ?? ""
             guard !orgId.isEmpty else {
                 recoveryModeExitError = "No organization ID available"
                 return
@@ -2725,8 +2750,8 @@ public final class SettingsStore: ObservableObject {
             recoveryModeExiting = true
             recoveryModeExitError = nil
             defer {
-                let stillSameAssistant = UserDefaults.standard.string(forKey: "connectedAssistantId") == taskAssistantId
-                let stillSameOrg = UserDefaults.standard.string(forKey: "connectedOrganizationId") == taskOrgId
+                let stillSameAssistant = cachedAssistantId == taskAssistantId
+                let stillSameOrg = cachedOrgId == taskOrgId
                 if stillSameAssistant && stillSameOrg {
                     recoveryModeExiting = false
                 }
@@ -2740,12 +2765,12 @@ public final class SettingsStore: ObservableObject {
                 // Guard against stale responses: only apply the result if both the
                 // connected assistant and connected organization haven't changed while
                 // the request was in flight (same pattern as refreshManagedAssistantRecoveryMode).
-                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                let currentConnectedId = cachedAssistantId ?? ""
                 guard currentConnectedId == connectedId else {
                     log.info("Discarding stale exit-recovery-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
                     return
                 }
-                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                let currentOrgId = cachedOrgId ?? ""
                 guard currentOrgId == orgId else {
                     log.info("Discarding stale exit-recovery-mode response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
                     return
@@ -2754,8 +2779,8 @@ public final class SettingsStore: ObservableObject {
                 log.info("Exited recovery mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
                 // Only apply the error if the context hasn't changed mid-flight.
-                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
-                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                let currentConnectedId = cachedAssistantId ?? ""
+                let currentOrgId = cachedOrgId ?? ""
                 guard currentConnectedId == connectedId && currentOrgId == orgId else {
                     log.info("Discarding stale exit error for assistant \(assistant.assistantId, privacy: .public): context changed while request was in flight")
                     return
@@ -3238,7 +3263,7 @@ public final class SettingsStore: ObservableObject {
     /// LAN pairing URL for the gateway, or nil if no LAN IP available.
     var lanPairingUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedId = cachedAssistantId
         return "http://\(ip):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
     }
 

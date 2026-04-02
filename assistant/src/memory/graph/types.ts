@@ -111,6 +111,32 @@ export interface MemoryNode {
   scopeId: string;
 }
 
+/**
+ * Whether a node is an auto-seeded capability (skill or CLI command) rather
+ * than an organically-extracted procedural memory. Capability nodes are
+ * created by the seeding systems at startup; organic procedural nodes are
+ * extracted from conversations (e.g. "FFmpeg needs -ac 2 for stereo").
+ *
+ * Only capability nodes should be reserved/excluded from normal retrieval
+ * and consolidation — organic procedural nodes participate normally.
+ */
+export function isCapabilityNode(node: MemoryNode): boolean {
+  if (node.type !== "procedural") return false;
+  // Old seeding systems: content starts with "skill:{id}\n" or "cli:{name}\n"
+  if (node.content.startsWith("skill:") || node.content.startsWith("cli:"))
+    return true;
+  // New seeding system (capability-seed.ts): content matches
+  // 'The "{name}" skill ({id}) is available.' or
+  // 'The "assistant {name}" CLI command is available.'
+  if (
+    node.content.startsWith('The "') &&
+    node.content.includes(" is available.")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Relationship type between two memory nodes. */
 export type EdgeRelationship =
   | "caused-by"

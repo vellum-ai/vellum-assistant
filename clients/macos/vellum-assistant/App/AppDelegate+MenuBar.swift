@@ -342,7 +342,7 @@ extension AppDelegate {
         menu.autoenablesItems = false
 
         let status = currentAssistantStatus
-        let name = AssistantDisplayName.resolve(IdentityInfo.load()?.name)
+        let name = AssistantDisplayName.resolve(IdentityInfo.current?.name)
         let statusItem = NSMenuItem(title: status.menuTitle(assistantName: name), action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         statusItem.image = status.statusIcon

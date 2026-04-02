@@ -362,6 +362,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // sets up voice input monitors.
         PTTActivator.warmCache()
 
+        // Seed the IdentityInfo in-memory cache so that hot paths (menu bar,
+        // command palette, session overlay) never perform synchronous file I/O
+        // on the main thread. The cache is refreshed asynchronously and also
+        // on workspace/assistant changes via the connectedAssistantId publisher.
+        IdentityInfo.warmCache()
+
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
         _ = ChatDiagnosticsStore.shared

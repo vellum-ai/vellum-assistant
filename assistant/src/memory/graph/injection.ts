@@ -6,6 +6,7 @@ import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { getLogger } from "../../util/logger.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import type { MemoryNode, ScoredNode } from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Image injection budgets
@@ -166,7 +167,9 @@ export function formatEventDate(epochMs: number): string {
   const dayOfMonth = date.getDate();
 
   // Include time only when hours/minutes are non-zero (midnight = date-only event)
-  const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+  // Use UTC methods: date-only events are stored as midnight UTC, so local timezone
+  // methods would show non-zero hours in west-of-UTC timezones, defeating the check.
+  const hasTime = date.getUTCHours() !== 0 || date.getUTCMinutes() !== 0;
   let datePart = `${dayName} ${monthName} ${dayOfMonth}`;
   if (hasTime) {
     const hours = date.getHours();
@@ -261,6 +264,7 @@ export function assembleContextBlock(
   const threads: ScoredNode[] = [];
   const triggered: ScoredNode[] = [];
   const upcoming: ScoredNode[] = [];
+  const capabilities: ScoredNode[] = [];
   const onMyMind: ScoredNode[] = [];
 
   for (const scored of nodes) {
@@ -273,6 +277,8 @@ export function assembleContextBlock(
       upcoming.push(scored);
     } else if (node.type === "prospective") {
       threads.push(scored);
+    } else if (isCapabilityNode(node)) {
+      capabilities.push(scored);
     } else if (node.type === "emotional" && isRecent(node)) {
       // Recent emotional nodes go in "Right Now" — present-tense state
       rightNow.push(scored);
@@ -303,6 +309,15 @@ export function assembleContextBlock(
     if (entries.length > 0) {
       parts.push(`### Active Threads\n${entries.join("\n")}`);
     }
+  }
+
+  // --- Skills You Can Use ---
+  if (capabilities.length > 0) {
+    const entries = capabilities.slice(0, 5).map((scored) => {
+      const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
+      return `- ${content} → use skill_load to activate`;
+    });
+    parts.push(`### Skills You Can Use\n${entries.join("\n")}`);
   }
 
   // --- Upcoming ---
@@ -354,6 +369,10 @@ export function assembleInjectionBlock(nodes: ScoredNode[]): string {
   if (nodes.length === 0) return "";
   return nodes
     .map((scored) => {
+      if (isCapabilityNode(scored.node)) {
+        const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
+        return `- [skill] ${content} → use skill_load to activate`;
+      }
       if (scored.node.eventDate != null) {
         return formatUpcomingEntry(scored);
       }

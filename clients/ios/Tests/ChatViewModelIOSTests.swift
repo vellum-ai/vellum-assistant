@@ -212,7 +212,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
         viewModel.flushStreamingBuffer()
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(messageId: "msg-1")))
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
@@ -223,7 +223,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.isSending = true
         viewModel.isThinking = true
 
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(messageId: "msg-1")))
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
@@ -309,7 +309,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[1].text, "iOS is great!")
 
         // 5. Message completes
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(messageId: "msg-1")))
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.messages[1].isStreaming)
     }

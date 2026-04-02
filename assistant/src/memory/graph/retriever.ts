@@ -35,7 +35,8 @@ import {
   evaluateTemporalTriggers,
   type TriggeredResult,
 } from "./triggers.js";
-import type { MemoryEdge, ScoredNode } from "./types.js";
+import type { MemoryEdge, MemoryNode, ScoredNode } from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
 
@@ -328,8 +329,8 @@ export async function loadContextMemory(
   }
 
   // Include recent nodes (last 7 days) so recency is always represented.
-  // Exclude procedural nodes (capabilities) — they're auto-injected and
-  // shouldn't compete on recency.
+  // Exclude procedural nodes (capabilities) — they have reserved slots
+  // and shouldn't compete with organic memories on recency alone.
   const recentNodes = queryNodes({
     scopeId: opts.scopeId,
     fidelityNot: ["gone"],
@@ -337,7 +338,7 @@ export async function loadContextMemory(
     limit: maxNodes,
   });
   for (const node of recentNodes) {
-    if (node.type === "procedural") continue;
+    if (isCapabilityNode(node)) continue;
     if (!semanticCandidateIds.has(node.id)) {
       semanticCandidateIds.set(node.id, 0);
     }
@@ -423,9 +424,7 @@ export async function loadContextMemory(
 
     // Normalize temporal boost from [-1,1] to [0,1]
     const normalizedTemporal = (temporal + 1) / 2;
-    // Procedural nodes (capabilities) are auto-seeded — no recency boost
-    const recency =
-      node.type === "procedural" ? 0 : computeRecencyBoost(node, nowMs);
+    const recency = computeRecencyBoost(node, nowMs);
 
     scored.push(
       scoreCandidate(node, {
@@ -442,6 +441,62 @@ export async function loadContextMemory(
 
   // Sort by score descending
   scored.sort((a, b) => b.score - a.score);
+
+  // 5b. Reserve slots for skill/CLI capabilities. Queried directly from
+  // SQLite — no Qdrant vectors needed — so capabilities surface even on
+  // fresh assistants whose embedding jobs haven't completed yet.
+  const CAPABILITY_RESERVE = 5;
+  const rawCapabilityNodes = queryNodes({
+    scopeId: opts.scopeId,
+    types: ["procedural"],
+    fidelityNot: ["gone"],
+    limit: CAPABILITY_RESERVE * 4,
+  });
+
+  // Dedup: both seeding systems may create nodes for the same capability.
+  // Extract capability ID from content and keep only the first node per ID.
+  const seenCapabilityIds = new Set<string>();
+  const capabilityNodes = rawCapabilityNodes
+    .filter(isCapabilityNode)
+    .filter((node) => {
+      const match = node.content.match(
+        /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+      );
+      const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+      if (capId) {
+        if (seenCapabilityIds.has(capId)) return false;
+        seenCapabilityIds.add(capId);
+      }
+      return true;
+    });
+
+  // Rank by semantic similarity when a query vector exists
+  let selectedCapabilities: MemoryNode[];
+  if (queryVector && capabilityNodes.length > CAPABILITY_RESERVE) {
+    selectedCapabilities = capabilityNodes
+      .map((node) => ({ node, sim: semanticCandidateIds.get(node.id) ?? 0 }))
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, CAPABILITY_RESERVE)
+      .map((e) => e.node);
+  } else {
+    selectedCapabilities = capabilityNodes.slice(0, CAPABILITY_RESERVE);
+  }
+
+  const reservedCapabilities: ScoredNode[] = selectedCapabilities.map(
+    (node) => {
+      const existing = scored.find((s) => s.node.id === node.id);
+      if (existing) return existing;
+      return scoreCandidate(node, {
+        semanticSimilarity: semanticCandidateIds.get(node.id) ?? 0,
+        effectiveSignificance: computeEffectiveSignificance(node, nowMs),
+        emotionalIntensity: node.emotionalCharge.intensity,
+        temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
+        recencyBoost: 0,
+        triggerBoost: 0,
+        activationBoost: 0,
+      });
+    },
+  );
 
   // 6. Reserve slots for recent prospective nodes (commitments, tasks, plans).
   //    These MUST surface at conversation start regardless of score — if the user
@@ -526,12 +581,23 @@ export async function loadContextMemory(
     });
   });
 
-  // Remove prospective and upcoming nodes from the main pool (they have reserved slots)
+  // Remove reserved nodes and all procedural nodes from the main pool.
+  // Procedural nodes have dedicated reserved slots — any that didn't make
+  // the cut shouldn't compete with organic memories for general slots.
   const mainPool = scored.filter(
-    (s) => !prospectiveIds.has(s.node.id) && !upcomingIds.has(s.node.id),
+    (s) =>
+      !isCapabilityNode(s.node) &&
+      !prospectiveIds.has(s.node.id) &&
+      !upcomingIds.has(s.node.id),
   );
-  const mainSlots =
-    maxNodes - serendipitySlots - reservedNodes.length - reservedUpcoming.length;
+  const mainSlots = Math.max(
+    0,
+    maxNodes -
+      serendipitySlots -
+      reservedNodes.length -
+      reservedUpcoming.length -
+      reservedCapabilities.length,
+  );
 
   // 7. LLM re-ranking on the main pool: dedup + select
   const reranked = await rerankAndDedup(
@@ -540,12 +606,19 @@ export async function loadContextMemory(
     opts.config,
   );
 
-  // 8. Combine: reserved prospective + reserved upcoming + reranked main pool
-  const deterministic = [...reservedNodes, ...reservedUpcoming, ...reranked].slice(
-    0,
-    maxNodes - serendipitySlots,
+  // 8. Combine: reserved prospective + reserved upcoming + reserved capabilities + reranked main pool
+  const deterministic = [
+    ...reservedNodes,
+    ...reservedUpcoming,
+    ...reservedCapabilities,
+    ...reranked,
+  ].slice(0, maxNodes - serendipitySlots);
+  // Exclude procedural nodes from serendipity — they have reserved slots
+  // and shouldn't appear as random wildcard picks.
+  const serendipityPool = scored.filter(
+    (s) => !isCapabilityNode(s.node),
   );
-  const serendipityPicks = sampleSerendipity(scored, serendipitySlots);
+  const serendipityPicks = sampleSerendipity(serendipityPool, serendipitySlots);
 
   // Deduplicate serendipity against deterministic
   const deterministicIds = new Set(deterministic.map((s) => s.node.id));
@@ -751,6 +824,9 @@ export async function retrieveForTurn(
 
   for (const node of nodes) {
     if (node.fidelity === "gone") continue;
+    // Procedural nodes (capabilities) have reserved slots at context-load
+    // and shouldn't compete with organic memories in per-turn injection.
+    if (isCapabilityNode(node)) continue;
 
     const semanticSim = allCandidateIds.get(node.id) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);
@@ -894,6 +970,7 @@ export async function refreshContextMemory(
   const scored: ScoredNode[] = [];
   for (const node of nodes) {
     if (node.fidelity === "gone") continue;
+    if (isCapabilityNode(node)) continue;
 
     const semanticSim = candidateScoreMap.get(node.id) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);

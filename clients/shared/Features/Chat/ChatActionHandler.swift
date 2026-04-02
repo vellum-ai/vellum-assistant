@@ -346,6 +346,15 @@ final class ChatActionHandler {
 
     private func handleMessageComplete(_ complete: MessageCompleteMessage, vm: ChatViewModel) {
         guard belongsToConversation(complete.conversationId) else { return }
+        // Auxiliary message_complete events (watch notifiers, call notifications)
+        // that lack a messageId should not reset the main agent turn state.
+        // Only filter when a main agent turn is actively streaming
+        // (currentAssistantMessageId is set). This allows slash commands and other
+        // non-auxiliary completions (which don't set currentAssistantMessageId)
+        // to process normally.
+        if complete.messageId == nil && vm.currentAssistantMessageId != nil {
+            return
+        }
         // Flush any buffered streaming text before finalizing the message.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()

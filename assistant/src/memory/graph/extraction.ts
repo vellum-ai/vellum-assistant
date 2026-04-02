@@ -324,9 +324,9 @@ const EXTRACT_TOOL_SCHEMA = {
                 "Downgrade fidelity when a transient event has resolved",
             },
             event_date: {
-              type: "number",
+              type: ["number", "null"],
               description:
-                "Epoch ms of the event date. Use to update when an event is rescheduled.",
+                "Epoch ms of the event date. Use to update when an event is rescheduled. Set to null to clear.",
             },
           },
           required: ["id"],
@@ -596,7 +596,8 @@ export function parseExtractionResponse(
       }
     }
 
-    // Auto-create event trigger when event_date is set but LLM didn't include one
+    // Auto-create event trigger when event_date is set but LLM didn't include one,
+    // or replace a malformed event trigger (event_date unset) with a valid one.
     if (
       node.eventDate != null &&
       (!Array.isArray(raw.triggers) ||
@@ -604,6 +605,17 @@ export function parseExtractionResponse(
           (t) => t.type === "event" && t.event_date != null,
         ))
     ) {
+      // Remove any malformed event triggers (type=event but missing event_date)
+      const malformedIdx = deferredTriggers.findIndex(
+        (dt) =>
+          dt.newNodeIndex === nodeIndex &&
+          dt.trigger.type === "event" &&
+          dt.trigger.eventDate == null,
+      );
+      if (malformedIdx !== -1) {
+        deferredTriggers.splice(malformedIdx, 1);
+      }
+
       deferredTriggers.push({
         newNodeIndex: nodeIndex,
         trigger: {
@@ -1152,9 +1164,11 @@ export function loadTranscriptWithImages(
     for (let i = 0; i < parsed.length; i++) {
       const block = parsed[i];
       if (block?.type === "text") {
+        const rawText =
+          typeof block.text === "string" ? block.text : "";
         const text = prefixAdded
-          ? block.text
-          : `[${row.role}]: ${block.text}`;
+          ? rawText
+          : `[${row.role}]: ${rawText}`;
         prefixAdded = true;
         totalTextLength += text.length;
         contentBlocks.push({ type: "text", text });
