@@ -99,6 +99,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.font = font
         textView.insertionPointColor = insertionPointColor
+        textView.allowsUndo = true
 
         let defaultColor = NSColor(VColor.contentDefault)
         let paragraphStyle = NSMutableParagraphStyle()
