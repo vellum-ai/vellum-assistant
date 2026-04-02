@@ -58,6 +58,13 @@ extension MessageListView {
     // MARK: - onChange handlers
 
     func handleSendingChanged() {
+        // Guard against stale fires during a conversation switch.
+        // onChange handlers fire in declaration order; isSending fires
+        // before conversationId, so during a switch this handler sees
+        // the NEW isSending value but the OLD scroll state (reset()
+        // hasn't run yet). Animated pins targeting stale content
+        // accumulate and corrupt SwiftUI's scroll position.
+        guard conversationId == scrollState.currentConversationId else { return }
         if isSending {
             // Clear stale confirmation marker: if the phase left "awaiting_confirmation"
             // while not sending, the marker is stale.
@@ -94,6 +101,13 @@ extension MessageListView {
     }
 
     func handleMessagesCountChanged() {
+        // Guard against stale fires during a conversation switch.
+        // onChange(of: messages.count) fires before onChange(of: conversationId),
+        // so during a switch this handler sees the NEW message count but
+        // the OLD scroll state (reset() hasn't run yet). An animated
+        // requestPinToBottom targeting stale content interferes with the
+        // subsequent conversation switch flow.
+        guard conversationId == scrollState.currentConversationId else { return }
         // --- Anchor message resolution ---
         if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")

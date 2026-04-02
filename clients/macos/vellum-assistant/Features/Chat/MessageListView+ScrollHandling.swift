@@ -79,17 +79,17 @@ extension MessageListView {
             scrollState.requestPinToBottom()
         }
         // --- Persistent bottom-recovery ---
-        // Safety net for cases where the content-height auto-follow above
-        // doesn't fire (height stable or sub-threshold changes) but the
-        // viewport still isn't at bottom. This catches:
+        // Independent of the content-height auto-follow. Fires on every
+        // geometry update where we should be at bottom but aren't. This
+        // catches cases the height-change check misses:
         //   • LazyVStack estimate converging in <0.5pt increments
         //   • scrollToEdge(.bottom) targeting a stale estimated bottom
         //   • Race conditions during rapid conversation switching
         // After a successful pin, isAtBottom becomes true → guard stops
         // further calls. Only fires in initialLoad/followingBottom.
-        else if scrollState.mode.allowsAutoScroll,
-                !nowAtBottom,
-                effectiveContentHeight > newState.visibleRectHeight {
+        if scrollState.mode.allowsAutoScroll,
+           !nowAtBottom,
+           effectiveContentHeight > newState.visibleRectHeight {
             scrollState.requestPinToBottom()
         }
 
