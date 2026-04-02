@@ -302,8 +302,8 @@ describe("Conversation workspace injection", () => {
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
     expect(runtimeUser.role).toBe("user");
     const text = messageText(runtimeUser);
-    expect(text).toContain("<workspace_top_level>");
-    expect(text).toContain("</workspace_top_level>");
+    expect(text).toContain("<workspace>");
+    expect(text).toContain("</workspace>");
   });
 
   test("workspace context includes root path and directories", async () => {
@@ -316,8 +316,7 @@ describe("Conversation workspace injection", () => {
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
     const text = messageText(runtimeUser);
     expect(text).toContain("Root: /tmp");
-    expect(text).toContain(`Current conversation folder: ${conversationPath}`);
-    expect(text).toContain(`Attachment files: ${conversationAttachmentsPath}`);
+    expect(text).toContain(`Current conversation attachments: ${conversationAttachmentsPath}`);
   });
 
   test("workspace context is prepended before user text", async () => {
@@ -331,7 +330,7 @@ describe("Conversation workspace injection", () => {
     const firstBlock = runtimeUser.content[0];
     expect(firstBlock.type).toBe("text");
     const firstText = (firstBlock as { type: "text"; text: string }).text;
-    expect(firstText).toContain("<workspace_top_level>");
+    expect(firstText).toContain("<workspace>");
   });
 
   test("workspace context is stripped from persisted history", async () => {
@@ -343,7 +342,7 @@ describe("Conversation workspace injection", () => {
     const persistedMessages = conversation.getMessages();
     for (const msg of persistedMessages) {
       const text = messageText(msg);
-      expect(text).not.toContain("<workspace_top_level>");
+      expect(text).not.toContain("<workspace>");
     }
   });
 

@@ -1108,9 +1108,9 @@ export function injectWorkspaceTopLevelContext(
   };
 }
 
-/** Strip `<workspace_top_level>` blocks injected by `injectWorkspaceTopLevelContext`. */
+/** Strip `<workspace>` blocks injected by `injectWorkspaceTopLevelContext`. */
 export function stripWorkspaceTopLevelContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<workspace_top_level>"]);
+  return stripUserTextBlocksByPrefix(messages, ["<workspace>"]);
 }
 
 /**
@@ -1220,7 +1220,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   // the InContextTracker deduplicates nodes across turns, so accumulation
   // does not cause unbounded context growth.
   "<voice_call_control>",
-  "<workspace_top_level>",
+  "<workspace>",
   TEMPORAL_INJECTED_PREFIX,
   "<active_workspace>",
   "<active_dynamic_page>",
