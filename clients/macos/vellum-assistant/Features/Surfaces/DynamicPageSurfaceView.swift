@@ -168,10 +168,14 @@ extension DynamicPageSurfaceView {
             forIdentifier: "sandbox-block-external",
             encodedContentRuleList: ruleJSON
         ) { ruleList, error in
-            _cachedSandboxRuleList = ruleList
-            _sandboxRuleListCompiled = true
             if let error {
                 log.error("Failed to compile sandbox content rule list: \(error.localizedDescription)")
+                // Leave _sandboxRuleListCompiled false so the next sandboxed
+                // surface retries compilation instead of permanently losing
+                // network-blocking rules.
+            } else {
+                _cachedSandboxRuleList = ruleList
+                _sandboxRuleListCompiled = true
             }
             completion(ruleList)
         }
