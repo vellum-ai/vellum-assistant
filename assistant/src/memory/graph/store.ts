@@ -2,12 +2,13 @@
 // Memory Graph — Data access layer
 // ---------------------------------------------------------------------------
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db.js";
 import {
   memoryGraphEdges,
+  memoryGraphNodeEdits,
   memoryGraphNodes,
   memoryGraphTriggers,
 } from "../schema.js";
@@ -758,4 +759,52 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
   });
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Node edit history
+// ---------------------------------------------------------------------------
+
+/** Record a content change to a memory node for edit chain tracking. */
+export function recordNodeEdit(opts: {
+  nodeId: string;
+  previousContent: string;
+  newContent: string;
+  source: "extraction" | "consolidation" | "manual";
+  conversationId?: string;
+}): void {
+  const db = getDb();
+  db.insert(memoryGraphNodeEdits)
+    .values({
+      id: uuid(),
+      nodeId: opts.nodeId,
+      previousContent: opts.previousContent,
+      newContent: opts.newContent,
+      source: opts.source,
+      conversationId: opts.conversationId ?? null,
+      created: Date.now(),
+    })
+    .run();
+}
+
+/** Retrieve the edit history for a memory node, newest first. */
+export function getNodeEditHistory(
+  nodeId: string,
+  limit = 20,
+): Array<{
+  id: string;
+  previousContent: string;
+  newContent: string;
+  source: string;
+  conversationId: string | null;
+  created: number;
+}> {
+  const db = getDb();
+  return db
+    .select()
+    .from(memoryGraphNodeEdits)
+    .where(eq(memoryGraphNodeEdits.nodeId, nodeId))
+    .orderBy(desc(memoryGraphNodeEdits.created))
+    .limit(limit)
+    .all();
 }

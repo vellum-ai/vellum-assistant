@@ -94,6 +94,7 @@ import {
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
+  migrateCreateMemoryGraphNodeEdits,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMessagesConversationCreatedAtIndex,
@@ -575,6 +576,9 @@ export function initializeDb(): void {
 
   // 104. Add nullable image_refs TEXT column to memory_graph_nodes
   migrateMemoryGraphImageRefs(database);
+
+  // 105. Memory graph node edit history
+  migrateCreateMemoryGraphNodeEdits(database);
 
   validateMigrationState(database);
 
