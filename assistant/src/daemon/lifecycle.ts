@@ -649,8 +649,11 @@ export async function runDaemon(): Promise<void> {
 
       // Seed capability graph nodes (new memory graph system)
       try {
-        const { seedSkillGraphNodes, seedCliGraphNodes, seedUninstalledCatalogSkillMemories } =
-          await import("../memory/graph/capability-seed.js");
+        const {
+          seedSkillGraphNodes,
+          seedCliGraphNodes,
+          seedUninstalledCatalogSkillMemories,
+        } = await import("../memory/graph/capability-seed.js");
         seedSkillGraphNodes();
         seedCliGraphNodes();
         void seedUninstalledCatalogSkillMemories().catch((err) =>
@@ -667,10 +670,8 @@ export async function runDaemon(): Promise<void> {
       // segments exist, enqueue a one-time graph_bootstrap job to populate the
       // graph from conversation history and journal files.
       try {
-        const {
-          maybeEnqueueGraphBootstrap,
-          cleanupStaleItemVectors,
-        } = await import("../memory/graph/bootstrap.js");
+        const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
+          await import("../memory/graph/bootstrap.js");
         maybeEnqueueGraphBootstrap();
         // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
         void cleanupStaleItemVectors().catch((err) =>

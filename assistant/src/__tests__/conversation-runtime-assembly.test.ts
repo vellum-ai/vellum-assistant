@@ -722,46 +722,9 @@ describe("stripTemporalContext", () => {
 // applyRuntimeInjections with temporalContext
 // ---------------------------------------------------------------------------
 
-describe("applyRuntimeInjections with temporalContext", () => {
-  const baseMessages: Message[] = [
-    {
-      role: "user",
-      content: [{ type: "text", text: "When is next weekend?" }],
-    },
-  ];
-
-  const sampleContext =
-    "<temporal_context>\nToday: 2026-02-18 (Wed) 12:00 +00:00\nTZ: UTC\n</temporal_context>";
-
-  test("injects temporal context when provided", () => {
-    const result = applyRuntimeInjections(baseMessages, {
-      temporalContext: sampleContext,
-    });
-
-    expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(2);
-    const injected = result[0].content[0];
-    expect((injected as { type: "text"; text: string }).text).toContain(
-      "<temporal_context>",
-    );
-  });
-
-  test("does not inject when temporalContext is null", () => {
-    const result = applyRuntimeInjections(baseMessages, {
-      temporalContext: null,
-    });
-
-    expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(1);
-  });
-
-  test("does not inject when temporalContext is omitted", () => {
-    const result = applyRuntimeInjections(baseMessages, {});
-
-    expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(1);
-  });
-});
+// NOTE: applyRuntimeInjections with temporalContext tests removed —
+// temporalContext is no longer a separate injection option. Temporal
+// grounding is now part of the unified <turn_context> block.
 
 // ---------------------------------------------------------------------------
 // inbound_actor_context
@@ -1026,33 +989,9 @@ describe("stripInboundActorContext", () => {
   });
 });
 
-describe("applyRuntimeInjections with inboundActorContext", () => {
-  const baseMessages: Message[] = [
-    {
-      role: "user",
-      content: [{ type: "text", text: "Help me send this message." }],
-    },
-  ];
-
-  test("injects inbound actor context when provided", () => {
-    const result = applyRuntimeInjections(baseMessages, {
-      inboundActorContext: {
-        sourceChannel: "phone",
-        canonicalActorIdentity: "requester-1",
-        actorIdentifier: "+15550002222",
-        trustClass: "trusted_contact",
-        guardianIdentity: "guardian-1",
-        memberStatus: "active",
-        memberPolicy: "default",
-      },
-    });
-    expect(result).toHaveLength(1);
-    expect(result[0].content).toHaveLength(2);
-    expect(
-      (result[0].content[0] as { type: "text"; text: string }).text,
-    ).toContain("<inbound_actor_context>");
-  });
-});
+// NOTE: applyRuntimeInjections with inboundActorContext tests removed —
+// inboundActorContext is no longer a separate injection option. Actor
+// identity is now part of the unified <turn_context> block.
 
 // ---------------------------------------------------------------------------
 // buildTurnContextBlock (channel-only)
@@ -1233,51 +1172,9 @@ describe("stripChannelTurnContext", () => {
 // applyRuntimeInjections with channelTurnContext
 // ---------------------------------------------------------------------------
 
-describe("applyRuntimeInjections with channelTurnContext", () => {
-  const baseMessages: Message[] = [
-    {
-      role: "user",
-      content: [{ type: "text", text: "What channel am I on?" }],
-    },
-  ];
-
-  test("injects channel turn context when provided", () => {
-    const params: ChannelTurnContextParams = {
-      turnContext: {
-        userMessageChannel: "telegram",
-        assistantMessageChannel: "telegram",
-      },
-      conversationOriginChannel: "telegram",
-    };
-
-    const result = applyRuntimeInjections(baseMessages, {
-      channelTurnContext: params,
-    });
-
-    expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(2);
-    const injected = result[0].content[0];
-    expect((injected as { type: "text"; text: string }).text).toContain(
-      "<turn_context>",
-    );
-  });
-
-  test("does not inject when channelTurnContext is null", () => {
-    const result = applyRuntimeInjections(baseMessages, {
-      channelTurnContext: null,
-    });
-
-    expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(1);
-  });
-
-  test("does not inject when channelTurnContext is omitted", () => {
-    const result = applyRuntimeInjections(baseMessages, {});
-
-    expect(result.length).toBe(1);
-    expect(result[0].content.length).toBe(1);
-  });
-});
+// NOTE: applyRuntimeInjections with channelTurnContext tests removed —
+// channelTurnContext is no longer a separate injection option. Channel
+// context is now part of the unified <turn_context> block.
 
 // ---------------------------------------------------------------------------
 // applyRuntimeInjections — injection mode
@@ -1294,8 +1191,6 @@ describe("applyRuntimeInjections — injection mode", () => {
   const fullOptions = {
     workspaceTopLevelContext:
       "<workspace>\nRoot: /sandbox\n</workspace>",
-    temporalContext:
-      "<temporal_context>\nToday: 2026-03-04 (Tue) 12:00 +00:00\nTZ: UTC\n</temporal_context>",
     channelCommandContext: { type: "start" } as const,
     activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
     channelCapabilities: {
@@ -1304,25 +1199,8 @@ describe("applyRuntimeInjections — injection mode", () => {
       supportsDynamicUi: false,
       supportsVoiceInput: false,
     } as ChannelCapabilities,
-    channelTurnContext: {
-      turnContext: {
-        userMessageChannel: "telegram",
-        assistantMessageChannel: "telegram",
-      },
-      conversationOriginChannel: "telegram",
-    } as ChannelTurnContextParams,
-    interfaceTurnContext: {
-      turnContext: {
-        userMessageInterface: "telegram" as const,
-        assistantMessageInterface: "telegram" as const,
-      },
-      conversationOriginInterface: null,
-    },
-    inboundActorContext: {
-      sourceChannel: "telegram",
-      canonicalActorIdentity: "user-1",
-      trustClass: "guardian",
-    } as InboundActorContext,
+    unifiedTurnContext:
+      "<turn_context>\ntimestamp: 2026-03-04 (Tue) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
     nowScratchpad: "Current focus: shipping PR 3",
     isNonInteractive: true,
   };
@@ -1335,13 +1213,10 @@ describe("applyRuntimeInjections — injection mode", () => {
       .join("\n");
 
     expect(allText).toContain("<workspace>");
-    expect(allText).toContain("<temporal_context>");
     expect(allText).toContain("<channel_command_context>");
     expect(allText).toContain("<active_workspace>");
     expect(allText).toContain("<channel_capabilities>");
     expect(allText).toContain("<turn_context>");
-    expect(allText).toContain("<turn_context>");
-    expect(allText).toContain("<inbound_actor_context>");
     expect(allText).toContain("<non_interactive_context>");
     expect(allText).toContain("<NOW.md");
   });
@@ -1357,7 +1232,6 @@ describe("applyRuntimeInjections — injection mode", () => {
       .join("\n");
 
     expect(allText).toContain("<workspace>");
-    expect(allText).toContain("<temporal_context>");
     expect(allText).toContain("<channel_command_context>");
     expect(allText).toContain("<active_workspace>");
     expect(allText).toContain("<NOW.md");
@@ -1375,7 +1249,6 @@ describe("applyRuntimeInjections — injection mode", () => {
 
     // Skipped in minimal mode
     expect(allText).not.toContain("<workspace>");
-    expect(allText).not.toContain("<temporal_context>");
     expect(allText).not.toContain("<channel_command_context>");
     expect(allText).not.toContain("<active_workspace>");
     expect(allText).not.toContain("<NOW.md");
@@ -1393,8 +1266,6 @@ describe("applyRuntimeInjections — injection mode", () => {
 
     // Kept in minimal mode
     expect(allText).toContain("<turn_context>");
-    expect(allText).toContain("<turn_context>");
-    expect(allText).toContain("<inbound_actor_context>");
     expect(allText).toContain("<non_interactive_context>");
     expect(allText).toContain("<channel_capabilities>");
   });
@@ -1592,6 +1463,122 @@ describe("stripInjectedContext with NOW.md", () => {
             type: "text",
             text: "<NOW.md Always keep this up to date>\nCurrent focus\n</NOW.md>",
           },
+        ],
+      },
+    ];
+
+    const result = stripInjectedContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripInjectedContext — persistent blocks
+// ---------------------------------------------------------------------------
+
+describe("stripInjectedContext preserves persistent blocks", () => {
+  test("<turn_context> blocks are NOT stripped", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<turn_context>\ntimestamp: 2026-04-02 (Thu) 01:52:33 -05:00 (America/Chicago)\ninterface: macos\n</turn_context>",
+          },
+          { type: "text", text: "Hello" },
+        ],
+      },
+    ];
+
+    const result = stripInjectedContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(2);
+    expect(
+      (result[0].content[0] as { type: "text"; text: string }).text,
+    ).toContain("<turn_context>");
+  });
+
+  test("<workspace> blocks are NOT stripped", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<workspace>\nRoot: /home/user/.vellum/workspace\nDirectories: src, tests\nFiles: README.md\n</workspace>",
+          },
+          { type: "text", text: "Hello" },
+        ],
+      },
+    ];
+
+    const result = stripInjectedContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(2);
+    expect(
+      (result[0].content[0] as { type: "text"; text: string }).text,
+    ).toContain("<workspace>");
+  });
+
+  test("legacy <workspace_top_level> blocks ARE stripped for backward compat", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<workspace_top_level>\nRoot: /home/user\n</workspace_top_level>",
+          },
+          { type: "text", text: "Hello" },
+        ],
+      },
+    ];
+
+    const result = stripInjectedContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
+  });
+
+  test("legacy <channel_turn_context> blocks ARE stripped for backward compat", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<channel_turn_context>\nchannel: telegram\n</channel_turn_context>",
+          },
+          { type: "text", text: "Hello" },
+        ],
+      },
+    ];
+
+    const result = stripInjectedContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
+  });
+
+  test("legacy <inbound_actor_context> blocks ARE stripped for backward compat", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<inbound_actor_context>\nsource_channel: telegram\n</inbound_actor_context>",
+          },
+          { type: "text", text: "Hello" },
         ],
       },
     ];
@@ -2027,52 +2014,4 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     expect(allText).toContain("<turn_context>");
   });
 
-  test("coexists with inboundActorContext (both present during migration)", () => {
-    const result = applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: sampleBlock,
-      inboundActorContext: {
-        sourceChannel: "telegram",
-        canonicalActorIdentity: "user-1",
-        trustClass: "trusted_contact",
-        guardianIdentity: "guardian-1",
-      },
-    });
-
-    const allText = result[0].content
-      .filter((b): b is { type: "text"; text: string } => b.type === "text")
-      .map((b) => b.text)
-      .join("\n");
-
-    // Both blocks present
-    expect(allText).toContain("<turn_context>");
-    expect(allText).toContain("<inbound_actor_context>");
-    // Original user content preserved
-    expect(allText).toContain("Hello there");
-  });
-
-  test("coexists with channelTurnContext and temporalContext (migration overlap)", () => {
-    const result = applyRuntimeInjections(baseMessages, {
-      unifiedTurnContext: sampleBlock,
-      channelTurnContext: {
-        turnContext: {
-          userMessageChannel: "telegram",
-          assistantMessageChannel: "telegram",
-        },
-        conversationOriginChannel: "telegram",
-      },
-      temporalContext:
-        "<temporal_context>\nToday: 2026-04-02 (Wed)\n</temporal_context>",
-    });
-
-    const allText = result[0].content
-      .filter((b): b is { type: "text"; text: string } => b.type === "text")
-      .map((b) => b.text)
-      .join("\n");
-
-    // All three blocks present
-    expect(allText).toContain(sampleBlock);
-    expect(allText).toContain("<temporal_context>");
-    // The channel turn context also uses <turn_context> tags
-    expect(allText).toContain("channel: telegram");
-  });
 });

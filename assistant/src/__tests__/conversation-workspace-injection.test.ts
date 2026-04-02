@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
-import { getConversationDirName } from "../memory/conversation-disk-view.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -274,13 +273,6 @@ function messageText(message: Message): string {
     .join("\n");
 }
 
-const conversationDirName = getConversationDirName(
-  "conv-1",
-  Date.parse("2026-03-19T12:00:00.000Z"),
-);
-const conversationPath = `conversations/${conversationDirName}/`;
-const conversationAttachmentsPath = `${conversationPath}attachments/`;
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -316,7 +308,8 @@ describe("Conversation workspace injection", () => {
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
     const text = messageText(runtimeUser);
     expect(text).toContain("Root: /tmp");
-    expect(text).toContain(`Current conversation attachments: ${conversationAttachmentsPath}`);
+    expect(text).toContain("Directories: src, tests, docs");
+    expect(text).toContain("Files: README.md, package.json");
   });
 
   test("workspace context is prepended before user text", async () => {
@@ -333,30 +326,37 @@ describe("Conversation workspace injection", () => {
     expect(firstText).toContain("<workspace>");
   });
 
-  test("workspace context is stripped from persisted history", async () => {
+  test("workspace context persists in history (not stripped between turns)", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
     await conversation.processMessage("Hello", [], () => {});
 
+    // Workspace blocks use <workspace> tag which is intentionally NOT stripped.
     const persistedMessages = conversation.getMessages();
-    for (const msg of persistedMessages) {
-      const text = messageText(msg);
-      expect(text).not.toContain("<workspace>");
-    }
+    const userMsg = persistedMessages.find((m) => m.role === "user");
+    expect(userMsg).toBeDefined();
+    const text = messageText(userMsg!);
+    expect(text).toContain("<workspace>");
   });
 
-  test("no empty user messages after stripping workspace context", async () => {
+  test("second message does NOT include workspace block", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
+    // First message — workspace is injected
     await conversation.processMessage("Hello", [], () => {});
+    expect(runCalls).toHaveLength(1);
+    const firstCallUser = runCalls[0][runCalls[0].length - 1];
+    const firstText = messageText(firstCallUser);
+    expect(firstText).toContain("<workspace>");
 
-    const persistedMessages = conversation.getMessages();
-    const emptyUserMsgs = persistedMessages.filter(
-      (m) => m.role === "user" && m.content.length === 0,
-    );
-    expect(emptyUserMsgs).toHaveLength(0);
+    // Second message — workspace is NOT injected (not first message, no compaction)
+    await conversation.processMessage("Follow up", [], () => {});
+    expect(runCalls).toHaveLength(2);
+    const secondCallUser = runCalls[1][runCalls[1].length - 1];
+    const secondText = messageText(secondCallUser);
+    expect(secondText).not.toContain("<workspace>");
   });
 });
 

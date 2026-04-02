@@ -98,14 +98,13 @@ import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {
   ActiveSurfaceContext,
   ChannelCapabilities,
-  ChannelTurnContextParams,
   InboundActorContext,
   InjectionMode,
-  InterfaceTurnContextParams,
   TrustContext,
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildUnifiedTurnContextBlock,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   readNowScratchpad,
@@ -114,7 +113,7 @@ import {
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
-import { buildTemporalContext } from "./date-context.js";
+import { formatTurnTimestamp } from "./date-context.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -502,6 +501,7 @@ export async function runAgentLoopImpl(
     }
 
     const isFirstMessage = ctx.messages.length === 1;
+    let shouldInjectWorkspace = isFirstMessage;
 
     const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
     if (compactCheck.needed) {
@@ -556,6 +556,7 @@ export async function runAgentLoopImpl(
         compacted.summaryCacheReadInputTokens ?? 0,
         collapseRawResponses(compacted.summaryRawResponses),
       );
+      shouldInjectWorkspace = true;
     }
 
     const state = createEventHandlerState();
@@ -678,37 +679,20 @@ export async function runAgentLoopImpl(
 
     ctx.refreshWorkspaceTopLevelContextIfNeeded();
 
-    // Compute fresh temporal context each turn for date grounding.
+    // Compute fresh turn timestamp for date grounding.
     // Absolute "now" is always anchored to assistant host clock, while local
     // date semantics prefer configured user timezone, then recalled memory.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
     const recalledUserTimeZone = null;
-    const temporalContext = buildTemporalContext({
+    const timestamp = formatTurnTimestamp({
       hostTimeZone,
       configuredUserTimeZone,
       userTimeZone: recalledUserTimeZone,
     });
 
-    // Use the channel/interface context captured at the top of this function
-    // so it reflects the channel/interface that originally sent *this* turn's
-    // message, even if a newer message from a different channel arrived since.
-    const channelTurnContext: ChannelTurnContextParams = {
-      turnContext: capturedTurnChannelContext,
-      conversationOriginChannel: getConversationOriginChannel(
-        ctx.conversationId,
-      ),
-    };
-
-    const interfaceTurnContext: InterfaceTurnContextParams = {
-      turnContext: capturedTurnInterfaceContext,
-      conversationOriginInterface: getConversationOriginInterface(
-        ctx.conversationId,
-      ),
-    };
-
-    // Resolve the inbound actor context for the model's <inbound_actor_context>
-    // block. When the conversation carries enough identity info, use the unified
+    // Resolve the inbound actor context for the unified <turn_context> block.
+    // When the conversation carries enough identity info, use the unified
     // actor trust resolver so member status/policy and guardian binding details
     // are fresh for this turn. The conversation runtime context remains the source
     // for policy gating; this block is model-facing grounding metadata.
@@ -729,6 +713,26 @@ export async function runAgentLoopImpl(
       }
     }
 
+    // Build unified turn context block that replaces the separate temporal,
+    // channel, interface, and actor context blocks.
+    const interfaceName =
+      capturedTurnInterfaceContext.userMessageInterface ?? undefined;
+    const channelName =
+      capturedTurnChannelContext?.userMessageChannel ?? undefined;
+    const isGuardian =
+      resolvedInboundActorContext?.trustClass === "guardian" ||
+      !resolvedInboundActorContext;
+    const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
+      isGuardian
+        ? { timestamp, interfaceName, channelName }
+        : {
+            timestamp,
+            interfaceName,
+            channelName,
+            actorContext: resolvedInboundActorContext,
+          },
+    );
+
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
     const isInteractiveResolved =
@@ -737,13 +741,12 @@ export async function runAgentLoopImpl(
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       activeSurface,
-      workspaceTopLevelContext: ctx.workspaceTopLevelContext,
+      workspaceTopLevelContext: shouldInjectWorkspace
+        ? ctx.workspaceTopLevelContext
+        : null,
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
-      channelTurnContext,
-      interfaceTurnContext,
-      inboundActorContext: resolvedInboundActorContext,
-      temporalContext,
+      unifiedTurnContext: unifiedTurnContextStr,
       nowScratchpad: readNowScratchpad(),
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
@@ -860,11 +863,15 @@ export async function runAgentLoopImpl(
           ctx.graphMemory.onCompacted(
             step.compactionResult.compactedPersistedMessages,
           );
+          shouldInjectWorkspace = true;
         }
 
         // Re-inject with potentially downgraded injection mode
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          workspaceTopLevelContext: shouldInjectWorkspace
+            ? ctx.workspaceTopLevelContext
+            : null,
           mode: currentInjectionMode,
         });
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1049,11 +1056,15 @@ export async function runAgentLoopImpl(
           collapseRawResponses(midLoopCompact.summaryRawResponses),
         );
         ctx.graphMemory.onCompacted(midLoopCompact.compactedPersistedMessages);
+        shouldInjectWorkspace = true;
       }
 
       // Re-inject runtime context and re-enter the agent loop
       runMessages = applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
+        workspaceTopLevelContext: shouldInjectWorkspace
+          ? ctx.workspaceTopLevelContext
+          : null,
         mode: currentInjectionMode,
       });
       if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1252,10 +1263,14 @@ export async function runAgentLoopImpl(
           ctx.graphMemory.onCompacted(
             step.compactionResult.compactedPersistedMessages,
           );
+          shouldInjectWorkspace = true;
         }
 
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          workspaceTopLevelContext: shouldInjectWorkspace
+            ? ctx.workspaceTopLevelContext
+            : null,
           mode: currentInjectionMode,
         });
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1366,10 +1381,14 @@ export async function runAgentLoopImpl(
               ctx.graphMemory.onCompacted(
                 emergencyCompact.compactedPersistedMessages,
               );
+              shouldInjectWorkspace = true;
             }
 
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
+              workspaceTopLevelContext: shouldInjectWorkspace
+                ? ctx.workspaceTopLevelContext
+                : null,
               mode: currentInjectionMode,
             });
             if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1478,10 +1497,14 @@ export async function runAgentLoopImpl(
             ctx.graphMemory.onCompacted(
               emergencyCompact.compactedPersistedMessages,
             );
+            shouldInjectWorkspace = true;
           }
 
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
+            workspaceTopLevelContext: shouldInjectWorkspace
+              ? ctx.workspaceTopLevelContext
+              : null,
             mode: currentInjectionMode,
           });
           if (isTrustedActor && currentInjectionMode !== "minimal") {

@@ -276,7 +276,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Second user turn (second-to-last): cache_control ephemeral
     const secondUserLastBlock =
       userMessages[1].content[userMessages[1].content.length - 1];
-    expect(secondUserLastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(secondUserLastBlock.cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // Third user turn (last): no cache_control
     const thirdUserLastBlock =
@@ -315,7 +318,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; cache_control?: { type: string; ttl?: string } }>;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
     }>;
     const userMsgs = sent.filter((m) => m.role === "user");
     // First user msg (second-to-last) should get cache
@@ -1387,7 +1393,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // Turn 2 (second-to-last): cache on last block only
     expect(userMsgs[1].content[0].cache_control).toBeUndefined();
-    expect(userMsgs[1].content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(userMsgs[1].content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // Turn 3 (last): no cache
     expect(userMsgs[2].content[0].cache_control).toBeUndefined();

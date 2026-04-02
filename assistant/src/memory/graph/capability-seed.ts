@@ -332,10 +332,7 @@ function cleanupOldFormatSkillNodes(): void {
       .set({ fidelity: "gone", lastAccessed: now })
       .where(eq(memoryGraphNodes.id, node.id))
       .run();
-    log.info(
-      { nodeId: node.id },
-      "Cleaned up old-format skill memory node",
-    );
+    log.info({ nodeId: node.id }, "Cleaned up old-format skill memory node");
   }
 }
 
@@ -364,7 +361,10 @@ function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
       const sources = JSON.parse(row.sourceConversations as string);
       const key = Array.isArray(sources) ? sources[0] : null;
       if (key && typeof key === "string" && !activeKeys.has(key)) {
-        log.info({ sourceKey: key, nodeId: row.id }, "Pruning stale capability graph node");
+        log.info(
+          { sourceKey: key, nodeId: row.id },
+          "Pruning stale capability graph node",
+        );
         db.update(memoryGraphNodes)
           .set({ fidelity: "gone", lastAccessed: now })
           .where(eq(memoryGraphNodes.id, row.id))
