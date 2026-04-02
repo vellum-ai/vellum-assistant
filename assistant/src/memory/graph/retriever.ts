@@ -35,8 +35,8 @@ import {
   evaluateTemporalTriggers,
   type TriggeredResult,
 } from "./triggers.js";
-import { isCapabilityNode } from "./types.js";
 import type { MemoryEdge, MemoryNode, ScoredNode } from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
 

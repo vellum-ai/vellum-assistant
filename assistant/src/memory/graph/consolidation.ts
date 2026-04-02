@@ -28,8 +28,8 @@ import {
   queryNodes,
   updateNode,
 } from "./store.js";
-import { isCapabilityNode } from "./types.js";
 import type { MemoryNode } from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-consolidation");
 
