@@ -47,6 +47,10 @@ struct SidebarSectionView: View {
     var sidebar: SidebarInteractionState?
     var conversationManager: ConversationManager?
 
+    /// Tracks which sub-groups have been toggled to show all conversations
+    /// (mirrors showAll at the section level but per sub-group key).
+    @State private var showAllInSubGroup: Set<String> = []
+
     enum CountMode {
         case items
         case subGroups(grouper: (ConversationModel) -> String?)
@@ -285,12 +289,42 @@ struct SidebarSectionView: View {
         .pointerCursor()
 
         if isSubGroupExpanded {
+            let subGroupShowAll = showAllInSubGroup.contains(subGroup.key)
+                || subGroup.conversations.dropFirst(maxCollapsed)
+                    .contains(where: \.hasUnseenLatestAssistantMessage)
+            let displayedInSubGroup = subGroupShowAll
+                ? subGroup.conversations
+                : Array(subGroup.conversations.prefix(maxCollapsed))
+
             VStack(spacing: 0) {
-                ForEach(subGroup.conversations) { conversation in
+                ForEach(displayedInSubGroup) { conversation in
                     makeRow(conversation)
                         .equatable()
                         .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                         .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                }
+
+                if subGroup.conversations.count > maxCollapsed,
+                   subGroupShowAll || !subGroup.conversations.dropFirst(maxCollapsed)
+                       .contains(where: \.hasUnseenLatestAssistantMessage) {
+                    HStack {
+                        VButton(
+                            label: subGroupShowAll ? "Show less" : "Show more",
+                            style: .ghost,
+                            size: .compact
+                        ) {
+                            withAnimation(VAnimation.fast) {
+                                if subGroupShowAll {
+                                    showAllInSubGroup.remove(subGroup.key)
+                                } else {
+                                    showAllInSubGroup.insert(subGroup.key)
+                                }
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
+                    .padding(.bottom, VSpacing.xs)
                 }
             }
             .padding(.vertical, VSpacing.xxs)
