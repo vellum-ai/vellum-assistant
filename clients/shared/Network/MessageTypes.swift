@@ -2112,6 +2112,7 @@ public enum ServerMessage: Decodable, Sendable {
     case conversationListResponse(ConversationListResponseMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
+    case memoryRecalled(MemoryRecalledMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
@@ -2294,6 +2295,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "memory_status":
             let message = try MemoryStatusMessage(from: decoder)
             self = .memoryStatus(message)
+        case "memory_recalled":
+            let message = try MemoryRecalledMessage(from: decoder)
+            self = .memoryRecalled(message)
         case "dictation_response":
             let message = try DictationResponseMessage(from: decoder)
             self = .dictationResponse(message)
