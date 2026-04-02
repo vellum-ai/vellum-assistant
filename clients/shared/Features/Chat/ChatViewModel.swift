@@ -149,9 +149,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// send-in-progress indicator gets stuck.
     @ObservationIgnored private var sendingWatchdogTask: Task<Void, Never>?
 
-    /// Safety-net timeout that clears the submitting spinner if the guardian
-    /// decision HTTP response takes longer than 15 seconds.
-    @ObservationIgnored private var guardianDecisionTimeoutTask: Task<Void, Never>?
+    /// Per-requestId safety-net timeouts that clear the submitting spinner if
+    /// a guardian decision HTTP response takes longer than 15 seconds.  Keyed
+    /// by requestId so concurrent submissions each get an independent timeout.
+    @ObservationIgnored private var guardianDecisionTimeoutTasks: [String: Task<Void, Never>] = [:]
 
     // MARK: - Observation compatibility
 
@@ -2172,7 +2173,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
-        guardianDecisionTimeoutTask?.cancel()
+        guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -2220,9 +2221,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         Task {
             let response = await guardianClient.submitDecision(requestId: requestId, action: action, conversationId: conversationId)
 
-            // Cancel the safety-net timeout — we have an HTTP response.
-            guardianDecisionTimeoutTask?.cancel()
-            guardianDecisionTimeoutTask = nil
+            // Cancel the safety-net timeout for this specific requestId — we have an HTTP response.
+            guardianDecisionTimeoutTasks[requestId]?.cancel()
+            guardianDecisionTimeoutTasks[requestId] = nil
 
             if let response {
                 if response.applied {
@@ -2254,8 +2255,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // clear the spinner and re-sync with the server. Don't remove from
         // pendingGuardianActions — let the main response handler or refresh
         // handle the cleanup so the action label is preserved.
-        guardianDecisionTimeoutTask?.cancel()
-        guardianDecisionTimeoutTask = Task { [weak self] in
+        // Cancel any previous timeout for the SAME requestId only — other
+        // in-flight submissions keep their own independent timeouts.
+        guardianDecisionTimeoutTasks[requestId]?.cancel()
+        guardianDecisionTimeoutTasks[requestId] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 15_000_000_000)
             guard !Task.isCancelled, let self else { return }
             if let idx = self.messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }),
@@ -2264,6 +2267,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 self.messages[idx].guardianDecision?.isSubmitting = false
                 self.refreshGuardianPrompts()
             }
+            self.guardianDecisionTimeoutTasks[requestId] = nil
         }
     }
 
