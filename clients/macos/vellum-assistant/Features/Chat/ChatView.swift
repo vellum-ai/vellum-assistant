@@ -578,7 +578,7 @@ struct ChatView: View {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.allowedContentTypes = [
-            .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
+            .png, .jpeg, .gif, .webP, .heic, .heif, .pdf, .plainText, .commaSeparatedText,
             UTType("net.daringfireball.markdown") ?? .plainText,
             .movie, .mpeg4Movie, .quickTimeMovie, .avi,
             .mp3, .wav, .aiff, .audio,
