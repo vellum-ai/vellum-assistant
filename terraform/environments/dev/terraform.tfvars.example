@@ -1,0 +1,6 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# NEVER commit terraform.tfvars — it contains secrets.
+
+mailgun_api_key     = ""  # Your Mailgun API key
+smtp_password       = ""  # SMTP password for the domain
+inbound_webhook_url = "https://platform-dev.vellum.ai/v1/internal/managed-gateway/email/inbound/"
