@@ -333,11 +333,12 @@ public class VMenuPanel: NSPanel {
 
     /// Return the first accessible child as the focused element so VoiceOver
     /// starts reading menu items immediately when the panel appears.
-    public override func accessibilityFocusedUIElement() -> Any? {
+    /// In the modern NSAccessibility protocol, this is a settable property, not a method override.
+    public override var accessibilityFocusedUIElement: Any? {
         if let children = menuHostingView?.accessibilityChildren(), let first = children.first {
             return first
         }
-        return super.accessibilityFocusedUIElement()
+        return super.accessibilityFocusedUIElement
     }
 }
 
