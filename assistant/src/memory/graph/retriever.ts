@@ -932,8 +932,8 @@ export async function retrieveForTurn(
 
   for (const node of nodes) {
     if (node.fidelity === "gone") continue;
-    // Procedural nodes (capabilities) have reserved slots at context-load
-    // and shouldn't compete with organic memories in per-turn injection.
+    // Capability nodes (auto-seeded skills/CLI) are excluded from the general
+    // scoring pool — they compete in the dedicated procedural reserve below.
     if (isCapabilityNode(node)) continue;
 
     const semanticSim = allCandidateIds.get(node.id) ?? 0;
@@ -961,6 +961,48 @@ export async function retrieveForTurn(
     );
   }
 
+  // 5b. Reserve slots for procedural memories (how-to knowledge + capabilities).
+  // Queried from SQLite — no additional Qdrant call — then ranked by the
+  // semantic similarity scores already computed from vector search.
+  const PROCEDURAL_RESERVE = 3;
+  const rawProceduralNodes = queryNodes({
+    scopeId: opts.scopeId,
+    types: ["procedural"],
+    fidelityNot: ["gone"],
+    limit: PROCEDURAL_RESERVE * 4,
+  });
+
+  const proceduralCandidates = rawProceduralNodes.filter(
+    (node) => !opts.tracker.isInContext(node.id),
+  );
+
+  const rankedProcedural = proceduralCandidates
+    .map((node) => ({ node, sim: allCandidateIds.get(node.id) ?? 0 }))
+    .sort((a, b) => b.sim - a.sim)
+    .slice(0, PROCEDURAL_RESERVE);
+
+  const proceduralScored: ScoredNode[] = rankedProcedural.map(({ node, sim }) =>
+    scoreCandidate(
+      node,
+      {
+        semanticSimilarity: sim,
+        effectiveSignificance: computeEffectiveSignificance(node, nowMs),
+        emotionalIntensity: node.emotionalCharge.intensity,
+        temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
+        recencyBoost: computeRecencyBoost(node, nowMs),
+        triggerBoost: triggerBoostMap.get(node.id) ?? 0,
+        activationBoost: 0,
+      },
+      PER_TURN_WEIGHTS,
+    ),
+  );
+
+  const PROCEDURAL_SIM_FLOOR = 0.15;
+  const proceduralInjected = proceduralScored.filter(
+    (s) => s.scoreBreakdown.semanticSimilarity >= PROCEDURAL_SIM_FLOOR,
+  );
+  const proceduralIds = new Set(proceduralInjected.map((s) => s.node.id));
+
   // Sort and apply threshold — pull a wider pool for dedup, then trim
   scored.sort((a, b) => b.score - a.score);
   const INJECTION_THRESHOLD = 0.3;
@@ -976,13 +1018,18 @@ export async function retrieveForTurn(
       ? await dedupForTurn(pool, MAX_INJECTED, opts.userLastMessage)
       : pool;
 
+  // Remove procedural-reserved nodes from general set to avoid double-counting
+  const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
+
+  const allDeterministic = [...generalInjected, ...proceduralInjected];
+  const deterministicIds = new Set(allDeterministic.map((n) => n.node.id));
+
   // Reserve 1 serendipity slot from scored candidates not in the deterministic set
-  const deterministicIds = new Set(injected.map((n) => n.node.id));
   const serendipityPool = scored.filter(
     (s) => s.score >= INJECTION_THRESHOLD && !deterministicIds.has(s.node.id),
   );
   const serendipityPicks = sampleSerendipity(serendipityPool, 1);
-  const allInjected = [...injected, ...serendipityPicks];
+  const allInjected = [...allDeterministic, ...serendipityPicks];
 
   return {
     nodes: allInjected,
