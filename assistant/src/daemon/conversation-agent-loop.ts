@@ -646,7 +646,14 @@ export async function runAgentLoopImpl(
           sparseVectorUsed: m?.sparseVectorUsed ?? false,
           injectedTokens: graphResult.injectedTokens,
           latencyMs: graphResult.latencyMs,
-          topCandidatesJson: m?.topCandidates ?? [],
+          topCandidatesJson: (m?.topCandidates ?? []).map((c) => ({
+            key: c.nodeId,
+            type: c.type,
+            kind: "graph",
+            finalScore: c.score,
+            semantic: c.semanticSimilarity,
+            recency: c.recencyBoost,
+          })),
           injectedText: graphResult.injectedBlockText ?? undefined,
           reason: `graph:${graphResult.mode}`,
         });
