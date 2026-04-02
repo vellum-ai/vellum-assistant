@@ -153,6 +153,11 @@ enum ImageActions {
     /// not content, so one discovery per extension per app session is sufficient.
     @MainActor private static var sharingServicesCache: [String: [NSSharingService]] = [:]
 
+    /// In-flight discovery tasks keyed by extension. Prevents duplicate XPC calls
+    /// when multiple `.task` modifiers race through the same cache miss due to
+    /// MainActor reentrancy at the `await` suspension point.
+    @MainActor private static var inFlightLoads: [String: Task<UncheckedServices, Never>] = [:]
+
     /// Returns a probe file URL for the given extension key, creating the file
     /// if it doesn't already exist. The probe is a minimal 1x1 image encoded in
     /// the format matching the extension so that sharing services that validate
@@ -189,12 +194,21 @@ enum ImageActions {
         let key = ext.isEmpty ? "png" : ext
         if let cached = sharingServicesCache[key] { return cached }
 
-        let probeURL = ensureProbeFile(for: key)
-        let services = await Task.detached(priority: .userInitiated) {
-            UncheckedServices(value: NSSharingService.sharingServices(forItems: [probeURL]))
-        }.value.value
+        // Coalesce concurrent callers that hit the same cache miss due to
+        // MainActor reentrancy at the await suspension point.
+        if let existing = inFlightLoads[key] {
+            return await existing.value.value
+        }
 
+        let probeURL = ensureProbeFile(for: key)
+        let detached = Task.detached(priority: .userInitiated) {
+            UncheckedServices(value: NSSharingService.sharingServices(forItems: [probeURL]))
+        }
+        inFlightLoads[key] = detached
+
+        let services = await detached.value.value
         sharingServicesCache[key] = services
+        inFlightLoads[key] = nil
         return services
     }
 
