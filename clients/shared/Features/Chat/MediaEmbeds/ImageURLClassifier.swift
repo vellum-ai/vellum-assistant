@@ -15,7 +15,7 @@ public enum ImageURLClassifier {
 
     private static let imageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "webp", "svg",
-        "bmp", "ico", "tiff", "tif", "avif", "heic"
+        "bmp", "ico", "tiff", "tif", "avif", "heic", "heif"
     ]
 
     public static func classify(_ url: URL) -> ImageURLClassification {

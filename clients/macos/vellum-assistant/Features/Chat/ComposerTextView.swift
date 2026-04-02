@@ -140,7 +140,7 @@ final class ComposerTextView: NSTextView {
             .urlReadingFileURLsOnly: true,
         ]) as? [URL])?.contains { url in
             let ext = url.pathExtension.lowercased()
-            return ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "bmp"].contains(ext)
+            return ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tiff", "bmp"].contains(ext)
         } ?? false
         let hasImageData = pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil
         return hasImageFile || hasImageData
