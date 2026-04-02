@@ -875,11 +875,6 @@ export function injectWorkspaceTopLevelContext(
   };
 }
 
-/** Strip `<workspace>` blocks injected by `injectWorkspaceTopLevelContext`. */
-export function stripWorkspaceTopLevelContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<workspace>"]);
-}
-
 /**
  * Strip `<active_workspace>` (and legacy `<active_dynamic_page>`) blocks
  * injected by `injectActiveSurfaceContext`.
