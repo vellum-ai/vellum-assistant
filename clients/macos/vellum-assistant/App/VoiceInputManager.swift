@@ -103,7 +103,7 @@ final class VoiceInputManager {
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private lazy var audioEngine = AVAudioEngine()
+    private let engineController = AudioEngineController()
 
     init(dictationClient: any DictationClientProtocol = DictationClient()) {
         self.dictationClient = dictationClient
@@ -211,8 +211,7 @@ final class VoiceInputManager {
     /// Safe to call regardless of `isRecording` — used as the shared cleanup path for all
     /// stop methods and as a recovery mechanism when state becomes inconsistent.
     private func tearDownAudioState() {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        engineController.tearDown()
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()
@@ -240,8 +239,7 @@ final class VoiceInputManager {
         Self.amplitudeSubject.send(0)
         onAmplitudeChanged?(0)
 
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        engineController.stopAndRemoveTap()
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
@@ -252,9 +250,7 @@ final class VoiceInputManager {
     /// Clears any stale internal buffers or format caches that accumulate
     /// after failed start/stop cycles.
     private func resetAudioEngine() {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.reset()
+        engineController.reset()
     }
 
     // MARK: - Activation Monitor Setup
@@ -621,13 +617,10 @@ final class VoiceInputManager {
         // cleaned up (e.g. audio engine stopped unexpectedly). installTap crashes
         // with NSInternalInconsistencyException if a tap already exists on the bus.
         // See: https://stackoverflow.com/questions/41805381
-        let inputNode = audioEngine.inputNode
-        inputNode.removeTap(onBus: 0)
+        engineController.removeTap()
 
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
-            log.error("Invalid audio format — channels: \(recordingFormat.channelCount), sampleRate: \(recordingFormat.sampleRate)")
+        guard let recordingFormat = engineController.inputNodeFormat() else {
+            log.error("Invalid audio format — no valid input channels or sample rate")
             isRecording = false
             onRecordingStateChanged?(false)
             currentDictationContext = nil
@@ -639,7 +632,7 @@ final class VoiceInputManager {
 
         let ampState = amplitudeState
         ampState.reset()
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+        engineController.installTap(bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             request.append(buffer)
 
             // Compute amplitude from the audio buffer for visual feedback.
@@ -704,18 +697,16 @@ final class VoiceInputManager {
             }
         }
 
-        do {
-            audioEngine.prepare()
-            try audioEngine.start()
+        if engineController.prepareAndStart() {
             VoiceFeedback.playActivationChime()
-        } catch {
-            log.error("Audio engine failed to start: \(error.localizedDescription)")
+        } else {
+            log.error("Audio engine failed to start")
             isRecording = false
             onRecordingStateChanged?(false)
             currentDictationContext = nil
             overlayWindow.dismiss()
             tearDownAudioState()
-            audioEngine.reset()
+            engineController.reset()
         }
     }
 
@@ -819,8 +810,7 @@ final class VoiceInputManager {
 
         onRecordingStateChanged?(false)
 
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        engineController.stopAndRemoveTap()
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.

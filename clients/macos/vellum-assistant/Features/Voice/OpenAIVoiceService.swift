@@ -38,7 +38,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
     // MARK: - Recording State
 
-    @ObservationIgnored private lazy var audioEngine = AVAudioEngine()
+    @ObservationIgnored private let engineController = AudioEngineController()
     @ObservationIgnored private var isRecording = false
 
     /// Fires once when silence is detected after speech.
@@ -128,8 +128,8 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
     // MARK: - Recording
 
     /// Pre-initialize the audio engine so the first recording starts instantly.
-    /// Skips pre-warming when microphone permission hasn't been granted yet — accessing
-    /// `audioEngine.inputNode` triggers the system permission dialog, which we want to
+    /// Skips pre-warming when microphone permission hasn't been granted yet —
+    /// accessing the input node triggers the system permission dialog, which we want to
     /// avoid on dev rebuilds (where TCC resets to `.notDetermined` after re-signing).
     func prewarmEngine() {
         guard !enginePrewarmed else { return }
@@ -137,7 +137,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             log.info("Skipping audio engine pre-warm — microphone not yet authorized")
             return
         }
-        let _ = audioEngine.inputNode
+        engineController.prewarm()
         enginePrewarmed = true
         log.info("Audio engine pre-warmed")
     }
@@ -152,10 +152,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         latestTranscription = ""
         livePartialText = ""
 
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-
-        guard format.channelCount > 0 else {
+        guard let format = engineController.inputNodeFormat() else {
             log.error("No audio input channels")
             return false
         }
@@ -229,7 +226,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         }
 
         // Install audio tap — feeds buffers to SFSpeechRecognizer + computes RMS for amplitude
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+        engineController.installTap(bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let floatData = buffer.floatChannelData else { return }
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
@@ -274,9 +271,9 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             }
         }
 
+        engineController.prepare()
         do {
-            audioEngine.prepare()
-            try audioEngine.start()
+            try engineController.start()
             isRecording = true
             lastSpeechTime = Date()
             recordingStartTime = Date()
@@ -284,7 +281,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             return true
         } catch {
             log.error("Failed to start audio engine: \(error.localizedDescription)")
-            audioEngine.inputNode.removeTap(onBus: 0)
+            engineController.removeTap()
             tearDownRecognition()
             return false
         }
@@ -297,10 +294,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         isRecording = false
         amplitude = 0
 
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
+        engineController.stopAndRemoveTap()
 
         // Signal end of audio to the recognizer
         recognitionRequest?.endAudio()
@@ -342,10 +336,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         guard isRecording else { return }
         isRecording = false
         amplitude = 0
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
+        engineController.stopAndRemoveTap()
         // Resume any waiting continuation with nil
         transcriptionContinuation?.resume(returning: nil)
         transcriptionContinuation = nil
@@ -358,9 +349,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         cancelRecording()
         stopBargeInMonitor()
         stopSpeaking()
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
+        engineController.stop()
         speechRecognizer = nil
         enginePrewarmed = false
         log.info("Audio engine shut down")
@@ -462,11 +451,12 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         guard !bargeInMonitorActive else { return }
         bargeInMonitorActive = true
 
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        guard format.channelCount > 0 else { return }
+        guard let format = engineController.inputNodeFormat() else {
+            bargeInMonitorActive = false
+            return
+        }
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+        engineController.installTap(bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let floatData = buffer.floatChannelData else { return }
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
@@ -489,13 +479,10 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             }
         }
 
-        do {
-            audioEngine.prepare()
-            try audioEngine.start()
+        if engineController.prepareAndStart() {
             log.info("Barge-in monitor started")
-        } catch {
-            log.error("Failed to start barge-in monitor: \(error.localizedDescription)")
-            audioEngine.inputNode.removeTap(onBus: 0)
+        } else {
+            log.error("Failed to start barge-in monitor")
             bargeInMonitorActive = false
         }
     }
@@ -503,10 +490,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
     func stopBargeInMonitor() {
         guard bargeInMonitorActive else { return }
         bargeInMonitorActive = false
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
+        engineController.stopAndRemoveTap()
     }
 
     /// Call ElevenLabs REST API to convert text to speech. Returns MP3 audio data.
