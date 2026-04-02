@@ -12,9 +12,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Audio
 /// By routing every engine operation through a private serial queue, the main
 /// thread is never blocked.
 ///
-/// References:
-/// - Apple docs: installTap "may invoke the tapBlock on a thread other than the main thread"
-/// - Sentry issue VELLUM-ASSISTANT-MACOS-CW (AVAudioEngine.inputNode → _dispatch_sync_f_slow)
+/// See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
 final class AudioEngineController: @unchecked Sendable {
 
     private lazy var audioEngine = AVAudioEngine()
@@ -22,7 +20,7 @@ final class AudioEngineController: @unchecked Sendable {
 
     // MARK: - Input Node Format
 
-    /// Returns the input node's output format for bus 0, accessed off the main thread.
+    /// Returns the input node's output format for bus 0.
     /// Returns `nil` if the format has zero channels or zero sample rate.
     func inputNodeFormat() -> AVAudioFormat? {
         queue.sync {
@@ -90,19 +88,6 @@ final class AudioEngineController: @unchecked Sendable {
         }
     }
 
-    /// Stop the engine unconditionally (even if `isRunning` is false).
-    func forceStop() {
-        queue.sync { [weak self] in
-            self?.audioEngine.stop()
-        }
-    }
-
-    var isRunning: Bool {
-        queue.sync { [weak self] in
-            self?.audioEngine.isRunning ?? false
-        }
-    }
-
     /// Stop the engine, remove tap, and reset internal state.
     func reset() {
         queue.sync { [weak self] in
@@ -113,8 +98,7 @@ final class AudioEngineController: @unchecked Sendable {
         }
     }
 
-    /// Stop, remove tap, and optionally cancel a recognition task/request.
-    /// This is the shared teardown path that replaces inline cleanup sequences.
+    /// Stop the engine and remove the input tap.
     func tearDown() {
         queue.sync { [weak self] in
             guard let self else { return }
