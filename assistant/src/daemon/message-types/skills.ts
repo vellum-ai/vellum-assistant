@@ -76,11 +76,22 @@ export interface SkillsCreateRequest {
 
 // === Server → Client ===
 
-export interface VellumSkillMeta {
+/** Fields shared by all skill origins. */
+interface SlimSkillBase {
+  id: string;
+  name: string;
+  description: string;
   emoji?: string;
+  kind: "bundled" | "installed" | "catalog";
+  status: "enabled" | "disabled" | "available";
 }
 
-export interface ClawhubSkillMeta {
+interface VellumSlimSkill extends SlimSkillBase {
+  origin: "vellum";
+}
+
+interface ClawhubSlimSkill extends SlimSkillBase {
+  origin: "clawhub";
   slug: string;
   author: string;
   stars: number;
@@ -89,23 +100,22 @@ export interface ClawhubSkillMeta {
   publishedAt?: string;
 }
 
-export interface SkillsshSkillMeta {
+interface SkillsshSlimSkill extends SlimSkillBase {
+  origin: "skillssh";
   slug: string;
   sourceRepo: string;
   installs: number;
 }
 
-export interface SlimSkillResponse {
-  id: string;
-  name: string;
-  description: string;
-  kind: "bundled" | "installed" | "catalog";
-  origin: "vellum" | "clawhub" | "skillssh" | "custom";
-  status: "enabled" | "disabled" | "available";
-  vellum?: VellumSkillMeta;
-  clawhub?: ClawhubSkillMeta;
-  skillssh?: SkillsshSkillMeta;
+interface CustomSlimSkill extends SlimSkillBase {
+  origin: "custom";
 }
+
+export type SlimSkillResponse =
+  | VellumSlimSkill
+  | ClawhubSlimSkill
+  | SkillsshSlimSkill
+  | CustomSlimSkill;
 
 export interface SkillsListResponse {
   type: "skills_list_response";
@@ -128,7 +138,28 @@ export interface SkillBodyResponse {
 
 // ─── Detail endpoint response (HTTP API) ──────────────────────────────────
 
-export interface ClawhubDetailMeta extends ClawhubSkillMeta {
+interface SkillDetailBase {
+  id: string;
+  name: string;
+  description: string;
+  emoji?: string;
+  kind: "bundled" | "installed" | "catalog";
+  status: "enabled" | "disabled" | "available";
+}
+
+interface VellumSkillDetail extends SkillDetailBase {
+  origin: "vellum";
+}
+
+interface ClawhubSkillDetail extends SkillDetailBase {
+  origin: "clawhub";
+  slug: string;
+  author: string;
+  stars: number;
+  installs: number;
+  reports: number;
+  publishedAt?: string;
+  // Enrichment fields (from clawhubInspect):
   owner?: { handle: string; displayName: string; image?: string } | null;
   stats?: {
     stars: number;
@@ -141,18 +172,22 @@ export interface ClawhubDetailMeta extends ClawhubSkillMeta {
   updatedAt?: number | null;
 }
 
-export interface SkillDetailResponse {
-  id: string;
-  name: string;
-  description: string;
-  kind: "bundled" | "installed" | "catalog";
-  origin: "vellum" | "clawhub" | "skillssh" | "custom";
-  status: "enabled" | "disabled" | "available";
-  vellum?: VellumSkillMeta;
-  clawhub?: ClawhubDetailMeta;
-  skillssh?: SkillsshSkillMeta;
-  body?: string;
+interface SkillsshSkillDetail extends SkillDetailBase {
+  origin: "skillssh";
+  slug: string;
+  sourceRepo: string;
+  installs: number;
 }
+
+interface CustomSkillDetail extends SkillDetailBase {
+  origin: "custom";
+}
+
+export type SkillDetailResponse =
+  | VellumSkillDetail
+  | ClawhubSkillDetail
+  | SkillsshSkillDetail
+  | CustomSkillDetail;
 
 export interface SkillsDraftResponse {
   type: "skills_draft_response";

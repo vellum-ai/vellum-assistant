@@ -32,10 +32,16 @@ struct SkillDetailView: View {
                     .lineSpacing(8)
                     .frame(maxWidth: 800, alignment: .leading)
             }
+            originMetaRow
             skillDetailFileBrowser
         }
         .onAppear {
-            skillsManager.fetchSkillFiles(skillId: skill.id)
+            // Only fetch files for locally available skills (bundled or installed).
+            // Remote catalog search results are not in the local resolved catalog, so
+            // GET /skills/:id/files would 404 for them.
+            if skill.isInstalled {
+                skillsManager.fetchSkillFiles(skillId: skill.id)
+            }
         }
         .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
             if expandedFilePath == nil, let files = skillsManager.selectedSkillFiles?.files {
@@ -59,6 +65,62 @@ struct SkillDetailView: View {
         .onDisappear {
             expandedFilePath = nil
             skillsManager.clearSkillDetail()
+        }
+    }
+
+    // MARK: - Origin-Specific Metadata
+
+    @ViewBuilder
+    private var originMetaRow: some View {
+        switch skill.originMeta {
+        case .clawhub(let meta):
+            HStack(spacing: VSpacing.lg) {
+                if !meta.author.isEmpty {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.user, size: 12)
+                        Text(meta.author)
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+                if meta.stars > 0 {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.star, size: 12)
+                        Text("\(meta.stars)")
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+                if meta.installs > 0 {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.arrowDownToLine, size: 12)
+                        Text("\(meta.installs)")
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+        case .skillssh(let meta):
+            HStack(spacing: VSpacing.lg) {
+                if !meta.sourceRepo.isEmpty {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.gitBranch, size: 12)
+                        Text(meta.sourceRepo)
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+                if meta.installs > 0 {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.arrowDownToLine, size: 12)
+                        Text("\(meta.installs)")
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+        case .vellum, .custom:
+            EmptyView()
         }
     }
 
@@ -138,7 +200,7 @@ struct SkillDetailTitleRow: View {
                 .frame(width: 32, height: 32)
 
                 HStack(spacing: VSpacing.sm) {
-                    if let emoji = skill.vellum?.emoji, !emoji.isEmpty {
+                    if let emoji = skill.emoji, !emoji.isEmpty {
                         Text(emoji)
                             .font(.system(size: 20))
                     }
