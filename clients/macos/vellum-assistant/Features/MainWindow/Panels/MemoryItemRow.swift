@@ -49,6 +49,7 @@ struct MemoryItemRow: View {
                         )
                         .opacity(isHovered ? 1 : 0)
                         .allowsHitTesting(isHovered)
+                        .accessibilityHidden(!isHovered)
                         .accessibilityLabel("Delete memory")
                     }
 
