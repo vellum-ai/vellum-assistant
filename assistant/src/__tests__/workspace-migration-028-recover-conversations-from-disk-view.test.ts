@@ -174,6 +174,44 @@ describe("028-recover-conversations-from-disk-view migration", () => {
     expect(userContent[0].tool_use_id).toBe("");
   });
 
+  test("handles mixed content + toolCalls on the same message", () => {
+    const id = "conv-028-mixed";
+    const createdAt = "2026-03-18T15:30:00.000Z";
+
+    const mixedLine = JSON.stringify({
+      role: "assistant",
+      ts: "2026-03-18T15:30:10.000Z",
+      content: "Let me check that",
+      toolCalls: [{ name: "bash", input: { command: "ls" } }],
+    });
+
+    createDiskViewDir(
+      id,
+      { id, title: "Mixed Test", type: "standard", createdAt, updatedAt: createdAt },
+      mixedLine + "\n",
+    );
+
+    recoverConversationsFromDiskViewMigration.run(workspaceDir);
+
+    const db = getDb();
+    const msgRows = db.select().from(messages).all();
+    expect(msgRows).toHaveLength(1);
+
+    const assistantMsg = msgRows[0];
+    expect(assistantMsg.role).toBe("assistant");
+
+    const contentBlocks = JSON.parse(assistantMsg.content);
+    expect(contentBlocks).toHaveLength(2);
+
+    expect(contentBlocks[0].type).toBe("text");
+    expect(contentBlocks[0].text).toBe("Let me check that");
+
+    expect(contentBlocks[1].type).toBe("tool_use");
+    expect(contentBlocks[1].name).toBe("bash");
+    expect(contentBlocks[1].input).toEqual({ command: "ls" });
+    expect(typeof contentBlocks[1].id).toBe("string");
+  });
+
   test("skips existing conversations", () => {
     const id = "conv-028-existing";
     const createdAt = "2026-03-18T16:00:00.000Z";
