@@ -58,14 +58,7 @@ export async function searchGraphNodes(
       must: [
         { key: "target_type", match: { value: "graph_node" } },
         ...(scopeIds && scopeIds.length > 0
-          ? [
-              {
-                should: [
-                  { key: "memory_scope_id", match: { any: scopeIds } },
-                  { is_empty: { key: "memory_scope_id" } },
-                ],
-              },
-            ]
+          ? [{ key: "memory_scope_id", match: { any: scopeIds } }]
           : []),
       ],
       must_not: [{ key: "_meta", match: { value: true } }],
@@ -77,7 +70,7 @@ export async function searchGraphNodes(
         sparseVector,
         filter,
         limit,
-        prefetchLimit: limit,
+        prefetchLimit: limit * 3,
       }),
     );
 
