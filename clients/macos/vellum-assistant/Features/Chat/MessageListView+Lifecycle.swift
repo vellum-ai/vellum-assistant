@@ -11,10 +11,24 @@ extension MessageListView {
     // MARK: - onAppear
 
     func handleAppear() {
+        // .id(conversationId) on the ScrollView destroys and recreates it on
+        // conversation switch, firing onAppear for the new view. Detect the
+        // switch by comparing against the last-known conversation ID.
+        // Must check BEFORE configureScrollCallbacks() which updates
+        // currentConversationId.
+        //
+        // Skip when currentConversationId is nil (true first mount) — reset()
+        // on freshly-initialized state is redundant and its 300ms scroll-
+        // indicator-hide task would cause a visual flicker on app launch.
+        let previousConversationId = scrollState.currentConversationId
+        let isConversationSwitch = previousConversationId != nil
+            && previousConversationId != conversationId
         configureScrollCallbacks()
-        // Seed the confirmation marker on initial mount — conversationSwitched
-        // doesn't fire for the initial value, so a conversation already paused
-        // in awaiting_confirmation at launch or reconnect needs the marker set here.
+        if isConversationSwitch {
+            handleConversationSwitched()
+        }
+        // Seed the confirmation marker so a conversation already paused in
+        // awaiting_confirmation at launch or reconnect is correctly tracked.
         if !isSending {
             scrollState.lastActivityPhaseWhenIdle = assistantActivityPhase
         }
