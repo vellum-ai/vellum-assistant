@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct ConversationSwitcherDrawer: View {
-    @ObservedObject var conversationManager: ConversationManager
+    var conversationManager: ConversationManager
     @ObservedObject var windowState: MainWindowState
     var sidebar: SidebarInteractionState
     var customGroupsEnabled: Bool = false

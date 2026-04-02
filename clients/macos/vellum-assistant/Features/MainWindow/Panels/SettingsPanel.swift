@@ -29,7 +29,7 @@ struct SettingsPanel: View {
     var onClose: () -> Void
     @ObservedObject var store: SettingsStore
     var connectionManager: GatewayConnectionManager?
-    @ObservedObject var conversationManager: ConversationManager
+    var conversationManager: ConversationManager
     var authManager: AuthManager
     @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     var showToast: (String, ToastInfo.Style) -> Void
@@ -50,7 +50,7 @@ struct SettingsPanel: View {
         self.onClose = onClose
         self._store = ObservedObject(wrappedValue: store)
         self.connectionManager = connectionManager
-        self._conversationManager = ObservedObject(wrappedValue: conversationManager)
+        self.conversationManager = conversationManager
         self.authManager = authManager
         self._assistantFeatureFlagStore = ObservedObject(wrappedValue: assistantFeatureFlagStore)
         self.showToast = showToast

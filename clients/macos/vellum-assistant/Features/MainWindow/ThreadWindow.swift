@@ -172,7 +172,7 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
 private struct ThreadWindowContentView: View {
     @Bindable var viewModel: ChatViewModel
     let conversationLocalId: UUID
-    @ObservedObject var conversationManager: ConversationManager
+    var conversationManager: ConversationManager
     @ObservedObject var settingsStore: SettingsStore
     var ambientAgent: AmbientAgent
     let onFork: (String) -> Void
