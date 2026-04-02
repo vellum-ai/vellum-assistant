@@ -2,13 +2,15 @@
  * Regression tests for app surface refresh and eventing side effects in
  * createToolExecutor (conversation-tool-setup.ts).
  *
- * Tests verify that app_refresh, app_create, app_delete, and file_write/
- * file_edit (for app source files) hooks fire correctly, and that removed
- * hooks (app_update, app_file_edit, app_file_write) no longer trigger
- * side effects.
+ * Tests verify that app_refresh, app_create, and app_delete hooks fire
+ * correctly, and that removed hooks (app_update, app_file_edit,
+ * app_file_write) no longer trigger side effects.
+ *
+ * File-change detection for file_write/file_edit is handled by
+ * AppSourceWatcher (see app-source-watcher.test.ts).
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
@@ -42,18 +44,14 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
   registerConversationSender: mock(() => {}),
 }));
 
-// Mock app-store functions used by the file-edit auto-refresh hook
-const TEST_APPS_DIR = "/tmp/test-apps";
-const testDirNameMap = new Map<string, string>([["my-app", "app-id-1"]]);
-
+// Mock app-store functions used by handleAppChange in tool-side-effects
 mock.module("../memory/app-store.js", () => ({
   getApp: mock(() => null),
-  getAppDirPath: mock((id: string) => `${TEST_APPS_DIR}/${id}`),
+  getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
   isMultifileApp: mock(() => false),
-  getAppsDir: mock(() => TEST_APPS_DIR),
-  resolveAppIdByDirName: mock(
-    (dirName: string) => testDirNameMap.get(dirName) ?? null,
-  ),
+  getAppsDir: mock(() => "/tmp/test-apps"),
+  resolveAppIdByDirName: mock(() => null),
+  resolveAppIdFromPath: mock(() => null),
 }));
 
 // ---------------------------------------------------------------------------
@@ -61,7 +59,6 @@ mock.module("../memory/app-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { createToolExecutor } from "../daemon/conversation-tool-setup.js";
-import { _testing } from "../daemon/tool-side-effects.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -439,227 +436,4 @@ describe("session-tool-setup app refresh side effects", () => {
     });
   });
 
-  // ── resolveAppIdFromPath unit tests ────────────────────────────────
-
-  describe("resolveAppIdFromPath", () => {
-    const { resolveAppIdFromPath } = _testing;
-
-    test("returns app ID for a source file in an app directory", () => {
-      expect(
-        resolveAppIdFromPath(`${TEST_APPS_DIR}/my-app/src/main.tsx`),
-      ).toBe("app-id-1");
-    });
-
-    test("returns app ID for root-level file in app directory", () => {
-      expect(
-        resolveAppIdFromPath(`${TEST_APPS_DIR}/my-app/index.html`),
-      ).toBe("app-id-1");
-    });
-
-    test("returns null for file directly in apps dir (JSON definition)", () => {
-      expect(resolveAppIdFromPath(`${TEST_APPS_DIR}/my-app.json`)).toBeNull();
-    });
-
-    test("returns null for path outside apps directory", () => {
-      expect(resolveAppIdFromPath("/tmp/other/file.ts")).toBeNull();
-    });
-
-    test("returns null for records/ subdirectory", () => {
-      expect(
-        resolveAppIdFromPath(`${TEST_APPS_DIR}/my-app/records/rec-1.json`),
-      ).toBeNull();
-    });
-
-    test("returns null for dist/ subdirectory", () => {
-      expect(
-        resolveAppIdFromPath(`${TEST_APPS_DIR}/my-app/dist/index.html`),
-      ).toBeNull();
-    });
-
-    test("returns null for unknown app directory", () => {
-      expect(
-        resolveAppIdFromPath(`${TEST_APPS_DIR}/unknown-app/src/main.tsx`),
-      ).toBeNull();
-    });
-  });
-
-  // ── file_write/file_edit auto-refresh ─────────────────────────────
-
-  describe("file_write/file_edit auto-refresh", () => {
-    afterEach(() => {
-      _testing.appRefreshDebouncer.cancelAll();
-      _testing.pendingAppRefreshCtx.clear();
-    });
-
-    test("file_write to app source file schedules debounced refresh", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: "wrote file",
-        isError: false,
-        diff: {
-          filePath: `${TEST_APPS_DIR}/my-app/src/main.tsx`,
-          oldContent: "",
-          newContent: "new",
-          isNewFile: false,
-        },
-      });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("file_write", {
-        path: `${TEST_APPS_DIR}/my-app/src/main.tsx`,
-      });
-
-      // Debounce is pending — context should be stored
-      expect(_testing.pendingAppRefreshCtx.has("app-id-1")).toBe(true);
-
-      // Wait for debounce to fire
-      await new Promise((r) => setTimeout(r, 600));
-
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(broadcastSpy).toHaveBeenCalledWith({
-        type: "app_files_changed",
-        appId: "app-id-1",
-      });
-    });
-
-    test("file_edit to app source file schedules debounced refresh", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: "edited file",
-        isError: false,
-        diff: {
-          filePath: `${TEST_APPS_DIR}/my-app/src/styles.css`,
-          oldContent: "old",
-          newContent: "new",
-          isNewFile: false,
-        },
-      });
-      const broadcastSpy = mock(() => {});
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        broadcastSpy,
-      );
-
-      await toolFn("file_edit", {
-        path: `${TEST_APPS_DIR}/my-app/src/styles.css`,
-      });
-
-      expect(_testing.pendingAppRefreshCtx.has("app-id-1")).toBe(true);
-
-      await new Promise((r) => setTimeout(r, 600));
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-    });
-
-    test("file_write to non-app path does not trigger refresh", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: "wrote file",
-        isError: false,
-        diff: {
-          filePath: "/tmp/other/file.ts",
-          oldContent: "",
-          newContent: "new",
-          isNewFile: true,
-        },
-      });
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        mock(() => {}),
-      );
-
-      await toolFn("file_write", { path: "/tmp/other/file.ts" });
-
-      expect(_testing.pendingAppRefreshCtx.size).toBe(0);
-      await new Promise((r) => setTimeout(r, 600));
-      expect(refreshSpy).not.toHaveBeenCalled();
-    });
-
-    test("rapid edits are coalesced into a single refresh", async () => {
-      const ctx = makeCtx();
-      const broadcastSpy = mock(() => {});
-
-      // Simulate 3 rapid file edits to the same app
-      for (const file of ["main.tsx", "styles.css", "utils.ts"]) {
-        const executor = makeFakeExecutor({
-          content: "edited",
-          isError: false,
-          diff: {
-            filePath: `${TEST_APPS_DIR}/my-app/src/${file}`,
-            oldContent: "old",
-            newContent: "new",
-            isNewFile: false,
-          },
-        });
-
-        const toolFn = createToolExecutor(
-          executor as unknown as ToolExecutor,
-          noopPrompter,
-          noopSecretPrompter,
-          ctx,
-          noopLifecycleHandler,
-          broadcastSpy,
-        );
-
-        await toolFn("file_edit", {
-          path: `${TEST_APPS_DIR}/my-app/src/${file}`,
-        });
-      }
-
-      // All 3 edits share one pending context
-      expect(_testing.pendingAppRefreshCtx.size).toBe(1);
-
-      // Wait for debounce — should only fire once
-      await new Promise((r) => setTimeout(r, 600));
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(broadcastSpy).toHaveBeenCalledTimes(1);
-    });
-
-    test("error results do not trigger auto-refresh", async () => {
-      const ctx = makeCtx();
-      const executor = makeFakeExecutor({
-        content: "Error: file not found",
-        isError: true,
-        diff: {
-          filePath: `${TEST_APPS_DIR}/my-app/src/main.tsx`,
-          oldContent: "",
-          newContent: "",
-          isNewFile: false,
-        },
-      });
-
-      const toolFn = createToolExecutor(
-        executor as unknown as ToolExecutor,
-        noopPrompter,
-        noopSecretPrompter,
-        ctx,
-        noopLifecycleHandler,
-        mock(() => {}),
-      );
-
-      await toolFn("file_write", {
-        path: `${TEST_APPS_DIR}/my-app/src/main.tsx`,
-      });
-
-      expect(_testing.pendingAppRefreshCtx.size).toBe(0);
-    });
-  });
 });

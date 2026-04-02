@@ -6,6 +6,7 @@ import {
   getAcpSessionManager,
   setBroadcastToAllClients,
 } from "../acp/index.js";
+import { compileApp } from "../bundler/app-compiler.js";
 import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
@@ -22,6 +23,11 @@ import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import {
+  getApp,
+  getAppDirPath,
+  isMultifileApp,
+} from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -49,6 +55,7 @@ import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-req
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { redactSecrets } from "../security/secret-scanner.js";
+import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
 import { appendEventToStream } from "../signals/event-stream.js";
@@ -61,6 +68,7 @@ import {
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
+import { AppSourceWatcher } from "./app-source-watcher.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import {
   Conversation,
@@ -69,6 +77,7 @@ import {
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { formatCompactResult } from "./conversation-process.js";
+import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import { undoLastMessage } from "./handlers/conversations.js";
@@ -271,6 +280,7 @@ export class DaemonServer {
 
   // Composed subsystems
   private configWatcher = new ConfigWatcher();
+  private appSourceWatcher = new AppSourceWatcher();
 
   // CES (Credential Execution Service) — process-level singleton.
   // Lifecycle is managed by startCesProcess() in lifecycle.ts; the server
@@ -523,6 +533,44 @@ export class DaemonServer {
     }
   }
 
+  /**
+   * Handle a detected app source file change from the filesystem watcher.
+   * Recompiles multifile apps and refreshes surfaces across ALL conversations.
+   */
+  private handleAppSourceChange(appId: string): void {
+    const app = getApp(appId);
+    if (!app) return;
+
+    const doRefresh = () => {
+      for (const conversation of this.conversations.values()) {
+        refreshSurfacesForApp(conversation, appId, { fileChange: true });
+      }
+      this.broadcast({ type: "app_files_changed", appId });
+      void updatePublishedAppDeployment(appId);
+    };
+
+    if (isMultifileApp(app)) {
+      const appDir = getAppDirPath(appId);
+      void compileApp(appDir)
+        .then((result) => {
+          if (!result.ok) {
+            log.warn(
+              { appId, errors: result.errors },
+              "Recompile failed on app source change",
+            );
+          }
+          doRefresh();
+        })
+        .catch((err) => {
+          log.warn({ appId, err }, "Recompile threw on app source change");
+          doRefresh();
+        });
+      return;
+    }
+
+    doRefresh();
+  }
+
   // ── Server lifecycle ────────────────────────────────────────────────
 
   async start(): Promise<void> {
@@ -674,6 +722,10 @@ export class DaemonServer {
       () => this.broadcastIdentityChanged(),
     );
 
+    this.appSourceWatcher.start((appId) =>
+      this.handleAppSourceChange(appId),
+    );
+
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
       this.broadcast({ type: "contacts_changed" });
@@ -687,6 +739,7 @@ export class DaemonServer {
     disposeAcpSessionManager();
     this.evictor.stop();
     this.configWatcher.stop();
+    this.appSourceWatcher.stop();
     if (this.unsubscribeContactChange) {
       this.unsubscribeContactChange();
       this.unsubscribeContactChange = null;

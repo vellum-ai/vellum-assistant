@@ -9,17 +9,11 @@
 
 import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
-import {
-  getApp,
-  getAppDirPath,
-  isMultifileApp,
-  resolveAppIdFromPath,
-} from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
-import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import type { ToolSetupContext } from "./conversation-tool-setup.js";
@@ -175,49 +169,6 @@ registerHook(
   },
 );
 
-// ── File-edit auto-refresh for apps ─────────────────────────────────
-
-const APP_REFRESH_DEBOUNCE_MS = 500;
-
-/** Per-app debounce timers for coalescing rapid file edits. */
-const appRefreshDebouncer = new DebouncerMap({
-  defaultDelayMs: APP_REFRESH_DEBOUNCE_MS,
-  maxEntries: 50,
-});
-
-/** Stores the latest SideEffectContext per app ID for debounced callbacks. */
-const pendingAppRefreshCtx = new Map<string, SideEffectContext>();
-
-// Trigger debounced app recompile + surface refresh when file_write or
-// file_edit modifies a source file inside an app directory.
-registerHook(
-  ["file_write", "file_edit"],
-  (_name, input, result, sideEffectCtx) => {
-    const filePath =
-      result.diff?.filePath ?? (input.path as string | undefined);
-    if (!filePath) return;
-
-    const appId = resolveAppIdFromPath(filePath);
-    if (!appId) return;
-
-    // Store the latest context so the debounced callback uses fresh state
-    pendingAppRefreshCtx.set(appId, sideEffectCtx);
-
-    appRefreshDebouncer.schedule(`app:${appId}`, () => {
-      const latestCtx = pendingAppRefreshCtx.get(appId);
-      pendingAppRefreshCtx.delete(appId);
-      if (!latestCtx) return;
-
-      handleAppChange(
-        latestCtx.ctx,
-        appId,
-        latestCtx.broadcastToAllClients,
-        { fileChange: true },
-      );
-    });
-  },
-);
-
 // Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
 // auto-refresh when the LLM mutates the task queue via tools
 registerHook(
@@ -347,9 +298,3 @@ export function runPostExecutionSideEffects(
   }
 }
 
-/** @internal Exposed for testing only. */
-export const _testing = {
-  appRefreshDebouncer,
-  pendingAppRefreshCtx,
-  resolveAppIdFromPath,
-};
