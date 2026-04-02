@@ -305,16 +305,15 @@ struct SidebarSectionView: View {
                 }
 
                 if subGroup.conversations.count > maxCollapsed,
-                   subGroupShowAll || !subGroup.conversations.dropFirst(maxCollapsed)
-                       .contains(where: \.hasUnseenLatestAssistantMessage) {
+                   showAllInSubGroup.contains(subGroup.key) || !subGroupShowAll {
                     HStack {
                         VButton(
-                            label: subGroupShowAll ? "Show less" : "Show more",
+                            label: showAllInSubGroup.contains(subGroup.key) ? "Show less" : "Show more",
                             style: .ghost,
                             size: .compact
                         ) {
                             withAnimation(VAnimation.fast) {
-                                if subGroupShowAll {
+                                if showAllInSubGroup.contains(subGroup.key) {
                                     showAllInSubGroup.remove(subGroup.key)
                                 } else {
                                     showAllInSubGroup.insert(subGroup.key)
