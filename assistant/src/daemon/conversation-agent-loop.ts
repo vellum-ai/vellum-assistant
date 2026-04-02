@@ -599,8 +599,8 @@ export async function runAgentLoopImpl(
 
     let runMessages = ctx.messages;
 
-    // Memory graph retrieval — dispatches to context-load / per-turn / refresh
-    // based on conversation state.
+    // Memory graph retrieval — dispatches to context-load / per-turn based on
+    // conversation state.
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     if (isTrustedActor) {
       const graphResult = await ctx.graphMemory.prepareMemory(
@@ -1048,9 +1048,7 @@ export async function runAgentLoopImpl(
           midLoopCompact.summaryCacheReadInputTokens ?? 0,
           collapseRawResponses(midLoopCompact.summaryRawResponses),
         );
-        ctx.graphMemory.onCompacted(
-          midLoopCompact.compactedPersistedMessages,
-        );
+        ctx.graphMemory.onCompacted(midLoopCompact.compactedPersistedMessages);
       }
 
       // Re-inject runtime context and re-enter the agent loop
@@ -1375,7 +1373,8 @@ export async function runAgentLoopImpl(
               mode: currentInjectionMode,
             });
             if (isTrustedActor && currentInjectionMode !== "minimal") {
-              const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+              const memResult =
+                ctx.graphMemory.reinjectCachedMemory(runMessages);
               runMessages = memResult.runMessages;
             }
             preRepairMessages = runMessages;
