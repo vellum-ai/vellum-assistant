@@ -915,14 +915,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                     offset: self.serverOffset, limit: 200, conversationType: nil
                 )
                 guard let response else { break }
-                self.appendConversations(from: response, clearLoadingFlag: false)
+                self.appendConversations(from: response)
+                self.isLoadingMoreConversations = true
             }
             self.isLoadingMoreConversations = false
         }
     }
 
     /// Handle appended conversations from a "load more" response.
-    func appendConversations(from response: ConversationListResponseMessage, clearLoadingFlag: Bool = true) {
+    func appendConversations(from response: ConversationListResponseMessage) {
         // Increment offset by the unfiltered count so pagination stays aligned
         // with the daemon's row numbering regardless of client-side filtering.
         serverOffset += response.conversations.count
@@ -962,9 +963,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             hasMoreConversations = hasMore
         }
         scheduleEvictionIfNeeded()
-        if clearLoadingFlag {
-            isLoadingMoreConversations = false
-        }
+        isLoadingMoreConversations = false
     }
 
     /// Clear the `activeSurfaceId` on a specific conversation's ChatViewModel.
