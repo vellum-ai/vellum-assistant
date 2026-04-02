@@ -357,6 +357,7 @@ struct MarkdownTableView: View {
                     Text(header)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
+                        .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.sm)
@@ -394,6 +395,7 @@ struct MarkdownTableView: View {
         return Text(attributed)
             .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentDefault)
+            .textSelection(.enabled)
             .lineLimit(nil)
             .fixedSize(horizontal: false, vertical: true)
     }
