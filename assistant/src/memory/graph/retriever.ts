@@ -564,7 +564,7 @@ export async function loadContextMemory(
 
   // 6. Reserve slots for recent prospective nodes (commitments, tasks, plans).
   //    These MUST surface at conversation start regardless of score — if the user
-  //    said "I have a doctor appointment tomorrow," Velissa must remember it.
+  //    said "I have a doctor appointment tomorrow," the assistant must remember it.
   const PROSPECTIVE_RESERVE = 10;
   const recentProspective = queryNodes({
     scopeId: opts.scopeId,
