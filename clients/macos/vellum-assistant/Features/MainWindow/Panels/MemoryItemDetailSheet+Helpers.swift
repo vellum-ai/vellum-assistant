@@ -42,7 +42,7 @@ extension MemoryItemDetailSheet {
                 .frame(width: width, height: height)
             RoundedRectangle(cornerRadius: height / 2)
                 .fill(color)
-                .frame(width: max(height, width * CGFloat(min(max(value, 0), 1))), height: height)
+                .frame(width: value > 0 ? max(height, width * CGFloat(min(value, 1))) : 0, height: height)
         }
     }
 
