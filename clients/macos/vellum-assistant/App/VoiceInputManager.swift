@@ -86,18 +86,14 @@ final class VoiceInputManager {
     /// Used to guard against duplicate registration from deferred startup.
     private(set) var hasStarted = false
 
-    /// True after `beginRecording()` first accesses `audioEngine.inputNode`.
-    /// Accessing `inputNode` before microphone permission has been granted triggers
-    /// the system permission dialog, so teardown paths must not touch it unless
-    /// a recording session actually started.
+    /// Guards access to `audioEngine.inputNode`. Accessing `inputNode` before
+    /// microphone permission is granted triggers the system permission dialog,
+    /// so teardown paths skip audio engine calls until a tap has been installed.
     private var hasInstalledTap = false
 
-    /// True when the app is terminating. Audio engine teardown is skipped during
-    /// termination because the OS reclaims all audio hardware resources when the
-    /// process exits, and `AVAudioEngine.stop()` blocks the main thread for 2s+
-    /// waiting for hardware release.
-    /// Ref: Apple's SpokenWord sample has no termination cleanup for the audio engine.
-    /// https://developer.apple.com/documentation/speech/recognizing-speech-in-live-audio
+    /// When true, `tearDownAudioState()` skips the blocking `audioEngine.stop()`
+    /// call. The OS reclaims all audio hardware resources on process exit, so
+    /// explicit teardown is unnecessary during termination.
     private var isTerminating = false
 
     /// All active event monitors, consolidated for clean teardown.
@@ -192,8 +188,7 @@ final class VoiceInputManager {
         start()
     }
 
-    /// Signal that the app is about to terminate. Audio engine teardown will be
-    /// skipped — the OS reclaims all hardware resources on process exit.
+    /// Marks the manager for termination, skipping blocking audio engine cleanup.
     func prepareForTermination() {
         isTerminating = true
     }
@@ -227,14 +222,10 @@ final class VoiceInputManager {
         }
     }
 
-    /// Unconditionally tear down audio engine state (tap, engine, recognition task/request).
-    /// Safe to call regardless of `isRecording` — used as the shared cleanup path for all
-    /// stop methods and as a recovery mechanism when state becomes inconsistent.
-    ///
-    /// During app termination (`isTerminating`), the blocking `audioEngine.stop()` and
-    /// `inputNode.removeTap()` calls are skipped — the OS reclaims audio hardware when
-    /// the process exits. This avoids a 2s+ main-thread hang from `AVAudioEngine.stop()`
-    /// waiting for hardware release.
+    /// Tear down audio engine state (tap, engine, recognition task/request).
+    /// Safe to call regardless of `isRecording` — used as the shared cleanup path
+    /// for all stop methods and as a recovery mechanism when state becomes inconsistent.
+    /// Skips blocking `audioEngine.stop()` when `isTerminating` or no tap was installed.
     private func tearDownAudioState() {
         if hasInstalledTap && !isTerminating {
             audioEngine.stop()
