@@ -904,6 +904,23 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
+    /// Load all remaining conversations from the daemon in a loop until none remain.
+    func loadAllRemainingConversations() {
+        guard !isLoadingMoreConversations, hasMoreConversations else { return }
+        isLoadingMoreConversations = true
+        Task { [weak self] in
+            guard let self else { return }
+            while self.hasMoreConversations {
+                let response = await self.conversationListClient.fetchConversationList(
+                    offset: self.serverOffset, limit: 200, conversationType: nil
+                )
+                guard let response else { break }
+                self.appendConversations(from: response)
+            }
+            self.isLoadingMoreConversations = false
+        }
+    }
+
     /// Handle appended conversations from a "load more" response.
     func appendConversations(from response: ConversationListResponseMessage) {
         // Increment offset by the unfiltered count so pagination stays aligned

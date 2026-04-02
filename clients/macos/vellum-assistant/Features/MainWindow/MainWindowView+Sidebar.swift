@@ -325,7 +325,11 @@ extension MainWindowView {
                     style: .ghost,
                     size: .compact
                 ) {
+                    let wasCollapsed = !sidebar.showAllInSection.contains("ungrouped")
                     withAnimation(VAnimation.fast) { sidebar.toggleShowAll("ungrouped") }
+                    if wasCollapsed {
+                        conversationManager.loadAllRemainingConversations()
+                    }
                 }
                 Spacer()
             }

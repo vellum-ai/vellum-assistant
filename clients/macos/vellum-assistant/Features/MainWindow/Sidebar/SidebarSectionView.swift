@@ -321,6 +321,9 @@ struct SidebarSectionView: View {
                     size: .compact
                 ) {
                     withAnimation(VAnimation.fast) { onToggleShowAll() }
+                    if !showAll {
+                        conversationManager?.loadAllRemainingConversations()
+                    }
                 }
                 Spacer()
             }

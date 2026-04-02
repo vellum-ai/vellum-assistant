@@ -221,6 +221,7 @@ struct ConversationSwitcherDrawer: View {
                         expandedSections.remove(sectionId)
                     } else {
                         expandedSections.insert(sectionId)
+                        conversationManager.loadAllRemainingConversations()
                     }
                 }
             }
