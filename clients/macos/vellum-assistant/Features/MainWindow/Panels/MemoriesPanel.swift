@@ -336,6 +336,9 @@ struct MemoriesPanel: View {
                                 item: item,
                                 onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
                                 onDelete: {
+                                    if selectedItem?.id == item.id {
+                                        withAnimation(VAnimation.panel) { selectedItem = nil }
+                                    }
                                     Task { _ = await store.deleteItem(id: item.id) }
                                 }
                             )
@@ -347,6 +350,9 @@ struct MemoriesPanel: View {
                                 isSelected: selectedItem?.id == item.id,
                                 onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
                                 onDelete: {
+                                    if selectedItem?.id == item.id {
+                                        withAnimation(VAnimation.panel) { selectedItem = nil }
+                                    }
                                     Task { _ = await store.deleteItem(id: item.id) }
                                 }
                             )
