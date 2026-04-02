@@ -14,12 +14,12 @@
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -244,7 +244,10 @@ function copyDirContents(src: string, dest: string): void {
     const srcPath = join(src, entry);
     const destPath = join(dest, entry);
     try {
-      const stat = statSync(srcPath);
+      const stat = lstatSync(srcPath);
+      // Skip symlinks for defense-in-depth — a symlink inside a run
+      // directory could point outside the run and exfiltrate files.
+      if (stat.isSymbolicLink()) continue;
       if (stat.isDirectory()) {
         mkdirSync(destPath, { recursive: true });
         copyDirContents(srcPath, destPath);
