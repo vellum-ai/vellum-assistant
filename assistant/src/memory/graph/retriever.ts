@@ -35,7 +35,12 @@ import {
   evaluateTemporalTriggers,
   type TriggeredResult,
 } from "./triggers.js";
-import type { MemoryEdge, MemoryNode, ScoredNode } from "./types.js";
+import type {
+  MemoryEdge,
+  MemoryNode,
+  RetrievalMetrics,
+  ScoredNode,
+} from "./types.js";
 import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
@@ -345,6 +350,7 @@ export interface ContextLoadResult {
   serendipityNodes: ScoredNode[];
   triggeredNodes: TriggeredResult[];
   latencyMs: number;
+  metrics: RetrievalMetrics;
 }
 
 /**
@@ -369,6 +375,8 @@ export async function loadContextMemory(
 
   // 1. Embed recent conversation summaries as retrieval queries
   let queryVector: number[] | null = null;
+  let embeddingProvider: string | null = null;
+  let embeddingModel: string | null = null;
   if (opts.recentSummaries.length > 0) {
     try {
       const queryText = opts.recentSummaries.join("\n\n");
@@ -378,6 +386,8 @@ export async function loadContextMemory(
         signal: opts.signal,
       });
       queryVector = result.vectors[0] ?? null;
+      embeddingProvider = result.provider;
+      embeddingModel = result.model;
     } catch (err) {
       log.warn({ err }, "Failed to embed summaries for context load");
     }
@@ -385,11 +395,14 @@ export async function loadContextMemory(
 
   // 2. Hybrid retrieval from Qdrant (dense search on graph_node points)
   const semanticCandidateIds = new Map<string, number>(); // nodeId → score
+  let hybridSearchLatencyMs = 0;
   if (queryVector) {
     try {
+      const searchStart = Date.now();
       const results = await searchGraphNodes(queryVector, maxNodes * 3, [
         opts.scopeId,
       ]);
+      hybridSearchLatencyMs = Date.now() - searchStart;
       for (const r of results) {
         semanticCandidateIds.set(r.nodeId, r.score);
       }
@@ -397,6 +410,7 @@ export async function loadContextMemory(
       log.warn({ err }, "Qdrant search failed for context load");
     }
   }
+  const pureSemanticHits = semanticCandidateIds.size;
 
   // Also include top-significance nodes as a fallback
   const topSignificance = queryNodes({
@@ -731,11 +745,32 @@ export async function loadContextMemory(
     );
   }
 
+  const TOP_N = 20;
+  const topCandidates = scored.slice(0, TOP_N).map((s) => ({
+    nodeId: s.node.id,
+    type: s.node.type,
+    score: s.score,
+    semanticSimilarity: s.scoreBreakdown.semanticSimilarity,
+    recencyBoost: s.scoreBreakdown.recencyBoost,
+  }));
+
   return {
     nodes: dedupedDeterministic,
     serendipityNodes: dedupedSerendipity,
     triggeredNodes: allTriggered,
     latencyMs: Date.now() - start,
+    metrics: {
+      semanticHits: pureSemanticHits,
+      mergedCount: scored.length,
+      selectedCount: dedupedDeterministic.length + dedupedSerendipity.length,
+      tier1Count: reservedNodes.length + reservedUpcoming.length,
+      tier2Count: reservedCapabilities.length,
+      hybridSearchLatencyMs,
+      sparseVectorUsed: false,
+      embeddingProvider,
+      embeddingModel,
+      topCandidates,
+    },
   };
 }
 
