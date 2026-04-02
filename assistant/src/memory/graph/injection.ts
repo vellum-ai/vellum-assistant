@@ -274,14 +274,14 @@ export function assembleContextBlock(
       upcoming.push(scored);
     } else if (node.type === "prospective") {
       threads.push(scored);
+    } else if (node.type === "procedural") {
+      capabilities.push(scored);
     } else if (node.type === "emotional" && isRecent(node)) {
       // Recent emotional nodes go in "Right Now" — present-tense state
       rightNow.push(scored);
     } else if (isVeryRecent(node)) {
       // Very recent nodes (last few hours) are "right now" context
       rightNow.push(scored);
-    } else if (node.type === "procedural") {
-      capabilities.push(scored);
     } else {
       onMyMind.push(scored);
     }
