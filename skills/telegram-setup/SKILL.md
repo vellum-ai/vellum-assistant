@@ -62,7 +62,8 @@ If `isPlatform` is `true` and both `baseUrl` and `assistantId` are present:
 - Register the managed callback route:
 
 ```bash
-assistant platform callback-routes register --path webhooks/telegram --type telegram --json
+ROUTE_RESPONSE=$(assistant platform callback-routes register --path webhooks/telegram --type telegram --json)
+CALLBACK_URL=$(echo "$ROUTE_RESPONSE" | jq -r '.callbackUrl')
 ```
 
 - In this mode, do **not** load `public-ingress` or mention ngrok. The managed platform callback route is the Telegram webhook URL.
@@ -85,6 +86,28 @@ If not, generate and set one:
 assistant credentials set --service telegram --field webhook_secret "$(uuidgen)"
 ```
 
+### Register Webhook with Telegram
+
+After registering the platform route (or obtaining a public ingress URL), you **must** also tell Telegram to send updates to that URL. The gateway may do this automatically on restart, but its safest to also register explicitly:
+
+```bash
+BOT_TOKEN=$(assistant credentials reveal --service telegram --field bot_token)
+WEBHOOK_SECRET=$(assistant credentials reveal --service telegram --field webhook_secret)
+curl -s "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=${CALLBACK_URL}&secret_token=${WEBHOOK_SECRET}"
+```
+
+### Verify Webhook
+
+Confirm Telegram has the correct URL registered:
+
+```bash
+WEBHOOK_INFO=$(curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo")
+echo "$WEBHOOK_INFO" | jq .
+REGISTERED_URL=$(echo "$WEBHOOK_INFO" | jq -r '.result.url')
+```
+
+Compare `REGISTERED_URL` to `CALLBACK_URL`. If they don't match, the webhook was not set correctly. Retry the `setWebhook` call. **Do not report success until `getWebhookInfo` confirms the correct URL and shows no `last_error_message`.**
+
 ## Step 4: Register Bot Commands
 
 ```bash
@@ -104,11 +127,12 @@ Link the user's Telegram account as a trusted guardian. Load the **guardian-veri
 
 If the user declines, skip and continue.
 
-## Step 7: Report Success
+## Step 6: Report Success
 
 Summarize:
 
 - Bot verified and credentials stored
+- Webhook registered and verified with Telegram (show the confirmed URL)
 - Bot commands registered: /new, /help
 - Guardian identity: {verified | skipped}
 
