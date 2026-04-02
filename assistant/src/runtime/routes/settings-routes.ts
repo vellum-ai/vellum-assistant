@@ -660,6 +660,43 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       },
     },
 
+    // Open URL broadcast — allows CLI commands to send `open_url` events
+    // to connected clients (e.g. Swift app) so the user's machine opens
+    // the browser instead of the (possibly headless) daemon host.
+    {
+      endpoint: "open-url",
+      method: "POST",
+      policyKey: "open-url",
+      summary: "Broadcast open_url event",
+      description:
+        "Publish an open_url event to all connected SSE clients so the user's native client can open the URL.",
+      tags: ["settings"],
+      requestBody: z.object({
+        url: z.string(),
+        title: z.string().optional(),
+      }),
+      handler: async ({ req }) => {
+        const body = (await req.json()) as { url?: string; title?: string };
+        if (!body.url) {
+          return httpError("BAD_REQUEST", "url is required", 400);
+        }
+        try {
+          await assistantEventHub.publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "open_url",
+              url: body.url,
+              ...(body.title ? { title: body.title } : {}),
+            }),
+          );
+          return Response.json({ ok: true });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.error({ err, url: body.url }, "Failed to publish open_url event");
+          return httpError("INTERNAL_ERROR", message, 500);
+        }
+      },
+    },
+
     // OAuth connect
     {
       endpoint: "oauth/start",
