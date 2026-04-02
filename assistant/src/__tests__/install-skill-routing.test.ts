@@ -32,7 +32,7 @@ const mockInstallExternalSkill = mock(
 );
 const mockGetCatalog = mock(async () => []);
 const mockInstallSkillLocally = mock(async () => {});
-const mockSeedCatalogSkillMemories = mock(() => {});
+const mockSeedSkillGraphNodes = mock(() => {});
 const mockEnsureSkillEntry = mock(
   (_raw: Record<string, unknown>, _id: string) => ({
     enabled: false,
@@ -115,9 +115,10 @@ mock.module("../skills/managed-store.js", () => ({
   removeSkillsIndexEntry: () => {},
   validateManagedSkillId: () => null,
 }));
-mock.module("../skills/skill-memory.js", () => ({
-  deleteSkillCapabilityMemory: () => {},
-  seedCatalogSkillMemories: mockSeedCatalogSkillMemories,
+mock.module("../memory/graph/capability-seed.js", () => ({
+  deleteSkillCapabilityNode: () => {},
+  seedSkillGraphNodes: mockSeedSkillGraphNodes,
+  seedUninstalledCatalogSkillMemories: async () => {},
 }));
 mock.module("../util/platform.js", () => ({
   getWorkspaceSkillsDir: () => "/tmp/test-skills",
@@ -158,7 +159,7 @@ describe("installSkill routing", () => {
     mockInstallExternalSkill.mockReset();
     mockGetCatalog.mockReset();
     mockInstallSkillLocally.mockReset();
-    mockSeedCatalogSkillMemories.mockReset();
+    mockSeedSkillGraphNodes.mockReset();
     mockEnsureSkillEntry.mockReset();
 
     // Defaults
@@ -167,7 +168,7 @@ describe("installSkill routing", () => {
     mockInstallExternalSkill.mockResolvedValue(undefined);
     mockGetCatalog.mockResolvedValue([]);
     mockInstallSkillLocally.mockResolvedValue(undefined);
-    mockSeedCatalogSkillMemories.mockReturnValue(undefined);
+    mockSeedSkillGraphNodes.mockReturnValue(undefined);
     mockEnsureSkillEntry.mockReturnValue({ enabled: false });
   });
 
