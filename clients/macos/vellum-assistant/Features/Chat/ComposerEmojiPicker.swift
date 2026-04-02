@@ -18,9 +18,9 @@ extension ComposerView {
     /// Returns nil if no valid trigger is found.
     func emojiTriggerRange() -> (colonIndex: String.Index, filter: String)? {
         guard !showSlashMenu else { return nil }
-        guard cursorPosition > 0, cursorPosition <= inputText.count else { return nil }
+        guard cursorPosition > 0, cursorPosition <= inputText.utf16.count else { return nil }
 
-        let cursorIdx = inputText.index(inputText.startIndex, offsetBy: cursorPosition)
+        let cursorIdx = String.Index(utf16Offset: cursorPosition, in: inputText)
         var idx = cursorIdx
 
         // Walk backward looking for the triggering `:`
@@ -72,8 +72,9 @@ extension ComposerView {
     func selectEmoji(_ entry: EmojiEntry) {
         guard let trigger = emojiTriggerRange() else { return }
 
-        let colonOffset = inputText.distance(from: inputText.startIndex, to: trigger.colonIndex)
-        let length = cursorPosition - colonOffset
+        let colonOffset = trigger.colonIndex.utf16Offset(in: inputText)
+        let cursorUtf16 = cursorPosition
+        let length = cursorUtf16 - colonOffset
         let nsRange = NSRange(location: colonOffset, length: length)
 
         textReplacer.replaceText?(nsRange, entry.emoji)
