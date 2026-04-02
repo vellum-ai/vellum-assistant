@@ -87,6 +87,14 @@ The `mode` parameter controls what happens when a schedule fires:
 
 Use `notify` for simple reminders ("remind me to take medicine at 9am") and `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest").
 
+## Conversation Reuse
+
+By default, each schedule run creates a new conversation. For recurring schedules that benefit from accumulating context across runs (e.g. polling-style jobs, daily digests that reference prior results), set `reuse_conversation: true`. When enabled, subsequent runs reuse the conversation from the last successful run instead of creating a new one.
+
+- Only applies to **recurring** schedules; ignored for one-shot schedules.
+- If the prior conversation has been deleted, a new one is created automatically.
+- On the first run (no prior conversation), a new conversation is created as usual.
+
 ## Routing (notify mode)
 
 Control how notify-mode schedules are delivered at trigger time with `routing_intent`:

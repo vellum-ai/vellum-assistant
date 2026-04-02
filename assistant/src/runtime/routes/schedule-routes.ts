@@ -50,6 +50,7 @@ function handleListSchedules(): Response {
       mode: j.mode,
       status: j.status,
       routingIntent: j.routingIntent,
+      reuseConversation: j.reuseConversation,
       isOneShot: j.cronExpression == null,
     })),
   });
@@ -145,6 +146,7 @@ function handleUpdateSchedule(
     "mode",
     "routingIntent",
     "quiet",
+    "reuseConversation",
   ] as const) {
     if (key in body) {
       updates[key] = body[key];
@@ -354,6 +356,7 @@ export function scheduleRouteDefinitions(deps: {
           .string()
           .describe("single_channel, multi_channel, or all_channels"),
         quiet: z.boolean(),
+        reuseConversation: z.boolean(),
       }),
       responseBody: z.object({
         schedules: z.array(z.unknown()).describe("Updated schedule list"),

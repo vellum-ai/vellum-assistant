@@ -1,4 +1,5 @@
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import { getLogger } from "../util/logger.js";
@@ -14,6 +15,7 @@ import {
   completeScheduleRun,
   createScheduleRun,
   failOneShot,
+  getLastScheduleConversationId,
   type RoutingIntent,
 } from "./schedule-store.js";
 
@@ -258,19 +260,33 @@ async function runScheduleOnce(
       continue;
     }
 
-    const conversation = bootstrapConversation({
-      source: "schedule",
-      scheduleJobId: job.id,
-      groupId: "system:scheduled",
-      origin: "schedule",
-      systemHint: isOneShot ? `Reminder: ${job.name}` : `Schedule: ${job.name}`,
-    });
+    // Reuse the conversation from the last successful run when the flag is set
+    // and a prior conversation still exists; otherwise bootstrap a new one.
+    let conversationId: string | null = null;
+    if (job.reuseConversation && !isOneShot) {
+      const lastId = getLastScheduleConversationId(job.id);
+      if (lastId && getConversation(lastId)) {
+        conversationId = lastId;
+      }
+    }
+    if (!conversationId) {
+      const conversation = bootstrapConversation({
+        source: "schedule",
+        scheduleJobId: job.id,
+        groupId: "system:scheduled",
+        origin: "schedule",
+        systemHint: isOneShot
+          ? `Reminder: ${job.name}`
+          : `Schedule: ${job.name}`,
+      });
+      conversationId = conversation.id;
+    }
     onScheduleConversationCreated?.({
-      conversationId: conversation.id,
+      conversationId,
       scheduleJobId: job.id,
       title: job.name,
     });
-    const runId = createScheduleRun(job.id, conversation.id);
+    const runId = createScheduleRun(job.id, conversationId);
     const isRruleSetMsg =
       job.syntax === "rrule" &&
       job.expression != null &&
@@ -285,11 +301,11 @@ async function runScheduleOnce(
           expression: job.expression,
           isRruleSet: isRruleSetMsg,
           isOneShot,
-          conversationId: conversation.id,
+          conversationId,
         },
         isOneShot ? "Executing one-shot schedule" : "Executing schedule",
       );
-      await processMessage(conversation.id, job.message, {
+      await processMessage(conversationId, job.message, {
         trustClass: "guardian",
       });
       completeScheduleRun(runId, { status: "ok" });
@@ -318,10 +334,10 @@ async function runScheduleOnce(
       if (isOneShot) failOneShot(job.id);
 
       try {
-        invalidateAssistantInferredItemsForConversation(conversation.id);
+        invalidateAssistantInferredItemsForConversation(conversationId);
       } catch (cleanupErr) {
         log.warn(
-          { err: cleanupErr, conversationId: conversation.id },
+          { err: cleanupErr, conversationId },
           "Failed to invalidate assistant-inferred memory items",
         );
       }

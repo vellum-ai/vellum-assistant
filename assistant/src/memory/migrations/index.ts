@@ -151,6 +151,7 @@ export { migrateScrubCorruptedImageAttachments } from "./206-scrub-corrupted-ima
 export { migrateCreateConversationGraphMemoryState } from "./207-conversation-graph-memory-state.js";
 export { migrateConversationsLastMessageAt } from "./208-conversations-last-message-at.js";
 export { migrateStripThinkingFromConsolidated } from "./209-strip-thinking-from-consolidated.js";
+export { migrateScheduleReuseConversation } from "./210-schedule-reuse-conversation.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

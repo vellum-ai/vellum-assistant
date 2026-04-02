@@ -74,6 +74,7 @@ export interface SchedulesListResponse {
     mode: string;
     status: string;
     routingIntent: string;
+    reuseConversation: boolean;
     isOneShot: boolean;
   }>;
 }
