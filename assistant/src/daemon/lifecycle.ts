@@ -123,6 +123,7 @@ import {
 } from "./handlers/conversations.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import type { ServerMessage } from "./message-protocol.js";
+import { runProfilerSweep } from "./profiler-run-store.js";
 import {
   initializeProvidersAndTools,
   registerMessagingProviders,
@@ -285,6 +286,26 @@ export async function runDaemon(): Promise<void> {
 
     await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
     log.info("Daemon startup: workspace migrations complete");
+
+    // Profiler retention sweep — prune completed profiler runs to stay
+    // within configured byte-count, run-count, and free-space budgets.
+    // Runs on every startup and is safe to call from explicit cleanup routes.
+    try {
+      const sweepResult = runProfilerSweep();
+      if (sweepResult.prunedCount > 0 || sweepResult.activeRunOverBudget) {
+        log.info(
+          {
+            prunedCount: sweepResult.prunedCount,
+            freedBytes: sweepResult.freedBytes,
+            activeRunOverBudget: sweepResult.activeRunOverBudget,
+            remainingRuns: sweepResult.remainingRuns,
+          },
+          "Profiler retention sweep completed on startup",
+        );
+      }
+    } catch (err) {
+      log.warn({ err }, "Profiler retention sweep failed — continuing startup");
+    }
 
     // Backfill oauth_connection rows for manual-token providers (Telegram,
     // Slack channel) that already have stored credentials from before the
