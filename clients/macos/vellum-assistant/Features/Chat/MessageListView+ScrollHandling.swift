@@ -12,6 +12,7 @@ extension MessageListView {
         let effectiveContentHeight = newState.contentHeight
         let isScrollable = effectiveContentHeight > newState.containerHeight
         let isScrollingUp = newState.contentOffsetY < scrollState.lastContentOffsetY
+        let previousContentHeight = scrollState.scrollContentHeight
         scrollState.scrollContentHeight = newState.contentHeight
         scrollState.scrollContainerHeight = newState.containerHeight
         scrollState.lastContentOffsetY = newState.contentOffsetY
@@ -62,6 +63,16 @@ extension MessageListView {
             if nowAtBottom {
                 scrollState.handleReachedBottom()
             }
+        }
+
+        // --- Content-growth auto-follow ---
+        // When in followingBottom (or initialLoad), continuously pin to bottom
+        // as content height grows (e.g. during streaming). The 0.5pt threshold
+        // filters sub-pixel layout noise. This is safe from feedback loops
+        // because pinning changes contentOffsetY, not contentHeight.
+        if effectiveContentHeight > previousContentHeight + 0.5,
+           scrollState.mode.allowsAutoScroll {
+            scrollState.requestPinToBottom()
         }
 
         // --- Pagination trigger ---
