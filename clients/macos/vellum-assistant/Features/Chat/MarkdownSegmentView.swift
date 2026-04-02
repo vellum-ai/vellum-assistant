@@ -548,6 +548,13 @@ private struct CodeBlockView: View, Equatable {
 
     @State private var isHovered = false
 
+    /// Line height derived from the actual monospace font metrics via
+    /// NSLayoutManager, so it stays correct if the font or size changes.
+    private static let codeLineHeight: CGFloat = {
+        let lm = NSLayoutManager()
+        return ceil(lm.defaultLineHeight(for: VFont.nsMono))
+    }()
+
     static func == (lhs: CodeBlockView, rhs: CodeBlockView) -> Bool {
         lhs.language == rhs.language
             && lhs.code == rhs.code
@@ -575,6 +582,12 @@ private struct CodeBlockView: View, Equatable {
                 .padding(.top, VSpacing.xs)
             }
 
+            // Pre-compute height from line count so the ScrollView has a
+            // definite size during LazyVStack's sizeThatFits pass, avoiding
+            // expensive Core Text measurement for off-screen cells.
+            let codeLineCount = code.components(separatedBy: "\n").count
+            let codeBlockHeight = CGFloat(codeLineCount) * Self.codeLineHeight + VSpacing.sm * 2
+
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.custom("DMMono-Regular", size: 13))
@@ -582,6 +595,7 @@ private struct CodeBlockView: View, Equatable {
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(VSpacing.sm)
             }
+            .frame(height: codeBlockHeight)
         }
         .optionalMaxWidth(maxContentWidth)
         .background(codeBackgroundColor)

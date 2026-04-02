@@ -102,7 +102,20 @@ struct RunningIndicator: View {
 struct CodePreviewView: View {
     let code: String
 
+    /// Line height derived from the actual font metrics via NSLayoutManager,
+    /// so it stays correct if the font or size changes.
+    private static let previewLineHeight: CGFloat = {
+        let lm = NSLayoutManager()
+        return ceil(lm.defaultLineHeight(for: VFont.nsBodySmallDefault))
+    }()
+
     var body: some View {
+        // Pre-compute height so the ScrollView has a definite size during
+        // LazyVStack's sizeThatFits pass, avoiding inner-content measurement.
+        let lineCount = displayCode.components(separatedBy: "\n").count
+        let contentHeight = CGFloat(lineCount) * Self.previewLineHeight + VSpacing.sm * 2
+        let previewHeight = min(contentHeight, 120)
+
         ScrollView {
             Text(displayCode)
                 .font(VFont.bodySmallDefault)
@@ -110,7 +123,7 @@ struct CodePreviewView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)
         }
-        .frame(maxHeight: 120)
+        .frame(height: previewHeight)
         .background(VColor.surfaceOverlay.opacity(0.6))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .overlay(
