@@ -6,7 +6,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Skill
 /// Focused client for skills-related operations routed through the gateway.
 ///
 /// Covers listing, enabling, disabling, configuring, installing, uninstalling,
-/// updating, searching, inspecting, drafting, and creating skills.
+/// updating, searching, drafting, and creating skills.
 public protocol SkillsClientProtocol {
     func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage?
     func enableSkill(name: String) async -> SkillOperationResult?
@@ -17,7 +17,6 @@ public protocol SkillsClientProtocol {
     func updateSkill(name: String) async -> SkillOperationResult?
     func checkSkillUpdates() async -> SkillOperationResult?
     func searchSkills(query: String) async -> SkillSearchResult?
-    func inspectSkill(slug: String) async -> SkillsInspectResponseMessage?
     func draftSkill(sourceText: String) async -> SkillsDraftResponseMessage?
     func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, overwrite: Bool?) async -> SkillOperationResult?
     func fetchSkillDetail(skillId: String) async -> SkillDetailHTTPResponse?
@@ -225,28 +224,6 @@ public struct SkillsClient: SkillsClientProtocol {
         } catch {
             log.error("searchSkills error: \(error.localizedDescription)")
             return SkillSearchResult(success: false, error: error.localizedDescription)
-        }
-    }
-
-    public func inspectSkill(slug: String) async -> SkillsInspectResponseMessage? {
-        do {
-            let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/skills/\(Self.encodePath(slug))/inspect", timeout: 10
-            )
-            guard response.isSuccess else {
-                log.error("inspectSkill failed (HTTP \(response.statusCode))")
-                return nil
-            }
-            // REST returns { slug, data?: ClawhubInspectData, error? } — inject the
-            // type discriminator so the generated SkillsInspectResponse can decode it.
-            var json = (try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]) ?? [:]
-            json["type"] = "skills_inspect_response"
-            if json["slug"] == nil { json["slug"] = slug }
-            let enriched = (try? JSONSerialization.data(withJSONObject: json)) ?? response.data
-            return try JSONDecoder().decode(SkillsInspectResponseMessage.self, from: enriched)
-        } catch {
-            log.error("inspectSkill error: \(error.localizedDescription)")
-            return nil
         }
     }
 

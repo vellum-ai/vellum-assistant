@@ -32,6 +32,7 @@ struct SkillDetailView: View {
                     .lineSpacing(8)
                     .frame(maxWidth: 800, alignment: .leading)
             }
+            originMetaRow
             skillDetailFileBrowser
         }
         .onAppear {
@@ -59,6 +60,62 @@ struct SkillDetailView: View {
         .onDisappear {
             expandedFilePath = nil
             skillsManager.clearSkillDetail()
+        }
+    }
+
+    // MARK: - Origin-Specific Metadata
+
+    @ViewBuilder
+    private var originMetaRow: some View {
+        switch skill.originMeta {
+        case .clawhub(let meta):
+            HStack(spacing: VSpacing.lg) {
+                if !meta.author.isEmpty {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.user, size: 12)
+                        Text(meta.author)
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+                if meta.stars > 0 {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.star, size: 12)
+                        Text("\(meta.stars)")
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+                if meta.installs > 0 {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.arrowDownToLine, size: 12)
+                        Text("\(meta.installs)")
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+        case .skillssh(let meta):
+            HStack(spacing: VSpacing.lg) {
+                if !meta.sourceRepo.isEmpty {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.gitBranch, size: 12)
+                        Text(meta.sourceRepo)
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+                if meta.installs > 0 {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.arrowDownToLine, size: 12)
+                        Text("\(meta.installs)")
+                            .font(VFont.labelDefault)
+                    }
+                    .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+        case .vellum, .custom:
+            EmptyView()
         }
     }
 

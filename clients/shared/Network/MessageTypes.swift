@@ -1110,6 +1110,33 @@ extension SkillsListResponseSkill {
     }
 }
 
+extension SkillDetailHTTPResponse {
+    /// Decoded origin-specific metadata. Lazily parses from the flat fields.
+    public var originMeta: SkillOriginMeta {
+        switch origin {
+        case "clawhub":
+            return .clawhub(ClawhubOriginMeta(
+                slug: slug ?? id,
+                author: author ?? "",
+                stars: stars ?? 0,
+                installs: installs ?? 0,
+                reports: reports ?? 0,
+                publishedAt: publishedAt
+            ))
+        case "skillssh":
+            return .skillssh(SkillsshOriginMeta(
+                slug: slug ?? id,
+                sourceRepo: sourceRepo ?? "",
+                installs: installs ?? 0
+            ))
+        case "vellum":
+            return .vellum
+        default:
+            return .custom
+        }
+    }
+}
+
 /// Skill info from a ClaWHub inspect response.
 /// Backed by generated `SkillsInspectResponseDataSkill`.
 public typealias ClawhubInspectSkill = SkillsInspectResponseDataSkill
