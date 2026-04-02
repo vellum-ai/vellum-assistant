@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 @preconcurrency import Sentry
 import VellumAssistantShared
+import os
 
 /// Wraps both `AssistantFeatureFlag` and `MacOSFeatureFlagState` into a single
 /// type so the Developer tab can render all flags in one card.
@@ -910,9 +911,27 @@ struct SettingsDeveloperTab: View {
         isLoadingAssistantFlags = true
         assistantFlagsError = nil
         do {
-            assistantFlags = try await featureFlagClient.getFeatureFlags()
-            // Cache the fetched flag state for persistence across restarts
-            let cacheValues = Dictionary(uniqueKeysWithValues: assistantFlags.map { ($0.key, $0.enabled) })
+            var flags = try await featureFlagClient.getFeatureFlags()
+            // Merge persisted local overrides so user toggles survive app restarts
+            // even when the platform doesn't support the PATCH write endpoint.
+            let persistedOverrides = AssistantFeatureFlagResolver.readPersistedFlags()
+            if !persistedOverrides.isEmpty {
+                flags = flags.map { flag in
+                    if let override = persistedOverrides[flag.key] {
+                        return AssistantFeatureFlag(
+                            key: flag.key,
+                            enabled: override,
+                            defaultEnabled: flag.defaultEnabled,
+                            description: flag.description,
+                            label: flag.label
+                        )
+                    }
+                    return flag
+                }
+            }
+            assistantFlags = flags
+            // Cache the MERGED state (including local overrides) for persistence across restarts
+            let cacheValues = Dictionary(uniqueKeysWithValues: flags.map { ($0.key, $0.enabled) })
             AssistantFeatureFlagResolver.writeCachedFlags(cacheValues)
         } catch {
             // Fall back to the bundled registry + local persisted overrides
@@ -1066,25 +1085,16 @@ struct SettingsDeveloperTab: View {
                         userInfo: ["key": flag.key, "enabled": newValue]
                     )
                     AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: newValue)
+                    try? AssistantFeatureFlagResolver.mergePersistedFlag(key: flag.key, enabled: newValue)
                     Task {
                         do {
                             try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)
                         } catch {
-                            if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
-                                assistantFlags[index] = AssistantFeatureFlag(
-                                    key: flag.key,
-                                    enabled: !newValue,
-                                    defaultEnabled: flag.defaultEnabled,
-                                    description: flag.description.isEmpty ? nil : flag.description,
-                                    label: flag.label
-                                )
-                            }
-                            AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: !newValue)
-                            NotificationCenter.default.post(
-                                name: .assistantFeatureFlagDidChange,
-                                object: nil,
-                                userInfo: ["key": flag.key, "enabled": !newValue]
-                            )
+                            // Best-effort: local persistence (file + cache) already saved the override.
+                            // The gateway PATCH may fail for managed assistants where the platform
+                            // doesn't support the write endpoint. Log but don't revert.
+                            os.Logger(subsystem: Bundle.appBundleIdentifier, category: "FeatureFlags")
+                                .warning("Failed to sync feature flag '\(flag.key)' to gateway: \(error.localizedDescription)")
                         }
                     }
                 case .macos:
