@@ -1207,11 +1207,12 @@ export function stripTransportHints(messages: Message[]): Message[] {
 const RUNTIME_INJECTION_PREFIXES = [
   "<channel_capabilities>",
   "<channel_command_context>",
-  "<channel_turn_context>",
+  "<channel_turn_context>", // backward-compat: strip legacy separate channel blocks
   "<guardian_context>",
-  "<inbound_actor_context>",
-  "<interface_turn_context>",
-  "<turn_context>",
+  "<inbound_actor_context>", // backward-compat: strip legacy separate actor blocks
+  "<interface_turn_context>", // backward-compat: strip legacy separate interface blocks
+  // NOTE: <turn_context> is intentionally NOT stripped — unified turn context
+  // blocks persist in history so the assistant retains temporal/actor grounding.
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
   // NOTE: <memory __injected> is intentionally NOT stripped — memory
@@ -1220,8 +1221,10 @@ const RUNTIME_INJECTION_PREFIXES = [
   // the InContextTracker deduplicates nodes across turns, so accumulation
   // does not cause unbounded context growth.
   "<voice_call_control>",
-  "<workspace_top_level>",
-  TEMPORAL_INJECTED_PREFIX,
+  "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
+  // NOTE: <workspace> is intentionally NOT stripped — workspace context
+  // persists in history so the assistant retains workspace grounding.
+  TEMPORAL_INJECTED_PREFIX, // backward-compat: strip legacy temporal blocks
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
@@ -1246,11 +1249,10 @@ export function stripInjectedContext(messages: Message[]): Message[] {
  * Controls which runtime injections are applied.
  *
  * - `'full'` (default): all injections are applied.
- * - `'minimal'`: only safety-critical context is injected (channel turn,
- *   interface turn, inbound actor, non-interactive marker, voice call
- *   control, channel capabilities). High-token optional blocks (workspace
- *   top-level, temporal, channel command, active surface) are skipped to
- *   reduce context pressure.
+ * - `'minimal'`: only safety-critical context is injected (unified turn
+ *   context, non-interactive marker, voice call control, channel
+ *   capabilities). High-token optional blocks (workspace, channel command,
+ *   active surface, NOW.md scratchpad) are skipped to reduce context pressure.
  */
 export type InjectionMode = "full" | "minimal";
 
@@ -1267,11 +1269,7 @@ export function applyRuntimeInjections(
     workspaceTopLevelContext?: string | null;
     channelCapabilities?: ChannelCapabilities | null;
     channelCommandContext?: ChannelCommandContext | null;
-    channelTurnContext?: ChannelTurnContextParams | null;
-    interfaceTurnContext?: InterfaceTurnContextParams | null;
-    inboundActorContext?: InboundActorContext | null;
     unifiedTurnContext?: string | null;
-    temporalContext?: string | null;
     voiceCallControlPrompt?: string | null;
     nowScratchpad?: string | null;
     isNonInteractive?: boolean;
@@ -1353,30 +1351,6 @@ export function applyRuntimeInjections(
     }
   }
 
-  if (options.channelTurnContext || options.interfaceTurnContext) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectTurnContext(
-          userTail,
-          options.channelTurnContext ?? undefined,
-          options.interfaceTurnContext ?? undefined,
-        ),
-      ];
-    }
-  }
-
-  if (options.inboundActorContext) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectInboundActorContext(userTail, options.inboundActorContext),
-      ];
-    }
-  }
-
   if (options.unifiedTurnContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
@@ -1403,19 +1377,6 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectTransportHints(userTail, options.transportHints),
-      ];
-    }
-  }
-
-  // Temporal context is injected before workspace top-level so it
-  // appears after workspace context in the final message content
-  // (both are prepended, so later injections appear first).
-  if (mode === "full" && options.temporalContext) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectTemporalContext(userTail, options.temporalContext),
       ];
     }
   }
