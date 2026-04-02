@@ -40,6 +40,7 @@ mock.module("../config/loader.js", () => ({
   getNestedValue: () => undefined,
   setNestedValue: () => {},
   deepMergeOverwrite: (a: unknown) => a,
+  mergeDefaultWorkspaceConfig: () => {},
   API_KEY_PROVIDERS: [
     "anthropic",
     "openai",
