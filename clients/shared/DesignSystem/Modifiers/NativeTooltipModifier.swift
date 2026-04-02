@@ -244,11 +244,11 @@ private final class VTooltipTrackerView: NSView {
         let y = tooltipEdge == .bottom ? screenPoint.y - host.fittingSize.height - 4 : screenPoint.y + 4
         p.setFrameOrigin(NSPoint(x: x, y: y))
 
+        p.alphaValue = 0
+
         // Attach as a child window so the tooltip stays grouped with
         // its source window and doesn't float above unrelated windows.
         window.addChildWindow(p, ordered: .above)
-
-        p.alphaValue = 0
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
             p.animator().alphaValue = 1
