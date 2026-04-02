@@ -9,10 +9,13 @@
 import { and, eq, like } from "drizzle-orm";
 
 import { buildCliProgram } from "../../cli/program.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { getCatalog } from "../../skills/catalog-cache.js";
 import {
+  fromCatalogSkill,
   fromSkillSummary,
   type SkillCapabilityInput,
 } from "../../skills/skill-memory.js";
@@ -134,6 +137,34 @@ export function seedCliGraphNodes(): void {
     pruneStaleCapabilities(CLI_SOURCE_PREFIX, seenKeys);
   } catch (err) {
     log.warn({ err }, "Failed to seed CLI graph nodes");
+  }
+}
+
+/**
+ * Seed capability graph nodes for catalog skills that are not yet installed.
+ * This makes uninstalled skills discoverable via memory injection so the LLM
+ * can auto-install them via skill_load when relevant.
+ * Best-effort: errors are logged but never thrown.
+ */
+export async function seedUninstalledCatalogSkillMemories(): Promise<void> {
+  try {
+    const fullCatalog = await getCatalog();
+    if (fullCatalog.length === 0) return;
+
+    const installedCatalog = loadSkillCatalog();
+    const installedIds = new Set(installedCatalog.map((s) => s.id));
+
+    const config = getConfig();
+    for (const entry of fullCatalog) {
+      if (installedIds.has(entry.id)) continue;
+
+      const flagKey = entry.metadata?.vellum?.["feature-flag"];
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
+
+      upsertSkillCapabilityNode(entry.id, fromCatalogSkill(entry));
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to seed uninstalled catalog skill memories");
   }
 }
 
