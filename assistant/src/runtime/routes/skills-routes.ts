@@ -39,6 +39,37 @@ export interface SkillRouteDeps {
   getSkillContext: () => SkillOperationContext;
 }
 
+const slimSkillBase = {
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  emoji: z.string().optional(),
+  kind: z.enum(["bundled", "installed", "catalog"]),
+  status: z.enum(["enabled", "disabled", "available"]),
+};
+
+const slimSkillSchema = z.discriminatedUnion("origin", [
+  z.object({ ...slimSkillBase, origin: z.literal("vellum") }),
+  z.object({
+    ...slimSkillBase,
+    origin: z.literal("clawhub"),
+    slug: z.string(),
+    author: z.string(),
+    stars: z.number(),
+    installs: z.number(),
+    reports: z.number(),
+    publishedAt: z.string().optional(),
+  }),
+  z.object({
+    ...slimSkillBase,
+    origin: z.literal("skillssh"),
+    slug: z.string(),
+    sourceRepo: z.string(),
+    installs: z.number(),
+  }),
+  z.object({ ...slimSkillBase, origin: z.literal("custom") }),
+]);
+
 export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
   const ctx = () => deps.getSkillContext();
 
@@ -60,40 +91,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         },
       ],
       responseBody: z.object({
-        skills: z
-          .array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              description: z.string(),
-              kind: z.enum(["bundled", "installed", "catalog"]),
-              origin: z.enum(["vellum", "clawhub", "skillssh", "custom"]),
-              status: z.enum(["enabled", "disabled", "available"]),
-              vellum: z
-                .object({
-                  emoji: z.string().optional(),
-                })
-                .optional(),
-              clawhub: z
-                .object({
-                  slug: z.string(),
-                  author: z.string(),
-                  stars: z.number(),
-                  installs: z.number(),
-                  reports: z.number(),
-                  publishedAt: z.string().optional(),
-                })
-                .optional(),
-              skillssh: z
-                .object({
-                  slug: z.string(),
-                  sourceRepo: z.string(),
-                  installs: z.number(),
-                })
-                .optional(),
-            }),
-          )
-          .describe("Skill objects"),
+        skills: z.array(slimSkillSchema).describe("Skill objects"),
       }),
       handler: async ({ url }) => {
         const include = url.searchParams.get("include");
@@ -280,38 +278,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       ],
       responseBody: z.object({
         skills: z
-          .array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              description: z.string(),
-              kind: z.enum(["bundled", "installed", "catalog"]),
-              origin: z.enum(["vellum", "clawhub", "skillssh", "custom"]),
-              status: z.enum(["enabled", "disabled", "available"]),
-              vellum: z
-                .object({
-                  emoji: z.string().optional(),
-                })
-                .optional(),
-              clawhub: z
-                .object({
-                  slug: z.string(),
-                  author: z.string(),
-                  stars: z.number(),
-                  installs: z.number(),
-                  reports: z.number(),
-                  publishedAt: z.string().optional(),
-                })
-                .optional(),
-              skillssh: z
-                .object({
-                  slug: z.string(),
-                  sourceRepo: z.string(),
-                  installs: z.number(),
-                })
-                .optional(),
-            }),
-          )
+          .array(slimSkillSchema)
           .describe("Skill objects matching the search query"),
       }),
       handler: async ({ url }) => {

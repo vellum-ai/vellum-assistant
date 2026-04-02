@@ -64,11 +64,8 @@ import {
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import type {
   ClawhubDetailMeta,
-  ClawhubSkillMeta,
   SkillDetailResponse,
-  SkillsshSkillMeta,
   SlimSkillResponse,
-  VellumSkillMeta,
 } from "../message-types/skills.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
@@ -276,38 +273,26 @@ function deriveOrigin(
   return meta?.origin ?? "custom";
 }
 
-/** Build the correct polymorphic sub-object for a given origin. */
+/** Build the origin-specific fields for a given origin (flattened at top level). */
 function buildOriginMeta(
   origin: SlimSkillResponse["origin"],
   summary: SkillSummary,
   installMeta?: SkillInstallMeta | null,
-): Pick<SlimSkillResponse, "vellum" | "clawhub" | "skillssh"> {
+): Record<string, unknown> {
   switch (origin) {
-    case "vellum": {
-      const vellumMeta: VellumSkillMeta | undefined = summary.emoji
-        ? { emoji: summary.emoji }
-        : undefined;
-      return vellumMeta ? { vellum: vellumMeta } : {};
-    }
+    case "vellum":
+      return {};
     case "clawhub": {
       const meta =
         installMeta !== undefined
           ? installMeta
           : readInstallMeta(summary.directoryPath);
-      const clawhubMeta: ClawhubSkillMeta = {
+      return {
         slug: meta?.slug ?? summary.id,
         author: "",
         stars: 0,
         installs: 0,
         reports: 0,
-      };
-      // Preserve emoji for the Swift client which reads skill.vellum?.emoji
-      const emojiMeta: VellumSkillMeta | undefined = summary.emoji
-        ? { emoji: summary.emoji }
-        : undefined;
-      return {
-        clawhub: clawhubMeta,
-        ...(emojiMeta ? { vellum: emojiMeta } : {}),
       };
     }
     case "skillssh": {
@@ -315,27 +300,14 @@ function buildOriginMeta(
         installMeta !== undefined
           ? installMeta
           : readInstallMeta(summary.directoryPath);
-      const skillsshMeta: SkillsshSkillMeta = {
+      return {
         slug: meta?.slug ?? summary.id,
         sourceRepo: meta?.sourceRepo ?? "",
         installs: 0,
       };
-      // Preserve emoji for the Swift client which reads skill.vellum?.emoji
-      const emojiMeta: VellumSkillMeta | undefined = summary.emoji
-        ? { emoji: summary.emoji }
-        : undefined;
-      return {
-        skillssh: skillsshMeta,
-        ...(emojiMeta ? { vellum: emojiMeta } : {}),
-      };
     }
-    default: {
-      // Custom origin: still preserve emoji if present
-      const emojiMeta: VellumSkillMeta | undefined = summary.emoji
-        ? { emoji: summary.emoji }
-        : undefined;
-      return emojiMeta ? { vellum: emojiMeta } : {};
-    }
+    default:
+      return {};
   }
 }
 
@@ -362,11 +334,12 @@ function toSlimSkillResponse(
     id: summary.id,
     name: summary.displayName,
     description: summary.description,
+    emoji: summary.emoji,
     kind,
     origin,
     status,
     ...buildOriginMeta(origin, summary, installMeta),
-  };
+  } as SlimSkillResponse;
 }
 
 export function listSkills(_ctx: SkillOperationContext): SlimSkillResponse[] {
@@ -408,21 +381,15 @@ export async function listSkillsWithCatalog(
   // Create SlimSkillResponses for catalog skills not already installed.
   const available: SlimSkillResponse[] = catalogSkills
     .filter((cs) => !installedIds.has(cs.id))
-    .map((cs) => {
-      const emoji = cs.emoji;
-      const result: SlimSkillResponse = {
-        id: cs.id,
-        name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
-        description: cs.description,
-        kind: "catalog",
-        origin: "vellum",
-        status: "available",
-      };
-      if (emoji) {
-        result.vellum = { emoji };
-      }
-      return result;
-    });
+    .map((cs) => ({
+      id: cs.id,
+      name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
+      description: cs.description,
+      emoji: cs.emoji,
+      kind: "catalog" as const,
+      origin: "vellum" as const,
+      status: "available" as const,
+    }));
 
   const merged = [...installed, ...available];
 
@@ -473,24 +440,41 @@ export async function getSkill(
     // Best-effort: body is optional
   }
 
-  // Build the detail response, starting from the slim shape
+  // Build the detail response, starting from the slim shape.
+  // SkillDetailResponse still uses the old nested sub-object shape (PR 2
+  // will flatten it); reconstruct nested objects from the flat union here.
   const detail: SkillDetailResponse = {
     id: slim.id,
     name: slim.name,
     description: slim.description,
+    emoji: slim.emoji,
     kind: slim.kind,
     origin: slim.origin,
     status: slim.status,
-    ...(slim.vellum ? { vellum: slim.vellum } : {}),
-    ...(slim.skillssh ? { skillssh: slim.skillssh } : {}),
+    ...(slim.origin === "skillssh"
+      ? {
+          skillssh: {
+            slug: slim.slug,
+            sourceRepo: slim.sourceRepo,
+            installs: slim.installs,
+          },
+        }
+      : {}),
     ...(body !== undefined ? { body } : {}),
   };
 
   // For clawhub-origin skills, enrich with inspect data
-  if (slim.origin === "clawhub" && slim.clawhub) {
-    const enriched: ClawhubDetailMeta = { ...slim.clawhub };
+  if (slim.origin === "clawhub") {
+    const enriched: ClawhubDetailMeta = {
+      slug: slim.slug,
+      author: slim.author,
+      stars: slim.stars,
+      installs: slim.installs,
+      reports: slim.reports,
+      publishedAt: slim.publishedAt,
+    };
     try {
-      const inspectResult = await clawhubInspect(slim.clawhub.slug);
+      const inspectResult = await clawhubInspect(slim.slug);
       if (inspectResult.data) {
         const data = inspectResult.data;
         enriched.owner = data.owner;
@@ -503,8 +487,6 @@ export async function getSkill(
       log.warn({ err, skillId }, "Failed to enrich clawhub skill detail");
     }
     detail.clawhub = enriched;
-  } else if (slim.clawhub) {
-    detail.clawhub = slim.clawhub;
   }
 
   return { skill: detail };
@@ -962,18 +944,15 @@ export async function searchSkills(
       }
       // Fallback for catalog entries not in resolvedSkillStates (shouldn't
       // normally happen, but defensive)
-      const result: SlimSkillResponse = {
+      return {
         id: s.id,
         name: s.displayName,
         description: s.description,
-        kind: "catalog",
-        origin: "vellum",
-        status: "available",
+        emoji: s.emoji,
+        kind: "catalog" as const,
+        origin: "vellum" as const,
+        status: "available" as const,
       };
-      if (s.emoji) {
-        result.vellum = { emoji: s.emoji };
-      }
-      return result;
     });
 
     // Search both community registries in parallel (non-fatal on failure)
@@ -991,16 +970,14 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "clawhub" as const,
         status: "available" as const,
-        clawhub: {
-          slug: s.slug,
-          author: s.author,
-          stars: s.stars,
-          installs: s.installs,
-          reports: 0,
-          publishedAt: s.createdAt
-            ? new Date(s.createdAt * 1000).toISOString()
-            : undefined,
-        },
+        slug: s.slug,
+        author: s.author,
+        stars: s.stars,
+        installs: s.installs,
+        reports: 0,
+        publishedAt: s.createdAt
+          ? new Date(s.createdAt * 1000).toISOString()
+          : undefined,
       }));
     } else {
       log.warn(
@@ -1018,11 +995,9 @@ export async function searchSkills(
         kind: "catalog" as const,
         origin: "skillssh" as const,
         status: "available" as const,
-        skillssh: {
-          slug: r.id,
-          sourceRepo: r.source,
-          installs: r.installs,
-        },
+        slug: r.id,
+        sourceRepo: r.source,
+        installs: r.installs,
       }));
     } else {
       log.warn(
