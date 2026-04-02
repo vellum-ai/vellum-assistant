@@ -116,14 +116,71 @@ function rowToTrigger(
 }
 
 // ---------------------------------------------------------------------------
+// Paragraph deduplication
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove repeated paragraphs and bullet items from memory node content.
+ * Paragraphs are separated by `\n\n`. Within each paragraph, lines starting
+ * with `- ` are treated as bullet items and individually deduplicated.
+ */
+export function deduplicateParagraphs(content: string): string {
+  if (!content) return content;
+
+  const paragraphs = content.split("\n\n");
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const paragraph of paragraphs) {
+    // Deduplicate bullet items within the paragraph
+    const lines = paragraph.split("\n");
+    const isBulletList = lines.some((l) => l.trimStart().startsWith("- "));
+
+    let processed: string;
+    if (isBulletList) {
+      const seenBullets = new Set<string>();
+      const uniqueLines: string[] = [];
+      for (const line of lines) {
+        if (line.trimStart().startsWith("- ")) {
+          const normalized = line.trim().replace(/\s+/g, " ");
+          if (!seenBullets.has(normalized)) {
+            seenBullets.add(normalized);
+            uniqueLines.push(line);
+          }
+        } else {
+          uniqueLines.push(line);
+        }
+      }
+      processed = uniqueLines.join("\n");
+    } else {
+      processed = paragraph;
+    }
+
+    const normalized = processed.trim().replace(/\s+/g, " ");
+    if (normalized === "") {
+      // Preserve empty paragraphs (whitespace-only) as separators
+      unique.push(processed);
+    } else if (!seen.has(normalized)) {
+      seen.add(normalized);
+      unique.push(processed);
+    }
+  }
+
+  return unique.join("\n\n");
+}
+
+// ---------------------------------------------------------------------------
 // Node CRUD
 // ---------------------------------------------------------------------------
 
 export function createNode(node: NewNode): MemoryNode {
   const db = getDb();
   const id = uuid();
-  db.insert(memoryGraphNodes).values(nodeToInsertValues(node, id)).run();
-  return { ...node, id };
+  const cleanContent = deduplicateParagraphs(node.content);
+  db.insert(memoryGraphNodes)
+    .values(nodeToInsertValues({ ...node, content: cleanContent }, id))
+    .run();
+  return { ...node, content: cleanContent, id };
 }
 
 export function getNode(id: string): MemoryNode | null {
@@ -154,7 +211,8 @@ export function updateNode(
   const db = getDb();
   const updates: Record<string, unknown> = {};
 
-  if (changes.content !== undefined) updates.content = changes.content;
+  if (changes.content !== undefined)
+    updates.content = deduplicateParagraphs(changes.content);
   if (changes.type !== undefined) updates.type = changes.type;
   if (changes.created !== undefined) updates.created = changes.created;
   if (changes.lastAccessed !== undefined)
@@ -558,7 +616,10 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
     // Create nodes
     for (const node of diff.createNodes) {
       const id = uuid();
-      tx.insert(memoryGraphNodes).values(nodeToInsertValues(node, id)).run();
+      const cleanContent = deduplicateParagraphs(node.content);
+      tx.insert(memoryGraphNodes)
+        .values(nodeToInsertValues({ ...node, content: cleanContent }, id))
+        .run();
       result.nodesCreated++;
       result.createdNodeIds.push(id);
     }
@@ -567,7 +628,8 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
     for (const update of diff.updateNodes) {
       const updates: Record<string, unknown> = {};
       const c = update.changes;
-      if (c.content !== undefined) updates.content = c.content;
+      if (c.content !== undefined)
+        updates.content = deduplicateParagraphs(c.content as string);
       if (c.type !== undefined) updates.type = c.type;
       if (c.emotionalCharge !== undefined)
         updates.emotionalCharge = JSON.stringify(c.emotionalCharge);
