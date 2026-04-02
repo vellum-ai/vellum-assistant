@@ -137,6 +137,7 @@ public struct VMenuItem<Trailing: View>: View {
     public let isActive: Bool
     public let variant: VMenuItemVariant
     public let size: VMenuItemSize
+    public let accessibilityValueText: String?
     public let action: () -> Void
     public let trailing: Trailing
 
@@ -150,6 +151,7 @@ public struct VMenuItem<Trailing: View>: View {
         isActive: Bool = false,
         variant: VMenuItemVariant = .default,
         size: VMenuItemSize = .compact,
+        accessibilityValue: String? = nil,
         action: @escaping () -> Void,
         @ViewBuilder trailing: () -> Trailing
     ) {
@@ -158,6 +160,7 @@ public struct VMenuItem<Trailing: View>: View {
         self.isActive = isActive
         self.variant = variant
         self.size = size
+        self.accessibilityValueText = accessibilityValue
         self.action = action
         self.trailing = trailing()
     }
@@ -225,6 +228,7 @@ public struct VMenuItem<Trailing: View>: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAddTraits(isActive ? [.isSelected] : [])
             .accessibilityRemoveTraits(isEnabled ? [] : [.isButton])
+            .accessibilityValue(accessibilityValueText ?? "")
             .accessibilityAction { dismissMenu?(); action() }
         }
     }
@@ -240,9 +244,10 @@ public extension VMenuItem where Trailing == EmptyView {
         isActive: Bool = false,
         variant: VMenuItemVariant = .default,
         size: VMenuItemSize = .compact,
+        accessibilityValue: String? = nil,
         action: @escaping () -> Void
     ) {
-        self.init(icon: icon, label: label, isActive: isActive, variant: variant, size: size, action: action) {
+        self.init(icon: icon, label: label, isActive: isActive, variant: variant, size: size, accessibilityValue: accessibilityValue, action: action) {
             EmptyView()
         }
     }

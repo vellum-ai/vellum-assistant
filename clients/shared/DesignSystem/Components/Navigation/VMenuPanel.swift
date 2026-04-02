@@ -50,6 +50,7 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.setAccessibilityRole(.menu)
 
         // Create coordinator for this panel tree
         let coordinator = VMenuCoordinator()
@@ -120,6 +121,7 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.setAccessibilityRole(.menu)
         panel.coordinator = coordinator
         panel.managedByCoordinator = true
 
