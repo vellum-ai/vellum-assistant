@@ -124,9 +124,10 @@ mock.module("../skills/managed-store.js", () => ({
   removeSkillsIndexEntry: () => {},
   validateManagedSkillId: () => null,
 }));
-mock.module("../skills/skill-memory.js", () => ({
-  deleteSkillCapabilityMemory: () => {},
-  seedCatalogSkillMemories: () => {},
+mock.module("../memory/graph/capability-seed.js", () => ({
+  deleteSkillCapabilityNode: () => {},
+  seedSkillGraphNodes: () => {},
+  seedUninstalledCatalogSkillMemories: async () => {},
 }));
 mock.module("../util/platform.js", () => ({
   getWorkspaceSkillsDir: () => "/tmp/test-skills",
