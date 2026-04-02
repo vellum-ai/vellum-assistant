@@ -40,9 +40,14 @@ export async function graphExtractJob(
   const lastTs = getMemoryCheckpoint(checkpointKey);
   const afterTimestamp = lastTs ? parseInt(lastTs, 10) : undefined;
 
+  const activeContextNodeIds = Array.isArray(job.payload.activeContextNodeIds)
+    ? (job.payload.activeContextNodeIds as string[])
+    : undefined;
+
   try {
     const result = await runGraphExtraction(conversationId, scopeId, config, {
       afterTimestamp,
+      activeContextNodeIds,
     });
 
     // Update checkpoint to the newest message actually processed — using

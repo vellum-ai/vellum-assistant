@@ -248,6 +248,7 @@ export class Conversation {
   public readonly hasSystemPromptOverride: boolean;
   public memoryPolicy: ConversationMemoryPolicy;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
+  /** @internal */ activeContextNodeIds?: string[];
   /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -564,6 +565,7 @@ export class Conversation {
     // CES client is owned by DaemonServer — just drop the reference.
     // Do NOT close it here; the server manages the CES lifecycle.
     this.cesClient = undefined;
+    this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
     disposeConversation(this);
   }
 
