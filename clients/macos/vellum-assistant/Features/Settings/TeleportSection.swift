@@ -135,11 +135,7 @@ struct TeleportSection: View {
 
     @ViewBuilder
     private var teleportContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Teleport")
-                .font(VFont.titleSmall)
-                .foregroundStyle(VColor.contentDefault)
-
+        SettingsCard(title: "Teleport", subtitle: "Move your assistant to a different hosting environment") {
             if case .verifying = phase {
                 verifyingBanner
             } else if case .transferring(let step) = phase {
@@ -156,21 +152,13 @@ struct TeleportSection: View {
                 destinationPicker
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
     }
 
     // MARK: - Destination Picker
 
     @ViewBuilder
     private var destinationPicker: some View {
-        if assistant.cloud.lowercased() == "local" {
-            // Bare metal local: show both Docker and Platform options
-            destinationButton(for: .docker)
-            destinationButton(for: .platform)
-        } else if assistant.isDocker {
-            // Docker: show only Platform option
+        if assistant.cloud.lowercased() == "local" || assistant.isDocker {
             destinationButton(for: .platform)
         }
     }
@@ -184,7 +172,7 @@ struct TeleportSection: View {
 
             VButton(
                 label: destination.displayLabel,
-                style: .primary,
+                style: .outlined,
                 isDisabled: isDestinationDisabled(destination)
             ) {
                 pendingDestination = destination
