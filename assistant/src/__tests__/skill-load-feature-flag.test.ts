@@ -39,6 +39,16 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
+  API_KEY_PROVIDERS: [
+    "anthropic",
+    "openai",
+    "gemini",
+    "ollama",
+    "fireworks",
+    "openrouter",
+    "brave",
+    "perplexity",
+  ],
 }));
 
 await import("../tools/skills/load.js");
