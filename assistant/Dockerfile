@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install bun
-RUN curl -fsSL https://bun.sh/install | bash
+# Install bun (--smol omits debug symbols for a smaller binary)
+RUN curl -fsSL https://bun.sh/install | bash -s -- --smol
 ENV PATH="/root/.bun/bin:${PATH}"
 
 # Copy shared packages needed by assistant's repo-local dependencies
