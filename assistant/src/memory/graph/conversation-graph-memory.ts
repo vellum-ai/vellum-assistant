@@ -45,9 +45,7 @@ const ESTIMATED_IMAGE_TOKENS = 1000;
  */
 export class ConversationGraphMemory {
   readonly tracker = new InContextTracker();
-  private turnCount = 0;
   private initialized = false;
-  private lastCompactedAt: number | null = null;
   private needsReload = false;
   private scopeId: string;
   private conversationId: string;
@@ -127,7 +125,6 @@ export class ConversationGraphMemory {
     // so we conservatively clear everything and reload.
     this.tracker.evictCompactedTurns(this.tracker.getTurn());
     this.needsReload = true;
-    this.lastCompactedAt = Date.now();
     log.info(
       { compactedMessageCount },
       "Compaction detected — will reload context on next turn",
@@ -196,7 +193,6 @@ export class ConversationGraphMemory {
     /** The raw text content of the injected block (without XML wrapper), or null if nothing was injected. */
     injectedBlockText: string | null;
   }> {
-    this.turnCount++;
     this.tracker.advanceTurn();
 
     const noopResult = {
