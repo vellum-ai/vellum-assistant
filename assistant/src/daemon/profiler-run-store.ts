@@ -89,17 +89,18 @@ function computeDirBytes(dirPath: string): number {
   let total = 0;
   if (!existsSync(dirPath)) return 0;
 
-  const entries = readdirSync(dirPath, { withFileTypes: true });
-  for (const entry of entries) {
-    const entryPath = join(dirPath, entry.name);
-    if (entry.isDirectory()) {
-      total += computeDirBytes(entryPath);
-    } else if (entry.isFile()) {
-      try {
-        total += statSync(entryPath).size;
-      } catch {
-        // File may have been removed between readdir and stat
+  const names = readdirSync(dirPath);
+  for (const name of names) {
+    const entryPath = join(dirPath, name);
+    try {
+      const stat = statSync(entryPath);
+      if (stat.isDirectory()) {
+        total += computeDirBytes(entryPath);
+      } else if (stat.isFile()) {
+        total += stat.size;
       }
+    } catch {
+      // Entry may have been removed between readdir and stat
     }
   }
   return total;
@@ -162,18 +163,20 @@ export function rescanRuns(): ProfilerRunManifest[] {
   const manifests: ProfilerRunManifest[] = [];
   const now = new Date().toISOString();
 
-  let entries: ReturnType<typeof readdirSync>;
+  let names: string[];
   try {
-    entries = readdirSync(runsDir, { withFileTypes: true });
+    names = readdirSync(runsDir);
   } catch {
     return [];
   }
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const runId = entry.name;
+  for (const runId of names) {
     const runDir = getProfilerRunDir(runId);
+    try {
+      if (!statSync(runDir).isDirectory()) continue;
+    } catch {
+      continue;
+    }
     const totalBytes = computeDirBytes(runDir);
 
     const existing = readManifest(runDir);
