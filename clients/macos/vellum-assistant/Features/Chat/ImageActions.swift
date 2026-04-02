@@ -143,6 +143,12 @@ enum ImageActions {
         }
     }
 
+    /// Wraps `[NSSharingService]` for transfer across isolation boundaries.
+    /// Instances are freshly created by the class method and used exclusively on MainActor.
+    private struct UncheckedServices: @unchecked Sendable {
+        let value: [NSSharingService]
+    }
+
     /// Cache of sharing services by file extension. Services depend on file type,
     /// not content, so one discovery per extension per app session is sufficient.
     @MainActor private static var sharingServicesCache: [String: [NSSharingService]] = [:]
@@ -185,8 +191,8 @@ enum ImageActions {
 
         let probeURL = ensureProbeFile(for: key)
         let services = await Task.detached(priority: .userInitiated) {
-            NSSharingService.sharingServices(forItems: [probeURL])
-        }.value
+            UncheckedServices(value: NSSharingService.sharingServices(forItems: [probeURL]))
+        }.value.value
 
         sharingServicesCache[key] = services
         return services

@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 import VellumAssistantShared
 
+/// Wraps `[NSSharingService]` for transfer across isolation boundaries.
+/// Instances are freshly created by the class method and used exclusively on MainActor.
+private struct UncheckedServices: @unchecked Sendable {
+    let value: [NSSharingService]
+}
+
 /// Custom share panel that replaces NSSharingServicePicker, showing the app icon
 /// prominently in the header instead of a blank document icon.
 struct AppSharePanelView: View {
@@ -35,9 +41,9 @@ struct AppSharePanelView: View {
         .task {
             let url = fileURL
             let loaded = await Task.detached(priority: .userInitiated) {
-                NSSharingService.sharingServices(forItems: [url])
+                UncheckedServices(value: NSSharingService.sharingServices(forItems: [url]))
             }.value
-            services = loaded
+            services = loaded.value
         }
         .task {
             formattedFileSize = await computeFileSize()
