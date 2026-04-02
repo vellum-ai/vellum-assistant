@@ -10,11 +10,13 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Audio
 /// audio-subsystem queue. When that queue is contended (hardware state changes,
 /// Bluetooth negotiation, coreaudiod latency), the wait can exceed 2 seconds.
 ///
-/// Fire-and-forget operations (`installTap`, `removeTap`, `stop`, `reset`,
-/// `tearDown`, `stopAndRemoveTap`) use `queue.async` so the caller never blocks.
-/// Methods that return a value (`inputNodeFormat`, `prepareAndStart`) use
-/// `queue.sync`; callers should ensure `prewarm()` has run first so `inputNode`
-/// is already initialized and these complete in sub-milliseconds.
+/// Fire-and-forget operations (`installTap`, `removeTap`, `stop`, `reset`)
+/// use `queue.async` so the caller never blocks. Methods that return a value
+/// (`inputNodeFormat`, `prepareAndStart`) or that require ordering guarantees
+/// (`tearDown`, `stopAndRemoveTap` — callers call `endAudio()` immediately
+/// after) use `queue.sync`. Callers should ensure `prewarm()` has run first
+/// so `inputNode` is already initialized and sync calls complete in
+/// sub-milliseconds.
 ///
 /// See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
 final class AudioEngineController: @unchecked Sendable {
@@ -105,8 +107,10 @@ final class AudioEngineController: @unchecked Sendable {
     }
 
     /// Stop the engine and remove the input tap.
+    /// Uses `sync` because callers depend on the tap being removed before
+    /// they call `recognitionRequest?.endAudio()` or `recognitionTask?.cancel()`.
     func tearDown() {
-        queue.async { [weak self] in
+        queue.sync { [weak self] in
             guard let self else { return }
             self.audioEngine.stop()
             self.audioEngine.inputNode.removeTap(onBus: 0)
@@ -134,8 +138,11 @@ final class AudioEngineController: @unchecked Sendable {
     }
 
     /// Stop the engine and remove the input tap (if running).
+    /// Uses `sync` because callers depend on the tap being removed before
+    /// they call `recognitionRequest?.endAudio()` — appending audio after
+    /// `endAudio()` violates `SFSpeechAudioBufferRecognitionRequest`'s contract.
     func stopAndRemoveTap() {
-        queue.async { [weak self] in
+        queue.sync { [weak self] in
             guard let self else { return }
             if self.audioEngine.isRunning {
                 self.audioEngine.stop()
