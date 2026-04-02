@@ -128,13 +128,15 @@ curl -sf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
 
 Non-critical - warn on failure but don't block setup.
 
-## Step 5: Guardian Verification (Optional)
+## Step 5: Test Your Connection
 
-Link the user's Telegram account as a trusted guardian. Load the **guardian-verify-setup** skill:
+Now let's test the connection by verifying the user can receive your messages. This confirms everything works and links the user's Telegram identity for future message delivery.
+
+Load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"`.
 
-If the user declines, skip and continue.
+If the user explicitly wants to skip this step, proceed to Step 6, but let them know they can always verify later by saying "verify me on Telegram".
 
 ## Step 6: Report Success
 
