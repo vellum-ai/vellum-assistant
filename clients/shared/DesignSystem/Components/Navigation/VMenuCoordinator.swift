@@ -150,12 +150,13 @@ public final class VMenuCoordinator {
         rootDismissHandler = onDismiss
         self.excludeRect = excludeRect
         self.sourceWindow = sourceWindow
+        // Only reset transient navigation state. Do NOT clear itemActions,
+        // submenuActions, or itemNSViews — those are populated by SwiftUI
+        // views' .onAppear, which fires BEFORE registerRootPanel is called
+        // (NSHostingView triggers layout when set as contentView). Clearing
+        // them here would permanently wipe the registered actions since
+        // .onAppear only fires once.
         focusedIndex = [:]
-        itemCounts = [:]
-        itemOrder = [:]
-        itemActions = [:]
-        submenuActions = [:]
-        itemNSViews = [:]
         installClickMonitor()
         installMouseMoveMonitor()
         installKeyboardMonitor()

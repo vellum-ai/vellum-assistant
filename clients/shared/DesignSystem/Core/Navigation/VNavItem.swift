@@ -114,7 +114,7 @@ public struct VNavItem<Trailing: View>: View {
 
     private var navItemBackground: Color {
         if isActive { return VColor.surfaceActive }
-        if isKeyboardFocused { return VColor.surfaceBase }
+        if isKeyboardFocused { return VColor.systemPositiveWeak }
         if isHovered { return VColor.surfaceBase }
         return .clear
     }

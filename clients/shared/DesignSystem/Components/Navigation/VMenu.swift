@@ -381,7 +381,7 @@ public struct VMenuItem<Trailing: View>: View {
     private var highlightBackground: Color {
         if isActive { return VColor.surfaceActive }
         #if os(macOS)
-        if isKeyboardFocused { return Color.accentColor.opacity(0.15) }
+        if isKeyboardFocused { return VColor.systemPositiveWeak }
         #endif
         if isHovered && isEnabled { return VColor.surfaceBase }
         return .clear
@@ -543,7 +543,7 @@ public struct VSubMenuItem<Content: View>: View {
     /// Background color incorporating keyboard focus and mouse hover.
     private var highlightBackground: Color {
         #if os(macOS)
-        if isKeyboardFocused { return Color.accentColor.opacity(0.15) }
+        if isKeyboardFocused { return VColor.systemPositiveWeak }
         #endif
         if isHovered && isEnabled { return VColor.surfaceBase }
         return .clear
