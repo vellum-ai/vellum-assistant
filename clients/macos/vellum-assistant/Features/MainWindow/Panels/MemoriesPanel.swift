@@ -323,7 +323,7 @@ struct MemoriesPanel: View {
             )
         } else {
             ScrollView {
-                LazyVStack(spacing: VSpacing.sm) {
+                LazyVStack(spacing: viewMode == .compact ? VSpacing.xxs : VSpacing.sm) {
                     switch viewMode {
                     case .cards:
                         ForEach(store.items) { item in
@@ -356,6 +356,7 @@ struct MemoriesPanel: View {
                             }
                     }
                 }
+                .id(viewMode)
                 .background { OverlayScrollerStyle() }
             }
             .scrollContentBackground(.hidden)
