@@ -211,6 +211,12 @@ struct MarkdownSegmentView: View, Equatable {
         cache.totalCostLimit = 20_000_000 // ~20 MB
         return cache
     }()
+
+    #if DEBUG
+    /// Exposed for testing: number of cache insertions into `measuredTextCache`.
+    /// NSCache doesn't expose its count, so we maintain a parallel counter.
+    @MainActor static var _measuredTextCacheInsertCount: Int = 0
+    #endif
     #endif
 
     // MARK: - Cache Guardrails
@@ -228,6 +234,9 @@ struct MarkdownSegmentView: View, Equatable {
         MarkdownTableView.clearCellAttributedStringCache()
         #if os(macOS)
         measuredTextCache.removeAllObjects()
+        #if DEBUG
+        _measuredTextCacheInsertCount = 0
+        #endif
         #endif
     }
 
@@ -319,6 +328,9 @@ struct MarkdownSegmentView: View, Equatable {
                 forKey: keyNS,
                 cost: textLen * 15
             )
+            #if DEBUG
+            Self._measuredTextCacheInsertCount += 1
+            #endif
         }
         return (nsAttributed, size)
     }
