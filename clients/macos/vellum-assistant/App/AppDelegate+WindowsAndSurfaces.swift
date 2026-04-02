@@ -563,7 +563,6 @@ extension AppDelegate {
                 guard let self else { return }
                 self.updateMenuBarIcon()
                 self.observeActiveViewModelErrorText()
-                self.observeActiveViewModelThinking()
                 self.observeActiveConversationForMenuBar()
             }
         }

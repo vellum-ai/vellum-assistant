@@ -258,16 +258,17 @@ final class ConversationManager: ConversationRestorerDelegate {
     /// Within each group, conversations sort by displayOrder ascending, then recency descending.
     /// Conversations move to the top when messages are sent or received, but NOT when clicked/selected.
     var visibleConversations: [ConversationModel] {
-        conversations
+        let positionMap = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
+        return conversations
             .filter { !$0.isArchived && $0.kind != .private }
-            .sorted { visibleConversationSortOrder($0, $1) }
+            .sorted { visibleConversationSortOrder($0, $1, positionMap: positionMap) }
     }
 
     /// Shared sort predicate for visible conversations: groups first (by sortPosition),
     /// then within each group by displayOrder/recency. Ungrouped last.
-    private func visibleConversationSortOrder(_ a: ConversationModel, _ b: ConversationModel) -> Bool {
-        let aGroupPos = groupSortPosition(for: a.groupId)
-        let bGroupPos = groupSortPosition(for: b.groupId)
+    private func visibleConversationSortOrder(_ a: ConversationModel, _ b: ConversationModel, positionMap: [String: Double]) -> Bool {
+        let aGroupPos = groupSortPosition(for: a.groupId, positionMap: positionMap)
+        let bGroupPos = groupSortPosition(for: b.groupId, positionMap: positionMap)
         if aGroupPos != bGroupPos { return aGroupPos < bGroupPos }
 
         if a.displayOrder == nil && b.displayOrder == nil {
@@ -278,14 +279,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         return a.displayOrder! < b.displayOrder!
     }
 
-    /// Lookup from groupId -> sortPosition, derived from `groups`.
-    private var groupSortPositionMap: [String: Double] {
-        Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
-    }
-
-    private func groupSortPosition(for groupId: String?) -> Double {
+    private func groupSortPosition(for groupId: String?, positionMap: [String: Double]) -> Double {
         guard let groupId else { return Double.infinity }  // ungrouped sorts last (intentional)
-        return groupSortPositionMap[groupId] ?? Double.infinity  // orphaned -> treat as ungrouped
+        return positionMap[groupId] ?? Double.infinity  // orphaned -> treat as ungrouped
     }
 
     /// Count of visible (non-archived, non-private) conversations with unseen assistant messages.
@@ -1343,9 +1339,10 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
 
         // Reorder within TARGET GROUP only (not global — prevents corrupting other groups).
+        let positionMap = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
         let groupMembers = draft
             .filter { $0.groupId == targetGroupId && !$0.isArchived && $0.kind != .private }
-            .sorted { visibleConversationSortOrder($0, $1) }
+            .sorted { visibleConversationSortOrder($0, $1, positionMap: positionMap) }
 
         // Remove source from the group member list
         var reordered = groupMembers.filter { $0.id != sourceId }
