@@ -46,6 +46,9 @@ public final class GatewayConnectionManager {
     public var isConnecting: Bool = false
     public internal(set) var assistantVersion: String?
     public internal(set) var versionMismatch: Bool = false
+    /// Composite key ("clientVersion|assistantVersion") of the version mismatch the user dismissed.
+    /// When non-nil and matching the current pair, the banner stays hidden until versions change.
+    public internal(set) var dismissedMismatchKey: String?
     public internal(set) var isUpdateInProgress: Bool = false
     public internal(set) var updateTargetVersion: String?
     public internal(set) var updateStatusMessage: String?
@@ -323,6 +326,7 @@ public final class GatewayConnectionManager {
         isConnected = false
         assistantVersion = nil
         versionMismatch = false
+        dismissedMismatchKey = nil
         isUpdateInProgress = false
         updateTargetVersion = nil
         updateStatusMessage = nil
@@ -574,9 +578,24 @@ public final class GatewayConnectionManager {
         if mismatch != versionMismatch {
             versionMismatch = mismatch
         }
+        // Reset dismissal when the version pair changes (new mismatch should re-show the banner)
         if mismatch {
+            let currentKey = "\(clientVersion)|\(assistantVersion)"
+            if dismissedMismatchKey != nil && dismissedMismatchKey != currentKey {
+                dismissedMismatchKey = nil
+            }
             log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs assistant \(assistantVersion, privacy: .public)")
+        } else {
+            dismissedMismatchKey = nil
         }
+    }
+
+    /// Dismiss the version mismatch banner for the current version pair.
+    /// The banner will re-appear if either version changes.
+    public func dismissVersionMismatch() {
+        guard let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+              let assistantVersion = assistantVersion else { return }
+        dismissedMismatchKey = "\(clientVersion)|\(assistantVersion)"
     }
 
     // MARK: - SSE Message Pre-Processing
