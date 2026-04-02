@@ -194,8 +194,7 @@ function getTopSignificanceNodes(
     scopeId,
     fidelityNot: ["gone"],
     minSignificance: 0.6,
-    limit: n,
-  }).filter((n) => !isCapabilityNode(n));
+  }).filter((n) => !isCapabilityNode(n)).slice(0, n);
 }
 
 function getDecayedNodes(scopeId: string): MemoryNode[] {
