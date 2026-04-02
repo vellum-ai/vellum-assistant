@@ -2382,6 +2382,87 @@ jobs:
             sleep 30
           done
 
+  notify-staging-dmg:
+    name: Slack Notification (Staging DMG Ready)
+    needs: [extract-version, build-macos-arm64, build-macos-x64]
+    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Build Slack payload
+        env:
+          SLACK_USER_ID: ${{ inputs.slack_user_id }}
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          ARM_RESULT="${{ needs.build-macos-arm64.result }}"
+          X64_RESULT="${{ needs.build-macos-x64.result }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ -n "$SLACK_USER_ID" ]; then
+            TRIGGERED_BY="<@${SLACK_USER_ID}>"
+          else
+            TRIGGERED_BY="${{ github.actor }}"
+          fi
+
+          ci_icon() { if [ "$1" = "success" ]; then printf '✅'; elif [ "$1" = "skipped" ]; then printf '⏭️'; else printf '❌'; fi; }
+
+          if [ "$ARM_RESULT" = "success" ]; then
+            HEADER="✅ Desktop DMG Ready — v${VERSION}"
+            BODY=$(printf 'The staging Desktop DMG has finished building and is available for testing.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s` (staging)\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
+          else
+            HEADER="❌ Desktop DMG Build Failed — v${VERSION}"
+            BODY=$(printf 'The staging Desktop DMG build failed.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s` (staging)\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
+          fi
+
+          BLOCKS="[]"
+          BLOCKS=$(echo "$BLOCKS" | jq --arg header "$HEADER" '. + [{ type: "header", text: { type: "plain_text", text: $header } }]')
+          BLOCKS=$(echo "$BLOCKS" | jq --arg body "$BODY" '. + [{ type: "section", text: { type: "mrkdwn", text: $body } }]')
+
+          ARTIFACTS_URL="${RUN_URL}#artifacts"
+
+          if [ "$ARM_RESULT" = "success" ]; then
+            DOWNLOAD_BTN=$(jq -n --arg url "$ARTIFACTS_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "Download DMG" },
+              url: $url,
+              style: "primary"
+            }')
+          else
+            DOWNLOAD_BTN=$(jq -n --arg url "$RUN_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "View Run" },
+              url: $url,
+              style: "danger"
+            }')
+          fi
+
+          BLOCKS=$(echo "$BLOCKS" | jq --argjson btn "$DOWNLOAD_BTN" '. + [{ type: "actions", elements: [$btn] }]')
+
+          jq -n --argjson blocks "$BLOCKS" '{
+            unfurl_links: false,
+            unfurl_media: false,
+            blocks: $blocks
+          }' > /tmp/slack-payload.json
+
+      - name: Notify Slack
+        id: slack
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload-file-path: /tmp/slack-payload.json
+          errors: true
+
+      - name: Log Slack notification result
+        if: always()
+        run: |
+          echo "Slack step outcome: ${{ steps.slack.outcome }}"
+          if [ "${{ steps.slack.outcome }}" != "success" ]; then
+            echo "::warning::Staging DMG Slack notification failed to send."
+          fi
+
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
