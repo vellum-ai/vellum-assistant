@@ -104,6 +104,7 @@ final class VoiceInputManager {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let engineController = AudioEngineController()
+    private var enginePrewarmed = false
 
     init(dictationClient: any DictationClientProtocol = DictationClient()) {
         self.dictationClient = dictationClient
@@ -111,6 +112,7 @@ final class VoiceInputManager {
 
     func start() {
         hasStarted = true
+        prewarmEngine()
         setupActivationMonitors()
 
         // Cancel any in-flight hold when the user switches apps, to prevent the
@@ -244,6 +246,20 @@ final class VoiceInputManager {
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
         recognitionRequest?.endAudio()
+    }
+
+    /// Pre-initialize the audio engine so the first recording starts instantly.
+    /// Skips pre-warming when microphone permission hasn't been granted yet —
+    /// accessing the input node triggers the system permission dialog, which we want to
+    /// avoid on dev rebuilds (where TCC resets to `.notDetermined` after re-signing).
+    private func prewarmEngine() {
+        guard !enginePrewarmed else { return }
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            log.info("Skipping audio engine pre-warm — microphone not yet authorized")
+            return
+        }
+        engineController.prewarm()
+        enginePrewarmed = true
     }
 
     /// Reset the audio engine to a clean state after an error.
@@ -736,6 +752,7 @@ final class VoiceInputManager {
         }
 
         log.info("Permissions granted — starting recording")
+        prewarmEngine()
         if self.currentMode == .dictation {
             self.currentDictationContext = DictationContextCapture.capture()
         }
