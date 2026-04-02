@@ -36,7 +36,12 @@ struct SkillDetailView: View {
             skillDetailFileBrowser
         }
         .onAppear {
-            skillsManager.fetchSkillFiles(skillId: skill.id)
+            // Only fetch files for locally available skills (bundled or installed).
+            // Remote catalog search results are not in the local resolved catalog, so
+            // GET /skills/:id/files would 404 for them.
+            if skill.isInstalled {
+                skillsManager.fetchSkillFiles(skillId: skill.id)
+            }
         }
         .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
             if expandedFilePath == nil, let files = skillsManager.selectedSkillFiles?.files {
