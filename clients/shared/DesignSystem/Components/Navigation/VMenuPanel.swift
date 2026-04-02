@@ -50,7 +50,14 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.setAccessibilityRole(.menu)
+
+        // Accessibility: use role description instead of setAccessibilityRole(.menu).
+        // Setting .menu role causes VoiceOver to enter a specialized menu navigation
+        // mode that expects native NSMenu-style .menuItem children. Since our items are
+        // SwiftUI views with .isButton trait, VoiceOver can't navigate them in that mode.
+        // Using role description preserves the "menu" announcement without the behavioral
+        // implications of the .menu role.
+        panel.setAccessibilityRoleDescription("menu")
 
         // Create coordinator for this panel tree
         let coordinator = VMenuCoordinator()
@@ -128,7 +135,7 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.setAccessibilityRole(.menu)
+        panel.setAccessibilityRoleDescription("menu")
         panel.coordinator = coordinator
         panel.managedByCoordinator = true
 
@@ -302,8 +309,14 @@ public class VMenuPanel: NSPanel {
 
 /// Container view that accepts first-mouse clicks so taps work immediately
 /// in a floating panel without requiring a focus click first.
+///
+/// Accessibility: explicitly returns `.group` role and marks itself as non-element
+/// so VoiceOver traverses through to the hosted SwiftUI content (NSHostingView)
+/// without getting stuck on this intermediate container.
 class FirstMouseView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func isAccessibilityElement() -> Bool { false }
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
 }
 
 // MARK: - .vContextMenu modifier
