@@ -28,7 +28,6 @@ import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getConversationDirPath } from "../conversation-disk-view.js";
 import { getDb } from "../db.js";
-import { hasImageBlocks } from "../message-content.js";
 import { conversations, messages } from "../schema.js";
 import {
   enqueueGraphNodeEmbed,
@@ -1141,44 +1140,36 @@ export function loadTranscriptWithImages(
       parsed = [{ type: "text", text: row.content }];
     }
 
-    // Extract text blocks for the transcript line
-    const textParts: string[] = [];
-    for (const block of parsed) {
-      if (block.type === "text") {
-        textParts.push(block.text);
-      }
-    }
-
-    if (textParts.length > 0) {
-      const textLine = `[${row.role}]: ${textParts.join("\n")}`;
-      totalTextLength += textLine.length;
-      contentBlocks.push({ type: "text", text: textLine });
-    }
-
-    // Check for image blocks and interleave them
-    if (hasImageBlocks(row.content)) {
-      for (let i = 0; i < parsed.length; i++) {
-        const block = parsed[i];
-        if (block?.type === "image") {
-          if (imageCount < MAX_IMAGES) {
-            const imgBlock = block as ImageContent;
-            // Add annotation so the extraction LLM knows the image's reference coordinates
-            contentBlocks.push({
-              type: "text",
-              text: `<image message_id="${row.id}" block_index="${i}" type="${imgBlock.source.media_type}" />`,
-            });
-            contentBlocks.push(imgBlock);
-            imageCount++;
-            hasImagesFlag = true;
-          }
-          // After cap, skip image blocks but continue processing text
+    // Build content blocks preserving original text/image interleaving
+    let prefixAdded = false;
+    for (let i = 0; i < parsed.length; i++) {
+      const block = parsed[i];
+      if (block?.type === "text") {
+        const text = prefixAdded
+          ? block.text
+          : `[${row.role}]: ${block.text}`;
+        prefixAdded = true;
+        totalTextLength += text.length;
+        contentBlocks.push({ type: "text", text });
+      } else if (block?.type === "image") {
+        if (imageCount < MAX_IMAGES) {
+          const imgBlock = block as ImageContent;
+          // Add annotation so the extraction LLM knows the image's reference coordinates
+          contentBlocks.push({
+            type: "text",
+            text: `<image message_id="${row.id}" block_index="${i}" type="${imgBlock.source.media_type}" />`,
+          });
+          contentBlocks.push(imgBlock);
+          imageCount++;
+          hasImagesFlag = true;
         }
+        // After cap, skip image blocks but continue processing text
       }
     }
   }
 
-  // Skip if transcript is too short
-  if (totalTextLength < 100) return null;
+  // Skip if transcript is too short (images count toward the threshold)
+  if (totalTextLength < 100 && !hasImagesFlag) return null;
 
   const message: Message = {
     role: "user",
