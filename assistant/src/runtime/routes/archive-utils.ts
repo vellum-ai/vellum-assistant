@@ -6,7 +6,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /** Maximum compressed archive size before pruning workspace directories (50 MB). */
@@ -87,18 +87,4 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/**
- * Prune the largest subdirectory from `wsDir` and return its name and size.
- * Used by the iterative archive-pruning loop. Returns `undefined` if no
- * subdirectory can be found (nothing left to prune).
- */
-export function pruneAndRemoveLargest(
-  wsDir: string,
-): { name: string; bytes: number } | undefined {
-  const largest = findLargestSubdirectory(wsDir);
-  if (!largest) return undefined;
-  rmSync(join(wsDir, largest.name), { recursive: true, force: true });
-  return largest;
 }

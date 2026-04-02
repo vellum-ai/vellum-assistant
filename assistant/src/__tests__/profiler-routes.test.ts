@@ -196,6 +196,40 @@ describe("Profiler routes", () => {
     });
   });
 
+  describe("path traversal rejection", () => {
+    const traversalPayloads = [
+      "../../../etc/passwd",
+      "..%2F..%2Fetc%2Fpasswd",
+      "foo/bar",
+      "foo\\bar",
+      "..\\..\\windows",
+    ];
+
+    for (const payload of traversalPayloads) {
+      test(`GET rejects runId "${payload}"`, async () => {
+        const route = findRoute("profiler/runs/:runId", "GET")!;
+        const response = await route.handler(makeCtx({ runId: payload }));
+        expect(response.status).toBe(400);
+      });
+
+      test(`POST export rejects runId "${payload}"`, async () => {
+        const route = findRoute("profiler/runs/:runId/export", "POST")!;
+        const response = await route.handler(
+          makeCtx({ runId: payload }, "POST"),
+        );
+        expect(response.status).toBe(400);
+      });
+
+      test(`DELETE rejects runId "${payload}"`, async () => {
+        const route = findRoute("profiler/runs/:runId", "DELETE")!;
+        const response = await route.handler(
+          makeCtx({ runId: payload }, "DELETE"),
+        );
+        expect(response.status).toBe(400);
+      });
+    }
+  });
+
   describe("GET /v1/profiler/runs/:runId (detail)", () => {
     test("returns 404 for missing run", async () => {
       const route = findRoute("profiler/runs/:runId", "GET")!;

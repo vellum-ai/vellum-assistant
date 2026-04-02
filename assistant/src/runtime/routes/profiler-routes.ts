@@ -95,6 +95,10 @@ function handleListRuns(): Response {
  * GET /v1/profiler/runs/:runId — detail view with manifest + markdown summary.
  */
 function handleGetRun(runId: string): Response {
+  if (runId.includes("..") || runId.includes("/") || runId.includes("\\")) {
+    return httpError("BAD_REQUEST", "Invalid run ID", 400);
+  }
+
   const runDir = getProfilerRunDir(runId);
   if (!existsSync(runDir)) {
     return httpError("NOT_FOUND", `Profiler run '${runId}' not found`, 404);
@@ -123,6 +127,10 @@ function handleGetRun(runId: string): Response {
  * POST /v1/profiler/runs/:runId/export — package a single run as tar.gz.
  */
 function handleExportRun(runId: string): Response {
+  if (runId.includes("..") || runId.includes("/") || runId.includes("\\")) {
+    return httpError("BAD_REQUEST", "Invalid run ID", 400);
+  }
+
   const runDir = getProfilerRunDir(runId);
   if (!existsSync(runDir)) {
     return httpError("NOT_FOUND", `Profiler run '${runId}' not found`, 404);
@@ -179,6 +187,10 @@ function handleExportRun(runId: string): Response {
  * disk-budget state.
  */
 function handleDeleteRun(runId: string): Response {
+  if (runId.includes("..") || runId.includes("/") || runId.includes("\\")) {
+    return httpError("BAD_REQUEST", "Invalid run ID", 400);
+  }
+
   const activeRunId = getProfilerRunId();
   if (runId === activeRunId) {
     return httpError(
