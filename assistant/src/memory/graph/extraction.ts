@@ -634,6 +634,7 @@ export function parseExtractionResponse(
         const mimeType = resolveImageRefMimeType(
           ref.message_id,
           ref.block_index,
+          conversationId,
         );
         if (!mimeType) continue;
         validRefs.push({
@@ -1003,12 +1004,18 @@ function resolveConversationTimestamp(conversationId: string): number | null {
 function resolveImageRefMimeType(
   messageId: string,
   blockIndex: number,
+  conversationId: string,
 ): string | null {
   const db = getDb();
   const msg = db
     .select({ content: messages.content })
     .from(messages)
-    .where(eq(messages.id, messageId))
+    .where(
+      and(
+        eq(messages.id, messageId),
+        eq(messages.conversationId, conversationId),
+      ),
+    )
     .get();
   if (!msg) return null;
 
