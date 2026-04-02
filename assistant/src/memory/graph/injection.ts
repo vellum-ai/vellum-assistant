@@ -261,6 +261,7 @@ export function assembleContextBlock(
   const threads: ScoredNode[] = [];
   const triggered: ScoredNode[] = [];
   const upcoming: ScoredNode[] = [];
+  const capabilities: ScoredNode[] = [];
   const onMyMind: ScoredNode[] = [];
 
   for (const scored of nodes) {
@@ -279,6 +280,8 @@ export function assembleContextBlock(
     } else if (isVeryRecent(node)) {
       // Very recent nodes (last few hours) are "right now" context
       rightNow.push(scored);
+    } else if (node.type === "procedural") {
+      capabilities.push(scored);
     } else {
       onMyMind.push(scored);
     }
@@ -303,6 +306,15 @@ export function assembleContextBlock(
     if (entries.length > 0) {
       parts.push(`### Active Threads\n${entries.join("\n")}`);
     }
+  }
+
+  // --- Skills You Can Use ---
+  if (capabilities.length > 0) {
+    const entries = capabilities.slice(0, 5).map((scored) => {
+      const content = scored.node.content.replace(/^skill:\S+\n/, "");
+      return `- ${content} → use skill_load to activate`;
+    });
+    parts.push(`### Skills You Can Use\n${entries.join("\n")}`);
   }
 
   // --- Upcoming ---
@@ -354,6 +366,10 @@ export function assembleInjectionBlock(nodes: ScoredNode[]): string {
   if (nodes.length === 0) return "";
   return nodes
     .map((scored) => {
+      if (scored.node.type === "procedural") {
+        const content = scored.node.content.replace(/^skill:\S+\n/, "");
+        return `- [skill] ${content} → use skill_load to activate`;
+      }
       if (scored.node.eventDate != null) {
         return formatUpcomingEntry(scored);
       }

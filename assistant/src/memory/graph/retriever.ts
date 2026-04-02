@@ -35,7 +35,7 @@ import {
   evaluateTemporalTriggers,
   type TriggeredResult,
 } from "./triggers.js";
-import type { MemoryEdge, ScoredNode } from "./types.js";
+import type { MemoryEdge, MemoryNode, ScoredNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
 
@@ -328,8 +328,8 @@ export async function loadContextMemory(
   }
 
   // Include recent nodes (last 7 days) so recency is always represented.
-  // Exclude procedural nodes (capabilities) — they're auto-injected and
-  // shouldn't compete on recency.
+  // Exclude procedural nodes (capabilities) — they have reserved slots
+  // and shouldn't compete with organic memories on recency alone.
   const recentNodes = queryNodes({
     scopeId: opts.scopeId,
     fidelityNot: ["gone"],
@@ -423,9 +423,7 @@ export async function loadContextMemory(
 
     // Normalize temporal boost from [-1,1] to [0,1]
     const normalizedTemporal = (temporal + 1) / 2;
-    // Procedural nodes (capabilities) are auto-seeded — no recency boost
-    const recency =
-      node.type === "procedural" ? 0 : computeRecencyBoost(node, nowMs);
+    const recency = computeRecencyBoost(node, nowMs);
 
     scored.push(
       scoreCandidate(node, {
@@ -442,6 +440,46 @@ export async function loadContextMemory(
 
   // Sort by score descending
   scored.sort((a, b) => b.score - a.score);
+
+  // 5b. Reserve slots for skill/CLI capabilities. Queried directly from
+  // SQLite — no Qdrant vectors needed — so capabilities surface even on
+  // fresh assistants whose embedding jobs haven't completed yet.
+  const CAPABILITY_RESERVE = 5;
+  const capabilityNodes = queryNodes({
+    scopeId: opts.scopeId,
+    types: ["procedural"],
+    fidelityNot: ["gone"],
+    limit: CAPABILITY_RESERVE * 2,
+  });
+
+  // Rank by semantic similarity when a query vector exists
+  let selectedCapabilities: MemoryNode[];
+  if (queryVector && capabilityNodes.length > CAPABILITY_RESERVE) {
+    selectedCapabilities = capabilityNodes
+      .map((node) => ({ node, sim: semanticCandidateIds.get(node.id) ?? 0 }))
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, CAPABILITY_RESERVE)
+      .map((e) => e.node);
+  } else {
+    selectedCapabilities = capabilityNodes.slice(0, CAPABILITY_RESERVE);
+  }
+
+  const capabilityIds = new Set(selectedCapabilities.map((n) => n.id));
+  const reservedCapabilities: ScoredNode[] = selectedCapabilities.map(
+    (node) => {
+      const existing = scored.find((s) => s.node.id === node.id);
+      if (existing) return existing;
+      return scoreCandidate(node, {
+        semanticSimilarity: semanticCandidateIds.get(node.id) ?? 0,
+        effectiveSignificance: computeEffectiveSignificance(node, nowMs),
+        emotionalIntensity: node.emotionalCharge.intensity,
+        temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
+        recencyBoost: 0,
+        triggerBoost: 0,
+        activationBoost: 0,
+      });
+    },
+  );
 
   // 6. Reserve slots for recent prospective nodes (commitments, tasks, plans).
   //    These MUST surface at conversation start regardless of score — if the user
@@ -526,12 +564,21 @@ export async function loadContextMemory(
     });
   });
 
-  // Remove prospective and upcoming nodes from the main pool (they have reserved slots)
+  // Remove reserved nodes from the main pool (they have guaranteed slots)
   const mainPool = scored.filter(
-    (s) => !prospectiveIds.has(s.node.id) && !upcomingIds.has(s.node.id),
+    (s) =>
+      !prospectiveIds.has(s.node.id) &&
+      !upcomingIds.has(s.node.id) &&
+      !capabilityIds.has(s.node.id),
   );
-  const mainSlots =
-    maxNodes - serendipitySlots - reservedNodes.length - reservedUpcoming.length;
+  const mainSlots = Math.max(
+    0,
+    maxNodes -
+      serendipitySlots -
+      reservedNodes.length -
+      reservedUpcoming.length -
+      reservedCapabilities.length,
+  );
 
   // 7. LLM re-ranking on the main pool: dedup + select
   const reranked = await rerankAndDedup(
@@ -540,11 +587,13 @@ export async function loadContextMemory(
     opts.config,
   );
 
-  // 8. Combine: reserved prospective + reserved upcoming + reranked main pool
-  const deterministic = [...reservedNodes, ...reservedUpcoming, ...reranked].slice(
-    0,
-    maxNodes - serendipitySlots,
-  );
+  // 8. Combine: reserved prospective + reserved upcoming + reserved capabilities + reranked main pool
+  const deterministic = [
+    ...reservedNodes,
+    ...reservedUpcoming,
+    ...reservedCapabilities,
+    ...reranked,
+  ].slice(0, maxNodes - serendipitySlots);
   const serendipityPicks = sampleSerendipity(scored, serendipitySlots);
 
   // Deduplicate serendipity against deterministic
