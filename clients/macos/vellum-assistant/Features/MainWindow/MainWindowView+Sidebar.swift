@@ -52,10 +52,11 @@ extension MainWindowView {
     }
 
     /// Unread count in the Scheduled section, used to trigger auto-expand.
+    /// Filters `conversations` directly instead of calling `visibleConversations` to avoid
+    /// an unnecessary O(N log N) sort — only the count is needed.
     private var scheduledUnreadCount: Int {
-        conversationManager.visibleConversations
-            .filter { $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
-            .count
+        conversationManager.conversations
+            .count { !$0.isArchived && $0.kind != .private && $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
     }
 
     var displayedApps: [AppListManager.AppItem] {

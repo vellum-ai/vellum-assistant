@@ -286,8 +286,10 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     /// Count of visible (non-archived, non-private) conversations with unseen assistant messages.
     /// Used by AppDelegate to drive the dock badge.
+    /// Filters `conversations` directly instead of calling `visibleConversations` to avoid
+    /// an unnecessary O(N log N) sort — only the count is needed.
     var unseenVisibleConversationCount: Int {
-        visibleConversations.filter { $0.hasUnseenLatestAssistantMessage }.count
+        conversations.count { !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage }
     }
 
     var archivedConversations: [ConversationModel] {
