@@ -628,25 +628,55 @@ export async function runAgentLoopImpl(
         }
       }
 
+      const m = graphResult.metrics;
+
       try {
         recordMemoryRecallLog({
           conversationId: ctx.conversationId,
           enabled: true,
           degraded: false,
-          semanticHits: 0,
-          mergedCount: 0,
-          selectedCount: 0,
-          tier1Count: 0,
-          tier2Count: 0,
-          hybridSearchLatencyMs: 0,
-          sparseVectorUsed: false,
+          provider: m?.embeddingProvider ?? undefined,
+          model: m?.embeddingModel ?? undefined,
+          semanticHits: m?.semanticHits ?? 0,
+          mergedCount: m?.mergedCount ?? 0,
+          selectedCount: m?.selectedCount ?? 0,
+          tier1Count: m?.tier1Count ?? 0,
+          tier2Count: m?.tier2Count ?? 0,
+          hybridSearchLatencyMs: m?.hybridSearchLatencyMs ?? 0,
+          sparseVectorUsed: m?.sparseVectorUsed ?? false,
           injectedTokens: graphResult.injectedTokens,
           latencyMs: graphResult.latencyMs,
-          topCandidatesJson: [],
+          topCandidatesJson: m?.topCandidates ?? [],
+          injectedText: graphResult.injectedBlockText ?? undefined,
           reason: `graph:${graphResult.mode}`,
         });
       } catch (err) {
         log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
+      }
+
+      if (m) {
+        onEvent({
+          type: "memory_recalled",
+          provider: m.embeddingProvider ?? "unknown",
+          model: m.embeddingModel ?? "unknown",
+          semanticHits: m.semanticHits,
+          mergedCount: m.mergedCount,
+          selectedCount: m.selectedCount,
+          tier1Count: m.tier1Count,
+          tier2Count: m.tier2Count,
+          hybridSearchLatencyMs: m.hybridSearchLatencyMs,
+          sparseVectorUsed: m.sparseVectorUsed,
+          injectedTokens: graphResult.injectedTokens,
+          latencyMs: graphResult.latencyMs,
+          topCandidates: m.topCandidates.map((c) => ({
+            key: c.nodeId,
+            type: c.type,
+            kind: "graph",
+            finalScore: c.score,
+            semantic: c.semanticSimilarity,
+            recency: c.recencyBoost,
+          })),
+        } as ServerMessage);
       }
     }
 
