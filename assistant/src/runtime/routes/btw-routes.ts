@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
+import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import {
   resolveChannelPersona,
@@ -136,6 +137,18 @@ async function handleBtw(
     }
   }
 
+  // ----- Greeting context enrichment -----
+  // Inject NOW.md scratchpad so the model has contextual awareness (mood,
+  // current activity) and produces varied, relevant greetings instead of
+  // the same deterministic output each time.
+  let effectiveContent = trimmedContent;
+  if (conversationKey === GREETING_KEY) {
+    const now = readNowScratchpad();
+    if (now) {
+      effectiveContent = `${trimmedContent}\n\n<context>\n${now}\n</context>`;
+    }
+  }
+
   // Look up an existing conversation — never create one.  BTW is ephemeral
   // (the file header promises "No messages are persisted"), so we must not
   // call getOrCreateConversation which would insert a DB row.  When no
@@ -158,7 +171,7 @@ async function handleBtw(
           const userPersona = resolveGuardianPersona();
           const channelPersona = resolveChannelPersona(undefined);
           const result = await runBtwSidechain({
-            content: trimmedContent,
+            content: effectiveContent,
             conversation,
             signal: req.signal,
             userPersona,
