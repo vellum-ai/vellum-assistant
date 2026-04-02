@@ -9,7 +9,7 @@ import {
   getProvider,
 } from "../../../oauth/oauth-store.js";
 import { renderOAuthCompletionPage } from "../../../security/oauth-completion-page.js";
-import { openInBrowser } from "../../../util/browser.js";
+import { openInHostBrowser } from "../../../util/browser.js";
 import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -234,7 +234,7 @@ Examples:
                 }
                 const snapshotIds = new Set(snapshotEntries.map((e) => e.id));
 
-                openInBrowser(result.connect_url);
+                await openInHostBrowser(result.connect_url);
 
                 if (!jsonMode) {
                   log.info(
@@ -379,7 +379,7 @@ Examples:
               clientSecret,
               callbackTransport: opts.callbackTransport,
               isInteractive: opts.browser !== false,
-              openUrl: opts.browser !== false ? openInBrowser : undefined,
+              openUrl: opts.browser !== false ? openInHostBrowser : undefined,
               ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
             });
 
