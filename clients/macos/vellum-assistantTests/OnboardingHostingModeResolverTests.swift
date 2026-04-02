@@ -9,7 +9,7 @@ final class OnboardingHostingModeResolverTests: XCTestCase {
             localDockerEnabled: true
         )
 
-        XCTAssertEqual(modes, [.local, .vellumCloud, .oldLocal])
+        XCTAssertEqual(modes, [.vellumCloud, .local, .oldLocal])
     }
 
     func testAvailableHostingModesAddsUserHostedOptionsWithoutDockerCard() {
@@ -18,7 +18,7 @@ final class OnboardingHostingModeResolverTests: XCTestCase {
             localDockerEnabled: false
         )
 
-        XCTAssertEqual(modes, [.local, .vellumCloud, .aws, .gcp, .customHardware])
+        XCTAssertEqual(modes, [.vellumCloud, .local, .aws, .gcp, .customHardware])
         XCTAssertFalse(modes.contains(.docker))
     }
 

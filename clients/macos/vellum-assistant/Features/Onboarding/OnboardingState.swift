@@ -36,7 +36,7 @@ final class OnboardingState {
     var skippedAPIKeyEntry: Bool = false
 
     /// The hosting mode selected in onboarding step 1.
-    var selectedHostingMode: HostingMode = .local
+    var selectedHostingMode: HostingMode = .vellumCloud
 
     enum HostingMode: String {
         case vellumCloud = "vellum-cloud"
