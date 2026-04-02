@@ -27,7 +27,10 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { getProfilerRunId } from "../../config/env-registry.js";
+import {
+  getProfilerMaxBytes,
+  getProfilerRunId,
+} from "../../config/env-registry.js";
 import type { ProfilerRunManifest } from "../../daemon/profiler-run-store.js";
 import {
   rescanRuns,
@@ -77,7 +80,7 @@ function readManifest(runDir: string): ProfilerRunManifest | null {
  * GET /v1/profiler/runs — list all profiler runs with manifest metadata.
  */
 function handleListRuns(): Response {
-  const manifests = rescanRuns();
+  const manifests = rescanRuns({ readOnly: true });
 
   // Sort newest-first for the listing
   manifests.sort(
@@ -91,8 +94,12 @@ function handleListRuns(): Response {
   });
 }
 
+/** Default max total bytes across all completed runs: 500 MB */
+const DEFAULT_MAX_BYTES = 500 * 1024 * 1024;
+
 /**
- * GET /v1/profiler/runs/:runId — detail view with manifest + markdown summary.
+ * GET /v1/profiler/runs/:runId — detail view with manifest + markdown summary
+ * plus current budget/retention state.
  */
 function handleGetRun(runId: string): Response {
   if (runId.includes("..") || runId.includes("/") || runId.includes("\\")) {
@@ -116,10 +123,26 @@ function handleGetRun(runId: string): Response {
   const summary = readProfileSummary(runDir);
   const activeRunId = getProfilerRunId();
 
+  // Compute budget state from all runs (read-only to avoid disk writes)
+  const allManifests = rescanRuns({ readOnly: true });
+  const maxBytes = getProfilerMaxBytes() ?? DEFAULT_MAX_BYTES;
+  const totalBytesAllRuns = allManifests.reduce(
+    (sum, m) => sum + m.totalBytes,
+    0,
+  );
+  const remainingBytes = Math.max(0, maxBytes - totalBytesAllRuns);
+  const overBudget = totalBytesAllRuns > maxBytes;
+
   return Response.json({
     ...manifest,
     summary: summary ?? null,
     isActive: runId === activeRunId,
+    budget: {
+      maxBytes,
+      totalBytesAllRuns,
+      remainingBytes,
+      overBudget,
+    },
   });
 }
 
@@ -301,6 +324,12 @@ export function profilerRouteDefinitions(): RouteDefinition[] {
         totalBytes: z.number(),
         summary: z.string().nullable(),
         isActive: z.boolean(),
+        budget: z.object({
+          maxBytes: z.number(),
+          totalBytesAllRuns: z.number(),
+          remainingBytes: z.number(),
+          overBudget: z.boolean(),
+        }),
       }),
       handler: ({ params }) => handleGetRun(params.runId),
     },
