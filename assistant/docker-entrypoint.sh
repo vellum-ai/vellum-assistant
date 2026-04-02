@@ -10,7 +10,7 @@ fi
 # When VELLUM_PROFILER_RUN_ID and VELLUM_PROFILER_MODE are set, prepare the
 # run directory on the workspace volume and append the appropriate Bun
 # profiler flags to BUN_OPTIONS. Bun's native --cpu-prof / --heap-prof
-# flags write Chrome-compatible .cpuprofile and .heapprofile artifacts.
+# flags write Chrome-compatible .cpuprofile and .heapsnapshot artifacts.
 BUN_OPTIONS="${BUN_OPTIONS:-}"
 
 if [ -n "${VELLUM_PROFILER_RUN_ID:-}" ] && [ -n "${VELLUM_PROFILER_MODE:-}" ]; then
@@ -22,13 +22,13 @@ if [ -n "${VELLUM_PROFILER_RUN_ID:-}" ] && [ -n "${VELLUM_PROFILER_MODE:-}" ]; t
 
   case "${VELLUM_PROFILER_MODE}" in
     cpu)
-      BUN_OPTIONS="${BUN_OPTIONS} --cpu-prof --cpu-prof-dir=${PROFILER_RUN_DIR}"
+      BUN_OPTIONS="${BUN_OPTIONS} --cpu-prof --cpu-prof-md --cpu-prof-dir=${PROFILER_RUN_DIR}"
       ;;
     heap)
-      BUN_OPTIONS="${BUN_OPTIONS} --heap-prof --heap-prof-dir=${PROFILER_RUN_DIR}"
+      BUN_OPTIONS="${BUN_OPTIONS} --heap-prof --heap-prof-md --heap-prof-dir=${PROFILER_RUN_DIR}"
       ;;
     cpu+heap|heap+cpu)
-      BUN_OPTIONS="${BUN_OPTIONS} --cpu-prof --cpu-prof-dir=${PROFILER_RUN_DIR} --heap-prof --heap-prof-dir=${PROFILER_RUN_DIR}"
+      BUN_OPTIONS="${BUN_OPTIONS} --cpu-prof --cpu-prof-md --cpu-prof-dir=${PROFILER_RUN_DIR} --heap-prof --heap-prof-md --heap-prof-dir=${PROFILER_RUN_DIR}"
       ;;
     *)
       echo "Warning: unknown VELLUM_PROFILER_MODE '${VELLUM_PROFILER_MODE}', skipping profiler flags" >&2

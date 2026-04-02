@@ -2030,7 +2030,7 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 Managed cloud assistants use Bun's built-in CPU and heap profiling to capture runtime performance data. The profiler subsystem consists of a persistent on-disk run store, a retention/pruning sweep, and HTTP routes for remote management.
 
-**Bun profiler flags:** Managed containers activate profiling by setting `VELLUM_PROFILER_MODE` (e.g. `cpu`, `heap`, `cpu+heap`) and `VELLUM_PROFILER_RUN_ID` environment variables before boot. Bun writes profiler artifacts (`.cpuprofile`, `.heapprofile`, markdown summaries) into the run directory.
+**Bun profiler flags:** Managed containers activate profiling by setting `VELLUM_PROFILER_MODE` (e.g. `cpu`, `heap`, `cpu+heap`) and `VELLUM_PROFILER_RUN_ID` environment variables before boot. Bun writes profiler artifacts (`.cpuprofile`, `.heapsnapshot`, markdown summaries) into the run directory.
 
 **Directory contract:**
 
@@ -2041,7 +2041,7 @@ Managed cloud assistants use Bun's built-in CPU and heap profiling to capture ru
       manifest.json          — run metadata (status, timestamps, byte count)
       profile.cpuprofile     — Bun CPU profile output
       profile-summary.md     — Bun-generated markdown summary
-      *.heapprofile          — Bun heap profile output (when heap mode active)
+      *.heapsnapshot          — Bun heap profile output (when heap mode active)
 ```
 
 Each profiler run lives in its own sub-directory under `<workspace>/data/profiler/runs/<runId>/`. A `manifest.json` in each run directory records metadata: status (`active` or `completed`), creation/update timestamps, and total byte count. The active run (identified by `VELLUM_PROFILER_RUN_ID`) is never pruned.
