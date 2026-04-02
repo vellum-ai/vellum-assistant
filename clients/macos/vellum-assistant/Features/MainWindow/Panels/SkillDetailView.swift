@@ -138,7 +138,7 @@ struct SkillDetailTitleRow: View {
                 .frame(width: 32, height: 32)
 
                 HStack(spacing: VSpacing.sm) {
-                    if let emoji = skill.vellum?.emoji, !emoji.isEmpty {
+                    if let emoji = skill.emoji, !emoji.isEmpty {
                         Text(emoji)
                             .font(.system(size: 20))
                     }

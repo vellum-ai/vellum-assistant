@@ -23,15 +23,14 @@ struct SkillDetailView: View {
 
             // Details section
             Section("Details") {
-                if let clawhub = skill.clawhub {
-                    if !clawhub.author.isEmpty {
-                        detailRow(label: "Author", value: clawhub.author)
-                    }
-                    if clawhub.stars > 0 {
-                        detailRow(label: "Stars", value: "\(clawhub.stars)")
-                    }
-                } else if let skillssh = skill.skillssh, !skillssh.sourceRepo.isEmpty {
-                    detailRow(label: "Source Repo", value: skillssh.sourceRepo)
+                if let author = skill.author, !author.isEmpty {
+                    detailRow(label: "Author", value: author)
+                }
+                if let stars = skill.stars, stars > 0 {
+                    detailRow(label: "Stars", value: "\(stars)")
+                }
+                if let sourceRepo = skill.sourceRepo, !sourceRepo.isEmpty {
+                    detailRow(label: "Source Repo", value: sourceRepo)
                 }
                 detailRow(label: "Origin", value: originLabel(skill.origin))
                 detailRow(label: "Status", value: skill.status.capitalized)
@@ -153,7 +152,7 @@ struct SkillDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             // Inspect the skill if it has a clawhub origin
-            if skill.clawhub != nil {
+            if skill.origin == "clawhub" {
                 skillsStore.inspectSkill(slug: skill.id)
             }
             skillsStore.fetchSkillFiles(skillId: skill.id)
@@ -178,7 +177,7 @@ struct SkillDetailView: View {
 
     private var headerSection: some View {
         VStack(spacing: VSpacing.sm) {
-            Text(skill.vellum?.emoji ?? "")
+            Text(skill.emoji ?? "")
                 .font(.system(size: 48))
                 .accessibilityHidden(true)
 

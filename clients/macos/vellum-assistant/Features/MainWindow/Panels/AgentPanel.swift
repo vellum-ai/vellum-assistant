@@ -246,7 +246,7 @@ struct SkillItemRow: View {
     var body: some View {
         VCard(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
-                if let emoji = skill.vellum?.emoji, !emoji.isEmpty {
+                if let emoji = skill.emoji, !emoji.isEmpty {
                     Text(emoji)
                         .font(.system(size: 32))
                 }
@@ -298,7 +298,7 @@ struct AvailableSkillItemRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: VSpacing.lg) {
-            if let emoji = skill.vellum?.emoji, !emoji.isEmpty {
+            if let emoji = skill.emoji, !emoji.isEmpty {
                 Text(emoji)
                     .font(.system(size: 32))
                     .opacity(0.5)

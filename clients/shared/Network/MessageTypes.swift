@@ -914,7 +914,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `status`, preserving all other fields including `id`.
     public func withStatus(_ newStatus: String) -> Self {
-        Self(id: id, name: name, description: description, kind: kind, origin: origin, status: newStatus, vellum: vellum, clawhub: clawhub, skillssh: skillssh)
+        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, sourceRepo: sourceRepo)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.
@@ -931,11 +931,6 @@ extension SkillsListResponseSkill {
 
     /// Whether the skill is currently disabled.
     public var isDisabled: Bool { status == "disabled" }
-
-    // MARK: - Convenience accessors
-
-    /// Reads emoji from the `vellum` sub-object for display.
-    public var emoji: String? { vellum?.emoji }
 }
 
 /// Response containing the list of available skills.
