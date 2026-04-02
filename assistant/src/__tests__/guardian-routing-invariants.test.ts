@@ -40,6 +40,10 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import {
+  buildDecisionActions,
+  GUARDIAN_DECISION_ACTIONS,
+} from "../runtime/guardian-decision-types.js";
+import {
   type GuardianReplyContext,
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
@@ -1699,5 +1703,39 @@ describe("routing invariant: expired requests are excluded from pending discover
     expect(result.consumed).toBe(false);
     expect(result.type).toBe("not_consumed");
     expect(result.decisionApplied).toBe(false);
+  });
+});
+
+// ===========================================================================
+// SECTION 12: Kind-specific action sets in prompt mapping
+// ===========================================================================
+
+describe("routing invariant: kind-specific action sets in prompt mapping", () => {
+  test("buildDecisionActions({ forGuardianOnBehalf: true }) includes temporal actions", () => {
+    const actions = buildDecisionActions({ forGuardianOnBehalf: true });
+    const actionIds = actions.map((a) => a.action);
+    expect(actionIds).toContain("approve_once");
+    expect(actionIds).toContain("approve_10m");
+    expect(actionIds).toContain("approve_conversation");
+    expect(actionIds).toContain("reject");
+    // approve_always must NOT be present for guardian-on-behalf
+    expect(actionIds).not.toContain("approve_always");
+  });
+
+  test("non-tool-approval action set is approve_once + reject only", () => {
+    const actions = [
+      GUARDIAN_DECISION_ACTIONS.approve_once,
+      GUARDIAN_DECISION_ACTIONS.reject,
+    ];
+    expect(actions).toHaveLength(2);
+    expect(actions[0].action).toBe("approve_once");
+    expect(actions[1].action).toBe("reject");
+  });
+
+  test("source-code invariant: guardian-action-routes.ts contains kind guard", () => {
+    const srcRoot = resolve(__dirname, "..");
+    const fullPath = join(srcRoot, "runtime/routes/guardian-action-routes.ts");
+    const source = readFileSync(fullPath, "utf-8");
+    expect(source).toContain('req.kind === "tool_approval"');
   });
 });
