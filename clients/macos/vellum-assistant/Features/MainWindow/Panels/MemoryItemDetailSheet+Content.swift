@@ -55,16 +55,18 @@ extension MemoryItemDetailSheet {
             Text("Strength")
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentTertiary)
-            HStack(spacing: VSpacing.xs) {
-                Text("Confidence")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .frame(width: 90, alignment: .leading)
-                metricBar(value: displayItem.confidence ?? 0,
-                          color: confidenceColor(displayItem.confidence ?? 0))
-                Text("\(Int((displayItem.confidence ?? 0) * 100))%")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
+            if let confidence = displayItem.confidence {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Confidence")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .frame(width: 90, alignment: .leading)
+                    metricBar(value: confidence,
+                              color: confidenceColor(confidence))
+                    Text("\(Int(confidence * 100))%")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             }
             if let importance = displayItem.importance {
                 HStack(spacing: VSpacing.xs) {
