@@ -31,6 +31,7 @@ mock.module("../memory/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => ""),
   isMultifileApp: mock(() => false),
+  resolveAppIdFromPath: mock(() => null),
 }));
 mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: mock(() => Promise.resolve()),

@@ -12,9 +12,8 @@ import { generateAppIcon } from "../media/app-icon-generator.js";
 import {
   getApp,
   getAppDirPath,
-  getAppsDir,
   isMultifileApp,
-  resolveAppIdByDirName,
+  resolveAppIdFromPath,
 } from "../memory/app-store.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
@@ -188,34 +187,6 @@ const appRefreshDebouncer = new DebouncerMap({
 
 /** Stores the latest SideEffectContext per app ID for debounced callbacks. */
 const pendingAppRefreshCtx = new Map<string, SideEffectContext>();
-
-/**
- * Extract app ID from an absolute file path if it falls within the apps
- * directory and targets a source file (not records/ or dist/).
- */
-function resolveAppIdFromPath(filePath: string): string | null {
-  let appsDir: string;
-  try {
-    appsDir = getAppsDir();
-  } catch {
-    return null;
-  }
-  if (!filePath.startsWith(appsDir + "/")) return null;
-
-  const relPath = filePath.slice(appsDir.length + 1);
-  const slashIdx = relPath.indexOf("/");
-  if (slashIdx === -1) return null; // file directly in apps/ (e.g. the .json definition)
-
-  const dirName = relPath.slice(0, slashIdx);
-  const innerPath = relPath.slice(slashIdx + 1);
-
-  // Skip non-source directories
-  if (innerPath.startsWith("records/") || innerPath.startsWith("dist/")) {
-    return null;
-  }
-
-  return resolveAppIdByDirName(dirName);
-}
 
 // Trigger debounced app recompile + surface refresh when file_write or
 // file_edit modifies a source file inside an app directory.
