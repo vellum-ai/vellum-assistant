@@ -205,6 +205,35 @@ describe("guardian_decision fallback copy", () => {
     expect(copy.body).toBe("Alice's access request has been denied by Bob.");
     expect(copy.body).not.toContain("<@");
   });
+
+  test("sanitizes control characters from display names", () => {
+    const signal = buildGuardianDecisionSignal({
+      requesterDisplayName: "Alice\x00\x07\nEvil",
+      decidedByDisplayName: "Bob\r\nMalicious",
+      decision: "approved",
+    });
+    const result = composeFallbackCopy(signal, ["vellum"]);
+    const copy = result.vellum!;
+
+    expect(copy.body).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    expect(copy.body).toContain("Alice");
+    expect(copy.body).toContain("Bob");
+  });
+
+  test("clamps excessively long display names", () => {
+    const longName = "A".repeat(200);
+    const signal = buildGuardianDecisionSignal({
+      requesterDisplayName: longName,
+      decidedByDisplayName: "Bob",
+      decision: "denied",
+    });
+    const result = composeFallbackCopy(signal, ["vellum"]);
+    const copy = result.vellum!;
+
+    // sanitizeIdentityField clamps to 120 chars + ellipsis
+    expect(copy.body.length).toBeLessThan(longName.length);
+    expect(copy.body).toContain("…");
+  });
 });
 
 // ── denied template ──────────────────────────────────────────────────────────
@@ -278,5 +307,29 @@ describe("trusted_contact.denied fallback copy", () => {
     const copy = result.vellum!;
 
     expect(copy.body).not.toContain("D0AQ9C5PPPF");
+  });
+
+  test("sanitizes control characters from display names", () => {
+    const signal = buildDeniedSignal({
+      requesterDisplayName: "Alice\x00\x07\nEvil",
+    });
+    const result = composeFallbackCopy(signal, ["vellum"]);
+    const copy = result.vellum!;
+
+    expect(copy.body).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    expect(copy.body).toContain("Alice");
+  });
+
+  test("clamps excessively long display names", () => {
+    const longName = "A".repeat(200);
+    const signal = buildDeniedSignal({
+      requesterDisplayName: longName,
+    });
+    const result = composeFallbackCopy(signal, ["vellum"]);
+    const copy = result.vellum!;
+
+    // sanitizeIdentityField clamps to 120 chars + ellipsis
+    expect(copy.body.length).toBeLessThan(longName.length);
+    expect(copy.body).toContain("…");
   });
 });
