@@ -251,46 +251,6 @@ final class MessageListScrollStateTests: XCTestCase {
                        "Expansion stabilization should auto-clear after the reset timeout")
     }
 
-    // MARK: - Push-to-Top Mode
-
-    func testEnterPushToTop() {
-        let messageId = UUID()
-        state.enterPushToTop(messageId: messageId)
-
-        if case .pushToTop(let id) = state.mode {
-            XCTAssertEqual(id, messageId)
-        } else {
-            XCTFail("Expected .pushToTop mode")
-        }
-        XCTAssertEqual(state.pendingPushToTopTarget, messageId)
-        XCTAssertTrue(state.mode.showsTailSpacer)
-    }
-
-    func testExitPushToTop() {
-        let messageId = UUID()
-        state.enterPushToTop(messageId: messageId)
-        state.exitPushToTop(animated: false)
-
-        XCTAssertTrue(state.isFollowingBottom)
-        XCTAssertNil(state.mode.pushToTopMessageId)
-        XCTAssertNil(state.pendingPushToTopTarget)
-    }
-
-    func testHandlePushToTopOverflow() {
-        let messageId = UUID()
-        state.enterPushToTop(messageId: messageId)
-
-        let result = state.handlePushToTopOverflow()
-        XCTAssertTrue(result)
-        XCTAssertTrue(state.isFollowingBottom)
-    }
-
-    func testHandlePushToTopOverflowNoopWhenNotInPushToTop() {
-        state.transition(to: .followingBottom)
-        let result = state.handlePushToTopOverflow()
-        XCTAssertFalse(result)
-    }
-
     // MARK: - Reset
 
     func testResetRestoresDefaults() {
@@ -314,10 +274,8 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertTrue(state.isAtBottom, "Should reset isAtBottom to true")
         XCTAssertFalse(state.hasBeenInteracted, "Should reset to initialLoad mode")
         XCTAssertEqual(state.currentConversationId, newId, "Should update conversation ID")
-        XCTAssertNil(state.mode.pushToTopMessageId, "Should clear pushToTopMessageId")
         XCTAssertTrue(state.hideScrollIndicators,
                       "Should hide scroll indicators during conversation switch")
-        XCTAssertFalse(state.showTailSpacer)
         XCTAssertTrue(state.scrollIndicatorsHidden)
         XCTAssertFalse(state.showScrollToLatest)
     }
@@ -383,35 +341,14 @@ final class MessageListScrollStateTests: XCTestCase {
                        "Should be false again after transitioning to followingBottom")
     }
 
-    func testTailSpacerHeight() {
-        XCTAssertEqual(state.tailSpacerHeight, 0,
-                       "Should be 0 when not in pushToTop mode")
-
-        state.viewportHeight = 600
-        state.enterPushToTop(messageId: UUID())
-
-        XCTAssertGreaterThan(state.tailSpacerHeight, 0,
-                             "Should be positive when in pushToTop mode and viewport is finite")
-        XCTAssertLessThanOrEqual(state.tailSpacerHeight, 600,
-                                 "Should not exceed viewport height")
-    }
-
-    func testTailSpacerHeightZeroWhenViewportInfinite() {
-        state.viewportHeight = .infinity
-        state.enterPushToTop(messageId: UUID())
-
-        XCTAssertEqual(state.tailSpacerHeight, 0,
-                       "Should be 0 when viewport height is not finite")
-    }
-
     // MARK: - Property-Level Tracking
 
     /// Verifies that each UI property reflects the final mode state after
     /// multiple transitions and a debounced sync.
     func testUIPropertiesReflectFinalState() async throws {
-        // GIVEN multiple mode transitions ending in pushToTop
+        // GIVEN multiple mode transitions ending in freeBrowsing
+        state.transition(to: .followingBottom)
         state.transition(to: .freeBrowsing)
-        state.enterPushToTop(messageId: UUID())
 
         // AND a scroll indicator change that requires a debounced sync
         state.hideScrollIndicators = true
@@ -419,11 +356,9 @@ final class MessageListScrollStateTests: XCTestCase {
         // WHEN the debounced sync fires
         try await Task.sleep(nanoseconds: 50_000_000)
 
-        // THEN each property reflects the final mode (.pushToTop)
-        XCTAssertFalse(state.showScrollToLatest,
-                       "pushToTop mode does not show scroll-to-latest")
-        XCTAssertTrue(state.showTailSpacer,
-                      "pushToTop mode shows tail spacer")
+        // THEN each property reflects the final mode (.freeBrowsing)
+        XCTAssertTrue(state.showScrollToLatest,
+                      "freeBrowsing mode shows scroll-to-latest")
         XCTAssertTrue(state.scrollIndicatorsHidden,
                       "scroll indicators should be hidden")
     }
@@ -431,67 +366,24 @@ final class MessageListScrollStateTests: XCTestCase {
     /// Verifies that syncUIImmediately bypasses debounce and updates all
     /// properties immediately.
     func testSyncUIImmediately() {
-        // GIVEN pushToTop mode (enterPushToTop already calls syncUIImmediately)
-        state.enterPushToTop(messageId: UUID())
-
-        // THEN properties reflect the current mode (.pushToTop)
-        XCTAssertFalse(state.showScrollToLatest,
-                       "pushToTop mode does not show scroll-to-latest")
-        XCTAssertTrue(state.showTailSpacer,
-                      "pushToTop mode shows tail spacer")
-    }
-
-    /// Verifies that consumePendingPushToTop fires a scroll when a pending
-    /// target exists and mode is pushToTop.
-    func testConsumePendingPushToTop() {
-        // GIVEN push-to-top mode with a pending target
-        let messageId = UUID()
-        state.enterPushToTop(messageId: messageId)
-
-        // WHEN consuming the pending target
-        state.consumePendingPushToTop()
-
-        // THEN a scroll-to call was made for the target
-        XCTAssertFalse(scrollToCalls.isEmpty,
-                       "consumePendingPushToTop should trigger a scrollTo call")
-        XCTAssertEqual(scrollToCalls.last?.id, messageId as AnyHashable)
-
-        // AND the pending target is cleared
-        XCTAssertNil(state.pendingPushToTopTarget)
-    }
-
-    /// Verifies that consumePendingPushToTop is a no-op when not in pushToTop mode.
-    func testConsumePendingPushToTopNoopWhenNotPushToTop() {
-        // GIVEN followingBottom mode (no pending target)
-        state.transition(to: .followingBottom)
-
-        // WHEN consuming
-        state.consumePendingPushToTop()
-
-        // THEN no scroll call is made
-        XCTAssertTrue(scrollToCalls.isEmpty)
-    }
-
-    /// Verifies that re-entering pushToTop when the tail spacer is already
-    /// showing consumes the target immediately via syncUISnapshots.
-    func testReEnterPushToTopConsumesImmediately() {
-        // GIVEN an initial push-to-top that renders the tail spacer
-        let firstId = UUID()
-        state.enterPushToTop(messageId: firstId)
+        // GIVEN freeBrowsing mode
+        state.transition(to: .freeBrowsing)
         state.syncUIImmediately()
-        XCTAssertTrue(state.showTailSpacer)
-        state.consumePendingPushToTop()
-        scrollToCalls.removeAll()
 
-        // WHEN entering push-to-top again (tail spacer already showing)
-        let secondId = UUID()
-        state.enterPushToTop(messageId: secondId)
+        // THEN properties reflect the current mode (.freeBrowsing)
+        XCTAssertTrue(state.showScrollToLatest,
+                      "freeBrowsing mode shows scroll-to-latest")
+    }
 
-        // THEN the target is consumed immediately (re-enter path)
-        XCTAssertFalse(scrollToCalls.isEmpty,
-                       "Re-enter push-to-top should consume target immediately")
-        XCTAssertEqual(scrollToCalls.last?.id, secondId as AnyHashable)
-        XCTAssertNil(state.pendingPushToTopTarget)
+    /// Verifies that syncUIImmediately reflects followingBottom correctly.
+    func testSyncUIImmediatelyFollowingBottom() {
+        // GIVEN followingBottom mode
+        state.transition(to: .followingBottom)
+        state.syncUIImmediately()
+
+        // THEN properties reflect the current mode (.followingBottom)
+        XCTAssertFalse(state.showScrollToLatest,
+                       "followingBottom mode does not show scroll-to-latest")
     }
 
     // MARK: - Circuit Breaker

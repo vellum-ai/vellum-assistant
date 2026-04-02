@@ -254,8 +254,6 @@ struct MessageListContentView: View, Equatable {
                         scrollState.handleReachedBottom()
                     }
                 }
-
-            TailSpacerView(scrollState: scrollState)
         }
         .disabled(!isInteractionEnabled)
         .padding(.horizontal, VSpacing.xl)

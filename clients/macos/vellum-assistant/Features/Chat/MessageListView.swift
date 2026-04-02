@@ -84,10 +84,10 @@ struct MessageListView: View {
     /// won't trigger re-renders on frequent `data` progress ticks.
     var taskProgressManager = TaskProgressOverlayManager.shared
     /// Consolidates all scroll-related state with `@Observable` fine-grained
-    /// per-property tracking. Each UI-facing property (`showTailSpacer`,
-    /// `showScrollToLatest`, `scrollIndicatorsHidden`) is individually tracked,
-    /// so SwiftUI only re-evaluates views that read the specific property that
-    /// changed. See `MessageListScrollState.swift` for details.
+    /// per-property tracking. Each UI-facing property (`showScrollToLatest`,
+    /// `scrollIndicatorsHidden`) is individually tracked, so SwiftUI only
+    /// re-evaluates views that read the specific property that changed.
+    /// See `MessageListScrollState.swift` for details.
     @State var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
@@ -122,10 +122,6 @@ struct MessageListView: View {
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollState.scrollPhase = newPhase
                 if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
-                    if oldPhase == .interacting || oldPhase == .decelerating,
-                       scrollState.mode.pushToTopMessageId != nil {
-                        scrollState.exitPushToTop(animated: false)
-                    }
                     scrollState.handleReachedBottom()
                 }
             }

@@ -9,8 +9,8 @@ extension MessageListView {
 
     func handleScrollGeometryUpdate(_ newState: ScrollGeometrySnapshot) {
         // --- Scroll direction detection ---
-        let effectiveContentHeight = newState.contentHeight - scrollState.tailSpacerHeight
-        let isScrollable = effectiveContentHeight > newState.containerHeight || scrollState.mode.pushToTopMessageId != nil
+        let effectiveContentHeight = newState.contentHeight
+        let isScrollable = effectiveContentHeight > newState.containerHeight
         let isScrollingUp = newState.contentOffsetY < scrollState.lastContentOffsetY
         scrollState.scrollContentHeight = newState.contentHeight
         scrollState.scrollContainerHeight = newState.containerHeight
@@ -62,17 +62,6 @@ extension MessageListView {
             if nowAtBottom {
                 scrollState.handleReachedBottom()
             }
-        }
-
-        // --- Push-to-top overflow detection ---
-        // Only clear push-to-top if the pin request succeeds.
-        // When the user has detached from bottom, pinToBottom returns
-        // false. Clearing pushToTopMessageId without a successful pin
-        // removes the tail spacer without the accompanying scroll
-        // adjustment, causing a content-height discontinuity that
-        // makes the scroll position jump.
-        if scrollState.mode.pushToTopMessageId != nil && distanceFromBottom > 50 {
-            scrollState.handlePushToTopOverflow()
         }
 
         // --- Pagination trigger ---
@@ -163,9 +152,10 @@ extension MessageListView {
         scrollState.scrollRestoreTask = Task { @MainActor [scrollState] in
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else { return }
-            if anchorMessageId == nil
-                && !scrollState.hasBeenInteracted
-            {
+            if anchorMessageId == nil,
+               case .freeBrowsing = scrollState.mode {
+                // User scrolled away during the restore window — respect that.
+            } else if anchorMessageId == nil {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
                 scrollState.transition(to: .followingBottom)
                 scrollState.requestPinToBottom()

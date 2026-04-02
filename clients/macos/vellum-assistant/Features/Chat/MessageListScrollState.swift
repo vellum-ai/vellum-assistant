@@ -24,10 +24,6 @@ enum ScrollMode: Equatable, CustomStringConvertible {
     /// "Scroll to latest" CTA is visible.
     case freeBrowsing
 
-    /// User sent a message — anchor their message to viewport top.
-    /// The tail spacer provides space below for the assistant's response.
-    case pushToTop(messageId: UUID)
-
     /// A programmatic scroll is in flight (deep-link anchor, etc.).
     /// Prevents other scroll operations from interfering until complete.
     case programmaticScroll(reason: ProgrammaticScrollReason)
@@ -41,7 +37,6 @@ enum ScrollMode: Equatable, CustomStringConvertible {
         case .initialLoad: "initialLoad"
         case .followingBottom: "followingBottom"
         case .freeBrowsing: "freeBrowsing"
-        case .pushToTop(let id): "pushToTop(\(id))"
         case .programmaticScroll(let reason): "programmaticScroll(\(reason))"
         case .stabilizing(let prev, let reason): "stabilizing(\(prev), \(reason))"
         }
@@ -69,19 +64,6 @@ enum ScrollMode: Equatable, CustomStringConvertible {
         }
     }
 
-    /// Whether the tail spacer should be rendered for push-to-top.
-    var showsTailSpacer: Bool {
-        switch self {
-        case .pushToTop: true
-        default: false
-        }
-    }
-
-    /// The push-to-top message ID, if in push-to-top mode.
-    var pushToTopMessageId: UUID? {
-        if case .pushToTop(let id) = self { return id }
-        return nil
-    }
 }
 
 enum ProgrammaticScrollReason: Equatable, CustomStringConvertible {
@@ -131,11 +113,11 @@ private let scrollLog = Logger(subsystem: Bundle.appBundleIdentifier, category: 
 // MARK: - MessageListScrollState
 
 /// Centralized scroll state machine with `@Observable` fine-grained tracking.
-/// Each UI-facing property (`showTailSpacer`, `showScrollToLatest`,
-/// `scrollIndicatorsHidden`) is individually tracked by the Observation
-/// framework, so SwiftUI only re-evaluates views that read the specific
-/// property that changed. The `mode` enum drives all scroll behavior
-/// decisions through explicit transitions rather than scattered handler logic.
+/// Each UI-facing property (`showScrollToLatest`, `scrollIndicatorsHidden`)
+/// is individually tracked by the Observation framework, so SwiftUI only
+/// re-evaluates views that read the specific property that changed. The
+/// `mode` enum drives all scroll behavior decisions through explicit
+/// transitions rather than scattered handler logic.
 ///
 /// References:
 /// - [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
@@ -159,10 +141,6 @@ final class MessageListScrollState {
     /// Whether the "Scroll to latest" CTA should be visible.
     /// Tracked independently — only views reading this property re-evaluate.
     private(set) var showScrollToLatest = false
-
-    /// Whether the tail spacer should render for push-to-top.
-    /// Tracked independently — only `TailSpacerView` re-evaluates on change.
-    private(set) var showTailSpacer = false
 
     /// Whether scroll indicators should be hidden.
     /// Tracked independently — only the scroll indicator modifier re-evaluates.
@@ -190,19 +168,6 @@ final class MessageListScrollState {
     var isPaginationInFlight: Bool {
         get { _isPaginationInFlight }
         set { _isPaginationInFlight = newValue }
-    }
-
-    // MARK: - Computed Properties
-
-    /// Height of the tail spacer when visible during push-to-top.
-    /// Subtracted from content height for overflow and bottom detection
-    /// so those computations operate on effective content height.
-    var tailSpacerHeight: CGFloat {
-        guard mode.pushToTopMessageId != nil else { return 0 }
-        let h = viewportHeight
-        // Account for LazyVStack inter-item spacing so the spacer
-        // doesn't overshoot by one spacing unit.
-        return h.isFinite ? max(0, h - VSpacing.md) : 0
     }
 
     // MARK: - Geometry State (never trigger re-evaluation)
@@ -323,18 +288,12 @@ final class MessageListScrollState {
     /// views that read the specific property that changed.
     private func syncUISnapshots() {
         let newShowScrollToLatest = mode.showsScrollToLatest
-        let newShowTailSpacer = mode.showsTailSpacer
         let newScrollIndicatorsHidden = _hideScrollIndicators
 
-        let tailSpacerWasShowing = showTailSpacer
         var changed = false
 
         if showScrollToLatest != newShowScrollToLatest {
             showScrollToLatest = newShowScrollToLatest
-            changed = true
-        }
-        if showTailSpacer != newShowTailSpacer {
-            showTailSpacer = newShowTailSpacer
             changed = true
         }
         if scrollIndicatorsHidden != newScrollIndicatorsHidden {
@@ -343,12 +302,6 @@ final class MessageListScrollState {
         }
 
         if changed { uiVersion &+= 1 }
-
-        // Re-enter push-to-top: tail spacer was already rendered, so consume
-        // the pending target immediately without waiting for onAppear.
-        if tailSpacerWasShowing && newShowTailSpacer {
-            consumePendingPushToTop()
-        }
     }
 
     /// Synchronous UI sync — bypasses debounce for instant state transitions.
@@ -365,12 +318,6 @@ final class MessageListScrollState {
     @ObservationIgnored var highlightDismissTask: Task<Void, Never>?
     @ObservationIgnored var scrollIndicatorRestoreTask: Task<Void, Never>?
     @ObservationIgnored var anchorTimeoutTask: Task<Void, Never>?
-
-    /// The message ID awaiting a deferred scroll-to-top. Set when entering
-    /// `pushToTop` mode and consumed by `TailSpacerView.onAppear` (fresh
-    /// push-to-top) or `syncUISnapshots` (re-enter when spacer is already
-    /// rendered).
-    @ObservationIgnored var pendingPushToTopTarget: UUID?
 
     /// Timeout task for expansion stabilization — auto-ends after 200ms.
     @ObservationIgnored private var expansionTimeoutTask: Task<Void, Never>?
@@ -398,47 +345,12 @@ final class MessageListScrollState {
         switch oldMode {
         case .stabilizing:
             cancelStabilizationTasks()
-        case .pushToTop:
-            pendingPushToTopTarget = nil
         default:
             break
         }
 
         mode = newMode
         scheduleUISync()
-    }
-
-    /// Enters push-to-top mode for the given message ID. Sets up the
-    /// deferred scroll target that will fire after the tail spacer renders
-    /// (via `TailSpacerView.onAppear`) or immediately if already showing
-    /// (via `syncUISnapshots`).
-    func enterPushToTop(messageId: UUID) {
-        transition(to: .pushToTop(messageId: messageId))
-        pendingPushToTopTarget = messageId
-        syncUIImmediately()
-    }
-
-    /// Consumes a pending push-to-top scroll target. Called from
-    /// `TailSpacerView.onAppear` (fresh push-to-top, guaranteeing the spacer
-    /// is in the view tree) or from `syncUISnapshots` (re-enter case where
-    /// the spacer was already rendered).
-    func consumePendingPushToTop() {
-        guard let targetId = pendingPushToTopTarget,
-              mode.pushToTopMessageId != nil else { return }
-        pendingPushToTopTarget = nil
-        withAnimation(VAnimation.fast) {
-            performScrollTo(targetId, anchor: .top)
-        }
-    }
-
-    /// Exits push-to-top and transitions to followingBottom with a
-    /// bottom-pin scroll.
-    func exitPushToTop(animated: Bool = true) {
-        let wasPushToTop = mode.pushToTopMessageId != nil
-        transition(to: .followingBottom)
-        if wasPushToTop {
-            executeScrollToBottom(animated: animated)
-        }
     }
 
     /// Enters stabilizing mode, remembering the previous mode to restore
@@ -452,7 +364,7 @@ final class MessageListScrollState {
             previousMode = .freeBrowsing
         case .stabilizing(let prev, _):
             previousMode = prev
-        case .pushToTop, .programmaticScroll:
+        case .programmaticScroll:
             return
         }
 
@@ -533,7 +445,7 @@ final class MessageListScrollState {
             transition(to: .freeBrowsing)
         case .stabilizing:
             transition(to: .freeBrowsing)
-        case .freeBrowsing, .pushToTop, .programmaticScroll:
+        case .freeBrowsing, .programmaticScroll:
             break
         }
     }
@@ -541,7 +453,7 @@ final class MessageListScrollState {
     /// Handles the user arriving at the bottom of the scroll view.
     func handleReachedBottom() {
         switch mode {
-        case .freeBrowsing, .pushToTop, .initialLoad, .programmaticScroll:
+        case .freeBrowsing, .initialLoad, .programmaticScroll:
             transition(to: .followingBottom)
         case .stabilizing:
             break
@@ -550,14 +462,6 @@ final class MessageListScrollState {
         }
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
-    }
-
-    /// Handles push-to-top overflow detection.
-    @discardableResult
-    func handlePushToTopOverflow() -> Bool {
-        guard mode.pushToTopMessageId != nil else { return false }
-        exitPushToTop(animated: true)
-        return true
     }
 
     // MARK: - Convenience Queries
@@ -605,7 +509,6 @@ final class MessageListScrollState {
         currentConversationId = newConversationId
         mode = .initialLoad
         activeStabilizationCount = 0
-        pendingPushToTopTarget = nil
         // False: scroll geometry hasn't updated for the new content yet.
         isAtBottom = false
         lastContentOffsetY = 0
@@ -645,7 +548,6 @@ final class MessageListScrollState {
         isThrottled = false
         bodyEvalTimestamps.removeAll()
         if _hideScrollIndicators { _hideScrollIndicators = false }
-        pendingPushToTopTarget = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         mode = .initialLoad
         activeStabilizationCount = 0

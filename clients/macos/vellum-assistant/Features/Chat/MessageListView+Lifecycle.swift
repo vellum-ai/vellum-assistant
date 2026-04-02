@@ -78,26 +78,14 @@ extension MessageListView {
             if isDaemonConfirmationResume && !scrollState.isFollowingBottom {
                 // Daemon resumed from confirmation while user was scrolled up.
             } else {
-                // For user-initiated sends, scroll the user's message to
-                // the viewport top with space below for the assistant's
-                // response. Daemon confirmation resumes stay bottom-pinned.
-                if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
-                    scrollState.enterPushToTop(messageId: lastUserMsg.id)
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                                "target=userMessage reason=pushToTop")
-                } else {
-                    scrollState.transition(to: .followingBottom)
-                    scrollState.requestPinToBottom(animated: true)
-                }
+                scrollState.transition(to: .followingBottom)
+                scrollState.requestPinToBottom(animated: true)
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
+                            "target=bottom reason=sendFollowingBottom")
             }
         } else {
             // Capture the activity phase at the moment sending stops.
             scrollState.lastActivityPhaseWhenIdle = assistantActivityPhase
-            // End push-to-top phase and scroll to bottom so the user
-            // sees the complete response.
-            if scrollState.mode.pushToTopMessageId != nil {
-                scrollState.exitPushToTop(animated: true)
-            }
             // First-message detection.
             if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                 hasEverSentMessage = true
@@ -139,9 +127,7 @@ extension MessageListView {
             }
         }
         // --- Bottom-pin on new messages ---
-        if scrollState.mode.pushToTopMessageId != nil && anchorMessageId == nil {
-            // no-op: push-to-top suppresses bottom-pin
-        } else if anchorMessageId == nil {
+        if anchorMessageId == nil {
             scrollState.requestPinToBottom(animated: true)
         }
         // --- Confirmation focus handoff ---
@@ -187,13 +173,9 @@ extension MessageListView {
         scrollState.anchorTimeoutTask?.cancel()
         scrollState.anchorTimeoutTask = nil
         scrollState.lastAutoFocusedRequestId = nil
-        // When switching to a conversation that is already actively sending,
-        // .onChange(of: isSending) won't fire (the value doesn't change), so
-        // mode stays .initialLoad. Transition to .followingBottom now so that
-        // requestPinToBottom() can issue pins for streaming messages.
-        if isSending {
-            scrollState.transition(to: .followingBottom)
-        }
+        // Transition through programmaticScroll so that any in-flight scroll
+        // operations don't interfere, then settle into followingBottom.
+        scrollState.transition(to: .programmaticScroll(reason: .conversationSwitch))
         // Declarative position reset — processed in the same layout pass as new content.
         // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()

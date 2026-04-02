@@ -2,29 +2,6 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - TailSpacerView
-
-/// Isolated child view for the push-to-top tail spacer. Creates its own
-/// observation boundary so changes to `showTailSpacer` only invalidate this
-/// view — not the parent `LazyVStack` or `ForEach`.
-///
-/// Reference: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
-struct TailSpacerView: View {
-    let scrollState: MessageListScrollState
-
-    var body: some View {
-        if scrollState.showTailSpacer {
-            Color.clear
-                .frame(height: scrollState.tailSpacerHeight)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-                .onAppear {
-                    scrollState.consumePendingPushToTop()
-                }
-        }
-    }
-}
-
 // MARK: - ScrollToLatestOverlayView
 
 /// Isolated child view for the "Scroll to latest" CTA. Creates its own
