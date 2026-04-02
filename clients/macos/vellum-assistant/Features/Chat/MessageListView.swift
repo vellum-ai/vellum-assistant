@@ -1119,11 +1119,11 @@ private struct MessageListContentView: View, Equatable {
             && lhs.state.hasPrecedingAssistantByIndex == rhs.state.hasPrecedingAssistantByIndex
             && lhs.state.hasUserMessage == rhs.state.hasUserMessage
             && lhs.state.latestAssistantId == rhs.state.latestAssistantId
-            && lhs.state.subagentsByParent.count == rhs.state.subagentsByParent.count
+            && lhs.state.subagentsByParent == rhs.state.subagentsByParent
             && lhs.state.orphanSubagents == rhs.state.orphanSubagents
             && lhs.state.effectiveStatusText == rhs.state.effectiveStatusText
             && lhs.state.activePendingRequestId == rhs.state.activePendingRequestId
-            && lhs.state.nextDecidedConfirmationByIndex.count == rhs.state.nextDecidedConfirmationByIndex.count
+            && lhs.state.nextDecidedConfirmationByIndex == rhs.state.nextDecidedConfirmationByIndex
             && lhs.state.isConfirmationRenderedInlineByIndex == rhs.state.isConfirmationRenderedInlineByIndex
             && lhs.state.anchoredThinkingIndex == rhs.state.anchoredThinkingIndex
             && lhs.state.hasActiveToolCall == rhs.state.hasActiveToolCall
