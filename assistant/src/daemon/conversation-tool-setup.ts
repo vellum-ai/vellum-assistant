@@ -457,6 +457,8 @@ export interface SkillProjectionContext {
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
+  /** True when the connected client is a macOS or iOS app. */
+  readonly clientIsMacOS?: boolean;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -495,7 +497,7 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
-    return process.platform === "darwin" && !ctx.hasNoClient;
+    return (ctx.clientIsMacOS ?? process.platform === "darwin") && !ctx.hasNoClient;
   }
   return true;
 }

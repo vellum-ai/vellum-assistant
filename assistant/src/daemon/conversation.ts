@@ -174,6 +174,10 @@ export class Conversation {
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
+  /** @internal */ get clientIsMacOS(): boolean {
+    const iface = this.currentTurnInterfaceContext?.userMessageInterface;
+    return iface === "macos" || iface === "ios";
+  }
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -391,8 +395,12 @@ export class Conversation {
                 this.currentTurnTrustContext,
                 this.currentTurnChannelCapabilities,
               );
+              const clientInterface =
+                this.currentTurnInterfaceContext?.userMessageInterface;
               return buildSystemPrompt({
                 hasNoClient: this.hasNoClient,
+                clientIsMacOS:
+                  clientInterface === "macos" || clientInterface === "ios",
                 userPersona: persona.userPersona,
                 channelPersona: persona.channelPersona,
                 userSlug: persona.userSlug,

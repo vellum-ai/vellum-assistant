@@ -161,6 +161,8 @@ export function ensurePromptFiles(): void {
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
+  /** True when the connected client is a macOS or iOS app (host supports osascript). */
+  clientIsMacOS?: boolean;
   excludeBootstrap?: boolean;
   userPersona?: string | null;
   channelPersona?: string | null;
@@ -177,6 +179,7 @@ export interface BuildSystemPromptOptions {
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const hasNoClient = options?.hasNoClient ?? false;
+  const clientIsMacOS = options?.clientIsMacOS ?? isMacOS();
 
   // ── Static instruction sections (stable across turns) ──
   // These sections are deterministic within a process lifetime.  They form
@@ -192,7 +195,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   staticParts.push(buildInChatConfigurationSection());
   // System Permissions section removed — guidance lives in request_system_permission tool description.
   // Parallel Task Orchestration section removed — orchestration skill description + hints cover this.
-  staticParts.push(buildAccessPreferenceSection(hasNoClient));
+  staticParts.push(buildAccessPreferenceSection(hasNoClient, clientIsMacOS));
   staticParts.push(buildCredentialSecuritySection());
   // Memory Persistence, Memory Recall, Workspace Reflection, Learning from Mistakes
   // sections removed — guidance lives in memory_manage/memory_recall tool descriptions
@@ -306,7 +309,10 @@ function buildInChatConfigurationSection(): string {
   ].join("\n");
 }
 
-function buildAccessPreferenceSection(hasNoClient: boolean): string {
+function buildAccessPreferenceSection(
+  hasNoClient: boolean,
+  clientIsMacOS: boolean,
+): string {
   if (hasNoClient) {
     return [
       "## External Service Access",
@@ -319,7 +325,7 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
     "## External Service Access",
     "",
     "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
-    ...(isMacOS()
+    ...(clientIsMacOS
       ? [
           "",
           "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
