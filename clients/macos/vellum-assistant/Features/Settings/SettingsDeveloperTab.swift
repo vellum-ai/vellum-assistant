@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 @preconcurrency import Sentry
 import VellumAssistantShared
+import os
 
 /// Wraps both `AssistantFeatureFlag` and `MacOSFeatureFlagState` into a single
 /// type so the Developer tab can render all flags in one card.
@@ -1066,25 +1067,16 @@ struct SettingsDeveloperTab: View {
                         userInfo: ["key": flag.key, "enabled": newValue]
                     )
                     AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: newValue)
+                    try? AssistantFeatureFlagResolver.mergePersistedFlag(key: flag.key, enabled: newValue)
                     Task {
                         do {
                             try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)
                         } catch {
-                            if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
-                                assistantFlags[index] = AssistantFeatureFlag(
-                                    key: flag.key,
-                                    enabled: !newValue,
-                                    defaultEnabled: flag.defaultEnabled,
-                                    description: flag.description.isEmpty ? nil : flag.description,
-                                    label: flag.label
-                                )
-                            }
-                            AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: !newValue)
-                            NotificationCenter.default.post(
-                                name: .assistantFeatureFlagDidChange,
-                                object: nil,
-                                userInfo: ["key": flag.key, "enabled": !newValue]
-                            )
+                            // Best-effort: local persistence (file + cache) already saved the override.
+                            // The gateway PATCH may fail for managed assistants where the platform
+                            // doesn't support the write endpoint. Log but don't revert.
+                            os.Logger(subsystem: Bundle.appBundleIdentifier, category: "FeatureFlags")
+                                .warning("Failed to sync feature flag '\(flag.key)' to gateway: \(error.localizedDescription)")
                         }
                     }
                 case .macos:
