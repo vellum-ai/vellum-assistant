@@ -617,7 +617,7 @@ struct AssistantUpgradeSection: View {
                   let releaseParsed = VersionCompat.parse(release.version) else {
                 return false
             }
-            return releaseParsed == currentParsed
+            return releaseParsed.coreEquals(currentParsed)
         }()
         let isLatest = release.version == latestRelease?.version
         var parts = [release.version]
