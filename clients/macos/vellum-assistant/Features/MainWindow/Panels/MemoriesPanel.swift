@@ -342,7 +342,10 @@ struct MemoriesPanel: View {
                             MemoryItemCompactRow(
                                 item: item,
                                 isSelected: selectedItem?.id == item.id,
-                                onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } }
+                                onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
+                                onDelete: {
+                                    Task { _ = await store.deleteItem(id: item.id) }
+                                }
                             )
                         }
                     }

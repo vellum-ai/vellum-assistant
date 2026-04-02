@@ -6,6 +6,7 @@ struct MemoryItemCompactRow: View {
     let item: MemoryItemPayload
     let isSelected: Bool
     let onSelect: () -> Void
+    let onDelete: () -> Void
 
     @State private var isHovered = false
 
@@ -46,7 +47,7 @@ struct MemoryItemCompactRow: View {
         .onHover { isHovered = $0 }
         .contextMenu {
             Button("Delete", role: .destructive) {
-                // Deletion handled by parent
+                onDelete()
             }
         }
     }
