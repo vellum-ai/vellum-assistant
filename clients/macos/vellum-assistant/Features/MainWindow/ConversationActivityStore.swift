@@ -1,9 +1,6 @@
 import Foundation
 import Observation
-import os
 import VellumAssistantShared
-
-private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationActivityStore")
 
 /// Owns per-conversation activity state (busy flags, interaction states, active
 /// message count) on an `@Observable` class so SwiftUI views get **property-level**
