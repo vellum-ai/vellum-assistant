@@ -72,6 +72,13 @@ Otherwise:
 
 - Telegram needs a publicly reachable URL to send webhook events to. Load the `public-ingress` skill to determine whether a public ingress has been configured and walk the user through setting one up if not.
 
+- After `public-ingress` completes, construct the callback URL from the persisted base URL:
+
+```bash
+PUBLIC_BASE_URL=$(assistant config get ingress.publicBaseUrl)
+CALLBACK_URL="${PUBLIC_BASE_URL}/webhooks/telegram"
+```
+
 ### Generate Webhook Secret
 
 Check to see if one already exists:
