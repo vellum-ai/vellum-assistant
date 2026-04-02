@@ -2419,17 +2419,25 @@ jobs:
           BLOCKS=$(echo "$BLOCKS" | jq --arg header "$HEADER" '. + [{ type: "header", text: { type: "plain_text", text: $header } }]')
           BLOCKS=$(echo "$BLOCKS" | jq --arg body "$BODY" '. + [{ type: "section", text: { type: "mrkdwn", text: $body } }]')
 
-          VIEW_RUN=$(jq -n --arg url "$RUN_URL" '{
-            type: "button",
-            text: { type: "plain_text", text: "View Run" },
-            url: $url
-          }')
+          ARTIFACTS_URL="${RUN_URL}#artifacts"
 
-          if [ "$ARM_RESULT" != "success" ]; then
-            VIEW_RUN=$(echo "$VIEW_RUN" | jq '. + { style: "danger" }')
+          if [ "$ARM_RESULT" = "success" ]; then
+            DOWNLOAD_BTN=$(jq -n --arg url "$ARTIFACTS_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "Download DMG" },
+              url: $url,
+              style: "primary"
+            }')
+          else
+            DOWNLOAD_BTN=$(jq -n --arg url "$RUN_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "View Run" },
+              url: $url,
+              style: "danger"
+            }')
           fi
 
-          BLOCKS=$(echo "$BLOCKS" | jq --argjson btn "$VIEW_RUN" '. + [{ type: "actions", elements: [$btn] }]')
+          BLOCKS=$(echo "$BLOCKS" | jq --argjson btn "$DOWNLOAD_BTN" '. + [{ type: "actions", elements: [$btn] }]')
 
           jq -n --argjson blocks "$BLOCKS" '{
             unfurl_links: false,
