@@ -28,6 +28,7 @@ import {
   getProfilerMaxBytes,
   getProfilerMaxRuns,
   getProfilerMinFreeMb,
+  getProfilerMode,
   getProfilerRunId,
 } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
@@ -333,5 +334,180 @@ export function runProfilerSweep(): ProfilerSweepResult {
     freedBytes,
     activeRunOverBudget,
     remainingRuns,
+  };
+}
+
+// ── Runtime status helpers ──────────────────────────────────────────────
+// These derive the current profiler state from env vars + filesystem for
+// health-endpoint reporting and control-plane polling.
+
+/** Budget state for the active profiler run. */
+export interface ProfilerBudgetStatus {
+  /** Configured maximum bytes across all runs. */
+  maxBytes: number;
+  /** Bytes remaining before the byte-count budget is exceeded. */
+  remainingBytes: number;
+  /** Configured minimum free disk space in MB. */
+  minFreeMb: number;
+  /** Current free disk space in MB. */
+  freeMb: number;
+  /** True when any budget constraint is currently violated. */
+  overBudget: boolean;
+}
+
+/** Summary of the most recently completed profiler run. */
+export interface ProfilerLastCompletedRun {
+  runId: string;
+  totalBytes: number;
+  artifactCount: number;
+  hasSummaries: boolean;
+  completedAt: string;
+}
+
+/** Full runtime status snapshot for health-endpoint embedding. */
+export interface ProfilerRuntimeStatus {
+  /** Whether profiling is enabled (env vars present). */
+  enabled: boolean;
+  /** The profiling mode ("cpu", "heap", "cpu+heap"), or null when disabled. */
+  mode: string | null;
+  /** The active run ID, or null when disabled. */
+  runId: string | null;
+  /** Path to the active run directory, or null when disabled. */
+  runDir: string | null;
+  /** Total bytes consumed by the active run, or 0 when no active run. */
+  totalBytes: number;
+  /** Number of profiler artifact files in the active run directory. */
+  artifactCount: number;
+  /** Budget headroom for the active run. Null when profiling is disabled. */
+  budget: ProfilerBudgetStatus | null;
+  /** Summary of the most recently completed run, or null when none exist. */
+  lastCompletedRun: ProfilerLastCompletedRun | null;
+}
+
+/** File extensions that Bun profiler writes as raw artifacts. */
+const PROFILER_ARTIFACT_EXTENSIONS = [".cpuprofile", ".heapprofile"];
+
+/** File extensions for Bun-generated markdown summaries. */
+const PROFILER_SUMMARY_EXTENSIONS = [".md"];
+
+/**
+ * Count profiler artifact files (raw profiles) in a run directory.
+ */
+function countArtifacts(runDir: string): number {
+  if (!existsSync(runDir)) return 0;
+  try {
+    return readdirSync(runDir).filter((name) =>
+      PROFILER_ARTIFACT_EXTENSIONS.some((ext) => name.endsWith(ext)),
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Check whether any Bun-generated markdown summary files exist in a run
+ * directory.
+ */
+function hasSummaryFiles(runDir: string): boolean {
+  if (!existsSync(runDir)) return false;
+  try {
+    return readdirSync(runDir).some((name) =>
+      PROFILER_SUMMARY_EXTENSIONS.some((ext) => name.endsWith(ext)),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Derive the full profiler runtime status from environment variables and
+ * the filesystem. This is the main entry point for health-endpoint
+ * integration — it never throws.
+ */
+export function getProfilerRuntimeStatus(): ProfilerRuntimeStatus {
+  const runId = getProfilerRunId() ?? null;
+  const mode = getProfilerMode() ?? null;
+  const enabled = runId !== null && mode !== null;
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      mode: null,
+      runId: null,
+      runDir: null,
+      totalBytes: 0,
+      artifactCount: 0,
+      budget: null,
+      lastCompletedRun: null,
+    };
+  }
+
+  const runDir = getProfilerRunDir(runId!);
+  const runsDir = getProfilerRunsDir();
+
+  // Rescan to get up-to-date manifests
+  let manifests: ProfilerRunManifest[];
+  try {
+    manifests = rescanRuns();
+  } catch {
+    manifests = [];
+  }
+
+  const activeManifest = manifests.find(
+    (m) => m.runId === runId && m.status === "active",
+  );
+  const totalBytes = activeManifest?.totalBytes ?? 0;
+  const artifactCount = countArtifacts(runDir);
+
+  // Compute budget state
+  const maxBytes = getProfilerMaxBytes() ?? DEFAULT_MAX_BYTES;
+  const minFreeMb = getProfilerMinFreeMb() ?? DEFAULT_MIN_FREE_MB;
+  const allRunBytes = manifests.reduce((sum, m) => sum + m.totalBytes, 0);
+  const remainingBytes = Math.max(0, maxBytes - allRunBytes);
+  const freeDiskBytes = getFreeDiskBytes(
+    existsSync(runsDir) ? runsDir : runDir,
+  );
+  const freeMb = Math.round((freeDiskBytes / (1024 * 1024)) * 100) / 100;
+  const overBudget =
+    allRunBytes > maxBytes || freeDiskBytes < minFreeMb * 1024 * 1024;
+
+  const budget: ProfilerBudgetStatus = {
+    maxBytes,
+    remainingBytes,
+    minFreeMb,
+    freeMb,
+    overBudget,
+  };
+
+  // Find most recent completed run for lastCompletedRun summary
+  const completedRuns = manifests
+    .filter((m) => m.status === "completed")
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+  let lastCompletedRun: ProfilerLastCompletedRun | null = null;
+  if (completedRuns.length > 0) {
+    const latest = completedRuns[0]!;
+    const latestDir = getProfilerRunDir(latest.runId);
+    lastCompletedRun = {
+      runId: latest.runId,
+      totalBytes: latest.totalBytes,
+      artifactCount: countArtifacts(latestDir),
+      hasSummaries: hasSummaryFiles(latestDir),
+      completedAt: latest.updatedAt,
+    };
+  }
+
+  return {
+    enabled,
+    mode,
+    runId,
+    runDir,
+    totalBytes,
+    artifactCount,
+    budget,
+    lastCompletedRun,
   };
 }
