@@ -2465,9 +2465,7 @@ public final class SettingsStore: ObservableObject {
         do {
             let connections = try await PlatformOAuthService.shared.listConnections(assistantId: assistantId)
             let grouped = Dictionary(grouping: connections, by: { $0.provider })
-            for (providerKey, conns) in grouped {
-                managedOAuthConnections[providerKey] = conns
-            }
+            managedOAuthConnections = grouped
         } catch {
             log.error("Failed to fetch all managed OAuth connections: \(error)")
         }
