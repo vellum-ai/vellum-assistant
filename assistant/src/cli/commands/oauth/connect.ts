@@ -9,8 +9,8 @@ import {
   getProvider,
 } from "../../../oauth/oauth-store.js";
 import { renderOAuthCompletionPage } from "../../../security/oauth-completion-page.js";
+import { openInHostBrowser } from "../../../util/browser.js";
 import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
-import { openUrlViaDaemon } from "../../lib/daemon-open-url.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
@@ -234,7 +234,7 @@ Examples:
                 }
                 const snapshotIds = new Set(snapshotEntries.map((e) => e.id));
 
-                await openUrlViaDaemon(result.connect_url);
+                await openInHostBrowser(result.connect_url);
 
                 if (!jsonMode) {
                   log.info(
@@ -381,7 +381,7 @@ Examples:
               isInteractive: opts.browser !== false,
               openUrl:
                 opts.browser !== false
-                  ? (url: string) => openUrlViaDaemon(url)
+                  ? (url: string) => openInHostBrowser(url)
                   : undefined,
               ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
             });
