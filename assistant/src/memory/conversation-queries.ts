@@ -17,7 +17,7 @@ const log = getLogger("conversation-store");
 export function buildFtsMatchQuery(text: string): string | null {
   // If the query already contains FTS5 operators, pass it through directly
   // so users (and callers) can use exact-phrase, AND, OR, NOT, NEAR syntax.
-  if (/\bAND\b|\bOR\b|\bNOT\b|\bNEAR\s*\(|"/i.test(text)) {
+  if (/\bAND\b|\bOR\b|\bNOT\b|\bNEAR\s*\(|"[^"]+"/.test(text)) {
     return text.trim();
   }
 
