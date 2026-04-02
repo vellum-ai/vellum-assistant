@@ -249,6 +249,7 @@ export class Conversation {
   public memoryPolicy: ConversationMemoryPolicy;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
+  /** @internal */ memoryScopeId?: string;
   /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -566,6 +567,7 @@ export class Conversation {
     // Do NOT close it here; the server manages the CES lifecycle.
     this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
+    this.memoryScopeId = this.memoryPolicy.scopeId;
     disposeConversation(this);
   }
 

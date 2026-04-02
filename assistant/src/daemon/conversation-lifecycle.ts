@@ -153,6 +153,8 @@ export interface DisposeContext extends AbortContext {
   trustContext?: { trustClass: TrustClass };
   /** Active memory node IDs snapshotted from the conversation's InContextTracker before disposal. */
   activeContextNodeIds?: string[];
+  /** Memory scope for extraction — defaults to "default" if omitted. */
+  memoryScopeId?: string;
   abort(): void;
 }
 
@@ -311,6 +313,7 @@ export function disposeConversation(ctx: DisposeContext): void {
     try {
       enqueueMemoryJob("graph_extract", {
         conversationId: ctx.conversationId,
+        scopeId: ctx.memoryScopeId ?? "default",
         ...(ctx.activeContextNodeIds?.length
           ? { activeContextNodeIds: ctx.activeContextNodeIds }
           : {}),
