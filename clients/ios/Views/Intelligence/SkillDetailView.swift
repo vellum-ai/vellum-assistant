@@ -21,54 +21,17 @@ struct SkillDetailView: View {
                 headerSection
             }
 
-            // Details section
+            // Details section with origin-specific metadata via originMeta
             Section("Details") {
-                if let author = skill.author, !author.isEmpty {
-                    detailRow(label: "Author", value: author)
-                }
-                if let stars = skill.stars, stars > 0 {
-                    detailRow(label: "Stars", value: "\(stars)")
-                }
-                if let sourceRepo = skill.sourceRepo, !sourceRepo.isEmpty {
-                    detailRow(label: "Source Repo", value: sourceRepo)
-                }
+                detailsSection
                 detailRow(label: "Origin", value: originLabel(skill.origin))
                 detailRow(label: "Status", value: skill.status.capitalized)
             }
 
-            // Inspect data section (loaded from ClaWHub)
-            if let inspected = skillsStore.inspectedSkill {
-                Section("About") {
-                    if !inspected.skill.summary.isEmpty {
-                        Text(inspected.skill.summary)
-                            .font(VFont.bodyMediumLighter)
-                            .foregroundStyle(VColor.contentSecondary)
-                    }
-
-                    if let owner = inspected.owner {
-                        detailRow(label: "Owner", value: owner.displayName)
-                    }
-
-                    if let stats = inspected.stats {
-                        detailRow(label: "Stars", value: "\(stats.stars)")
-                        detailRow(label: "Installs", value: "\(stats.installs)")
-                    }
-
-                    if let latestVersion = inspected.latestVersion {
-                        detailRow(label: "Latest Version", value: latestVersion.version)
-                        if let changelog = latestVersion.changelog, !changelog.isEmpty {
-                            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                                Text("Changelog")
-                                    .font(VFont.labelDefault)
-                                    .foregroundStyle(VColor.contentTertiary)
-                                Text(changelog)
-                                    .font(VFont.bodyMediumLighter)
-                                    .foregroundStyle(VColor.contentSecondary)
-                            }
-                        }
-                    }
-                }
-            } else if skillsStore.isInspecting {
+            // Enrichment data from skill detail endpoint
+            if let detail = skillsStore.selectedSkillDetail {
+                enrichmentSection(detail)
+            } else if skillsStore.isLoadingSkillDetail {
                 Section("About") {
                     HStack {
                         Spacer()
@@ -77,7 +40,7 @@ struct SkillDetailView: View {
                         Spacer()
                     }
                 }
-            } else if let error = skillsStore.inspectError {
+            } else if let error = skillsStore.skillDetailError {
                 Section("About") {
                     Text(error)
                         .font(VFont.bodyMediumLighter)
@@ -151,14 +114,10 @@ struct SkillDetailView: View {
         .navigationTitle(skill.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            // Inspect the skill if it has a clawhub origin
-            if skill.origin == "clawhub" {
-                skillsStore.inspectSkill(slug: skill.id)
-            }
+            skillsStore.fetchSkillDetail(skillId: skill.id)
             skillsStore.fetchSkillFiles(skillId: skill.id)
         }
         .onDisappear {
-            skillsStore.clearInspection()
             skillsStore.clearSkillDetail()
             expandedFilePath = nil
         }
@@ -270,6 +229,59 @@ struct SkillDetailView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(file.path), \(formatFileSize(file.size))\(file.isBinary ? ", binary" : "")")
+    }
+
+    // MARK: - Details Section (origin-specific metadata via originMeta)
+
+    @ViewBuilder
+    private var detailsSection: some View {
+        switch skill.originMeta {
+        case .clawhub(let meta):
+            if !meta.author.isEmpty {
+                detailRow(label: "Author", value: meta.author)
+            }
+            if meta.stars > 0 {
+                detailRow(label: "Stars", value: "\(meta.stars)")
+            }
+        case .skillssh(let meta):
+            if !meta.sourceRepo.isEmpty {
+                detailRow(label: "Source Repo", value: meta.sourceRepo)
+            }
+        case .vellum, .custom:
+            EmptyView()
+        }
+    }
+
+    // MARK: - Enrichment Section (from skill detail endpoint)
+
+    @ViewBuilder
+    private func enrichmentSection(_ detail: SkillDetailHTTPResponse) -> some View {
+        if detail.owner != nil || detail.stats != nil || detail.latestVersion != nil {
+            Section("About") {
+                if let owner = detail.owner {
+                    detailRow(label: "Owner", value: owner.displayName)
+                }
+
+                if let stats = detail.stats {
+                    detailRow(label: "Stars", value: "\(stats.stars)")
+                    detailRow(label: "Installs", value: "\(stats.installs)")
+                }
+
+                if let latestVersion = detail.latestVersion {
+                    detailRow(label: "Latest Version", value: latestVersion.version)
+                    if let changelog = latestVersion.changelog, !changelog.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Changelog")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                            Text(changelog)
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundStyle(VColor.contentSecondary)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Origin Label
