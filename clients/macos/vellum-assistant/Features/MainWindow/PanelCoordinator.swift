@@ -175,7 +175,7 @@ extension MainWindowView {
     /// Computes a clamped panel-width binding for split layouts, accounting for
     /// sidebar consumption and enforcing min main/panel constraints on both
     /// get and set paths so persisted values stay valid across resizes.
-    func clampedPanelWidth(geometry: GeometryProxy) -> Binding<Double> {
+    func clampedPanelWidth(windowSize: CGSize) -> Binding<Double> {
         // Sidebar sits in the HStack and consumes real width.
         // When settings is open the sidebar is hidden.
         let settingsOpen: Bool = {
@@ -185,7 +185,7 @@ extension MainWindowView {
         let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
         let hstackSpacing: CGFloat = 16
         let outerPadding: CGFloat = 32 // 16 left + 16 right
-        let windowWidth: Double = Double(geometry.size.width) / zoomManager.zoomLevel
+        let windowWidth: Double = Double(windowSize.width) / zoomManager.zoomLevel
         let availableWidth: Double = windowWidth - Double(sidebarWidth) - Double(hstackSpacing) - Double(outerPadding)
 
         let preferredMinPanel: Double = 300
@@ -208,7 +208,7 @@ extension MainWindowView {
         )
     }
 
-    func clampedChatDockWidth(geometry: GeometryProxy) -> Binding<Double> {
+    func clampedChatDockWidth(windowSize: CGSize) -> Binding<Double> {
         let settingsOpen: Bool = {
             if case .panel(.settings) = windowState.selection { return true }
             return false
@@ -216,7 +216,7 @@ extension MainWindowView {
         let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
         let hstackSpacing: CGFloat = 16
         let outerPadding: CGFloat = 32
-        let windowWidth: Double = Double(geometry.size.width) / zoomManager.zoomLevel
+        let windowWidth: Double = Double(windowSize.width) / zoomManager.zoomLevel
         let availableWidth: Double = windowWidth - Double(sidebarWidth) - Double(hstackSpacing) - Double(outerPadding)
 
         let preferredMin: Double = 300
@@ -236,7 +236,7 @@ extension MainWindowView {
     }
 
     @ViewBuilder
-    func chatContentView(geometry: GeometryProxy) -> some View {
+    func chatContentView(windowSize: CGSize) -> some View {
         switch windowState.selection {
         case .conversation:
             // Show chat for this conversation (conversationManager.activeViewModel is synced)
@@ -245,7 +245,7 @@ extension MainWindowView {
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 VAppWorkspaceDockLayout(
-                    dockWidth: clampedChatDockWidth(geometry: geometry),
+                    dockWidth: clampedChatDockWidth(windowSize: windowSize),
                     showDock: windowState.isChatDockOpen,
                     dockBackground: VColor.surfaceOverlay,
                     dockCornerRadius: 0,
@@ -316,7 +316,7 @@ extension MainWindowView {
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
                 VSplitView(
-                    panelWidth: clampedPanelWidth(geometry: geometry),
+                    panelWidth: clampedPanelWidth(windowSize: windowSize),
                     showPanel: true,
                     mainBackground: VColor.surfaceOverlay,
                     mainCornerRadius: 0,
