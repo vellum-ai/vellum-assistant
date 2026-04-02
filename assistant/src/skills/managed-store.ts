@@ -14,7 +14,7 @@ import { stringify as stringifyYaml } from "yaml";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { writeInstallMeta } from "./install-meta.js";
-import { deleteSkillCapabilityMemory } from "./skill-memory.js";
+import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 
 const log = getLogger("managed-store");
 
@@ -319,7 +319,7 @@ export function deleteManagedSkill(
   }
 
   rmSync(skillDir, { recursive: true });
-  deleteSkillCapabilityMemory(id);
+  deleteSkillCapabilityNode(id);
   log.info({ id, path: skillDir }, "Deleted managed skill");
 
   let indexUpdated = false;
