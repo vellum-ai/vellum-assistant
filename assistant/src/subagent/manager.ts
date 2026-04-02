@@ -296,7 +296,20 @@ export class SubagentManager {
       log.error({ subagentId, err }, "Subagent failed");
     } finally {
       // Release the heavyweight Conversation — output is already persisted in DB.
-      this.releaseConversation(managed);
+      // runAgentLoop fires drainQueue without awaiting it, so if messages were
+      // enqueued via sendMessage while the objective was running, the drain chain
+      // may still be processing. Defer the release to avoid tearing down
+      // conversation state mid-drain; the TTL sweep will clean it up later.
+      if (managed.conversation?.hasQueuedMessages()) {
+        log.debug(
+          { subagentId },
+          "Deferring conversation release — queued messages still draining",
+        );
+        managed.retainedUntil = Date.now() + TERMINAL_RETENTION_MS;
+        this.ensureSweepRunning();
+      } else {
+        this.releaseConversation(managed);
+      }
     }
   }
 
