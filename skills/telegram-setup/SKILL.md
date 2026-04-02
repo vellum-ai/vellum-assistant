@@ -57,7 +57,9 @@ First check whether managed platform callback routes are available:
 assistant platform status --json
 ```
 
-If `isPlatform` is `true` and both `baseUrl` and `assistantId` are present:
+If `isPlatform` is `true` and both `baseUrl` and `assistantId` are present, then we should use Platform Routing, otherwise, use Self-Hosted Routing.
+
+**Platform Routing:**
 
 - Register the managed callback route:
 
@@ -68,9 +70,16 @@ CALLBACK_URL=$(echo "$ROUTE_RESPONSE" | jq -r '.callbackUrl')
 
 - In this mode, do **not** load `public-ingress` or mention ngrok. The managed platform callback route is the Telegram webhook URL.
 
-Otherwise:
+**Self-Hosted Routing:**
 
 - Telegram needs a publicly reachable URL to send webhook events to. Load the `public-ingress` skill to determine whether a public ingress has been configured and walk the user through setting one up if not.
+
+- After `public-ingress` completes, construct the callback URL from the persisted base URL:
+
+```bash
+PUBLIC_BASE_URL=$(assistant config get ingress.publicBaseUrl)
+CALLBACK_URL="${PUBLIC_BASE_URL}/webhooks/telegram"
+```
 
 ### Generate Webhook Secret
 
