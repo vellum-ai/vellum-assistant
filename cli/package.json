@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/cli",
-  "version": "0.5.16",
+  "version": "0.6.0",
   "description": "CLI tools for vellum-assistant",
   "type": "module",
   "exports": {
