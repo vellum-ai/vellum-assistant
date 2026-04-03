@@ -788,9 +788,11 @@ export async function handleSendMessage(
     );
   }
 
-  // Default conversationKey to a random UUID when not provided, so callers
-  // (e.g. the CLI) don't need to synthesise one just to start a conversation.
-  const resolvedConversationKey = conversationKey ?? crypto.randomUUID();
+  // When conversationKey is omitted, derive a stable default from
+  // sourceChannel + sourceInterface so that repeated calls from the same
+  // channel/interface pair share a single conversation thread.
+  const resolvedConversationKey =
+    conversationKey ?? `default:${sourceChannel}:${sourceInterface}`;
 
   // Reject non-string content values (numbers, objects, etc.)
   if (content != null && typeof content !== "string") {

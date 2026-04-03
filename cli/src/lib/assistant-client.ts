@@ -25,9 +25,15 @@ const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
 
 export interface AssistantClientOpts {
   assistantId?: string;
-  // TODO: Support platform assistants via session token + org id header.
-  // When provided, the client should set `X-Vellum-Org-Id` and use
-  // a session-based `Authorization` header instead of a guardian token.
+  /**
+   * When provided alongside `orgId`, the client authenticates with a
+   * session token instead of a guardian token.  The session token is
+   * sent as `Authorization: Bearer <sessionToken>` and the org id is
+   * sent via the `X-Vellum-Org-Id` header.
+   */
+  sessionToken?: string;
+  /** Required when `sessionToken` is provided. */
+  orgId?: string;
 }
 
 export interface RequestOpts {
@@ -41,6 +47,7 @@ export class AssistantClient {
 
   private readonly _assistantId: string;
   private readonly token: string | undefined;
+  private readonly orgId: string | undefined;
 
   /**
    * Resolves an assistant entry from the lockfile and loads auth credentials.
@@ -80,8 +87,16 @@ export class AssistantClient {
       FALLBACK_RUNTIME_URL
     ).replace(/\/+$/, "");
     this._assistantId = entry.assistantId;
-    this.token =
-      loadGuardianToken(this._assistantId)?.accessToken ?? entry.bearerToken;
+
+    if (opts?.sessionToken) {
+      // Platform assistant: use session token + org id header.
+      this.token = opts.sessionToken;
+      this.orgId = opts.orgId;
+    } else {
+      this.token =
+        loadGuardianToken(this._assistantId)?.accessToken ?? entry.bearerToken;
+      this.orgId = undefined;
+    }
   }
 
   /** GET request to the gateway. Auth headers are added automatically. */
@@ -118,6 +133,9 @@ export class AssistantClient {
     const headers: Record<string, string> = { ...opts?.headers };
     if (this.token) {
       headers["Authorization"] ??= `Bearer ${this.token}`;
+    }
+    if (this.orgId) {
+      headers["X-Vellum-Org-Id"] ??= this.orgId;
     }
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
