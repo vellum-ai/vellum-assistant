@@ -453,6 +453,8 @@ export interface SkillProjectionContext {
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
+  /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
+  subagentAllowedTools?: Set<string>;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -544,18 +546,24 @@ export function createResolveToolsCallback(
       isToolActiveForContext(d.name, ctx),
     );
 
+    // When the conversation is acting as a subagent, restrict core tools to
+    // only those explicitly allowed by the parent orchestrator.
+    const scopedCoreDefs = ctx.subagentAllowedTools
+      ? filteredCoreDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+      : filteredCoreDefs;
+
     // Re-read MCP tool definitions from the registry each turn so conversations
     // automatically pick up tools added/removed by `vellum mcp reload`.
     const currentMcpDefs = getMcpToolDefinitions();
     log.debug(
       {
-        coreCount: filteredCoreDefs.length,
+        coreCount: scopedCoreDefs.length,
         mcpCount: currentMcpDefs.length,
         mcpTools: currentMcpDefs.map((d) => d.name),
       },
       "MCP tools resolved for turn",
     );
-    const allBaseDefs = [...filteredCoreDefs, ...currentMcpDefs];
+    const allBaseDefs = [...scopedCoreDefs, ...currentMcpDefs];
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
@@ -568,6 +576,10 @@ export function createResolveToolsCallback(
     });
     const turnAllowed = new Set(allBaseDefs.map((d) => d.name));
     for (const name of projection.allowedToolNames) {
+      // When a subagent allowlist is active, exclude skill tools not on it.
+      if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+        continue;
+      }
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;
