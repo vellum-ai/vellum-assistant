@@ -130,20 +130,20 @@ final class AudioEngineController: @unchecked Sendable {
     /// which crashes with `NSInternalInconsistencyException` when the hardware
     /// format changes between calls (common on first use after permission grant).
     ///
-    /// Returns the `AVAudioFormat` used for the tap on success, or `nil` if the
-    /// format is invalid or the engine fails to start.
+    /// Returns `true` on success, or `false` if the format is invalid or the
+    /// engine fails to start.
     ///
     /// See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
     func installTapAndStart(
         bufferSize: AVAudioFrameCount,
         block: @escaping AVAudioNodeTapBlock
-    ) -> AVAudioFormat? {
+    ) -> Bool {
         queue.sync { [self] in
             let inputNode = audioEngine.inputNode
             let format = inputNode.outputFormat(forBus: 0)
             guard format.channelCount > 0, format.sampleRate > 0 else {
                 log.error("Invalid audio format — channels: \(format.channelCount), sampleRate: \(format.sampleRate)")
-                return nil
+                return false
             }
 
             inputNode.removeTap(onBus: 0)
@@ -152,11 +152,11 @@ final class AudioEngineController: @unchecked Sendable {
             audioEngine.prepare()
             do {
                 try audioEngine.start()
-                return format
+                return true
             } catch {
                 log.error("Failed to start audio engine: \(error.localizedDescription)")
                 inputNode.removeTap(onBus: 0)
-                return nil
+                return false
             }
         }
     }

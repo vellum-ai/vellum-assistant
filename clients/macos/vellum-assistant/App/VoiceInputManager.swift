@@ -688,7 +688,7 @@ final class VoiceInputManager {
                     self?.onAmplitudeChanged?(scaled)
                 }
             }
-        ) != nil else {
+        ) else {
             log.error("Audio engine failed to start — invalid format or engine error")
             isRecording = false
             onRecordingStateChanged?(false)
