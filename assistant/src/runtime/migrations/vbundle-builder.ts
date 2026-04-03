@@ -592,6 +592,7 @@ async function computeFileSha256(
   size?: number,
 ): Promise<string> {
   const hash = createHash("sha256");
+  if (size === 0) return hash.digest("hex");
   const streamOpts =
     size !== undefined ? { start: 0, end: size - 1 } : undefined;
   const stream = createReadStream(filePath, streamOpts);
@@ -705,14 +706,17 @@ async function* generateTarStream(
     // alignment. The WAL checkpoint before export is the primary
     // consistency mechanism for the database.
     let bytesWritten = 0;
-    const stream = createReadStream(file.diskPath, {
-      start: 0,
-      end: file.size - 1,
-    });
-    for await (const chunk of stream) {
-      const data = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-      bytesWritten += data.length;
-      yield data;
+    if (file.size > 0) {
+      const stream = createReadStream(file.diskPath, {
+        start: 0,
+        end: file.size - 1,
+      });
+      for await (const chunk of stream) {
+        const data =
+          chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+        bytesWritten += data.length;
+        yield data;
+      }
     }
 
     // If the file shrank, pad with zeros to reach the declared size
@@ -832,7 +836,7 @@ export async function streamExportVBundle(
   const tarGenerator = generateTarStream(manifestData, allFileMetadata);
   const tarReadable = Readable.from(tarGenerator);
   const gzipStream = createGzip();
-  const writeStream = createWriteStream(tempPath);
+  const writeStream = createWriteStream(tempPath, { mode: 0o600 });
 
   try {
     await pipeline(tarReadable, gzipStream, writeStream);
