@@ -109,6 +109,18 @@ export const messageAttachments = sqliteTable("message_attachments", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const conversationGraphMemoryState = sqliteTable(
+  "conversation_graph_memory_state",
+  {
+    conversationId: text("conversation_id")
+      .primaryKey()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    stateJson: text("state_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+);
+
 export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   id: text("id").primaryKey(),
   sourceChannel: text("source_channel").notNull(),
