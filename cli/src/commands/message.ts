@@ -63,6 +63,11 @@ export async function message(): Promise<void> {
   // Resolve the target assistant from the lockfile.
   let entry = assistantName ? findAssistantByName(assistantName) : null;
 
+  if (assistantName && !entry) {
+    console.error(`No assistant found with name '${assistantName}'.`);
+    process.exit(1);
+  }
+
   if (!entry) {
     const active = getActiveAssistant();
     if (active) {
