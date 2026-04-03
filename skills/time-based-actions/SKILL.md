@@ -53,6 +53,8 @@ timestamp: 2026-04-02 (Wed) 14:30:00 -05:00 (America/Chicago)
 
 It contains the date, abbreviated weekday, local time (HH:MM:SS), UTC offset, and IANA timezone name in parentheses.
 
+**Timezone confidence check:** The timezone shown may be the assistant host's timezone rather than the user's actual timezone (this happens when the user hasn't configured `Settings → Appearance → User timezone`). If you have no prior confirmation of the user's timezone (from conversation history or memory) and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), confirm the timezone once before scheduling. If the user confirms, suggest saving it in Settings → Appearance → User timezone so future requests resolve correctly without re-asking.
+
 ## Relative Time Parsing
 
 When the user says "in X minutes/hours", compute the ISO 8601 timestamp yourself:
