@@ -660,7 +660,7 @@ final class VoiceInputManager {
         // TOCTOU race where a format read via `inputNodeFormat()` becomes stale
         // before a separate `installTap()` async block executes — which crashes
         // with NSInternalInconsistencyException on first use after permission grant.
-        guard let recordingFormat = engineController.installTapAndStart(
+        guard let _ = engineController.installTapAndStart(
             bufferSize: 1024,
             block: { [weak self] buffer, _ in
                 request.append(buffer)
