@@ -142,13 +142,17 @@ struct IntelligencePanel: View {
             .clipped()
 
         case .integrations:
-            IntegrationsPanelContent(
-                store: store!,
-                authManager: authManager!,
-                showToast: showToast ?? { _, _ in }
-            )
-            .padding(.top, VSpacing.sm)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            if let store, let authManager {
+                IntegrationsPanelContent(
+                    store: store,
+                    authManager: authManager,
+                    showToast: showToast ?? { _, _ in }
+                )
+                .padding(.top, VSpacing.sm)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            } else {
+                VEmptyState(message: "Integrations are unavailable.")
+            }
 
         case .installedSkills:
             AgentPanelContent(
