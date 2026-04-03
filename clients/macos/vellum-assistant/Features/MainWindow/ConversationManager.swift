@@ -676,8 +676,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         if listStore.visibleConversations.isEmpty {
             enterDraftMode()
         } else if selectionStore.activeConversationId == id {
-            let visibleAfter = listStore.conversations[index...].dropFirst().first(where: { !$0.isArchived })
-            let visibleBefore = listStore.conversations[..<index].last(where: { !$0.isArchived })
+            let visibleAfter = listStore.conversations[index...].dropFirst().first(where: { !$0.isArchived && $0.kind != .private })
+            let visibleBefore = listStore.conversations[..<index].last(where: { !$0.isArchived && $0.kind != .private })
             if let next = visibleAfter ?? visibleBefore {
                 selectionStore.performActivation(for: next.id)
             } else if let firstVisibleId = listStore.visibleConversations.first?.id {
