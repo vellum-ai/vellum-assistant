@@ -7,12 +7,14 @@
 import { z } from "zod";
 
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
+import { getConversation } from "../../memory/conversation-crud.js";
 import {
   cancelSchedule,
   completeScheduleRun,
   createScheduleRun,
   deleteSchedule,
   describeCronExpression,
+  getLastScheduleConversationId,
   getSchedule,
   listSchedules,
   updateSchedule,
@@ -241,30 +243,40 @@ async function handleRunScheduleNow(
     return handleListSchedules();
   }
 
-  // Regular message-based schedule
-  const conversation = bootstrapConversation({
-    source: "schedule",
-    groupId: "system:scheduled",
-    origin: "schedule",
-    systemHint: `Schedule (manual): ${schedule.name}`,
-  });
-  const runId = createScheduleRun(schedule.id, conversation.id);
+  // Regular message-based schedule — respect reuseConversation flag
+  const isRecurring = schedule.expression != null;
+  let conversationId: string | null = null;
+  if (schedule.reuseConversation && isRecurring) {
+    const lastId = getLastScheduleConversationId(schedule.id);
+    if (lastId && getConversation(lastId)) {
+      conversationId = lastId;
+    }
+  }
+  if (!conversationId) {
+    const conversation = bootstrapConversation({
+      source: "schedule",
+      groupId: "system:scheduled",
+      origin: "schedule",
+      systemHint: `Schedule (manual): ${schedule.name}`,
+    });
+    conversationId = conversation.id;
+  }
+  const runId = createScheduleRun(schedule.id, conversationId);
 
   try {
     log.info(
       {
         jobId: schedule.id,
         name: schedule.name,
-        conversationId: conversation.id,
+        conversationId,
       },
       "Executing schedule manually via HTTP (run now)",
     );
     if (!sendMessageDeps) {
       throw new Error("sendMessageDeps not available for schedule execution");
     }
-    const activeConversation = await sendMessageDeps.getOrCreateConversation(
-      conversation.id,
-    );
+    const activeConversation =
+      await sendMessageDeps.getOrCreateConversation(conversationId);
     await activeConversation.processMessage(
       schedule.message,
       [],

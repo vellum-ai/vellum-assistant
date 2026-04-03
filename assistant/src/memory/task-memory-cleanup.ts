@@ -12,8 +12,9 @@ export function isConversationFailed(conversationId: string): boolean {
   // For reused schedule conversations the same conversation_id appears in
   // multiple cron_runs. A single failed run should NOT mark the conversation
   // as permanently failed — only the *most recent* run for that conversation
-  // matters. We therefore check whether the latest cron_run (by id, which is
-  // monotonically increasing) has an error status.
+  // matters. We therefore check whether the latest cron_run (by created_at,
+  // which is a monotonically increasing epoch timestamp) has an error status.
+  // Note: cron_runs.id is a UUID v4 (random), so we cannot use MAX(id).
   const row = rawGet<{ found: number }>(
     `SELECT 1 AS found
        FROM (
@@ -23,7 +24,8 @@ export function isConversationFailed(conversationId: string): boolean {
           WHERE conversation_id = ?
             AND status = 'error'
             AND id = (
-              SELECT MAX(id) FROM cron_runs WHERE conversation_id = ?
+              SELECT id FROM cron_runs WHERE conversation_id = ?
+              ORDER BY created_at DESC LIMIT 1
             )
        )
       LIMIT 1`,
