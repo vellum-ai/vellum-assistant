@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  mergeSkillIds,
   SUBAGENT_ROLE_REGISTRY,
   type SubagentRole,
 } from "../subagent/index.js";
@@ -46,5 +47,26 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
       expect(config.skillIds).toContain("subagent");
     }
+  });
+});
+
+describe("mergeSkillIds", () => {
+  test("removes duplicates between role and config skill IDs", () => {
+    expect(mergeSkillIds(["a", "b"], ["b", "c"])).toEqual(["a", "b", "c"]);
+  });
+
+  test("returns only role skills when config is undefined", () => {
+    expect(mergeSkillIds(["subagent"], undefined)).toEqual(["subagent"]);
+  });
+
+  test("includes caller-provided extras alongside role skills", () => {
+    expect(mergeSkillIds(["subagent"], ["custom-skill"])).toEqual([
+      "subagent",
+      "custom-skill",
+    ]);
+  });
+
+  test("returns empty array when both inputs are empty", () => {
+    expect(mergeSkillIds([], undefined)).toEqual([]);
   });
 });

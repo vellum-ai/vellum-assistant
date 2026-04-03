@@ -1,4 +1,4 @@
-export { SubagentManager } from "./manager.js";
+export { mergeSkillIds, SubagentManager } from "./manager.js";
 export type {
   SubagentConfig,
   SubagentRole,

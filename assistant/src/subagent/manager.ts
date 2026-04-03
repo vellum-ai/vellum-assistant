@@ -33,6 +33,16 @@ import {
 
 const log = getLogger("subagent-manager");
 
+// ── Skill ID merge helper ──────────────────────────────────────────────
+
+/**
+ * Merge role-defined skill IDs with caller-provided skill IDs, deduplicating.
+ * Exported for direct unit testing.
+ */
+export function mergeSkillIds(roleSkillIds: string[], configSkillIds?: string[]): string[] {
+  return [...new Set([...roleSkillIds, ...(configSkillIds ?? [])])];
+}
+
 // ── Default subagent system prompt ──────────────────────────────────────
 
 function buildSubagentSystemPrompt(config: SubagentConfig, role: SubagentRole): string {
@@ -220,7 +230,7 @@ export class SubagentManager {
     }
 
     // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
-    const mergedSkillIds = [...new Set([...roleConfig.skillIds, ...(config.preactivatedSkillIds ?? [])])];
+    const mergedSkillIds = mergeSkillIds(roleConfig.skillIds, config.preactivatedSkillIds);
     if (mergedSkillIds.length > 0) {
       conversation.setPreactivatedSkillIds(mergedSkillIds);
     }
