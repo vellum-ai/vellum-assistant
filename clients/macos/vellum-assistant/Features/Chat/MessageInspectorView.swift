@@ -323,57 +323,59 @@ struct MessageInspectorView: View {
 
     @ViewBuilder
     private func rawPayloadTab(for entry: LLMRequestLogEntry) -> some View {
-        if payloadLoadingIDs.contains(entry.id) {
-            VStack {
-                ProgressView()
-                    .padding(.top, VSpacing.xl)
-                Text("Loading raw payloads…")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .padding(.top, VSpacing.sm)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if payloadFailedIDs.contains(entry.id) {
-            VEmptyState(
-                title: "Couldn't load raw payloads",
-                subtitle: "The payload request failed. Try again.",
-                icon: VIcon.triangleAlert.rawValue,
-                actionLabel: "Retry",
-                actionIcon: VIcon.refreshCw.rawValue
-            ) {
-                Task { await loadPayloadIfNeeded(for: entry) }
-            }
-        } else {
-            VStack(spacing: 0) {
-                HStack {
-                    VTabs(
-                        items: RawPayloadPane.allCases.map { (label: $0.label, tag: $0) },
-                        selection: rawPaneBinding,
-                        style: .pill,
-                        size: .compact
-                    )
-                    .fixedSize()
-
+        Group {
+            if payloadLoadingIDs.contains(entry.id) {
+                VStack {
+                    ProgressView()
+                        .padding(.top, VSpacing.xl)
+                    Text("Loading raw payloads…")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .padding(.top, VSpacing.sm)
                     Spacer()
                 }
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.sm)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if payloadFailedIDs.contains(entry.id) {
+                VEmptyState(
+                    title: "Couldn't load raw payloads",
+                    subtitle: "The payload request failed. Try again.",
+                    icon: VIcon.triangleAlert.rawValue,
+                    actionLabel: "Retry",
+                    actionIcon: VIcon.refreshCw.rawValue
+                ) {
+                    Task { await loadPayloadIfNeeded(for: entry) }
+                }
+            } else {
+                VStack(spacing: 0) {
+                    HStack {
+                        VTabs(
+                            items: RawPayloadPane.allCases.map { (label: $0.label, tag: $0) },
+                            selection: rawPaneBinding,
+                            style: .pill,
+                            size: .compact
+                        )
+                        .fixedSize()
 
-                MessageInspectorPayloadView(
-                    title: viewState.selectedRawPane.label,
-                    model: payloadBinding(
-                        for: payloadKey(for: entry.id, kind: viewState.selectedRawPane.rawValue)
+                        Spacer()
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.sm)
+
+                    MessageInspectorPayloadView(
+                        title: viewState.selectedRawPane.label,
+                        model: payloadBinding(
+                            for: payloadKey(for: entry.id, kind: viewState.selectedRawPane.rawValue)
+                        )
                     )
-                )
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.bottom, VSpacing.lg)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.lg)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(VColor.surfaceBase)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(VColor.surfaceBase)
-            .task(id: entry.id) {
-                await loadPayloadIfNeeded(for: entry)
-            }
+        }
+        .task(id: entry.id) {
+            await loadPayloadIfNeeded(for: entry)
         }
     }
 
@@ -445,7 +447,9 @@ struct MessageInspectorView: View {
 
         guard let payload = await llmContextClient.fetchLogPayload(logId: entry.id) else {
             payloadLoadingIDs.remove(entry.id)
-            payloadFailedIDs.insert(entry.id)
+            if !Task.isCancelled {
+                payloadFailedIDs.insert(entry.id)
+            }
             return
         }
 
