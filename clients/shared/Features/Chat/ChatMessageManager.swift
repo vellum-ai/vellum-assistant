@@ -48,6 +48,15 @@ public final class ChatMessageManager {
     /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     public private(set) var activePendingRequestId: String?
 
+    /// Whether any message has a pending confirmation (including system
+    /// permission requests). Cached O(1) value derived from `messages` via a
+    /// Combine pipeline. Unlike `activePendingRequestId` — which excludes
+    /// `request_system_permission` for keyboard-focus purposes — this covers
+    /// all pending confirmation types so callers like
+    /// `ConversationActivityStore` can detect the `.waitingForInput` state
+    /// without an O(n) message scan.
+    public private(set) var hasPendingConfirmation: Bool = false
+
     /// Whether any message contains non-empty text. Cached O(1) value derived
     /// from `messages` via a Combine pipeline so view bodies avoid O(n) scans.
     public private(set) var hasNonEmptyMessage: Bool = false
@@ -58,6 +67,7 @@ public final class ChatMessageManager {
     public private(set) var latestPersistedTipDaemonMessageId: String?
 
     @ObservationIgnored private var activePendingRequestIdSub: AnyCancellable?
+    @ObservationIgnored private var hasPendingConfirmationSub: AnyCancellable?
     @ObservationIgnored private var hasNonEmptyMessageSub: AnyCancellable?
     @ObservationIgnored private var latestPersistedTipDaemonMessageIdSub: AnyCancellable?
 
@@ -86,6 +96,15 @@ public final class ChatMessageManager {
             .removeDuplicates()
             .sink { [weak self] newValue in
                 self?.activePendingRequestId = newValue
+            }
+
+        hasPendingConfirmationSub = messagesPublisher
+            .map { messages in
+                messages.contains { $0.confirmation?.state == .pending }
+            }
+            .removeDuplicates()
+            .sink { [weak self] newValue in
+                self?.hasPendingConfirmation = newValue
             }
 
         hasNonEmptyMessageSub = messagesPublisher
