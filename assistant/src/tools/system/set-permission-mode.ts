@@ -64,6 +64,20 @@ class SetPermissionModeTool implements Tool {
       };
     }
 
+    // Validate types of provided fields
+    if (askBeforeActing !== undefined && typeof askBeforeActing !== "boolean") {
+      return {
+        content: `Error: askBeforeActing must be a boolean, got ${typeof askBeforeActing}.`,
+        isError: true,
+      };
+    }
+    if (hostAccess !== undefined && typeof hostAccess !== "boolean") {
+      return {
+        content: `Error: hostAccess must be a boolean, got ${typeof hostAccess}.`,
+        isError: true,
+      };
+    }
+
     // Apply changes for provided fields
     if (typeof askBeforeActing === "boolean") {
       setAskBeforeActing(askBeforeActing);
