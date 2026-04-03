@@ -320,7 +320,7 @@ export function createProxyApprovalCallback(
       input.matching_patterns = decision.matchingPatterns;
     }
 
-    const riskLevel = "medium";
+    const riskLevel: string = "medium";
 
     // Check trust store before prompting — build candidates that mirror
     // buildCommandCandidates() in checker.ts for network_request.
