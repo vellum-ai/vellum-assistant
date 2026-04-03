@@ -175,7 +175,7 @@ struct AgentPanelContent: View {
         case .available: return "No Skills Available"
         case .vellum: return "No Vellum Skills"
         case .community: return "No Community Skills"
-        case .custom: return "No Created Skills"
+        case .custom: return "No Custom Skills"
         }
     }
 

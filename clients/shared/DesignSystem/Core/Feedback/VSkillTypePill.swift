@@ -12,7 +12,7 @@ public struct VSkillTypePill: View {
             switch self {
             case .vellum: return "Vellum"
             case .community: return "Community"
-            case .custom: return "Created"
+            case .custom: return "Custom"
             case .other(let label, _, _, _): return label
             }
         }
