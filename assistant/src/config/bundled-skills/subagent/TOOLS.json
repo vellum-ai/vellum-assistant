@@ -47,6 +47,10 @@
             "type": "string",
             "description": "Optional subagent ID to query. If omitted, returns all subagents for this conversation."
           },
+          "label": {
+            "type": "string",
+            "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -59,7 +63,7 @@
     },
     {
       "name": "subagent_abort",
-      "description": "Abort a running subagent by ID.",
+      "description": "Abort a running subagent by ID or label.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {
@@ -69,12 +73,16 @@
             "type": "string",
             "description": "The ID of the subagent to abort."
           },
+          "label": {
+            "type": "string",
+            "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["subagent_id"]
+        "required": []
       },
       "executor": "tools/subagent-abort.ts",
       "execution_target": "host"
@@ -91,6 +99,10 @@
             "type": "string",
             "description": "The ID of the subagent to send a message to."
           },
+          "label": {
+            "type": "string",
+            "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
+          },
           "content": {
             "type": "string",
             "description": "The message content to send to the subagent."
@@ -100,7 +112,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["subagent_id", "content"]
+        "required": ["content"]
       },
       "executor": "tools/subagent-message.ts",
       "execution_target": "host"
@@ -117,6 +129,10 @@
             "type": "string",
             "description": "The ID of the subagent whose output to read."
           },
+          "label": {
+            "type": "string",
+            "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
+          },
           "last_n": {
             "type": "integer",
             "description": "Number of recent assistant messages to return. Omit to return all messages (current behavior)."
@@ -126,9 +142,36 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["subagent_id"]
+        "required": []
       },
       "executor": "tools/subagent-read.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "notify_parent",
+      "description": "Send a notification to the parent conversation. Use this for important findings, when you're blocked, or when you have preliminary results the parent should know about. Do not overuse — notify for significant findings, not after every tool call.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The notification content for the parent."
+          },
+          "urgency": {
+            "type": "string",
+            "enum": ["info", "important", "blocked"],
+            "description": "'info' for progress updates, 'important' for key findings, 'blocked' when you need guidance."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["message"]
+      },
+      "executor": "tools/subagent-notify-parent.ts",
       "execution_target": "host"
     }
   ]

@@ -689,7 +689,7 @@ export async function classifyRisk(
   // per-request approval separately. Cap the bash tool's own risk at Medium
   // so trust rules can auto-allow the command execution.
   if (
-    (toolName === "bash" || toolName === "host_bash") &&
+    toolName === "bash" &&
     input.network_mode === "proxied" &&
     result === RiskLevel.High
   ) {
