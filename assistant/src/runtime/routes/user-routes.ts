@@ -2,8 +2,8 @@
  * Route definitions for user-defined endpoints under `/x/*`.
  *
  * Registers a single catch-all route that delegates to the
- * UserRouteDispatcher for file-based dispatch from the workspace
- * routes directory.
+ * UserRouteDispatcher for file-based dispatch from
+ * `$VELLUM_WORKSPACE_DIR/routes/`.
  */
 
 import type { RouteDefinition } from "../http-router.js";

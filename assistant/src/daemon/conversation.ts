@@ -441,6 +441,7 @@ export class Conversation {
   async loadFromDb(): Promise<void> {
     await loadFromDbImpl(this);
     this.restoreSurfaceStateFromHistory();
+    this.graphMemory.restoreState();
   }
 
   /**
@@ -568,6 +569,7 @@ export class Conversation {
     this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
     this.memoryScopeId = this.memoryPolicy.scopeId;
+    this.graphMemory.persistState();
     disposeConversation(this);
   }
 

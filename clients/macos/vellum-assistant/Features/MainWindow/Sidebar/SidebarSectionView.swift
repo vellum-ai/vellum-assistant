@@ -129,10 +129,10 @@ struct SidebarSectionView: View {
                 VStack(spacing: 0) {
                     sectionContent
                 }
-                .padding(.vertical, VSpacing.xxs)
+                .padding(.bottom, VSpacing.xxs)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(isDropTarget ? VColor.systemPositiveWeak : VColor.contentTertiary.opacity(0.06))
+                        .fill(isDropTarget ? VColor.systemPositiveWeak : .clear)
                 )
                 .modifier(SectionBodyDropModifier(
                     groupId: group.id,
@@ -243,7 +243,7 @@ struct SidebarSectionView: View {
                     .frame(width: 20, height: 20)
 
                 Text(subGroup.label)
-                    .font(VFont.menuCompact)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -312,10 +312,6 @@ struct SidebarSectionView: View {
                 }
             }
             .padding(.vertical, VSpacing.xxs)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.contentTertiary.opacity(0.03))
-            )
             .overlay(alignment: .leading) {
                 UnevenRoundedRectangle(
                     topLeadingRadius: VRadius.md,

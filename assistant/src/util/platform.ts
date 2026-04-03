@@ -26,16 +26,6 @@ export function getPlatformName(): string {
 }
 
 /**
- * Returns the platform-specific clipboard copy command, or null if
- * clipboard access is not supported on the current platform.
- */
-export function getClipboardCommand(): string | null {
-  if (isMacOS()) return "pbcopy";
-  if (isLinux()) return "xclip -selection clipboard";
-  return null;
-}
-
-/**
  * Normalize an assistant ID to its canonical form for DB operations.
  *
  * The system uses "self" as the canonical single-tenant identifier
@@ -315,7 +305,7 @@ export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
 
-/** Returns ~/.vellum/workspace/routes — user-defined HTTP route handlers. */
+/** Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers. */
 export function getWorkspaceRoutesDir(): string {
   return join(getWorkspaceDir(), "routes");
 }

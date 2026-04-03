@@ -3,7 +3,6 @@
  * file changes and triggers debounced recompile + surface refresh.
  */
 
-import * as actualFs from "node:fs";
 import {
   afterEach,
   beforeEach,
@@ -24,6 +23,8 @@ let capturedWatchCallback: ((eventType: string, filename: string | null) => void
 const mockWatcher = { close: mock(() => {}) };
 
 mock.module("node:fs", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const actualFs = require("node:fs");
   return {
     ...actualFs,
     existsSync: mock((p: string) => p === TEST_APPS_DIR),

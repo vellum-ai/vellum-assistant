@@ -156,7 +156,7 @@ struct SkillDetailView: View {
                     .multilineTextAlignment(.center)
             }
 
-            VSkillTypePill(origin: skill.origin, status: skill.status)
+            VSkillTypePill(origin: skill.origin)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.sm)

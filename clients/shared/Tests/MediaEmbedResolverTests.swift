@@ -115,7 +115,7 @@ final class MediaEmbedResolverTests: XCTestCase {
     // MARK: - ImageURLClassifier
 
     func testClassifiesImageExtensions() {
-        for ext in ["png", "jpg", "jpeg", "gif", "webp", "svg", "heic"] {
+        for ext in ["png", "jpg", "jpeg", "gif", "webp", "svg", "heic", "heif"] {
             let url = URL(string: "https://example.com/photo.\(ext)")!
             XCTAssertEqual(ImageURLClassifier.classify(url), .image, "Expected \(ext) to be classified as image")
         }

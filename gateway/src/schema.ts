@@ -613,6 +613,88 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/email/inbound": {
+        post: {
+          summary: "Email inbound webhook",
+          description:
+            "Receives inbound email webhook events from AgentMail (via Svix), verifies the signature, normalizes the message, and forwards it to the assistant runtime. Only processes message.received events; all other event types are acknowledged silently.",
+          operationId: "emailInboundWebhook",
+          security: [{ SvixSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  description:
+                    "AgentMail webhook event payload (Svix-wrapped).",
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Webhook accepted",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { ok: { type: "boolean" } },
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid JSON or unreadable body",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "403": {
+              description: "Signature verification failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "500": {
+              description: "Internal error or webhook secret not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Service temporarily unavailable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/audio/{audioId}": {
         get: {
           summary: "Retrieve synthesized audio",

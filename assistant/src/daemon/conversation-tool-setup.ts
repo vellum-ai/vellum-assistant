@@ -320,8 +320,7 @@ export function createProxyApprovalCallback(
       input.matching_patterns = decision.matchingPatterns;
     }
 
-    const riskLevel =
-      decision.kind === "ask_missing_credential" ? "high" : "medium";
+    const riskLevel = "medium";
 
     // Check trust store before prompting — build candidates that mirror
     // buildCommandCandidates() in checker.ts for network_request.
@@ -342,10 +341,7 @@ export function createProxyApprovalCallback(
     );
     if (existingRule && existingRule.decision !== "ask") {
       if (existingRule.decision === "deny") return false;
-      // For high-risk proxy decisions, a plain allow rule (without allowHighRisk)
-      // must fall through to prompting — mirroring the checker's behavior.
-      if (riskLevel !== "high" || existingRule.allowHighRisk === true)
-        return true;
+      return true;
     }
 
     // Use the checker's built-in allowlist generation for network_request

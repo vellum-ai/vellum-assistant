@@ -120,6 +120,7 @@ extension MainWindowView {
     /// Builds a `SidebarSectionView` for a group. Extracted from the ForEach body
     /// to reduce type-checker pressure (the init has many parameters).
     private func makeSectionView(group: ConversationGroup, conversations: [ConversationModel]) -> SidebarSectionView {
+        let isPinned = group.id == ConversationGroup.pinned.id
         let isScheduled = group.id == ConversationGroup.scheduled.id
         let isBackground = group.id == ConversationGroup.background.id
         let countMode: SidebarSectionView.CountMode = isScheduled
@@ -140,7 +141,7 @@ extension MainWindowView {
             conversations: conversations,
             isExpanded: sidebar.expandedSections.contains(group.id),
             showAll: sidebar.showAllInSection.contains(group.id),
-            maxCollapsed: 5,
+            maxCollapsed: isPinned ? .max : 5,
             isDropTarget: sidebar.dropTargetSectionId == group.id,
             countMode: countMode,
             isRenaming: sidebar.renamingGroupId == group.id,

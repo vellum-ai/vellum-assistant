@@ -211,10 +211,11 @@ struct SkillDetailTitleRow: View {
                         .lineLimit(1)
                 }
 
-                VSkillTypePill(origin: skill.origin, status: skill.status)
             }
 
             Spacer()
+
+            VSkillTypePill(origin: skill.origin)
 
             if skill.kind == "installed" {
                 VButton(label: "Remove", style: .dangerOutline) {

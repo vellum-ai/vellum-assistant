@@ -148,6 +148,9 @@ export { migrateRenameMemoryGraphTypeValues } from "./204-rename-memory-graph-ty
 export { migrateMemoryGraphImageRefs } from "./205-memory-graph-image-refs.js";
 export { migrateCreateMemoryGraphNodeEdits } from "./206-memory-graph-node-edits.js";
 export { migrateScrubCorruptedImageAttachments } from "./206-scrub-corrupted-image-attachments.js";
+export { migrateCreateConversationGraphMemoryState } from "./207-conversation-graph-memory-state.js";
+export { migrateConversationsLastMessageAt } from "./208-conversations-last-message-at.js";
+export { migrateStripThinkingFromConsolidated } from "./209-strip-thinking-from-consolidated.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

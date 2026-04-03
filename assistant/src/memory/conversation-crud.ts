@@ -172,6 +172,7 @@ export interface ConversationRow {
   forkParentMessageId: string | null;
   isAutoTitle: number;
   scheduleJobId: string | null;
+  lastMessageAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -197,6 +198,7 @@ export const parseConversation = createRowMapper<
   forkParentMessageId: "forkParentMessageId",
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
+  lastMessageAt: "lastMessageAt",
 });
 
 export interface MessageRow {
@@ -885,7 +887,7 @@ export async function addMessage(
             .run();
         }
         tx.update(conversations)
-          .set({ updatedAt: now })
+          .set({ updatedAt: now, lastMessageAt: now })
           .where(eq(conversations.id, conversationId))
           .run();
       });
@@ -1260,8 +1262,13 @@ export function deleteLastExchange(conversationId: string): number {
 
   db.transaction((tx) => {
     tx.delete(messages).where(condition).run();
+    const maxResult = tx
+      .select({ maxCreatedAt: sql<number | null>`MAX(${messages.createdAt})` })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .get();
     tx.update(conversations)
-      .set({ updatedAt: Date.now() })
+      .set({ updatedAt: Date.now(), lastMessageAt: maxResult?.maxCreatedAt ?? null })
       .where(eq(conversations.id, conversationId))
       .run();
   });
@@ -1379,6 +1386,13 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     .map((r) => r.attachmentId)
     .filter((id): id is string => id !== undefined);
 
+  // Look up the conversation before the transaction so we can recalculate lastMessageAt.
+  const msgRow = db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+
   db.transaction((tx) => {
     // Collect memory segment IDs linked to this message before cascade.
     const linkedSegments = tx
@@ -1397,6 +1411,19 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     // Now safe to delete — NOT NULL cascades remove memory_segments
     // and message_attachments.
     tx.delete(messages).where(eq(messages.id, messageId)).run();
+
+    // Recalculate lastMessageAt after deletion.
+    if (msgRow) {
+      const maxResult = tx
+        .select({ maxCreatedAt: sql<number | null>`MAX(${messages.createdAt})` })
+        .from(messages)
+        .where(eq(messages.conversationId, msgRow.conversationId))
+        .get();
+      tx.update(conversations)
+        .set({ lastMessageAt: maxResult?.maxCreatedAt ?? null })
+        .where(eq(conversations.id, msgRow.conversationId))
+        .run();
+    }
 
     // Clean up segment embeddings from SQLite (Qdrant cleanup is the caller's job).
     if (result.segmentIds.length > 0) {

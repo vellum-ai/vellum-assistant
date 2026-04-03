@@ -352,7 +352,7 @@ class IOSConversationStore: ObservableObject {
         var conversation = IOSConversation(
             title: item.title,
             createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
-            lastActivityAt: Date(timeIntervalSince1970: TimeInterval(item.updatedAt) / 1000.0),
+            lastActivityAt: Date(timeIntervalSince1970: TimeInterval(item.lastMessageAt ?? item.updatedAt) / 1000.0),
             conversationId: item.id,
             isPrivate: item.conversationType == "private",
             scheduleJobId: item.scheduleJobId,
@@ -1305,7 +1305,7 @@ class IOSConversationStore: ObservableObject {
             var mergedConversation = conversations[existingIndex]
             mergedConversation.title = item.title
             mergedConversation.lastActivityAt = Date(
-                timeIntervalSince1970: TimeInterval(item.updatedAt) / 1000.0
+                timeIntervalSince1970: TimeInterval(item.lastMessageAt ?? item.updatedAt) / 1000.0
             )
             mergeConversationMetadata(from: conversationFromListItem(item), into: &mergedConversation)
             conversations[existingIndex] = mergedConversation
