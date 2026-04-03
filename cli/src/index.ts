@@ -66,8 +66,8 @@ function printHelp(): void {
   console.log("  client   Connect to a hatched assistant");
   console.log("  hatch    Create a new assistant instance");
   console.log("  login    Log in to the Vellum platform");
-  console.log("  message  Send a message to a running assistant");
   console.log("  logout   Log out of the Vellum platform");
+  console.log("  message  Send a message to a running assistant");
   console.log("  pair     Pair with a remote assistant via QR code");
   console.log(
     "  ps       List assistants (or processes for a specific assistant)",
