@@ -245,7 +245,7 @@ final class ConversationActivityStore {
         var state = ConversationInteractionState.idle
         withObservationTracking {
             let hasError = errorManager.errorText != nil || errorManager.conversationError != nil
-            let hasPendingConfirmation = messageManager.messages.contains { $0.confirmation?.state == .pending }
+            let hasPendingConfirmation = messageManager.hasPendingConfirmation
             let isBusy = messageManager.isSending || messageManager.isThinking || messageManager.pendingQueuedCount > 0
 
             if hasError {

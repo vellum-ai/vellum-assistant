@@ -29,6 +29,14 @@ public final class ChatMessageManager {
     /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     public private(set) var activePendingRequestId: String?
 
+    /// Whether any message has a pending confirmation (including system
+    /// permission requests). Unlike `activePendingRequestId` — which excludes
+    /// `request_system_permission` for keyboard-focus purposes — this covers
+    /// all pending confirmation types so callers like
+    /// `ConversationActivityStore` can detect the `.waitingForInput` state
+    /// without an O(n) message scan.
+    public private(set) var hasPendingConfirmation: Bool = false
+
     /// Whether any message contains non-empty text. Cached O(1) value derived
     /// from `messages` via a `withObservationTracking` loop so view bodies
     /// avoid O(n) scans.
@@ -46,6 +54,7 @@ public final class ChatMessageManager {
         // property only when the derived value actually differs (equivalent to
         // Combine's `.removeDuplicates()`).
         observeActivePendingRequestId()
+        observeHasPendingConfirmation()
         observeHasNonEmptyMessage()
         observeLatestPersistedTipDaemonMessageId()
     }
@@ -69,6 +78,20 @@ public final class ChatMessageManager {
         }
         if newValue != activePendingRequestId {
             activePendingRequestId = newValue
+        }
+    }
+
+    private func observeHasPendingConfirmation() {
+        var newValue = false
+        withObservationTracking {
+            newValue = self.messages.contains { $0.confirmation?.state == .pending }
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observeHasPendingConfirmation()
+            }
+        }
+        if newValue != hasPendingConfirmation {
+            hasPendingConfirmation = newValue
         }
     }
 
