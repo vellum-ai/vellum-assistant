@@ -1057,8 +1057,11 @@ final class ConversationManager: ConversationRestorerDelegate {
     }
 
     func markActiveConversationSeenIfNeeded() {
-        guard !selectionStore.isRestoringConversations,
-              let activeId = selectionStore.activeConversationId else { return }
+        guard NSApp.isActive,
+              !selectionStore.isRestoringConversations,
+              let activeId = selectionStore.activeConversationId,
+              let idx = listStore.conversations.firstIndex(where: { $0.id == activeId }),
+              listStore.conversations[idx].hasUnseenLatestAssistantMessage else { return }
         listStore.markConversationSeen(conversationId: activeId)
     }
 

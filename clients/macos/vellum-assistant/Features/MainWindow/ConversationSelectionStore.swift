@@ -5,7 +5,7 @@ import os
 @preconcurrency import Combine
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationSelectionStore")
-private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
+private let stallLog = OSLog(subsystem: Bundle.appBundleIdentifier, category: "LayoutStall")
 
 /// Owns the active conversation selection, draft mode, ChatViewModel LRU
 /// cache, and pop-out window pinning.
