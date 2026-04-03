@@ -258,7 +258,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 // SwiftUI can cancel the work immediately when the bubble scrolls off-screen.
                 // Wrapping in Task(priority:){}.value creates an unstructured task that is NOT
                 // cancelled by the .task modifier, causing off-screen decodes to run to completion.
-                .task(id: attachment.id) {
+                .task(id: "\(attachment.id)-\(displayScale)") {
                     let scale = displayScale
                     if isSingleImage {
                         let targetSize = CGSize(width: VSpacing.chatBubbleMaxWidth, height: VSpacing.chatBubbleMaxWidth)
