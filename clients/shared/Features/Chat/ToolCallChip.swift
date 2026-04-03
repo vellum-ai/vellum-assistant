@@ -20,6 +20,9 @@ public struct ToolCallChip: View {
     /// Cached line count for the result text — avoids O(n) `components(separatedBy:)`
     /// array allocation on every SwiftUI render pass when the chip is expanded.
     @State private var cachedResultLineCount: Int?
+    /// Cached line array for virtualized rendering — split once on first expand
+    /// so LazyVStack can render individual lines without re-splitting every pass.
+    @State private var cachedResultLines: [String]?
 
     /// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
     static func parseExitCode(from result: String) -> Int? {
@@ -229,8 +232,21 @@ public struct ToolCallChip: View {
                             } else {
                                 let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
                                 if Self.isFileEditTool(toolCall.toolName) {
-                                    VDiffView(result, maxHeight: lineCount > 500 ? 400 : nil)
+                                    VDiffView(result, maxHeight: lineCount > 50 || result.count > 5000 ? 400 : nil)
                                 } else if lineCount > 500 {
+                                    let lines = cachedResultLines ?? result.components(separatedBy: "\n")
+                                    ScrollView {
+                                        LazyVStack(alignment: .leading, spacing: 0) {
+                                            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                                                Text(line.isEmpty ? " " : line)
+                                                    .font(VFont.bodySmallDefault)
+                                                    .foregroundStyle(VColor.contentSecondary)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                            }
+                                        }
+                                    }
+                                    .frame(maxHeight: 400)
+                                } else if lineCount > 50 || result.count > 5000 {
                                     ScrollView {
                                         Text(result)
                                             .font(VFont.bodySmallDefault)
@@ -264,9 +280,15 @@ public struct ToolCallChip: View {
                             cachedInputFull = ToolCallData.formatAllToolInput(dict)
                         }
                     }
-                    // Cache the result line count so subsequent renders are O(1).
+                    // Cache the result line count and split lines for virtualized rendering.
                     if cachedResultLineCount == nil, let result = toolCall.result {
                         cachedResultLineCount = Self.countLines(in: result)
+                    }
+                    if cachedResultLines == nil, let result = toolCall.result {
+                        let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
+                        if lineCount > 500 && !Self.isFileEditTool(toolCall.toolName) {
+                            cachedResultLines = result.components(separatedBy: "\n")
+                        }
                     }
                     // Trigger on-demand rehydration when expanding truncated content.
                     onRehydrate?()
@@ -301,6 +323,12 @@ public struct ToolCallChip: View {
                 if cachedResultLineCount == nil, let result = toolCall.result {
                     cachedResultLineCount = Self.countLines(in: result)
                 }
+                if cachedResultLines == nil, let result = toolCall.result {
+                    let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
+                    if lineCount > 500 && !Self.isFileEditTool(toolCall.toolName) {
+                        cachedResultLines = result.components(separatedBy: "\n")
+                    }
+                }
             }
         }
         .onChange(of: toolCall.inputFull) {
@@ -311,8 +339,15 @@ public struct ToolCallChip: View {
         .onChange(of: toolCall.result) {
             if isExpanded, let result = toolCall.result {
                 cachedResultLineCount = Self.countLines(in: result)
+                let lineCount = cachedResultLineCount!
+                if lineCount > 500 && !Self.isFileEditTool(toolCall.toolName) {
+                    cachedResultLines = result.components(separatedBy: "\n")
+                } else {
+                    cachedResultLines = nil
+                }
             } else {
                 cachedResultLineCount = nil
+                cachedResultLines = nil
             }
         }
     }
