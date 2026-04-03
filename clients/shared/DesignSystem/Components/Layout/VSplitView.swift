@@ -13,38 +13,42 @@ public struct VSplitView<Main: View, Panel: View>: View {
     @State private var dragStartAvailableWidth: CGFloat?
     @State private var isDragging: Bool = false
     @State private var isDividerHovered: Bool = false
+    @State private var availableWidth: CGFloat = 0
     private let dragCoordinateSpaceName = "VSplitViewDragCoordinateSpace"
 
     // MARK: - Body
 
     public var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                // Main content - styled as panel
-                main
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(mainBackground ?? VColor.surfaceBase)
-                    .clipShape(RoundedRectangle(cornerRadius: mainCornerRadius ?? VRadius.lg))
-                    .padding([.bottom, .leading], VSpacing.xs)
-                    .padding(.trailing, showPanel ? 0 : VSpacing.xs)
-                    .animation(nil, value: showPanel)  // Don't animate main pane resize
+        HStack(spacing: 0) {
+            // Main content - styled as panel
+            main
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(mainBackground ?? VColor.surfaceBase)
+                .clipShape(RoundedRectangle(cornerRadius: mainCornerRadius ?? VRadius.lg))
+                .padding([.bottom, .leading], VSpacing.xs)
+                .padding(.trailing, showPanel ? 0 : VSpacing.xs)
+                .animation(nil, value: showPanel)  // Don't animate main pane resize
 
-                // Panel slides in from right, pushing content
-                if showPanel, let panel = panel {
-                    // Drag divider (transparent but draggable)
-                    dragDivider(availableWidth: geometry.size.width)
+            // Panel slides in from right, pushing content
+            if showPanel, let panel = panel {
+                // Drag divider (transparent but draggable)
+                dragDivider(availableWidth: availableWidth)
 
-                    panel
-                        .frame(width: panelWidth)
-                        .animation(nil, value: panelWidth)  // Disable animation on width changes
-                        .background(VColor.surfaceBase)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                        .padding([.bottom, .trailing], VSpacing.xs)
-                        .transition(.move(edge: .trailing))
-                }
+                panel
+                    .frame(width: panelWidth)
+                    .animation(nil, value: panelWidth)  // Disable animation on width changes
+                    .background(VColor.surfaceBase)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .padding([.bottom, .trailing], VSpacing.xs)
+                    .transition(.move(edge: .trailing))
             }
-            .coordinateSpace(name: dragCoordinateSpaceName)
-            .animation(isDragging ? nil : VAnimation.standard, value: showPanel)
+        }
+        .coordinateSpace(name: dragCoordinateSpaceName)
+        .animation(isDragging ? nil : VAnimation.standard, value: showPanel)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { newWidth in
+            availableWidth = newWidth
         }
     }
 

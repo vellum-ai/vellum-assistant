@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Observation
 import os
@@ -14,118 +15,178 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatM
 /// Owns message-list state, send/thinking flags, and assistant activity properties.
 /// ChatViewModel forwards reads/writes via computed properties so call sites
 /// access state through `viewModel.messages`, `viewModel.isSending`, etc.
+///
+/// `messages` uses a custom getter/setter that participates in the Observation
+/// framework via `access(keyPath:)` / `withMutation(keyPath:)` while also
+/// publishing to a Combine `CurrentValueSubject`. SwiftUI views get
+/// fine-grained property tracking; non-view consumers (pagination, voice mode,
+/// conversation manager, iOS store) subscribe to `messagesPublisher`.
+///
+/// The `_modify` accessor defers the Combine publish via a coalesced
+/// `Task { @MainActor }`, so multiple rapid subscript mutations (e.g.
+/// `stopGenerating`) result in a single downstream notification instead of
+/// one per mutation.
+///
+/// - SeeAlso: [Observation framework — custom access](https://developer.apple.com/documentation/observation)
+/// - SeeAlso: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
 @MainActor @Observable
 public final class ChatMessageManager {
 
     // MARK: - Message list
 
-    public var messages: [ChatMessage] = []
-
-    /// Active pending confirmation request ID, derived from `messages` via a
-    /// `withObservationTracking` loop. Views read this O(1) cached value instead
-    /// of scanning the message array each render cycle.
+    /// The full message array. The custom getter/setter participates in the
+    /// Observation framework (`access`/`withMutation`) while also publishing
+    /// to `_messagesSubject` so Combine subscribers stay in sync.
     ///
-    /// - SeeAlso: [Improving your app's performance (Apple Developer)](https://developer.apple.com/documentation/swiftui/improving-your-app-s-performance)
-    /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
+    /// - `set`: publishes synchronously (the caller intends a complete replacement).
+    /// - `_modify`: defers the publish via `scheduleDeferredPublish()` so
+    ///   multiple rapid subscript mutations coalesce into one notification.
+    public var messages: [ChatMessage] {
+        get {
+            access(keyPath: \.messages)
+            return _messagesStorage
+        }
+        set {
+            withMutation(keyPath: \.messages) {
+                _messagesStorage = newValue
+            }
+            _deferredPublishTask?.cancel()
+            _deferredPublishTask = nil
+            _messagesSubject.send(newValue)
+        }
+        // swiftlint:disable:next identifier_name
+        _modify {
+            _$observationRegistrar.willSet(self, keyPath: \.messages)
+            defer {
+                _$observationRegistrar.didSet(self, keyPath: \.messages)
+                scheduleDeferredPublish()
+            }
+            yield &_messagesStorage
+        }
+    }
+    @ObservationIgnored private var _messagesStorage: [ChatMessage] = []
+
+    /// Apply multiple mutations to the message array in a single batch,
+    /// emitting only one Observation notification and one Combine publish
+    /// at the end. Use for loops that modify many elements (trim, status
+    /// resets) to avoid per-mutation downstream work.
+    public func batchUpdateMessages(_ body: (inout [ChatMessage]) -> Void) {
+        withMutation(keyPath: \.messages) {
+            body(&_messagesStorage)
+        }
+        // Cancel any pending deferred publish — this synchronous publish
+        // supersedes it with the final post-batch snapshot.
+        _deferredPublishTask?.cancel()
+        _deferredPublishTask = nil
+        _messagesSubject.send(_messagesStorage)
+    }
+
+    /// Active pending confirmation request ID, derived from `messages`.
+    /// Views read this O(1) cached value instead of scanning the message
+    /// array each render cycle. Recomputed by `recomputeDerivedValues(from:)`.
     public private(set) var activePendingRequestId: String?
 
     /// Whether any message has a pending confirmation (including system
     /// permission requests). Unlike `activePendingRequestId` — which excludes
     /// `request_system_permission` for keyboard-focus purposes — this covers
-    /// all pending confirmation types so callers like
-    /// `ConversationActivityStore` can detect the `.waitingForInput` state
-    /// without an O(n) message scan.
+    /// all pending confirmation types.
     public private(set) var hasPendingConfirmation: Bool = false
 
-    /// Whether any message contains non-empty text. Cached O(1) value derived
-    /// from `messages` via a `withObservationTracking` loop so view bodies
-    /// avoid O(n) scans.
+    /// Whether any message contains non-empty text. Cached O(1) value so
+    /// view bodies avoid O(n) scans.
     public private(set) var hasNonEmptyMessage: Bool = false
 
     /// The daemon message ID of the last persisted, non-streaming, non-hidden
-    /// message. Cached O(1) value derived from `messages` via a
-    /// `withObservationTracking` loop so view bodies avoid O(n) scans.
+    /// message. Cached O(1) value so view bodies avoid O(n) scans.
     public private(set) var latestPersistedTipDaemonMessageId: String?
 
+    @ObservationIgnored private var derivedValuesSub: AnyCancellable?
+
+    // MARK: - Combine publisher
+
+    /// Publishes `messages` via a `CurrentValueSubject` for non-view consumers
+    /// (pagination, voice mode, conversation manager, iOS store).
+    @ObservationIgnored private let _messagesSubject = CurrentValueSubject<[ChatMessage], Never>([])
+    public var messagesPublisher: AnyPublisher<[ChatMessage], Never> { _messagesSubject.eraseToAnyPublisher() }
+
+    // MARK: - Deferred publish coalescing
+
+    /// When non-nil, a pending task that will publish the current
+    /// `_messagesStorage` snapshot. Created by `scheduleDeferredPublish()`
+    /// from the `_modify` accessor so multiple rapid subscript mutations
+    /// coalesce into a single downstream notification.
+    @ObservationIgnored private var _deferredPublishTask: Task<Void, Never>?
+
+    /// Schedule a single deferred Combine publish. If a task is already
+    /// pending, this is a no-op — the existing task will publish the
+    /// final snapshot after all synchronous mutations complete.
+    ///
+    /// The task runs on `@MainActor` via the cooperative executor, which
+    /// drains during the run loop's source-processing phase — before
+    /// SwiftUI's `CFRunLoopObserver` fires its transaction flush. This
+    /// ensures derived values are up-to-date when views re-evaluate.
+    private func scheduleDeferredPublish() {
+        guard _deferredPublishTask == nil else { return }
+        _deferredPublishTask = Task { @MainActor [weak self] in
+            guard !Task.isCancelled, let self else { return }
+            self._deferredPublishTask = nil
+            self._messagesSubject.send(self._messagesStorage)
+        }
+    }
+
+    // MARK: - Derived value recomputation
+
+    /// Recomputes all cached derived values from a message snapshot in a
+    /// single pass. Only writes to @Observable properties when the value
+    /// actually changed, preventing unnecessary SwiftUI invalidation.
+    ///
+    /// Uses `visibleMessages` (all non-hidden) rather than paginated
+    /// messages because pending confirmations are always near the end of
+    /// the list, within the initial pagination window.
+    private func recomputeDerivedValues(from messages: [ChatMessage]) {
+        let visible = ChatVisibleMessageFilter.visibleMessages(from: messages)
+
+        let newPendingId = PendingConfirmationFocusSelector.activeRequestId(from: visible)
+        if newPendingId != activePendingRequestId { activePendingRequestId = newPendingId }
+
+        let newHasPending = messages.contains { $0.confirmation?.state == .pending }
+        if newHasPending != hasPendingConfirmation { hasPendingConfirmation = newHasPending }
+
+        let newHasNonEmpty = messages.contains {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if newHasNonEmpty != hasNonEmptyMessage { hasNonEmptyMessage = newHasNonEmpty }
+
+        let newTipId = messages.last {
+            $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden
+        }?.daemonMessageId
+        if newTipId != latestPersistedTipDaemonMessageId {
+            latestPersistedTipDaemonMessageId = newTipId
+        }
+    }
+
     init() {
-        // Start observation loops that derive cached values from `messages`.
-        // Each loop uses `withObservationTracking` to read `messages` directly
-        // from this @Observable class, re-arms on change, and updates the stored
-        // property only when the derived value actually differs (equivalent to
-        // Combine's `.removeDuplicates()`).
-        observeActivePendingRequestId()
-        observeHasPendingConfirmation()
-        observeHasNonEmptyMessage()
-        observeLatestPersistedTipDaemonMessageId()
+        // Subscribe once to recompute all derived values from each new
+        // message snapshot. The single sink replaces four independent
+        // Combine pipelines, reducing per-notification cost from 4×O(n)
+        // to 1×O(n).
+        derivedValuesSub = _messagesSubject
+            .dropFirst() // skip the empty seed value
+            .sink { [weak self] messages in
+                self?.recomputeDerivedValues(from: messages)
+            }
     }
 
-    // MARK: - Derived-value observation loops
-
-    /// Uses visibleMessages (all non-hidden) rather than paginatedMessages
-    /// because pending confirmations are always near the end of the list,
-    /// within the initial pagination window. The broader scope ensures the
-    /// model always knows the true pending state regardless of pagination.
-    private func observeActivePendingRequestId() {
-        var newValue: String?
-        withObservationTracking {
-            newValue = PendingConfirmationFocusSelector.activeRequestId(
-                from: ChatVisibleMessageFilter.visibleMessages(from: self.messages)
-            )
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observeActivePendingRequestId()
-            }
-        }
-        if newValue != activePendingRequestId {
-            activePendingRequestId = newValue
-        }
-    }
-
-    private func observeHasPendingConfirmation() {
-        var newValue = false
-        withObservationTracking {
-            newValue = self.messages.contains { $0.confirmation?.state == .pending }
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observeHasPendingConfirmation()
-            }
-        }
-        if newValue != hasPendingConfirmation {
-            hasPendingConfirmation = newValue
-        }
-    }
-
-    private func observeHasNonEmptyMessage() {
-        var newValue = false
-        withObservationTracking {
-            newValue = self.messages.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observeHasNonEmptyMessage()
-            }
-        }
-        if newValue != hasNonEmptyMessage {
-            hasNonEmptyMessage = newValue
-        }
-    }
-
-    private func observeLatestPersistedTipDaemonMessageId() {
-        var newValue: String?
-        withObservationTracking {
-            newValue = self.messages.last { $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden }?.daemonMessageId
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observeLatestPersistedTipDaemonMessageId()
-            }
-        }
-        if newValue != latestPersistedTipDaemonMessageId {
-            latestPersistedTipDaemonMessageId = newValue
-        }
+    deinit {
+        _deferredPublishTask?.cancel()
+        derivedValuesSub?.cancel()
     }
 
     // MARK: - Input / send state
 
     public var inputText: String = ""
+
+    /// Whether the assistant is in a "thinking" phase.
     public var isThinking: Bool = false
     public var isSending: Bool = false
     public var assistantActivityPhase: String = "idle"
