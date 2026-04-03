@@ -22,10 +22,9 @@ public final class ChatMessageManager {
     /// The full message array. The custom getter/setter participates in the
     /// Observation framework (`access`/`withMutation`) while also pushing
     /// every mutation through `_messagesSubject` so Combine subscribers
-    /// (pagination, voice mode, conversation manager, iOS store) stay in
-    /// sync without a recursive `withObservationTracking` loop.
+    /// stay in sync.
     ///
-    /// - SeeAlso: [Observation framework](https://developer.apple.com/documentation/observation)
+    /// - SeeAlso: [Observation framework — custom properties](https://developer.apple.com/documentation/observation)
     public var messages: [ChatMessage] {
         get {
             access(keyPath: \.messages)
@@ -49,12 +48,10 @@ public final class ChatMessageManager {
     public private(set) var activePendingRequestId: String?
 
     /// Whether any message has a pending confirmation (including system
-    /// permission requests). Cached O(1) value derived from `messages` via a
-    /// Combine pipeline. Unlike `activePendingRequestId` — which excludes
-    /// `request_system_permission` for keyboard-focus purposes — this covers
-    /// all pending confirmation types so callers like
-    /// `ConversationActivityStore` can detect the `.waitingForInput` state
-    /// without an O(n) message scan.
+    /// permission requests). Cached O(1) value derived from `messages`.
+    /// Unlike `activePendingRequestId` — which excludes
+    /// `request_system_permission` for keyboard-focus purposes — this
+    /// covers all pending confirmation types.
     public private(set) var hasPendingConfirmation: Bool = false
 
     /// Whether any message contains non-empty text. Cached O(1) value derived
@@ -71,14 +68,14 @@ public final class ChatMessageManager {
     @ObservationIgnored private var hasNonEmptyMessageSub: AnyCancellable?
     @ObservationIgnored private var latestPersistedTipDaemonMessageIdSub: AnyCancellable?
 
-    // MARK: - Combine bridges (CurrentValueSubject)
+    // MARK: - Combine publishers
 
-    /// Combine bridge for `messages`, backed by a CurrentValueSubject for
-    /// immediate-value semantics on subscription.
+    /// Publishes `messages` via a `CurrentValueSubject` for Combine subscribers
+    /// (pagination, voice mode, conversation manager, iOS store).
     @ObservationIgnored private let _messagesSubject = CurrentValueSubject<[ChatMessage], Never>([])
     public var messagesPublisher: AnyPublisher<[ChatMessage], Never> { _messagesSubject.eraseToAnyPublisher() }
 
-    /// Combine bridge for `isThinking`.
+    /// Publishes `isThinking` via a `CurrentValueSubject` for Combine subscribers.
     @ObservationIgnored private let _isThinkingSubject = CurrentValueSubject<Bool, Never>(false)
     public var isThinkingPublisher: AnyPublisher<Bool, Never> { _isThinkingSubject.eraseToAnyPublisher() }
 
@@ -132,8 +129,7 @@ public final class ChatMessageManager {
 
     /// Whether the assistant is in a "thinking" phase. Like `messages`, the
     /// custom setter publishes directly to `_isThinkingSubject` so Combine
-    /// subscribers (voice mode) stay in sync without a recursive observation
-    /// loop.
+    /// subscribers stay in sync.
     public var isThinking: Bool {
         get {
             access(keyPath: \.isThinking)
