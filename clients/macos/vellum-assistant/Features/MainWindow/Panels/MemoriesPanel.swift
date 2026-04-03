@@ -205,15 +205,10 @@ struct MemoriesPanel: View {
             VSearchBar(placeholder: "Search Memories", text: $store.searchText)
                 .onChange(of: store.searchText) {
                     searchDebounceTask?.cancel()
-                    if store.searchText.isEmpty {
-                        // Clearing the search — reload immediately with no debounce
-                        searchDebounceTask = Task { await store.loadItems() }
-                    } else {
-                        searchDebounceTask = Task {
-                            try? await Task.sleep(nanoseconds: 300_000_000)
-                            guard !Task.isCancelled else { return }
-                            await store.loadItems()
-                        }
+                    searchDebounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        guard !Task.isCancelled else { return }
+                        await store.loadItems()
                     }
                 }
 
