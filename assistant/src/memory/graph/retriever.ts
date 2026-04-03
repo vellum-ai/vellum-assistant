@@ -1052,7 +1052,23 @@ export async function retrieveForTurn(
     (node) => !opts.tracker.isInContext(node.id),
   );
 
-  const rankedProcedural = proceduralCandidates
+  // Dedup capability nodes by capability ID before ranking so that the same
+  // skill/CLI command doesn't consume multiple procedural reserve slots.
+  const seenProcCapIds = new Set<string>();
+  const dedupedProcedural = proceduralCandidates.filter((node) => {
+    if (!isCapabilityNode(node)) return true; // organic procedural — keep
+    const match = node.content.match(
+      /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+    );
+    const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+    if (capId) {
+      if (seenProcCapIds.has(capId)) return false;
+      seenProcCapIds.add(capId);
+    }
+    return true;
+  });
+
+  const rankedProcedural = dedupedProcedural
     .map((node) => ({ node, sim: allCandidateIds.get(node.id) ?? 0 }))
     .sort((a, b) => b.sim - a.sim)
     .slice(0, PROCEDURAL_RESERVE);
@@ -1096,6 +1112,20 @@ export async function retrieveForTurn(
 
   // Remove procedural-reserved nodes from general set to avoid double-counting
   const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
+
+  // Backfill vacated general slots from the remaining pool so we always
+  // return up to MAX_INJECTED general memories when eligible candidates exist.
+  if (generalInjected.length < MAX_INJECTED) {
+    const usedIds = new Set([
+      ...generalInjected.map((s) => s.node.id),
+      ...proceduralIds,
+    ]);
+    const backfillCandidates = pool.filter((s) => !usedIds.has(s.node.id));
+    const needed = MAX_INJECTED - generalInjected.length;
+    for (let i = 0; i < Math.min(needed, backfillCandidates.length); i++) {
+      generalInjected.push(backfillCandidates[i]);
+    }
+  }
 
   const allDeterministic = [...generalInjected, ...proceduralInjected];
   const deterministicIds = new Set(allDeterministic.map((n) => n.node.id));
