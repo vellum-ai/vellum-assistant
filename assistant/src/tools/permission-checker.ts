@@ -71,24 +71,47 @@ export class PermissionChecker {
     // ── permission-controls-v2 early gate ──────────────────────────────
     // When the v2 flag is enabled, replace the entire risk-classification
     // path with a simple binary check: is it a host tool + is host access
-    // enabled?
+    // enabled? Certain security gates (requireFreshApproval,
+    // forcePromptSideEffects, hostAccess=false) fall through to the v1
+    // prompt flow so the interactive prompter is engaged.
     const cfg = getConfig();
+    let v2ForcePrompt = false;
     if (isAssistantFeatureFlagEnabled("permission-controls-v2", cfg)) {
-      if (isHostTool(name)) {
-        const mode = getMode();
-        if (mode.hostAccess) {
-          return { allowed: true, decision: "allow", riskLevel: "none" };
+      // requireFreshApproval demands an interactive prompt every time —
+      // fall through to v1 so the prompter is engaged.
+      const needsFreshApproval = !!context.requireFreshApproval;
+
+      // forcePromptSideEffects (private conversations, untrusted actors)
+      // requires explicit approval for side-effect tools.
+      const needsSideEffectPrompt =
+        !!context.forcePromptSideEffects && isSideEffectTool(name, input);
+
+      if (!needsFreshApproval && !needsSideEffectPrompt) {
+        if (isHostTool(name)) {
+          const mode = getMode();
+          if (mode.hostAccess) {
+            return {
+              allowed: true,
+              decision: "allow",
+              riskLevel: RiskLevel.Low,
+            };
+          }
+          // Host tool with hostAccess disabled — fall through to v1 so the
+          // interactive prompter is engaged (returning allowed:false here
+          // would surface an error string instead of a permission dialog).
+          // The v2ForcePrompt flag ensures check()'s allow decision is
+          // promoted to prompt so the user sees a permission dialog.
+          v2ForcePrompt = true;
+        } else {
+          // Non-host tools are auto-allowed when v2 is on
+          return {
+            allowed: true,
+            decision: "allow",
+            riskLevel: RiskLevel.Low,
+          };
         }
-        // Host tool with hostAccess disabled — deterministic prompt
-        return {
-          allowed: false,
-          decision: "prompt",
-          riskLevel: "none",
-          content: "host_access_disabled",
-        };
       }
-      // Non-host tools are auto-allowed when v2 is on
-      return { allowed: true, decision: "allow", riskLevel: "none" };
+      // Falls through to the v1 risk-classification + prompter path
     }
 
     const risk = await classifyRisk(
@@ -138,6 +161,14 @@ export class PermissionChecker {
         result.decision = "prompt";
         result.reason =
           "Fresh approval required: per-invocation human review enforced";
+      }
+
+      // v2 host-access-disabled: the v2 gate fell through because
+      // hostAccess is off. Promote allow → prompt so the user sees an
+      // interactive permission dialog instead of an error string.
+      if (v2ForcePrompt && result.decision === "allow") {
+        result.decision = "prompt";
+        result.reason = "Host access disabled: requires explicit approval";
       }
 
       if (result.decision === "deny") {
