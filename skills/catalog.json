@@ -423,6 +423,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "watch-together",
+      "name": "watch-together",
+      "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis",
+      "metadata": {
+        "emoji": "📺",
+        "vellum": {
+          "display-name": "Watch Together"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "weather",
       "name": "weather",
       "description": "Get current weather conditions and forecasts for any location",
