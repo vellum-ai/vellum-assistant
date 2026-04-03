@@ -32,7 +32,7 @@ struct ButtonsGallerySection: View {
                                     (label: "Ghost", tag: VButton.Style.ghost),
                                     (label: "Contrast", tag: VButton.Style.contrast),
                                 ],
-                                selection: $selectedStyle,
+                                selection: $selectedStyle
                             )
                             .frame(maxWidth: 600)
 

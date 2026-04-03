@@ -91,7 +91,7 @@ struct FileContentView: View {
                 if modes.count > 1 {
                     VSegmentControl(
                         items: modes.map { (label: viewModeLabel($0), tag: $0) },
-                        selection: $viewMode,
+                        selection: $viewMode
                     )
                     .fixedSize()
                 }

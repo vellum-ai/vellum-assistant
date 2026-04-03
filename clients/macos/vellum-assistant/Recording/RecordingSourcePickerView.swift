@@ -35,7 +35,7 @@ struct RecordingSourcePickerView: View {
             // Scope picker (Display / Window)
             VSegmentControl(
                 items: CaptureScope.allCases.map { (label: $0.rawValue, tag: $0) },
-                selection: $viewModel.captureScope,
+                selection: $viewModel.captureScope
             )
             .padding(.horizontal, VSpacing.lg)
             .padding(.bottom, VSpacing.sm)
