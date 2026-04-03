@@ -4413,7 +4413,6 @@ paths:
                 slashCommand:
                   type: string
               required:
-                - conversationKey
                 - content
               additionalProperties: false
   /v1/messages/{id}/content:
