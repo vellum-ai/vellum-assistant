@@ -68,7 +68,7 @@ struct SidebarSectionHeader: View {
                 TextField("Group name", text: $renamingName, onCommit: {
                     onCommitRename?(renamingName)
                 })
-                .font(VFont.menuCompact)
+                .font(VFont.bodyMediumDefault)
                 .textFieldStyle(.plain)
                 .focused($isRenameFocused)
                 .onAppear { isRenameFocused = true }

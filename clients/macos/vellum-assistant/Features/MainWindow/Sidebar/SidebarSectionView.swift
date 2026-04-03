@@ -243,7 +243,7 @@ struct SidebarSectionView: View {
                     .frame(width: 20, height: 20)
 
                 Text(subGroup.label)
-                    .font(VFont.menuCompact)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
