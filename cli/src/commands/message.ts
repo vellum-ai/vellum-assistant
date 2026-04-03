@@ -2,20 +2,11 @@
  * `vellum message <assistant> <message>`
  *
  * Send a message to a running assistant via its runtime HTTP API and
- * print the raw JSON response.  This is a fire-and-send command — it
- * does NOT subscribe to SSE events (use `vellum events` for that).
+ * print the result.  This is a fire-and-send command — it does NOT
+ * subscribe to SSE events (use `vellum events` for that).
  */
 
-import {
-  findAssistantByName,
-  getActiveAssistant,
-  loadLatestAssistant,
-} from "../lib/assistant-config.js";
-import { GATEWAY_PORT } from "../lib/constants.js";
-import { loadGuardianToken } from "../lib/guardian-token.js";
-import { sendMessage } from "../lib/assistant-runtime-client.js";
-
-const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
+import { AssistantClient } from "../lib/assistant-client.js";
 
 function printUsage(): void {
   console.log(`vellum message - Send a message to a running assistant
@@ -27,19 +18,26 @@ ARGUMENTS:
     [assistant]    Instance name (default: active assistant)
     <message>      Message content to send
 
+OPTIONS:
+    --json         Output raw JSON response
+
 EXAMPLES:
     vellum message "hello"
     vellum message my-assistant "ping"
+    vellum message --json "hello"
 `);
 }
 
 export async function message(): Promise<void> {
-  const args = process.argv.slice(3);
+  const rawArgs = process.argv.slice(3);
 
-  if (args.includes("--help") || args.includes("-h")) {
+  if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
     printUsage();
     return;
   }
+
+  const jsonOutput = rawArgs.includes("--json");
+  const args = rawArgs.filter((a) => a !== "--json");
 
   let assistantName: string | undefined;
   let messageContent: string | undefined;
@@ -60,44 +58,33 @@ export async function message(): Promise<void> {
     process.exit(1);
   }
 
-  // Resolve the target assistant from the lockfile.
-  let entry = assistantName ? findAssistantByName(assistantName) : null;
+  const client = new AssistantClient(assistantName);
 
-  if (assistantName && !entry) {
-    console.error(`No assistant found with name '${assistantName}'.`);
-    process.exit(1);
-  }
+  const response = await client.post("/messages/", {
+    conversationKey: client.assistantId,
+    content: messageContent,
+  });
 
-  if (!entry) {
-    const active = getActiveAssistant();
-    if (active) {
-      entry = findAssistantByName(active);
-    }
-  }
-
-  if (!entry) {
-    entry = loadLatestAssistant();
-  }
-
-  if (!entry) {
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
     console.error(
-      "Error: no assistant found. Hatch one first with 'vellum hatch'.",
+      `Error: HTTP ${response.status}: ${body || response.statusText}`,
     );
     process.exit(1);
   }
 
-  const runtimeUrl = (entry.runtimeUrl ?? FALLBACK_RUNTIME_URL).replace(
-    /\/+$/,
-    "",
-  );
-  const assistantId = entry.assistantId;
-  const bearerToken =
-    loadGuardianToken(assistantId)?.accessToken ?? entry.bearerToken;
+  const result = (await response.json()) as {
+    accepted: boolean;
+    messageId: string;
+  };
 
-  const result = await sendMessage(
-    { runtimeUrl, assistantId, bearerToken },
-    messageContent,
-  );
-
-  console.log(JSON.stringify(result, null, 2));
+  if (jsonOutput) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    if (result.accepted) {
+      console.log(`Message accepted (id: ${result.messageId})`);
+    } else {
+      console.log(`Message rejected (id: ${result.messageId})`);
+    }
+  }
 }
