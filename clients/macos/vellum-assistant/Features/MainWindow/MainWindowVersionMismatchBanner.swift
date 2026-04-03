@@ -11,7 +11,7 @@ struct MainWindowVersionMismatchBanner: View {
     let windowState: MainWindowState
 
     var body: some View {
-        if connectionManager.versionMismatch && !connectionManager.isUpdateInProgress {
+        if connectionManager.versionMismatch && !connectionManager.isUpdateInProgress && !isDismissed {
             // Suppress when the "Update" pill already covers it (daemon behind + update available)
             if !(updateManager.isServiceGroupUpdateAvailable && isDaemonBehind) {
                 if isDaemonBehind {
@@ -23,6 +23,11 @@ struct MainWindowVersionMismatchBanner: View {
                         onAction: {
                             settingsStore.pendingSettingsTab = .general
                             windowState.selection = .panel(.settings)
+                        },
+                        onDismiss: {
+                            withAnimation(VAnimation.fast) {
+                                connectionManager.dismissVersionMismatch()
+                            }
                         }
                     )
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
@@ -36,6 +41,11 @@ struct MainWindowVersionMismatchBanner: View {
                         actionLabel: "Check for App Update",
                         onAction: {
                             AppDelegate.shared?.updateManager.checkForUpdates()
+                        },
+                        onDismiss: {
+                            withAnimation(VAnimation.fast) {
+                                connectionManager.dismissVersionMismatch()
+                            }
                         }
                     )
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
@@ -47,6 +57,14 @@ struct MainWindowVersionMismatchBanner: View {
     }
 
     // MARK: - Helpers
+
+    /// Whether the user dismissed this specific version mismatch.
+    private var isDismissed: Bool {
+        guard let key = connectionManager.dismissedMismatchKey,
+              let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+              let assistantVersion = connectionManager.assistantVersion else { return false }
+        return key == "\(clientVersion)|\(assistantVersion)"
+    }
 
     /// Whether the daemon version is behind the client version.
     private var isDaemonBehind: Bool {
