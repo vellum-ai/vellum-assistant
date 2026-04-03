@@ -783,13 +783,36 @@ export class AnthropicProvider implements Provider {
         }
       }
 
+      // Manual cache breakpoint on the turn-starting user message.
+      // This is the stable anchor for the current turn — everything up to
+      // and including it won't change during tool-use iterations, so a long
+      // TTL is appropriate. Walk backwards to find the last user message
+      // with a text block (skipping tool_result-only messages from tool
+      // loops).
+      for (let i = sentMessages.length - 1; i >= 0; i--) {
+        const msg = sentMessages[i];
+        if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+        const hasText = msg.content.some(
+          (b) => typeof b !== "string" && b.type === "text",
+        );
+        if (!hasText) continue;
+        const lastBlock = msg.content[msg.content.length - 1];
+        if (typeof lastBlock !== "string") {
+          (lastBlock as unknown as Record<string, unknown>).cache_control = {
+            type: "ephemeral",
+            ttl: "1h",
+          };
+        }
+        break;
+      }
+
       // Automatic caching: the API places a cache breakpoint on the last
-      // cacheable block and advances it as the conversation grows. With
-      // append-only history, the prefix is stable across turns and tool-use
-      // iterations, so the automatic breakpoint achieves near-optimal cache
-      // hit rates. Combined with manual breakpoints (2 system + 1 tools = 3),
-      // this uses all 4 available cache slots.
-      params.cache_control = { type: "ephemeral" as const, ttl: "1h" as const };
+      // cacheable block and advances it as the conversation grows. With a
+      // short TTL, intermediate prefixes (e.g. after each tool result)
+      // expire quickly. Combined with manual breakpoints (2 system +
+      // 1 tools + 1 turn-starting user = 4), the automatic breakpoint
+      // provides a 5th cheap, short-lived cache for the advancing tail.
+      params.cache_control = { type: "ephemeral" as const, ttl: "5m" as const };
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);

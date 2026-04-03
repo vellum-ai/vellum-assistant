@@ -227,15 +227,15 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // Automatic caching — request-level cache_control
   // -----------------------------------------------------------------------
-  test("request has top-level cache_control with 1h TTL", async () => {
+  test("request has top-level cache_control with 5m TTL", async () => {
     await provider.sendMessage([userMsg("Hello")]);
 
     expect(
       (lastStreamParams as Record<string, unknown>).cache_control,
-    ).toEqual({ type: "ephemeral", ttl: "1h" });
+    ).toEqual({ type: "ephemeral", ttl: "5m" });
   });
 
-  test("no manual cache_control on user messages", async () => {
+  test("turn-starting user message gets 1h cache on last block", async () => {
     const messages: Message[] = [
       userMsg("Turn 1"),
       assistantMsg("Response 1"),
@@ -254,13 +254,16 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
 
-    // No user message should have manual cache_control
     const userMessages = sent.filter((m) => m.role === "user");
-    for (const user of userMessages) {
+    // Only the last user message (turn-starting) gets cache_control
+    for (const user of userMessages.slice(0, -1)) {
       for (const block of user.content) {
         expect(block.cache_control).toBeUndefined();
       }
     }
+    const lastUser = userMessages[userMessages.length - 1];
+    const lastBlock = lastUser.content[lastUser.content.length - 1];
+    expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   // -----------------------------------------------------------------------
@@ -295,7 +298,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // Multi-block user message: cache lands on LAST block
   // -----------------------------------------------------------------------
-  test("multi-block single user message does NOT get cache (no second-to-last)", async () => {
+  test("multi-block single user message gets cache on last block", async () => {
     const multiBlockUser: Message = {
       role: "user",
       content: [
@@ -315,7 +318,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
     const user = sent[0];
     expect(user.content[0].cache_control).toBeUndefined();
-    expect(user.content[1].cache_control).toBeUndefined();
+    expect(user.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   // -----------------------------------------------------------------------
@@ -332,7 +335,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // Cache compatibility with workspace context injection
   // -----------------------------------------------------------------------
-  test("workspace-prepended single user message does NOT get cache (no second-to-last)", async () => {
+  test("workspace-prepended single user message gets cache on last block", async () => {
     // Simulates what applyRuntimeInjections does: prepend workspace block, keep user text as trailing
     const workspaceInjectedUser: Message = {
       role: "user",
@@ -358,11 +361,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(user.content).toHaveLength(2);
     // Workspace block (first): no cache_control
     expect(user.content[0].cache_control).toBeUndefined();
-    // User text (last): no cache_control (single user turn = no second-to-last)
-    expect(user.content[1].cache_control).toBeUndefined();
+    // User text (last): cache_control with 1h TTL
+    expect(user.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
-  test("workspace + multi-block single user message: no cache (no second-to-last)", async () => {
+  test("workspace + multi-block single user message: cache on last block only", async () => {
     // Simulates workspace prepended + extra context block appended
     const injectedUser: Message = {
       role: "user",
@@ -390,10 +393,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
     const user = sent[0];
     expect(user.content).toHaveLength(3);
-    // No blocks get cache_control (single user turn = no second-to-last)
+    // Only last block gets cache_control
     expect(user.content[0].cache_control).toBeUndefined();
     expect(user.content[1].cache_control).toBeUndefined();
-    expect(user.content[2].cache_control).toBeUndefined();
+    expect(user.content[2].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   // -----------------------------------------------------------------------
@@ -1267,7 +1270,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[4].content[0].text).toBe("Follow-up question");
   });
 
-  test("multi-turn with workspace injection: no manual cache on user messages (automatic caching handles it)", async () => {
+  test("multi-turn with workspace injection: only last user message gets 1h cache", async () => {
     const messages: Message[] = [
       {
         role: "user",
@@ -1315,17 +1318,60 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const userMsgs = sent.filter((m) => m.role === "user");
     expect(userMsgs).toHaveLength(3);
 
-    // No user messages should have manual cache_control — automatic caching handles it
-    for (const user of userMsgs) {
+    // Earlier user messages: no cache_control
+    for (const user of userMsgs.slice(0, -1)) {
       for (const block of user.content) {
         expect(block.cache_control).toBeUndefined();
       }
     }
 
-    // Request-level automatic caching is set
+    // Last user message (turn 3): 1h cache on last block only
+    const lastUser = userMsgs[userMsgs.length - 1];
+    expect(lastUser.content[0].cache_control).toBeUndefined();
+    expect(lastUser.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+
+    // Request-level automatic caching uses 5m TTL
     expect(
       (lastStreamParams as Record<string, unknown>).cache_control,
-    ).toEqual({ type: "ephemeral", ttl: "1h" });
+    ).toEqual({ type: "ephemeral", ttl: "5m" });
+  });
+
+  test("tool loop: turn-starting user message gets 1h cache, tool_result messages do not", async () => {
+    const messages: Message[] = [
+      userMsg("Read the config file"),
+      toolUseMsg("tu_1", "file_read"),
+      toolResultMsg("tu_1", "config contents here"),
+      toolUseMsg("tu_2", "file_read"),
+      toolResultMsg("tu_2", "more contents"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text?: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+
+    // First message is the turn-starting user text — gets 1h cache
+    expect(sent[0].role).toBe("user");
+    expect(sent[0].content[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+
+    // Tool result messages (role: user) do NOT get cache_control
+    const toolResultMsgs = sent.filter(
+      (m) =>
+        m.role === "user" &&
+        Array.isArray(m.content) &&
+        m.content.every((b) => typeof b !== "string" && b.type === "tool_result"),
+    );
+    expect(toolResultMsgs.length).toBeGreaterThan(0);
+    for (const tr of toolResultMsgs) {
+      for (const block of tr.content) {
+        expect(block.cache_control).toBeUndefined();
+      }
+    }
   });
 
   // -----------------------------------------------------------------------
