@@ -316,7 +316,8 @@ enum LogExporter {
             copyDirectoryContents(
                 from: xdgLogDir,
                 to: tempDir.appendingPathComponent("xdg-logs", isDirectory: true),
-                fileManager: fileManager
+                fileManager: fileManager,
+                cutoffDate: cutoffDate
             )
 
             // 5. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
@@ -559,20 +560,40 @@ enum LogExporter {
 
     /// Copies all files from `source` into `dest`, creating `dest` if needed.
     /// Silently skips if `source` doesn't exist or is empty.
+    ///
+    /// When `cutoffDate` is non-nil, only files whose content modification date
+    /// is on or after the cutoff are copied. Files without a readable modification
+    /// date are included to avoid silently dropping data.
     private nonisolated static func copyDirectoryContents(
         from source: URL,
         to dest: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        cutoffDate: Date? = nil
     ) {
         guard fileManager.fileExists(atPath: source.path) else { return }
         guard let items = try? fileManager.contentsOfDirectory(
             at: source,
-            includingPropertiesForKeys: nil,
+            includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ), !items.isEmpty else { return }
 
+        let filtered: [URL]
+        if let cutoff = cutoffDate {
+            filtered = items.filter { url in
+                guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                      let modDate = values.contentModificationDate else {
+                    // Include files whose modification date can't be read
+                    return true
+                }
+                return modDate >= cutoff
+            }
+        } else {
+            filtered = items
+        }
+
+        guard !filtered.isEmpty else { return }
         try? fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
-        for item in items {
+        for item in filtered {
             try? fileManager.copyItem(
                 at: item,
                 to: dest.appendingPathComponent(item.lastPathComponent)
