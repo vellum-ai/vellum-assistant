@@ -304,6 +304,7 @@ export function profilerRouteDefinitions(): RouteDefinition[] {
             createdAt: z.string(),
             updatedAt: z.string(),
             totalBytes: z.number(),
+            completedAt: z.string().optional(),
           }),
         ),
         totalRuns: z.number(),
@@ -325,6 +326,7 @@ export function profilerRouteDefinitions(): RouteDefinition[] {
         createdAt: z.string(),
         updatedAt: z.string(),
         totalBytes: z.number(),
+        completedAt: z.string().optional(),
         summary: z.string().nullable(),
         isActive: z.boolean(),
         budget: z.object({

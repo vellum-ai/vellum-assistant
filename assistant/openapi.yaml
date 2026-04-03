@@ -5127,6 +5127,8 @@ paths:
                           type: string
                         totalBytes:
                           type: number
+                        completedAt:
+                          type: string
                       required:
                         - runId
                         - status
@@ -5207,6 +5209,8 @@ paths:
                     type: string
                   totalBytes:
                     type: number
+                  completedAt:
+                    type: string
                   summary:
                     anyOf:
                       - type: string
