@@ -293,6 +293,40 @@ describe("permission-checker host-access gate (v2)", () => {
       });
     });
 
+    describe("non-interactive guardian session with hostAccess=false", () => {
+      beforeEach(() => {
+        setHostAccess(false);
+      });
+
+      test("host tool is NOT auto-approved (denies instead of guardian_auto_approve)", async () => {
+        const promptSpy = mock(() =>
+          Promise.resolve({ decision: "allow" as const }),
+        );
+        const prompter = {
+          prompt: promptSpy,
+        } as unknown as PermissionPrompter;
+        const checker = new PermissionChecker(prompter);
+        const result = await checker.checkPermission(
+          "host_bash",
+          {},
+          makeTool("host_bash"),
+          makeContext({ isInteractive: false, trustClass: "guardian" }),
+          executionTarget,
+          noopEmit,
+          noopSanitize,
+          Date.now(),
+          noopDiff,
+        );
+
+        // v2ForcePrompt is true (hostAccess=false), so the non-interactive
+        // guardian auto-approve must NOT fire. Since there is no interactive
+        // client, the tool should be denied.
+        expect(promptSpy).not.toHaveBeenCalled();
+        expect(result.allowed).toBe(false);
+        expect(result.decision).toBe("denied");
+      });
+    });
+
     describe("forcePromptSideEffects bypasses v2 auto-allow for side-effect tools", () => {
       beforeEach(() => {
         setHostAccess(true);
