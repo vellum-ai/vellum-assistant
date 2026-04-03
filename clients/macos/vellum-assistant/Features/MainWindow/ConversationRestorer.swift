@@ -257,24 +257,17 @@ final class ConversationRestorer {
             // createNotificationConversation before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.
             if let existingIdx = delegate.conversations.firstIndex(where: { $0.conversationId == session.id }) {
-                // Copy-modify-writeback: apply all field updates to a local copy
-                // and write back once, so conversations.didSet (and
-                // recomputeDerivedProperties) fires only once per existing match.
+                // Copy-modify-writeback for non-attention fields: write back once
+                // so conversations.didSet fires once instead of per-field.
                 var existing = delegate.conversations[existingIdx]
                 existing.groupId = groupId
                 existing.displayOrder = session.displayOrder.map { Int($0) }
                 existing.forkParent = session.forkParent
-                existing.hasUnseenLatestAssistantMessage =
-                    session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
-                existing.latestAssistantMessageAt =
-                    session.assistantAttention?.latestAssistantMessageAt.map {
-                        Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                    }
-                existing.lastSeenAssistantMessageAt =
-                    session.assistantAttention?.lastSeenAssistantMessageAt.map {
-                        Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                    }
                 delegate.conversations[existingIdx] = existing
+                // Attention merge must go through mergeAssistantAttention so that
+                // pendingAttentionOverrides are reconciled (e.g. a notification
+                // conversation the user already opened before the list arrived).
+                delegate.mergeAssistantAttention(from: session, intoConversationAt: existingIdx)
                 continue
             }
 
