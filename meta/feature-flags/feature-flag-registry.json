@@ -199,7 +199,7 @@
       "key": "show-thinking-blocks",
       "label": "Show Thinking Blocks",
       "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "inline-skill-commands",

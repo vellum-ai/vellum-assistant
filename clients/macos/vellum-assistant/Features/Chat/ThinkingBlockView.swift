@@ -47,6 +47,14 @@ struct ThinkingBlockView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .onAppear {
+            if isStreaming { isExpanded = true }
+        }
+        .onChange(of: isStreaming) { _, newValue in
+            withAnimation(VAnimation.fast) {
+                isExpanded = newValue
+            }
+        }
     }
 
     // MARK: - Header
