@@ -9,7 +9,7 @@ enum SkillFilter: String, CaseIterable {
     case available = "Available"
     case vellum = "Vellum"
     case community = "Community"
-    case custom = "Custom"
+    case custom = "Created"
 
     var icon: VIcon {
         switch self {

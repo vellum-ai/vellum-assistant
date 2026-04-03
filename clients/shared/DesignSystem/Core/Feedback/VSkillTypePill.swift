@@ -30,7 +30,7 @@ public struct VSkillTypePill: View {
             switch self {
             case .vellum: return VColor.primaryBase
             case .community: return VColor.funTeal
-            case .custom: return VColor.funCoral
+            case .custom: return VColor.funPurple
             case .other(_, _, let fg, _): return fg
             }
         }
@@ -39,7 +39,7 @@ public struct VSkillTypePill: View {
             switch self {
             case .vellum: return VColor.primaryBase.opacity(0.12)
             case .community: return VColor.funTeal.opacity(0.12)
-            case .custom: return VColor.funCoral.opacity(0.12)
+            case .custom: return VColor.funPurple.opacity(0.12)
             case .other(_, _, _, let bg): return bg
             }
         }
