@@ -43,6 +43,14 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
+  test('every role with allowedTools includes "skill_execute"', () => {
+    for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
+      if (config.allowedTools !== undefined) {
+        expect(config.allowedTools).toContain("skill_execute");
+      }
+    }
+  });
+
   test('every role pre-activates the "subagent" skill', () => {
     for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
       expect(config.skillIds).toContain("subagent");

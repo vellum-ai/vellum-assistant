@@ -95,6 +95,7 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
     },
     researcher: {
       allowedTools: [
+        "skill_execute",
         "web_search",
         "web_fetch",
         "file_read",
@@ -107,6 +108,7 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
     },
     coder: {
       allowedTools: [
+        "skill_execute",
         "bash",
         "file_read",
         "file_write",
@@ -120,6 +122,7 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
     },
     planner: {
       allowedTools: [
+        "skill_execute",
         "file_read",
         "web_search",
         "web_fetch",
