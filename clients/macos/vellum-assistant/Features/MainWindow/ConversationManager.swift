@@ -292,7 +292,24 @@ final class ConversationManager: ConversationRestorerDelegate {
     }
 
     func activateConversation(_ id: UUID) {
+        let previousActiveId = selectionStore.activeConversationId
+        selectionStore.trimPreviousConversationIfNeeded(nextConversationId: id)
+
+        // Channel conversations: invalidate cache before activation so
+        // loadHistoryIfNeeded fetches fresh data from the daemon.
+        if let conversation = listStore.conversations.first(where: { $0.id == id }),
+           conversation.isChannelConversation,
+           let vm = selectionStore.chatViewModels[id], vm.isHistoryLoaded {
+            vm.prepareForChannelRefresh()
+        }
+
         selectionStore.activeConversationId = id
+
+        // Emit explicit seen signal for user-initiated conversation activation.
+        // Skip during conversation restoration to avoid false "seen" signals on bootstrap.
+        if !selectionStore.isRestoringConversations, id != previousActiveId {
+            listStore.markConversationSeen(conversationId: id)
+        }
     }
 
     func isConversationArchived(_ conversationId: String) -> Bool {
@@ -378,6 +395,15 @@ final class ConversationManager: ConversationRestorerDelegate {
             if let localId = self.selectionStore.chatViewModels.first(where: { $0.value === viewModel })?.key {
                 self.listStore.updateLastInteracted(conversationId: localId)
             }
+        }
+        viewModel.onFork = { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.forkActiveConversation()
+            }
+        }
+        viewModel.onReconnectHistoryNeeded = { [weak self] conversationId in
+            guard let self else { return }
+            self.conversationRestorer.requestReconnectHistory(conversationId: conversationId)
         }
         return viewModel
     }
@@ -1031,7 +1057,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     // MARK: - Cross-Cutting Query Helpers
 
     func conversationHasMessages(_ id: UUID) -> Bool {
-        selectionStore.chatViewModels[id]?.messages.isEmpty == false
+        selectionStore.chatViewModels[id]?.messages.contains(where: { $0.role == .user }) ?? false
     }
 
     func updateConfirmationStateAcrossConversations(requestId: String, decision: String) {
@@ -1041,8 +1067,13 @@ final class ConversationManager: ConversationRestorerDelegate {
     }
 
     func isLatestToolUseRecipient(_ viewModel: ChatViewModel) -> Bool {
-        guard let activeVM = activeViewModel else { return false }
-        return viewModel === activeVM
+        guard let timestamp = viewModel.lastToolUseReceivedAt else { return false }
+        for other in selectionStore.chatViewModels.values where other !== viewModel {
+            if let otherTimestamp = other.lastToolUseReceivedAt, otherTimestamp > timestamp {
+                return false
+            }
+        }
+        return true
     }
 
     func markActiveConversationSeenIfNeeded() {
@@ -1166,6 +1197,12 @@ final class ConversationManager: ConversationRestorerDelegate {
         if let pendingTitle = listStore.pendingRenames.removeValue(forKey: uuidKey) {
             Task { await listStore.conversationListClient.renameConversation(conversationId: serverId, name: pendingTitle) }
         }
+
+        // Clean up the SSE remapping entry now that the VM uses the server ID.
+        // This prevents stale remapping and updates host-tool-request filtering.
+        eventStreamClient.cleanupAfterConversationIdResolution(localId: syntheticId, serverId: serverId)
+
+        log.info("Resolved synthetic conversation ID \(syntheticId, privacy: .public) → \(serverId, privacy: .public)")
     }
 
     private func backfillConversationId(_ conversationId: String, for viewModel: ChatViewModel) {
@@ -1199,6 +1236,12 @@ final class ConversationManager: ConversationRestorerDelegate {
             selectionStore.chatViewModels[localId]?.stopGenerating()
             selectionStore.removeChatViewModel(for: localId)
         }
+
+        // Re-send ordering now that this conversation has a conversation ID.
+        // Any drag/pin actions performed before the daemon assigned
+        // a conversation ID would have been skipped by sendReorderConversations()
+        // because it filters out conversations without a conversationId.
+        listStore.sendReorderConversations()
 
         // Trigger history load if this is the active conversation (the
         // conversationId was nil when activeConversationId was first set,

@@ -2,7 +2,6 @@ import SwiftUI
 import VellumAssistantShared
 import Foundation
 import os
-@preconcurrency import Combine
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationListStore")
 
@@ -44,6 +43,11 @@ final class ConversationListStore {
     private let conversationUnreadClient: any ConversationUnreadClientProtocol = ConversationUnreadClient()
 
     // MARK: - Private State
+
+    deinit {
+        reorderDebounceTask?.cancel()
+        pendingSeenSignalTask?.cancel()
+    }
 
     /// Debounce task for coalescing rapid reorder persistence calls (e.g. during drag).
     @ObservationIgnored private var reorderDebounceTask: Task<Void, Never>?
@@ -299,7 +303,7 @@ final class ConversationListStore {
         prePinGroupIds[id] = conversations[index].groupId
         conversations[index].groupId = ConversationGroup.pinned.id
         let maxOrder = conversations
-            .filter { $0.groupId == ConversationGroup.pinned.id }
+            .filter { $0.groupId == ConversationGroup.pinned.id && $0.id != id }
             .compactMap(\.displayOrder).max() ?? -1
         conversations[index].displayOrder = maxOrder + 1
         sendReorderConversations()

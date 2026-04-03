@@ -102,6 +102,11 @@ final class ConversationSelectionStore {
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     @ObservationIgnored var vmAccessOrder: [UUID] = []
 
+    deinit {
+        pendingEvictionTask?.cancel()
+        channelRefreshTask?.cancel()
+    }
+
     @ObservationIgnored private var pendingEvictionTask: Task<Void, Never>?
 
     /// Conversation local IDs whose ViewModels are pinned by open pop-out windows.
