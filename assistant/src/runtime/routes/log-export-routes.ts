@@ -380,6 +380,7 @@ const WORKSPACE_SKIP_DIRS = new Set([
   "data/qdrant",
   "data/attachments",
   "data/sounds",
+  "data/profiler",
   "conversations",
   "signals",
   "deprecated",

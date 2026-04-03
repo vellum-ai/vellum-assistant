@@ -308,7 +308,7 @@ export function runProfilerSweep(): ProfilerSweepResult {
 
     if (!overBytesBudget && !overRunCount && !overFreeSpace) break;
 
-    const oldest = completedRuns.shift()!;
+    const oldest = completedRuns[0]!;
     const runDir = getProfilerRunDir(oldest.runId);
 
     log.info(
@@ -326,6 +326,7 @@ export function runProfilerSweep(): ProfilerSweepResult {
 
     try {
       rmSync(runDir, { recursive: true, force: true });
+      completedRuns.shift();
       totalBytes -= oldest.totalBytes;
       freedBytes += oldest.totalBytes;
       prunedCount++;
@@ -334,6 +335,10 @@ export function runProfilerSweep(): ProfilerSweepResult {
         { runId: oldest.runId, err },
         "Failed to remove profiler run directory",
       );
+      // The run still exists on disk — leave it in completedRuns so
+      // remainingRuns stays accurate. Break to avoid an infinite retry
+      // loop on the same un-deletable run.
+      break;
     }
   }
 
