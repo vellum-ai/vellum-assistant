@@ -381,7 +381,7 @@ public struct InlineWeatherWidget: View {
                     ForEach(data.hourly) { item in
                         VStack(spacing: VSpacing.sm) {
                             Text(item.time)
-                                .font(item.time == "Now" ? VFont.bodyMediumEmphasised : VFont.labelDefault)
+                                .font(item.time == "Now" ? VFont.bodyMediumDefault : VFont.labelDefault)
                                 .foregroundStyle(VColor.contentDefault)
 
                             VIconView(SFSymbolMapping.icon(forSFSymbol: item.icon, fallback: .cloud), size: 18)
@@ -423,7 +423,7 @@ public struct InlineWeatherWidget: View {
         return HStack(spacing: VSpacing.sm) {
             // Day name
             Text(item.day)
-                .font(item.day == "Today" ? VFont.bodyMediumEmphasised : VFont.bodyMediumDefault)
+                .font(item.day == "Today" ? VFont.bodyMediumDefault : VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .frame(width: 46, alignment: .leading)
 

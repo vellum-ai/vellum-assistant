@@ -371,15 +371,9 @@ struct MarkdownSegmentView: View, Equatable {
                 case 2: 16
                 default: 14
                 }
-                let wght = 0x77676874 // 'wght' variation axis tag
-                let weightValue: Int = level == 1 ? 700 : 600
-                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, headingSize, nil)
-                let vars: [CFNumber: CFNumber] = [wght as CFNumber: weightValue as CFNumber]
-                let headingCT = CTFontCreateCopyWithAttributes(
-                    baseCT, headingSize, nil,
-                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: vars] as CFDictionary)
-                )
-                headingAttr.font = Font(headingCT as NSFont)
+                let headingWeight: NSFont.Weight = level == 1 ? .bold : .semibold
+                let headingNS = NSFont.systemFont(ofSize: headingSize, weight: headingWeight)
+                headingAttr.font = Font(headingNS)
                 if index > 0 {
                     let paraStyle = NSMutableParagraphStyle()
                     paraStyle.paragraphSpacingBefore = level == 1 ? 8 : 4
@@ -409,7 +403,7 @@ struct MarkdownSegmentView: View, Equatable {
                     if let cached = prefixWidthCache[prefixText] {
                         prefixWidth = cached
                     } else {
-                        let font = NSFont(name: "DMSans-Regular", size: 16) ?? NSFont.systemFont(ofSize: 16)
+                        let font = NSFont.systemFont(ofSize: 16, weight: .regular)
                         let prefixNS = NSString(string: prefixText)
                         prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                         if prefixWidthCache.count < 200 {
@@ -475,26 +469,11 @@ struct MarkdownSegmentView: View, Equatable {
         let ns = NSMutableAttributedString(source)
         let fullRange = NSRange(location: 0, length: ns.length)
 
-        // Apply synthetic italic/bold to emphasized runs.
-        // DM Sans doesn't ship an italic font face, so we apply a synthetic
-        // oblique via affine transform. This is done on the NSMutableAttributedString
-        // (not the SwiftUI AttributedString) because SwiftUI Font attributes set via
-        // Font(nsFont) don't reliably survive the AttributedString→NSAttributedString
-        // conversion — the oblique transform is lost, leaving plain text.
+        // Apply italic/bold to emphasized runs using system font variants.
         let sz = font.pointSize
-        let wght = 0x77676874 // 'wght' variation axis tag
-        var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
-        let italicNS = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique) as NSFont
-        let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
-        let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
-        let boldNS = CTFontCreateCopyWithAttributes(
-            baseCT, sz, nil,
-            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
-        ) as NSFont
-        let boldItalicNS = CTFontCreateCopyWithAttributes(
-            baseCT, sz, &oblique,
-            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
-        ) as NSFont
+        let italicNS = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+        let boldNS = NSFont.systemFont(ofSize: sz, weight: .bold)
+        let boldItalicNS = NSFontManager.shared.convert(boldNS, toHaveTrait: .italicFontMask)
 
         ns.enumerateAttribute(.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
             guard let rawValue = (value as? NSNumber)?.uintValue else { return }
