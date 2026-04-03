@@ -17,7 +17,6 @@ import {
 import type { ServiceName } from "../lib/docker";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import {
-  fetchOrganizationId,
   readPlatformToken,
   rollbackPlatformAssistant,
 } from "../lib/platform-client.js";
@@ -172,20 +171,6 @@ async function rollbackPlatformViaEndpoint(
     process.exit(1);
   }
 
-  let orgId: string;
-  try {
-    orgId = await fetchOrganizationId(token, entry.runtimeUrl);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("401") || msg.includes("403")) {
-      console.error("Authentication failed. Run 'vellum login' to refresh.");
-    } else {
-      console.error(`Error: ${msg}`);
-    }
-    emitCliError("AUTH_FAILED", "Failed to authenticate with platform", msg);
-    process.exit(1);
-  }
-
   // Step 3 — Call rollback endpoint
   if (version) {
     console.log(`Rolling back to ${version}...`);
@@ -195,12 +180,7 @@ async function rollbackPlatformViaEndpoint(
 
   let result: { detail: string; version: string | null };
   try {
-    result = await rollbackPlatformAssistant(
-      token,
-      orgId,
-      version,
-      entry.runtimeUrl,
-    );
+    result = await rollbackPlatformAssistant(token, version, entry.runtimeUrl);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
 

@@ -707,23 +707,7 @@ async function upgradePlatform(
     process.exit(1);
   }
 
-  let headers: Record<string, string>;
-  try {
-    headers = await authHeaders(token, entry.runtimeUrl);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const isAuthError = msg.includes("401") || msg.includes("403");
-    if (isAuthError) {
-      emitCliError("AUTH_FAILED", "Failed to authenticate with platform", msg);
-    } else {
-      emitCliError(
-        categorizeUpgradeError(err),
-        "Failed to fetch organization",
-        msg,
-      );
-    }
-    process.exit(1);
-  }
+  const headers = await authHeaders(token, entry.runtimeUrl);
 
   const url = `${entry.runtimeUrl || getPlatformUrl()}/v1/assistants/upgrade/`;
   const body: { assistant_id?: string; version?: string } = {
