@@ -177,7 +177,7 @@ struct APIKeyStepView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.sm) {
                         Text(title)
-                            .font(VFont.bodyLargeEmphasised)
+                            .font(VFont.bodyLargeDefault)
                             .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentDefault)
 
                         Spacer()
