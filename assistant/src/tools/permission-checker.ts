@@ -215,6 +215,7 @@ export class PermissionChecker {
           context.trustClass === "guardian" &&
           !context.requireFreshApproval &&
           !isDynamicSkillLoad &&
+          !v2ForcePrompt &&
           riskLevel !== RiskLevel.High
         ) {
           log.info(
