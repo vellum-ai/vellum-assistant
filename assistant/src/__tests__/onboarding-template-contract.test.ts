@@ -98,6 +98,12 @@ describe("onboarding template contracts", () => {
       expect(bootstrap).toContain("new colleague");
     });
 
+    test("instructs checking Connected Services for email task variant", () => {
+      expect(bootstrap).toContain("Connected Services");
+      expect(bootstrap).toContain("Connect my email");
+      expect(bootstrap).toContain("Check my email");
+    });
+
     test("includes daily briefing and channel suggestions in getting set up", () => {
       const lower = bootstrap.toLowerCase();
       expect(lower).toContain("daily briefing");
@@ -107,15 +113,23 @@ describe("onboarding template contracts", () => {
   });
 
   describe("BOOTSTRAP-REFERENCE.md", () => {
-    test("contains personality form ui_show payload", () => {
+    test("contains personality form with 4 dropdowns", () => {
       expect(bootstrapRef).toContain("surface_type: \"form\"");
       expect(bootstrapRef).toContain("communication_style");
       expect(bootstrapRef).toContain("task_style");
+      expect(bootstrapRef).toContain("humor");
+      expect(bootstrapRef).toContain("depth");
     });
 
-    test("contains task card ui_show payload with relay_prompt actions", () => {
-      expect(bootstrapRef).toContain("surface_type: \"card\"");
+    test("contains email-not-connected task card variant", () => {
+      expect(bootstrapRef).toContain("Email Not Connected");
+      expect(bootstrapRef).toContain("Connect my email");
       expect(bootstrapRef).toContain("relay_prompt");
+    });
+
+    test("contains email-already-connected task card variant", () => {
+      expect(bootstrapRef).toContain("Email Already Connected");
+      expect(bootstrapRef).toContain("Check my email");
     });
   });
 

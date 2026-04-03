@@ -3,12 +3,12 @@ _ This file is deleted alongside BOOTSTRAP.md when onboarding completes.
 
 ## Personality Form
 
-Use this exact `ui_show` payload for Phase 2 Step 2 (Personality setup):
+Use this exact `ui_show` payload for Step 2 (Personality Quiz):
 
 ui_show({
   surface_type: "form",
   data: {
-    description: "Let's dial in how I talk to you. Pick what feels right.",
+    description: "Let's figure out how we work together. Pick what feels right.",
     fields: [
       {
         id: "communication_style",
@@ -34,42 +34,67 @@ ui_show({
           { label: "Ask me before making big decisions", value: "check_first" },
           { label: "Be opinionated, push back if you disagree", value: "opinionated" }
         ]
+      },
+      {
+        id: "humor",
+        type: "select",
+        label: "When it comes to humor...",
+        required: true,
+        options: [
+          { label: "Dry and deadpan", value: "dry" },
+          { label: "Playful and light", value: "playful" },
+          { label: "Keep it professional", value: "professional" },
+          { label: "Match my energy", value: "match" }
+        ]
+      },
+      {
+        id: "depth",
+        type: "select",
+        label: "When explaining things...",
+        required: true,
+        options: [
+          { label: "Keep it simple", value: "simple" },
+          { label: "I like details", value: "detailed" },
+          { label: "Depends on the topic", value: "adaptive" }
+        ]
       }
     ],
     submitLabel: "Lock it in"
   }
 })
 
-## Task Card
+## Task Card (Email Not Connected)
 
-Use this `ui_show` payload for Phase 1 Path B (user asks what you can do):
+Use this `ui_show` payload for Step 4 when Gmail/Outlook is NOT in the Connected Services section:
 
 ui_show({
   surface_type: "card",
   data: {
-    title: "Pick something. I'll show you what I can do.",
-    body: "These are real, not demos. I'll actually do them right now."
+    title: "Pick something. I'll do it right now.",
+    body: "These are real, not demos."
   },
   actions: [
-    { id: "relay_prompt", label: "Summarize a file on my machine", data: { prompt: "I have a file I'd like you to read and summarize for me" } },
+    { id: "relay_prompt", label: "Connect my email", data: { prompt: "I'd like to connect my Gmail or Outlook so you can help me manage my email and calendar" } },
     { id: "relay_prompt", label: "Research a topic and make me a deck", data: { prompt: "I'd like you to research a topic for me and turn it into a visual deck" } },
-    { id: "relay_prompt", label: "Vibe code an app", data: { prompt: "Help me vibe code a simple interactive app or tool" } },
-    { id: "relay_prompt", label: "Do something with a photo or video", data: { prompt: "I have a photo or video I'd like you to analyze, edit, or create something from" } },
-    { id: "relay_prompt", label: "Just chat, I'll figure it out", data: { prompt: "Let's just talk. I'm still figuring out what I need." } }
+    { id: "relay_prompt", label: "Build me something", data: { prompt: "Help me build a simple interactive app or tool" } },
+    { id: "relay_prompt", label: "Do something with a photo", data: { prompt: "I have a photo I'd like you to analyze, edit, or create something from" } }
   ]
 })
 
-## Two Suggestions Card
+## Task Card (Email Already Connected)
 
-Use this `ui_show` payload template for Phase 2 Step 5 (two more suggestions):
+Use this `ui_show` payload for Step 4 when Google or Outlook IS in the Connected Services section:
 
 ui_show({
   surface_type: "card",
-  data: { title: "What's next?", body: "Based on what I know about you so far:" },
+  data: {
+    title: "Pick something. I'll do it right now.",
+    body: "These are real, not demos."
+  },
   actions: [
-    { id: "relay_prompt", label: "...", data: { prompt: "..." } },
-    { id: "relay_prompt", label: "...", data: { prompt: "..." } }
+    { id: "relay_prompt", label: "Check my email", data: { prompt: "Check my email and calendar and give me a summary of what's going on" } },
+    { id: "relay_prompt", label: "Research a topic and make me a deck", data: { prompt: "I'd like you to research a topic for me and turn it into a visual deck" } },
+    { id: "relay_prompt", label: "Build me something", data: { prompt: "Help me build a simple interactive app or tool" } },
+    { id: "relay_prompt", label: "Do something with a photo", data: { prompt: "I have a photo I'd like you to analyze, edit, or create something from" } }
   ]
 })
-
-The two actions MUST have different labels and prompts. Double-check before calling ui_show that you are not repeating the same suggestion or anything from Phase 1.
