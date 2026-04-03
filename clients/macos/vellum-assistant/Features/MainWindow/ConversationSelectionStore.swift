@@ -2,7 +2,6 @@ import SwiftUI
 import VellumAssistantShared
 import Foundation
 import os
-@preconcurrency import Combine
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationSelectionStore")
 private let stallLog = OSLog(subsystem: Bundle.appBundleIdentifier, category: "LayoutStall")
@@ -163,25 +162,6 @@ final class ConversationSelectionStore {
     /// Called when channel refresh needs to request reconnect history.
     @ObservationIgnored var onChannelRefreshNeeded: ((UUID, String) -> Void)?
 
-    // MARK: - Combine Teardown
-
-    /// Background queue for Combine subscription teardown.
-    static let cancellableTeardownQueue = DispatchQueue(
-        label: "com.vellum.assistant.cancellable-teardown",
-        qos: .utility
-    )
-
-    /// Cancel subscriptions synchronously on main, then move the expensive
-    /// dealloc (operator chain teardown) off the main thread.
-    static func tearDownCancellables(_ cancellables: Set<AnyCancellable>) {
-        guard !cancellables.isEmpty else { return }
-        for cancellable in cancellables {
-            cancellable.cancel()
-        }
-        cancellableTeardownQueue.async {
-            withExtendedLifetime(cancellables) {}
-        }
-    }
 
     // MARK: - Init
 
