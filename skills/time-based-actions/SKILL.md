@@ -127,9 +127,9 @@ Use the following heuristics to pick `routing_intent`:
 
 - **Default to `all_channels`** for most reminders. Users setting reminders usually want to be notified wherever they are, and redundant notifications are less harmful than missed ones.
 - **Use `single_channel`** only when the user explicitly specifies a single channel (e.g. "remind me on Telegram") or the reminder is low-stakes and noise reduction matters.
-- **Check the `interface` field** from the `<turn_context>` block. If the user is currently active on a specific interface (e.g. `macos`, `slack`, `telegram`), always include that channel. Pass it as a routing hint:
+- **Check the `source_channel` field** from the `<turn_context>` block (not `interface` — interface values like `macos`, `ios`, `cli` are not valid channel names). If present, always include it as a routing hint:
   ```
-  routing_hints: { preferred_channels: ["vellum"] }
+  routing_hints: { preferred_channels: ["<source_channel value>"] }
   routing_intent: "all_channels"
   ```
 - **Never use `single_channel` as a passive default.** If you haven't thought about which channel to use, use `all_channels`.
