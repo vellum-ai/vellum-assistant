@@ -137,10 +137,8 @@ function spawnRunner(
     const stderrChunks: Buffer[] = [];
     let timedOut = false;
 
-    // Sandbox is disabled — the assistant runs exclusively in Docker or
-    // platform-managed environments. The wrapCommand call still expects a
-    // config object; pass { enabled: false } until the sandbox runtime is
-    // fully removed.
+    // The assistant runs exclusively in Docker or platform-managed
+    // environments where the container provides isolation.
     const sandboxConfig = { enabled: false } as const;
 
     const bunRunCmd = "bun run __skill_runner.ts";

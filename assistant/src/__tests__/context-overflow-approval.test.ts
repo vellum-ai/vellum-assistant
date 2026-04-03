@@ -55,7 +55,7 @@ describe("requestCompressionApproval", () => {
     await requestCompressionApproval(prompter);
 
     const args = (prompter.prompt as ReturnType<typeof mock>).mock.calls[0];
-    // persistentDecisionsAllowed is index 8 (sandboxed param was removed)
+    // persistentDecisionsAllowed is index 8
     expect(args[8]).toBe(false);
   });
 
@@ -119,7 +119,7 @@ describe("requestCompressionApproval", () => {
     });
 
     const args = (prompter.prompt as ReturnType<typeof mock>).mock.calls[0];
-    // signal is index 9 (sandboxed param was removed)
+    // signal is index 9
     expect(args[9]).toBe(controller.signal);
   });
 
