@@ -80,7 +80,7 @@ struct WebSearchServiceCard: View {
     var body: some View {
         ServiceModeCard(
             title: "Web Search",
-            subtitle: "Configure which web search provider to use for online research",
+            subtitle: "Configure how your assistant should search the web",
             draftMode: $draftMode,
             managedContent: {
                 if store.inferenceMode == "your-own" {

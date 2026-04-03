@@ -46,6 +46,7 @@ public final class SettingsStore: ObservableObject {
     @Published var braveKeySaveError: String?
     @Published var perplexityKeySaveError: String?
     @Published var imageGenKeySaveError: String?
+    @Published var imageGenKeySaving: Bool = false
     @Published var maskedBraveKey: String = ""
     @Published var maskedPerplexityKey: String = ""
     @Published var maskedImageGenKey: String = ""
@@ -887,10 +888,11 @@ public final class SettingsStore: ObservableObject {
         scheduleRoutingSourceRefresh()
     }
 
-    func saveImageGenKey(_ raw: String) {
+    func saveImageGenKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         imageGenKeySaveError = nil
+        imageGenKeySaving = true
         APIKeyManager.setKey(trimmed, for: "gemini")
         // Remove any stale deletion tombstone eagerly — the user's intent is to
         // save a new key, so any prior clear is superseded.
@@ -899,8 +901,10 @@ public final class SettingsStore: ObservableObject {
         maskedImageGenKey = Self.maskKey(trimmed)
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: "gemini", value: trimmed)
+            imageGenKeySaving = false
             if result.success {
                 scheduleRoutingSourceRefresh()
+                onSuccess?()
             } else if let error = result.error {
                 imageGenKeySaveError = error
                 if !result.isTransient {

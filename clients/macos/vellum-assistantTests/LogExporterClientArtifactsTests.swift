@@ -314,4 +314,136 @@ struct LogExporterClientArtifactsTests {
         )
         #expect(copiedSample == sampleContent)
     }
+
+    // MARK: - Session Log Cutoff Date Filtering
+
+    @Test
+    func filtersSessionLogsByCutoffDate() throws {
+        let (source, dest) = try makeTempDirs()
+        defer { cleanup(source) }
+        let fm = FileManager.default
+
+        let logsDir = source.appendingPathComponent("logs", isDirectory: true)
+        try fm.createDirectory(at: logsDir, withIntermediateDirectories: true)
+
+        // Create three session log files
+        let oldFile = logsDir.appendingPathComponent("chat-diagnostics-old.jsonl")
+        let recentFile = logsDir.appendingPathComponent("chat-diagnostics-recent.jsonl")
+        let newestFile = logsDir.appendingPathComponent("chat-diagnostics-newest.jsonl")
+
+        try "old event\n".write(to: oldFile, atomically: true, encoding: .utf8)
+        try "recent event\n".write(to: recentFile, atomically: true, encoding: .utf8)
+        try "newest event\n".write(to: newestFile, atomically: true, encoding: .utf8)
+
+        // Set modification dates: old = 2 hours ago, recent = 30 min ago, newest = now
+        let twoHoursAgo = Date().addingTimeInterval(-7200)
+        let thirtyMinAgo = Date().addingTimeInterval(-1800)
+        let now = Date()
+
+        try fm.setAttributes([.modificationDate: twoHoursAgo], ofItemAtPath: oldFile.path)
+        try fm.setAttributes([.modificationDate: thirtyMinAgo], ofItemAtPath: recentFile.path)
+        try fm.setAttributes([.modificationDate: now], ofItemAtPath: newestFile.path)
+
+        // Use a cutoff of 1 hour ago — should exclude the old file
+        let cutoff = Date().addingTimeInterval(-3600)
+        LogExporter.collectClientArtifacts(from: source, into: dest, cutoffDate: cutoff, fileManager: fm)
+
+        let sessionLogsDir = dest.appendingPathComponent("session-logs", isDirectory: true)
+        #expect(fm.fileExists(atPath: sessionLogsDir.path))
+
+        let copiedFiles = try fm.contentsOfDirectory(at: sessionLogsDir, includingPropertiesForKeys: nil)
+        let copiedNames = Set(copiedFiles.map(\.lastPathComponent))
+
+        #expect(copiedNames.count == 2)
+        #expect(copiedNames.contains("chat-diagnostics-recent.jsonl"))
+        #expect(copiedNames.contains("chat-diagnostics-newest.jsonl"))
+        #expect(!copiedNames.contains("chat-diagnostics-old.jsonl"))
+    }
+
+    @Test
+    func cutoffDateNilCollectsAllSessionLogs() throws {
+        let (source, dest) = try makeTempDirs()
+        defer { cleanup(source) }
+        let fm = FileManager.default
+
+        let logsDir = source.appendingPathComponent("logs", isDirectory: true)
+        try fm.createDirectory(at: logsDir, withIntermediateDirectories: true)
+
+        // Create session log files with varied modification dates
+        let oldFile = logsDir.appendingPathComponent("chat-diagnostics-old.jsonl")
+        let recentFile = logsDir.appendingPathComponent("chat-diagnostics-recent.jsonl")
+
+        try "old event\n".write(to: oldFile, atomically: true, encoding: .utf8)
+        try "recent event\n".write(to: recentFile, atomically: true, encoding: .utf8)
+
+        let oneWeekAgo = Date().addingTimeInterval(-7 * 24 * 3600)
+        try fm.setAttributes([.modificationDate: oneWeekAgo], ofItemAtPath: oldFile.path)
+
+        // cutoffDate: nil should collect all files (backward compat / allTime)
+        LogExporter.collectClientArtifacts(from: source, into: dest, cutoffDate: nil, fileManager: fm)
+
+        let sessionLogsDir = dest.appendingPathComponent("session-logs", isDirectory: true)
+        #expect(fm.fileExists(atPath: sessionLogsDir.path))
+
+        let copiedFiles = try fm.contentsOfDirectory(at: sessionLogsDir, includingPropertiesForKeys: nil)
+        #expect(copiedFiles.count == 2)
+    }
+
+    @Test
+    func cutoffDateExcludesAllSessionLogsWhenAllOld() throws {
+        let (source, dest) = try makeTempDirs()
+        defer { cleanup(source) }
+        let fm = FileManager.default
+
+        let logsDir = source.appendingPathComponent("logs", isDirectory: true)
+        try fm.createDirectory(at: logsDir, withIntermediateDirectories: true)
+
+        // Create session logs that are all older than the cutoff
+        let file1 = logsDir.appendingPathComponent("chat-diagnostics-1.jsonl")
+        let file2 = logsDir.appendingPathComponent("chat-diagnostics-2.jsonl")
+
+        try "event1\n".write(to: file1, atomically: true, encoding: .utf8)
+        try "event2\n".write(to: file2, atomically: true, encoding: .utf8)
+
+        let twoDaysAgo = Date().addingTimeInterval(-2 * 24 * 3600)
+        try fm.setAttributes([.modificationDate: twoDaysAgo], ofItemAtPath: file1.path)
+        try fm.setAttributes([.modificationDate: twoDaysAgo], ofItemAtPath: file2.path)
+
+        // Cutoff = 1 hour ago — both files are older
+        let cutoff = Date().addingTimeInterval(-3600)
+        LogExporter.collectClientArtifacts(from: source, into: dest, cutoffDate: cutoff, fileManager: fm)
+
+        // session-logs directory should not be created since no files pass the filter
+        let sessionLogsDir = dest.appendingPathComponent("session-logs", isDirectory: true)
+        #expect(!fm.fileExists(atPath: sessionLogsDir.path))
+    }
+
+    @Test
+    func cutoffDateStillCollectsNonSessionArtifacts() throws {
+        let (source, dest) = try makeTempDirs()
+        defer { cleanup(source) }
+        let fm = FileManager.default
+
+        // Create debug-state.json and hang-context.json (these should always be collected)
+        try "{\"debug\":true}".write(
+            to: source.appendingPathComponent("debug-state.json"),
+            atomically: true, encoding: .utf8
+        )
+        try "{\"stall\":1.0}".write(
+            to: source.appendingPathComponent("hang-context.json"),
+            atomically: true, encoding: .utf8
+        )
+        try "sample data".write(
+            to: source.appendingPathComponent("hang-sample.txt"),
+            atomically: true, encoding: .utf8
+        )
+
+        // Use a cutoff — non-session artifacts should still be collected regardless
+        let cutoff = Date().addingTimeInterval(-3600)
+        LogExporter.collectClientArtifacts(from: source, into: dest, cutoffDate: cutoff, fileManager: fm)
+
+        #expect(fm.fileExists(atPath: dest.appendingPathComponent("debug-state.json").path))
+        #expect(fm.fileExists(atPath: dest.appendingPathComponent("hang-context.json").path))
+        #expect(fm.fileExists(atPath: dest.appendingPathComponent("hang-sample.txt").path))
+    }
 }

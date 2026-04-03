@@ -789,6 +789,7 @@ export class AnthropicProvider implements Provider {
       // TTL is appropriate. Walk backwards to find the last user message
       // with a text block (skipping tool_result-only messages from tool
       // loops).
+      let turnStartIdx = -1;
       for (let i = sentMessages.length - 1; i >= 0; i--) {
         const msg = sentMessages[i];
         if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
@@ -803,16 +804,26 @@ export class AnthropicProvider implements Provider {
             ttl: "1h",
           };
         }
+        turnStartIdx = i;
         break;
       }
 
-      // Automatic caching: the API places a cache breakpoint on the last
-      // cacheable block and advances it as the conversation grows. With a
-      // short TTL, intermediate prefixes (e.g. after each tool result)
-      // expire quickly. Combined with manual breakpoints (2 system +
-      // 1 tools + 1 turn-starting user = 4), the automatic breakpoint
-      // provides a 5th cheap, short-lived cache for the advancing tail.
-      params.cache_control = { type: "ephemeral" as const, ttl: "5m" as const };
+      // Advancing tail: place a short-lived 5m cache breakpoint on the last
+      // block of the last message when it falls after the turn-starting user
+      // message (i.e. tool-use loop content). This caches the growing tail
+      // cheaply without conflicting with the 1h breakpoints above.
+      if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
+        const lastMsg = sentMessages[sentMessages.length - 1];
+        if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+          const lastBlock = lastMsg.content[lastMsg.content.length - 1];
+          if (typeof lastBlock !== "string") {
+            (lastBlock as unknown as Record<string, unknown>).cache_control = {
+              type: "ephemeral",
+              ttl: "5m",
+            };
+          }
+        }
+      }
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);

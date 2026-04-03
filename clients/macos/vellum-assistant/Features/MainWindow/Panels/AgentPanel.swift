@@ -37,8 +37,7 @@ struct AgentPanelContent: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.sparkles, size: 14)
                             .foregroundStyle(VColor.primaryBase)
-                        Text("**Tip:** You can [create a new custom skill](vellum://create-skill) by describing what you want in chat.")
-                            .tint(VColor.primaryBase)
+                        tipBannerText
                         Spacer()
                         Button(action: {
                             withAnimation(VAnimation.fast) { bannerDismissed = true }
@@ -117,6 +116,24 @@ struct AgentPanelContent: View {
                     skillToDelete = nil
                 }
             )
+        }
+    }
+
+    // MARK: - Tip Banner
+
+    private static let createSkillURL = URL(string: "vellum://create-skill")!
+
+    private var tipBannerText: some View {
+        HStack(spacing: 0) {
+            Text("**Tip:** You can ")
+            VLink(
+                "create a new custom skill",
+                destination: Self.createSkillURL,
+                font: VFont.bodyMediumDefault,
+                underline: true
+            )
+            .tint(VColor.primaryBase)
+            Text(" by describing what you want in chat.")
         }
     }
 
