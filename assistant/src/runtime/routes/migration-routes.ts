@@ -186,7 +186,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       cleanup = undefined;
     });
 
-    const body = Readable.toWeb(fileStream) as ReadableStream;
+    const body = Readable.toWeb(fileStream) as unknown as ReadableStream;
 
     return new Response(body, {
       status: 200,
