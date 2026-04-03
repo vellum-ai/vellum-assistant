@@ -30,7 +30,7 @@ final class ConversationSelectionStore {
     /// The `didSet` performs only lightweight bookkeeping (UserDefaults persistence,
     /// stale anchor clearing). Heavy side effects live in ``performActivation(for:)``
     /// and ``performDeactivation()`` — callers must invoke those explicitly.
-    var activeConversationId: UUID? {
+    private(set) var activeConversationId: UUID? {
         didSet {
             // Persist selection (skip during restoration to avoid overwriting the
             // saved value before restoreLastActiveConversation reads it).

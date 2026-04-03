@@ -141,8 +141,18 @@ final class ConversationListStore {
     private(set) var archivedConversations: [ConversationModel] = []
 
     /// Recompute all derived sidebar properties from `conversations` and `groups`.
-    /// Called from `conversations.didSet` and `groups.didSet`.
+    /// Called from `conversations.didSet` and `groups.didSet`. Skips work when
+    /// `conversations` is empty to avoid wasted computation (e.g. when `groups`
+    /// is assigned before `conversations` during restoration).
     private func recomputeDerivedProperties() {
+        guard !conversations.isEmpty else {
+            sortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
+            groupedConversations = []
+            visibleConversations = []
+            unseenVisibleConversationCount = 0
+            archivedConversations = []
+            return
+        }
         let currentSortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
         sortedGroups = currentSortedGroups
 

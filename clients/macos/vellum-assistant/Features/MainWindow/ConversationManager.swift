@@ -114,8 +114,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     }
 
     var activeConversationId: UUID? {
-        get { selectionStore.activeConversationId }
-        set { selectionStore.activeConversationId = newValue }
+        selectionStore.activeConversationId
     }
 
     var draftViewModel: ChatViewModel? {
@@ -638,6 +637,8 @@ final class ConversationManager: ConversationRestorerDelegate {
                 selectionStore.performActivation(for: listStore.conversations[index].id)
             } else if let lastId = listStore.conversations.last?.id {
                 selectionStore.performActivation(for: lastId)
+            } else {
+                selectionStore.performDeactivation()
             }
         }
         log.info("Closed conversation \(id)")
