@@ -78,10 +78,7 @@ struct AssistantUpgradeSection: View {
         }
         return availableReleases.filter { release in
             guard let parsed = VersionCompat.parse(release.version) else { return true }
-            if parsed.major != currentParsed.major { return parsed.major > currentParsed.major }
-            if parsed.minor != currentParsed.minor { return parsed.minor > currentParsed.minor }
-            if parsed.patch != currentParsed.patch { return parsed.patch > currentParsed.patch }
-            return true // same version — keep it
+            return parsed >= currentParsed
         }
     }
 
@@ -101,9 +98,7 @@ struct AssistantUpgradeSection: View {
             // Fall back to string comparison if versions can't be parsed
             return target != current
         }
-        return targetParsed.major != currentParsed.major
-            || targetParsed.minor != currentParsed.minor
-            || targetParsed.patch != currentParsed.patch
+        return targetParsed != currentParsed
     }
 
     /// Whether the selected target version is older than the current version.
@@ -114,9 +109,7 @@ struct AssistantUpgradeSection: View {
               let currentParsed = VersionCompat.parse(current) else {
             return false
         }
-        if targetParsed.major != currentParsed.major { return targetParsed.major < currentParsed.major }
-        if targetParsed.minor != currentParsed.minor { return targetParsed.minor < currentParsed.minor }
-        return targetParsed.patch < currentParsed.patch
+        return targetParsed < currentParsed
     }
 
     /// Human-readable label for the current topology.
@@ -148,9 +141,7 @@ struct AssistantUpgradeSection: View {
               let clientVersion = appVersion,
               let targetParsed = VersionCompat.parse(target),
               let clientParsed = VersionCompat.parse(clientVersion) else { return false }
-        if targetParsed.major != clientParsed.major { return targetParsed.major > clientParsed.major }
-        if targetParsed.minor != clientParsed.minor { return targetParsed.minor > clientParsed.minor }
-        return targetParsed.patch > clientParsed.patch
+        return targetParsed > clientParsed
     }
 
     /// Whether the service group version is older than the client version.
@@ -159,9 +150,7 @@ struct AssistantUpgradeSection: View {
               let clientVersion = appVersion,
               let sgParsed = VersionCompat.parse(sgVersion),
               let clientParsed = VersionCompat.parse(clientVersion) else { return false }
-        if sgParsed.major != clientParsed.major { return sgParsed.major < clientParsed.major }
-        if sgParsed.minor != clientParsed.minor { return sgParsed.minor < clientParsed.minor }
-        return sgParsed.patch < clientParsed.patch
+        return sgParsed < clientParsed
     }
 
     var body: some View {
@@ -628,9 +617,7 @@ struct AssistantUpgradeSection: View {
                   let releaseParsed = VersionCompat.parse(release.version) else {
                 return false
             }
-            return releaseParsed.major == currentParsed.major
-                && releaseParsed.minor == currentParsed.minor
-                && releaseParsed.patch == currentParsed.patch
+            return releaseParsed.coreEquals(currentParsed)
         }()
         let isLatest = release.version == latestRelease?.version
         var parts = [release.version]

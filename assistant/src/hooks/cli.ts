@@ -20,7 +20,7 @@ export function registerHooksCommand(program: Command): void {
 Hooks are user-installed scripts that run in response to assistant lifecycle
 events (e.g. tool invocations, message sends). Each hook is a directory
 containing a hook.json manifest and a script file. Hooks are stored in
-~/.vellum/hooks/ and must be explicitly enabled after installation.
+$VELLUM_WORKSPACE_DIR/hooks/ and must be explicitly enabled after installation.
 
 Examples:
   $ assistant hooks list
@@ -136,7 +136,7 @@ Arguments:
          The manifest must have name, script, description, version, and at
          least one valid event.
 
-Copies the hook directory into ~/.vellum/hooks/<name>/ and registers it as
+Copies the hook directory into $VELLUM_WORKSPACE_DIR/hooks/<name>/ and registers it as
 disabled by default. Run 'assistant hooks enable <name>' to activate.
 
 Examples:

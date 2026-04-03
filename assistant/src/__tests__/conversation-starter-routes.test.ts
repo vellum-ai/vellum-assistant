@@ -37,7 +37,7 @@ function dispatch(path: string): Response | Promise<Response> {
 
 function clearTables() {
   getSqlite().run("DELETE FROM conversation_starters");
-  getSqlite().run("DELETE FROM memory_items");
+  getSqlite().run("DELETE FROM memory_graph_nodes");
   getSqlite().run("DELETE FROM memory_jobs");
   getSqlite().run("DELETE FROM memory_checkpoints");
 }
@@ -69,10 +69,23 @@ function insertStarter(overrides: {
 function insertMemoryItem(scopeId = "default") {
   const now = Date.now();
   getSqlite().run(
-    `INSERT INTO memory_items (
-      id, kind, subject, statement, status, confidence, fingerprint, scope_id, first_seen_at, last_seen_at
-    ) VALUES (?, 'fact', 'test', 'test statement', 'active', 0.9, ?, ?, ?, ?)`,
-    [uuid(), `fingerprint-${uuid()}`, scopeId, now, now],
+    `INSERT INTO memory_graph_nodes (
+      id, content, type, created, last_accessed, last_consolidated,
+      emotional_charge, fidelity, confidence, significance,
+      stability, reinforcement_count, last_reinforced,
+      source_conversations, source_type, scope_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'vivid', 0.8, 0.5, 14, 0, ?, '[]', 'inferred', ?)`,
+    [
+      uuid(),
+      "test\ntest statement",
+      "semantic",
+      now,
+      now,
+      now,
+      '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}',
+      now,
+      scopeId,
+    ],
   );
 }
 

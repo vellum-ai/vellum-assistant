@@ -114,8 +114,8 @@ describe("tool manifest", () => {
 
   test("explicit tools list includes memory and credential tools", () => {
     const names = explicitTools.map((t) => t.name);
-    expect(names).toContain("memory_recall");
-    expect(names).toContain("memory_manage");
+    expect(names).toContain("recall");
+    expect(names).toContain("remember");
     expect(names).toContain("credential_store");
     // start_screen_watch moved to the screen-watch bundled skill
     expect(names).not.toContain("start_screen_watch");

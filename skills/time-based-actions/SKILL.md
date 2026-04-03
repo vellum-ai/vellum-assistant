@@ -45,19 +45,21 @@ If you use `send_notification` for any of these, the notification fires immediat
 
 ## Time Grounding Source
 
-Use the injected `<temporal_context>` block as the authoritative clock source:
+Use the `timestamp:` field from the injected `<turn_context>` block as the authoritative clock source. The timestamp format is:
 
-- `Today:` line contains the date, abbreviated weekday, local time (HH:MM), and UTC offset.
-- `TZ:` line is the IANA timezone identifier. When followed by `(host fallback)`, the timezone was inferred from the assistant host — not the user.
+```
+timestamp: 2026-04-02 (Wed) 14:30:00 -05:00 (America/Chicago)
+```
 
-When `TZ:` shows `(host fallback)` and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), ask once for their timezone and then proceed.
-If the user confirms a timezone, suggest saving it in Settings -> Appearance -> User timezone so future reminders resolve correctly without re-asking.
+It contains the date, abbreviated weekday, local time (HH:MM:SS), UTC offset, and IANA timezone name in parentheses.
+
+**Timezone confidence check:** The timezone shown may be the assistant host's timezone rather than the user's actual timezone (this happens when the user hasn't configured `Settings → Appearance → User timezone`). If you have no prior confirmation of the user's timezone (from conversation history or memory) and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), confirm the timezone once before scheduling. If the user confirms, suggest saving it in Settings → Appearance → User timezone so future requests resolve correctly without re-asking.
 
 ## Relative Time Parsing
 
 When the user says "in X minutes/hours", compute the ISO 8601 timestamp yourself:
 
-- Take the time and offset from the `Today:` line (e.g. `23:26 -05:00`)
+- Take the time and offset from the `timestamp:` field (e.g. `23:26:00 -05:00`)
 - Add the requested offset
 - Format as ISO 8601 with timezone: `2025-03-15T09:05:00-05:00`
 - Pass to `reminder_create` as `fire_at`
@@ -125,9 +127,9 @@ Use the following heuristics to pick `routing_intent`:
 
 - **Default to `all_channels`** for most reminders. Users setting reminders usually want to be notified wherever they are, and redundant notifications are less harmful than missed ones.
 - **Use `single_channel`** only when the user explicitly specifies a single channel (e.g. "remind me on Telegram") or the reminder is low-stakes and noise reduction matters.
-- **Check `user_message_channel` (or `channel` when all channels are the same)** from the turn context. If the user is currently active on a specific channel (e.g. `vellum`), always include that channel. Pass it as a routing hint:
+- **Check the `source_channel` field** from the `<turn_context>` block (not `interface` — interface values like `macos`, `ios`, `cli` are not valid channel names). If present, always include it as a routing hint:
   ```
-  routing_hints: { preferred_channels: ["vellum"] }
+  routing_hints: { preferred_channels: ["<source_channel value>"] }
   routing_intent: "all_channels"
   ```
 - **Never use `single_channel` as a passive default.** If you haven't thought about which channel to use, use `all_channels`.

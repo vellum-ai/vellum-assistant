@@ -33,12 +33,10 @@ const NETWORK_PATTERNS = [
 ];
 
 // Rate limit patterns (HTTP 429 or explicit rate limit messages)
-const RATE_LIMIT_PATTERNS = [
-  /429/,
-  /rate.?limit/i,
-  /too many requests/i,
-  /overloaded/i,
-];
+const RATE_LIMIT_PATTERNS = [/429/, /rate.?limit/i, /too many requests/i];
+
+// Overloaded patterns — provider is capacity-constrained (distinct from rate limiting)
+const OVERLOADED_PATTERNS = [/overloaded/i];
 
 // Context-too-large patterns (request exceeds the model's context window)
 const CONTEXT_TOO_LARGE_PATTERNS = [
@@ -249,9 +247,20 @@ function classifyCore(
     if (error.statusCode === 429) {
       return {
         code: "PROVIDER_RATE_LIMIT",
-        userMessage: "The AI provider is busy. Please try again in a moment.",
+        userMessage:
+          "You are being rate limited by the AI provider. Please try again in a moment.",
         retryable: true,
         errorCategory: "rate_limit",
+      };
+    }
+    // Anthropic uses 529 for overloaded_error
+    if (error.statusCode === 529) {
+      return {
+        code: "PROVIDER_OVERLOADED",
+        userMessage:
+          "The AI provider is temporarily overloaded. Please try again in a moment.",
+        retryable: true,
+        errorCategory: "provider_overloaded",
       };
     }
     if (error.statusCode >= 500) {
@@ -363,9 +372,23 @@ function classifyByMessage(
     if (pattern.test(message)) {
       return {
         code: "PROVIDER_RATE_LIMIT",
-        userMessage: "The AI provider is busy. Please try again in a moment.",
+        userMessage:
+          "You are being rate limited by the AI provider. Please try again in a moment.",
         retryable: true,
         errorCategory: "rate_limit",
+      };
+    }
+  }
+
+  // Overloaded — provider is capacity-constrained (not the user's fault)
+  for (const pattern of OVERLOADED_PATTERNS) {
+    if (pattern.test(message)) {
+      return {
+        code: "PROVIDER_OVERLOADED",
+        userMessage:
+          "The AI provider is temporarily overloaded. Please try again in a moment.",
+        retryable: true,
+        errorCategory: "provider_overloaded",
       };
     }
   }

@@ -21,6 +21,10 @@ import { moveSignalsToWorkspaceMigration } from "./021-move-signals-to-workspace
 import { moveHooksToWorkspaceMigration } from "./022-move-hooks-to-workspace.js";
 import { moveConfigFilesToWorkspaceMigration } from "./023-move-config-files-to-workspace.js";
 import { moveRuntimeFilesToWorkspaceMigration } from "./024-move-runtime-files-to-workspace.js";
+import { removeOauthAppSetupSkillsMigration } from "./025-remove-oauth-app-setup-skills.js";
+import { backfillInstallMetaMigration } from "./026-backfill-install-meta.js";
+import { removeOrphanedOptimizedImagesCacheMigration } from "./027-remove-orphaned-optimized-images-cache.js";
+import { recoverConversationsFromDiskViewMigration } from "./028-recover-conversations-from-disk-view.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -53,4 +57,8 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   moveHooksToWorkspaceMigration,
   moveConfigFilesToWorkspaceMigration,
   moveRuntimeFilesToWorkspaceMigration,
+  removeOauthAppSetupSkillsMigration,
+  backfillInstallMetaMigration,
+  removeOrphanedOptimizedImagesCacheMigration,
+  recoverConversationsFromDiskViewMigration,
 ];

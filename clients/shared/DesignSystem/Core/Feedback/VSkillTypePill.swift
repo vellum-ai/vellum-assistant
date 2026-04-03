@@ -1,56 +1,46 @@
 import SwiftUI
 
-/// A pill badge indicating the type/source of a skill (Core, Installed, Created).
+/// A pill badge indicating the source of a skill.
 public struct VSkillTypePill: View {
     public enum SkillType {
-        case core
-        case installed
-        case created
-        case extra
-        case available
-        case custom(label: String, icon: String, foreground: Color, background: Color)
+        case vellum
+        case community
+        case custom
+        case other(label: String, icon: String, foreground: Color, background: Color)
 
         var label: String {
             switch self {
-            case .core: return "Core"
-            case .installed: return "Installed"
-            case .created: return "Created"
-            case .extra: return "Extra"
-            case .available: return "Available"
-            case .custom(let label, _, _, _): return label
+            case .vellum: return "Vellum"
+            case .community: return "Community"
+            case .custom: return "Custom"
+            case .other(let label, _, _, _): return label
             }
         }
 
         var vIcon: VIcon {
             switch self {
-            case .core: return .package
-            case .installed: return .circleCheck
-            case .created: return .sparkles
-            case .extra: return .puzzle
-            case .available: return .arrowDownToLine
-            case .custom(_, let icon, _, _): return .resolve(icon)
+            case .vellum: return .package
+            case .community: return .globe
+            case .custom: return .user
+            case .other(_, let icon, _, _): return .resolve(icon)
             }
         }
 
         var foregroundColor: Color {
             switch self {
-            case .core: return VColor.contentDefault
-            case .installed: return VColor.systemPositiveStrong
-            case .created: return VColor.contentSecondary
-            case .extra: return VColor.contentTertiary
-            case .available: return VColor.funTeal
-            case .custom(_, _, let fg, _): return fg
+            case .vellum: return VColor.primaryBase
+            case .community: return VColor.funTeal
+            case .custom: return VColor.funPurple
+            case .other(_, _, let fg, _): return fg
             }
         }
 
         var backgroundColor: Color {
             switch self {
-            case .core: return VColor.surfaceBase
-            case .installed: return VColor.systemPositiveWeak
-            case .created: return VColor.surfaceBase
-            case .extra: return VColor.surfaceOverlay
-            case .available: return VColor.funTeal.opacity(0.12)
-            case .custom(_, _, _, let bg): return bg
+            case .vellum: return VColor.primaryBase.opacity(0.12)
+            case .community: return VColor.funTeal.opacity(0.12)
+            case .custom: return VColor.funPurple.opacity(0.12)
+            case .other(_, _, _, let bg): return bg
             }
         }
     }
@@ -61,22 +51,18 @@ public struct VSkillTypePill: View {
         self.type = type
     }
 
-    /// Convenience initializer from a skill source string.
-    public init(source: String) {
-        switch source {
-        case "bundled":
-            self.type = .core
-        case "managed", "clawhub":
-            self.type = .installed
-        case "workspace":
-            self.type = .created
-        case "extra":
-            self.type = .extra
-        case "catalog":
-            self.type = .available
+    /// Convenience initializer from a skill origin string.
+    public init(origin: String) {
+        switch origin {
+        case "vellum":
+            self.type = .vellum
+        case "clawhub", "skillssh":
+            self.type = .community
+        case "custom":
+            self.type = .custom
         default:
-            self.type = .custom(
-                label: source.replacingOccurrences(of: "-", with: " ").capitalized,
+            self.type = .other(
+                label: origin.replacingOccurrences(of: "-", with: " ").capitalized,
                 icon: VIcon.puzzle.rawValue,
                 foreground: VColor.contentTertiary,
                 background: VColor.surfaceOverlay

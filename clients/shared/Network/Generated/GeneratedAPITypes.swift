@@ -2100,8 +2100,8 @@ public struct HistoryResponseToolCall: Codable, Sendable {
     public let input: [String: AnyCodable]
     public let result: String?
     public let isError: Bool?
-    /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
-    public let imageData: String?
+    /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation).
+    public let imageDataList: [String]?
     /// Unix ms when the tool started executing.
     public let startedAt: Int?
     /// Unix ms when the tool completed.
@@ -2111,12 +2111,12 @@ public struct HistoryResponseToolCall: Codable, Sendable {
     /// Friendly label for the confirmation (e.g. "Edit File", "Run Command").
     public let confirmationLabel: String?
 
-    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageData: String? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil) {
+    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageDataList: [String]? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil) {
         self.name = name
         self.input = input
         self.result = result
         self.isError = isError
-        self.imageData = imageData
+        self.imageDataList = imageDataList
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.confirmationDecision = confirmationDecision
@@ -3473,6 +3473,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let title: String
     public let createdAt: Int?
     public let updatedAt: Int
+    public let lastMessageAt: Int?
     public let conversationType: String?
     public let source: String?
     public let scheduleJobId: String?
@@ -3487,11 +3488,12 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let groupId: String?
     public let forkParent: ConversationForkParent?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.lastMessageAt = lastMessageAt
         self.conversationType = conversationType
         self.source = source
         self.scheduleJobId = scheduleJobId
@@ -3990,70 +3992,121 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let name: String
     public let description: String
     public let emoji: String?
-    public let homepage: String?
-    public let source: String
-    public let state: String
-    public let installStatus: String?
-    public let installedVersion: String?
-    public let latestVersion: String?
-    public let updateAvailable: Bool
-    public let clawhub: SkillsListResponseSkillClawhub?
-    public let provenance: SkillsListResponseSkillProvenance?
+    public let kind: String
+    public let origin: String
+    public let status: String
+    // Clawhub + Skillssh shared:
+    public let slug: String?
+    public let installs: Int?
+    // Clawhub-only:
+    public let author: String?
+    public let stars: Int?
+    public let reports: Int?
+    public let publishedAt: String?
+    // Skillssh-only:
+    public let sourceRepo: String?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, installStatus: String? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
         self.emoji = emoji
-        self.homepage = homepage
-        self.source = source
-        self.state = state
-        self.installStatus = installStatus
-        self.installedVersion = installedVersion
-        self.latestVersion = latestVersion
-        self.updateAvailable = updateAvailable
-        self.clawhub = clawhub
-        self.provenance = provenance
-    }
-}
-
-public struct SkillsListResponseSkillClawhub: Codable, Sendable {
-    public let author: String
-    public let stars: Int
-    public let installs: Int
-    public let reports: Int
-    public let publishedAt: String
-
-    public init(author: String, stars: Int, installs: Int, reports: Int, publishedAt: String) {
+        self.kind = kind
+        self.origin = origin
+        self.status = status
+        self.slug = slug
+        self.installs = installs
         self.author = author
         self.stars = stars
-        self.installs = installs
         self.reports = reports
         self.publishedAt = publishedAt
-    }
-}
-
-public struct SkillsListResponseSkillProvenance: Codable, Sendable {
-    public let kind: String
-    public let provider: String?
-    public let originId: String?
-    public let sourceUrl: String?
-
-    public init(kind: String, provider: String? = nil, originId: String? = nil, sourceUrl: String? = nil) {
-        self.kind = kind
-        self.provider = provider
-        self.originId = originId
-        self.sourceUrl = sourceUrl
+        self.sourceRepo = sourceRepo
     }
 }
 
 // MARK: - Skill Detail Response (GET /v1/skills/:id)
 
-public struct SkillDetailHTTPResponse: Codable, Sendable {
-    public let skill: SkillsListResponseSkill
+public struct ClawhubDetailOwner: Codable, Sendable {
+    public let handle: String
+    public let displayName: String
+    public let image: String?
 
-    public init(skill: SkillsListResponseSkill) {
-        self.skill = skill
+    public init(handle: String, displayName: String, image: String? = nil) {
+        self.handle = handle
+        self.displayName = displayName
+        self.image = image
+    }
+}
+
+public struct ClawhubDetailStats: Codable, Sendable {
+    public let stars: Int
+    public let installs: Int
+    public let downloads: Int
+    public let versions: Int
+
+    public init(stars: Int, installs: Int, downloads: Int, versions: Int) {
+        self.stars = stars
+        self.installs = installs
+        self.downloads = downloads
+        self.versions = versions
+    }
+}
+
+public struct ClawhubDetailVersion: Codable, Sendable {
+    public let version: String
+    public let changelog: String?
+
+    public init(version: String, changelog: String? = nil) {
+        self.version = version
+        self.changelog = changelog
+    }
+}
+
+public struct SkillDetailHTTPResponse: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let description: String
+    public let emoji: String?
+    public let kind: String
+    public let origin: String
+    public let status: String
+    // Clawhub + Skillssh shared:
+    public let slug: String?
+    public let installs: Int?
+    // Clawhub-only:
+    public let author: String?
+    public let stars: Int?
+    public let reports: Int?
+    public let publishedAt: String?
+    // Skillssh-only:
+    public let sourceRepo: String?
+    // Clawhub detail enrichment fields:
+    public let owner: ClawhubDetailOwner?
+    public let stats: ClawhubDetailStats?
+    public let latestVersion: ClawhubDetailVersion?
+    public let createdAt: Int?
+    public let updatedAt: Int?
+
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil, owner: ClawhubDetailOwner? = nil, stats: ClawhubDetailStats? = nil, latestVersion: ClawhubDetailVersion? = nil, createdAt: Int? = nil, updatedAt: Int? = nil) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.emoji = emoji
+        self.kind = kind
+        self.origin = origin
+        self.status = status
+        self.slug = slug
+        self.installs = installs
+        self.author = author
+        self.stars = stars
+        self.reports = reports
+        self.publishedAt = publishedAt
+        self.sourceRepo = sourceRepo
+        self.owner = owner
+        self.stats = stats
+        self.latestVersion = latestVersion
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -4589,12 +4642,12 @@ public struct ToolResult: Codable, Sendable {
     public let diff: ToolResultDiff?
     public let status: String?
     public let conversationId: String?
-    /// Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot).
-    public let imageData: String?
+    /// Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot, image generation).
+    public let imageDataList: [String]?
     /// The tool_use block ID for client-side correlation.
     public let toolUseId: String?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageData: String? = nil, toolUseId: String? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4602,7 +4655,7 @@ public struct ToolResult: Codable, Sendable {
         self.diff = diff
         self.status = status
         self.conversationId = conversationId
-        self.imageData = imageData
+        self.imageDataList = imageDataList
         self.toolUseId = toolUseId
     }
 }

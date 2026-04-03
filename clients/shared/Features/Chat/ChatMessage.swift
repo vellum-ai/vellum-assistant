@@ -751,8 +751,8 @@ public struct ToolCallData: Identifiable, Equatable {
     public var confirmationDecision: ToolConfirmationState?
     /// Friendly label for the confirmation (e.g. "Edit File", "Run Command").
     public var confirmationLabel: String?
-    /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
-    public var imageData: String?
+    /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation).
+    public var imageDataList: [String]?
     /// Human-readable building status from app tool input (e.g. "Adding dark mode styles").
     public var buildingStatus: String?
     /// Non-technical reason for the tool call, extracted from the `reason` field of tool input.
@@ -767,11 +767,11 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Live pending confirmation attached to this tool call for inline rendering.
     /// Set when a `confirmation_request` arrives, cleared when approved/denied.
     public var pendingConfirmation: ToolConfirmationData?
-    /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
+    /// Pre-decoded images cached to avoid repeated base64 decoding in SwiftUI body.
     #if os(macOS)
-    public var cachedImage: NSImage?
+    public var cachedImages: [NSImage] = []
     #elseif os(iOS)
-    public var cachedImage: UIImage?
+    public var cachedImages: [UIImage] = []
     #else
     #error("Unsupported platform")
     #endif
@@ -784,7 +784,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.isError == rhs.isError
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
-            // inputFull, inputRawValue, and imageData are intentionally excluded
+            // inputFull, inputRawValue, and imageDataList are intentionally excluded
             // from direct comparison — they can be multi-MB / 10k+ chars.
             // Instead, lightweight length sentinels detect rehydration changes
             // (empty -> populated) without expensive full-string comparison.
@@ -800,7 +800,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.pendingConfirmation == rhs.pendingConfirmation
     }
 
-    public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
+    public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageDataList: [String]? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
@@ -815,10 +815,10 @@ public struct ToolCallData: Identifiable, Equatable {
         self.isError = isError
         self.isComplete = isComplete
         self.arrivedBeforeText = arrivedBeforeText
-        let decoded = Self.decodeImage(from: imageData)
-        // Keep cachedImage for display, nil out raw base64 to save ~2.7MB per screenshot
-        self.cachedImage = decoded
-        self.imageData = decoded == nil ? imageData : nil
+        let decoded = (imageDataList ?? []).compactMap { Self.decodeImage(from: $0) }
+        // Keep cachedImages for display, nil out raw base64 to save memory
+        self.cachedImages = decoded
+        self.imageDataList = decoded.isEmpty ? imageDataList : nil
         self.startedAt = startedAt
         self.completedAt = completedAt
     }
@@ -1712,8 +1712,8 @@ public struct ChatMessage: Identifiable, Equatable {
         // Tool calls: clear images, results, full input, and raw dict.
         // Keep toolName, inputSummary, and inputRawValue (short one-liner) intact for display.
         for i in toolCalls.indices {
-            toolCalls[i].cachedImage = nil
-            toolCalls[i].imageData = nil
+            toolCalls[i].cachedImages = []
+            toolCalls[i].imageDataList = nil
             toolCalls[i].result = nil
             toolCalls[i].resultLength = 0
             toolCalls[i].inputFull = ""

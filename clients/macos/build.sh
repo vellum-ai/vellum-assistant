@@ -765,6 +765,7 @@ EOF
 )
 fi
 
+
 LSE_ENVIRONMENT_PLIST=""
 _LSE_ENTRIES=""
 if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
@@ -1304,14 +1305,14 @@ if [ "$RELEASE_APP_MODE" = true ]; then
         fi
 
         create-dmg \
-            --volname "Vellum" \
+            --volname "$BUNDLE_DISPLAY_NAME" \
             "${DMG_BG_ARGS[@]}" \
             --window-pos 200 120 \
-            --window-size 660 400 \
-            --icon-size 128 \
+            --window-size 660 500 \
+            --icon-size 80 \
             --text-size 10 \
-            --icon "$BUNDLE_DISPLAY_NAME.app" 175 190 \
-            --icon "Applications" 530 190 \
+            --icon "$BUNDLE_DISPLAY_NAME.app" 200 200 \
+            --icon "Applications" 460 200 \
             --hide-extension "$BUNDLE_DISPLAY_NAME.app" \
             --no-internet-enable \
             "$DMG_PATH" \
@@ -1327,7 +1328,7 @@ if [ "$RELEASE_APP_MODE" = true ]; then
         }
     else
         echo "(create-dmg not found, using hdiutil — install via 'brew install create-dmg' for production-like DMGs)"
-        hdiutil create -volname "Vellum" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_PATH"
+        hdiutil create -volname "$BUNDLE_DISPLAY_NAME" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_PATH"
     fi
 
     echo "DMG created: $DMG_PATH"
@@ -1356,7 +1357,7 @@ if [ "$RELEASE_APP_MODE" = true ]; then
         done
     fi
 
-    MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify | tail -1 | awk '{print $NF}')
+    MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify | tail -1 | awk -F'\t' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $NF); print $NF}')
     if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT/$BUNDLE_DISPLAY_NAME.app" ]; then
         echo "ERROR: Failed to mount DMG or find app inside"
         [ -n "$MOUNT_POINT" ] && hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true

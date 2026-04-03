@@ -6,6 +6,8 @@ struct DisplayGallerySection: View {
 
     @State private var waveformAmplitude: Float = 0.5
     @State private var waveformActive: Bool = true
+    @State private var basicSectionExpanded: Bool = true
+    @State private var subtitleSectionExpanded: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -35,7 +37,7 @@ struct DisplayGallerySection: View {
                             .frame(width: 40, height: 40)
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
                             Text("Tappable Card")
-                                .font(VFont.bodyMediumEmphasised)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundStyle(VColor.contentDefault)
                             Text("Pass an action to VCard for hover highlight and tap behavior.")
                                 .font(VFont.labelDefault)
@@ -53,7 +55,7 @@ struct DisplayGallerySection: View {
                                 .frame(width: 40, height: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Memory Item")
-                                    .font(VFont.bodyMediumEmphasised)
+                                    .font(VFont.bodyMediumDefault)
                                     .foregroundStyle(VColor.contentDefault)
                                 Text("A remembered fact about the user.")
                                     .font(VFont.bodyMediumLighter)
@@ -70,7 +72,7 @@ struct DisplayGallerySection: View {
                                 .frame(width: 40, height: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Document")
-                                    .font(VFont.bodyMediumEmphasised)
+                                    .font(VFont.bodyMediumDefault)
                                     .foregroundStyle(VColor.contentDefault)
                                 Text("An uploaded reference document.")
                                     .font(VFont.bodyMediumLighter)
@@ -157,26 +159,26 @@ struct DisplayGallerySection: View {
 
                 VDisclosureSection(
                     title: "Basic Section",
-                    isExpanded: .constant(true)
+                    isExpanded: $basicSectionExpanded
                 ) {
                     Text("Expanded content is visible")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
 
                 VDisclosureSection(
                     title: "With Subtitle",
                     subtitle: "Additional context shown below the title",
-                    isExpanded: .constant(false)
+                    isExpanded: $subtitleSectionExpanded
                 ) {
-                    Text("This content is hidden")
+                    Text("This content is hidden when collapsed")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
 
             }
 

@@ -19,7 +19,7 @@ export type MemoryJobType =
   | "extract_items"
   | "extract_entities"
   | "batch_extract"
-  | "cleanup_stale_superseded_items"
+  | "cleanup_stale_superseded_items" // legacy compat — silently dropped by worker (memory_items table dropped)
   | "prune_old_conversations"
   | "backfill_entity_relations"
   | "refresh_weekly_summary"
@@ -33,6 +33,14 @@ export type MemoryJobType =
   | "embed_attachment"
   | "generate_conversation_starters"
   | "journal_carry_forward"
+  | "embed_graph_node"
+  | "graph_extract"
+  | "graph_decay"
+  | "graph_consolidate"
+  | "graph_pattern_scan"
+  | "graph_narrative_refine"
+  | "graph_trigger_embed"
+  | "graph_bootstrap"
   | "generate_capability_cards" // legacy compat — silently dropped by worker (capability cards removed)
   | "generate_thread_starters"; // legacy compat — silently dropped by worker (renamed to generate_conversation_starters)
 
@@ -42,6 +50,8 @@ const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_summary",
   "embed_media",
   "embed_attachment",
+  "embed_graph_node",
+  "graph_trigger_embed",
 ];
 
 export interface MemoryJob<T = Record<string, unknown>> {
@@ -63,10 +73,10 @@ export function enqueueMemoryJob(
   payload: Record<string, unknown>,
   runAfter = Date.now(),
   dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
-    tx: infer T,
+    tx: infer T
   ) => unknown
     ? T
-    : never,
+    : never
 ): string {
   const db = dbOverride ?? getDb();
   const id = uuid();
@@ -101,10 +111,10 @@ export function upsertDebouncedJob(
   payload: { conversationId: string },
   runAfter: number,
   dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
-    tx: infer T,
+    tx: infer T
   ) => unknown
     ? T
-    : never,
+    : never
 ): void {
   const db = dbOverride ?? getDb();
   const existing = db
@@ -114,8 +124,8 @@ export function upsertDebouncedJob(
       and(
         eq(memoryJobs.type, type),
         eq(memoryJobs.status, "pending"),
-        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
-      ),
+        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`
+      )
     )
     .get();
   if (existing) {
@@ -135,7 +145,7 @@ export function upsertDebouncedJob(
  */
 export function hasActiveCarryForwardJob(
   filename: string,
-  userSlug: string,
+  userSlug: string
 ): boolean {
   const db = getDb();
   return (
@@ -147,65 +157,35 @@ export function hasActiveCarryForwardJob(
           eq(memoryJobs.type, "journal_carry_forward"),
           inArray(memoryJobs.status, ["pending", "running"]),
           sql`json_extract(${memoryJobs.payload}, '$.filename') = ${filename}`,
-          sql`json_extract(${memoryJobs.payload}, '$.userSlug') = ${userSlug}`,
-        ),
+          sql`json_extract(${memoryJobs.payload}, '$.userSlug') = ${userSlug}`
+        )
       )
       .get() != null
   );
 }
 
-export function enqueueCleanupStaleSupersededItemsJob(
-  retentionMs?: number,
-): string {
+/**
+ * Check whether a pending or running job of the given type already exists.
+ * Used to prevent duplicate enqueues for long-running maintenance jobs.
+ */
+export function hasActiveJobOfType(type: MemoryJobType): boolean {
   const db = getDb();
-  const now = Date.now();
-  const existing = db
-    .select()
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "cleanup_stale_superseded_items"),
-        inArray(memoryJobs.status, ["pending", "running"]),
-      ),
-    )
-    .orderBy(asc(memoryJobs.createdAt))
-    .get();
-  if (existing) {
-    if (
-      existing.status === "pending" &&
-      typeof retentionMs === "number" &&
-      Number.isFinite(retentionMs) &&
-      retentionMs > 0
-    ) {
-      let payload: Record<string, unknown> = {};
-      try {
-        payload = JSON.parse(existing.payload) as Record<string, unknown>;
-      } catch {
-        payload = {};
-      }
-      if (payload.retentionMs !== retentionMs) {
-        db.update(memoryJobs)
-          .set({
-            payload: JSON.stringify({ ...payload, retentionMs }),
-            updatedAt: now,
-          })
-          .where(eq(memoryJobs.id, existing.id))
-          .run();
-      }
-    }
-    return existing.id;
-  }
-  const payload =
-    typeof retentionMs === "number" &&
-    Number.isFinite(retentionMs) &&
-    retentionMs > 0
-      ? { retentionMs }
-      : {};
-  return enqueueMemoryJob("cleanup_stale_superseded_items", payload);
+  return (
+    db
+      .select({ id: memoryJobs.id })
+      .from(memoryJobs)
+      .where(
+        and(
+          eq(memoryJobs.type, type),
+          inArray(memoryJobs.status, ["pending", "running"])
+        )
+      )
+      .get() != null
+  );
 }
 
 export function enqueuePruneOldConversationsJob(
-  retentionDays?: number,
+  retentionDays?: number
 ): string {
   const db = getDb();
   const existing = db
@@ -214,8 +194,8 @@ export function enqueuePruneOldConversationsJob(
     .where(
       and(
         eq(memoryJobs.type, "prune_old_conversations"),
-        inArray(memoryJobs.status, ["pending", "running"]),
-      ),
+        inArray(memoryJobs.status, ["pending", "running"])
+      )
     )
     .orderBy(asc(memoryJobs.createdAt))
     .get();
@@ -259,7 +239,7 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
   const now = Date.now();
   const pendingFilter = and(
     eq(memoryJobs.status, "pending"),
-    lte(memoryJobs.runAfter, now),
+    lte(memoryJobs.runAfter, now)
   );
 
   // Claim non-embed jobs first, then fill remaining slots with embed jobs.
@@ -288,7 +268,7 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
   }
   if (probeAllowed && remainingSlots > 0) {
     log.debug(
-      "Allowing 1 embed probe job — Qdrant circuit breaker cooldown elapsed",
+      "Allowing 1 embed probe job — Qdrant circuit breaker cooldown elapsed"
     );
   }
 
@@ -318,7 +298,7 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
         status: "running",
         startedAt: now,
         updatedAt: now,
-      }),
+      })
     );
   }
   return claimed;
@@ -363,7 +343,7 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
   if (deferrals >= MAX_DEFERRALS) {
     log.error(
       { jobId: id, type: row.type, deferrals },
-      "Job exceeded max deferrals, marking as failed",
+      "Job exceeded max deferrals, marking as failed"
     );
     db.update(memoryJobs)
       .set({
@@ -382,14 +362,14 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
   if (DEFERRAL_WARN_MILESTONES.includes(deferrals)) {
     log.warn(
       { jobId: id, type: row.type, deferrals, max: MAX_DEFERRALS },
-      "Job approaching max deferral limit",
+      "Job approaching max deferral limit"
     );
   }
 
   // Exponential backoff: 30s, 60s, 120s, ... capped at 5 minutes
   const delay = Math.min(
     DEFER_BASE_DELAY_MS * Math.pow(2, Math.min(deferrals - 1, 10)),
-    DEFER_MAX_DELAY_MS,
+    DEFER_MAX_DELAY_MS
   );
   db.update(memoryJobs)
     .set({
@@ -406,7 +386,7 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
 export function failMemoryJob(
   id: string,
   error: string,
-  options?: { retryDelayMs?: number; maxAttempts?: number },
+  options?: { retryDelayMs?: number; maxAttempts?: number }
 ): void {
   const retryDelayMs = options?.retryDelayMs ?? 30_000;
   const maxAttempts = options?.maxAttempts ?? 5;
@@ -463,7 +443,7 @@ export function failStalledJobs(timeoutMs: number): number {
       AND started_at IS NOT NULL
       AND started_at < ?
   `,
-    cutoff,
+    cutoff
   );
   if (stalled.length === 0) return 0;
 
@@ -474,14 +454,14 @@ export function failStalledJobs(timeoutMs: number): number {
         status: "failed",
         updatedAt: now,
         lastError: `Job timed out after ${Math.round(
-          timeoutMs / 60_000,
+          timeoutMs / 60_000
         )} minutes`,
       })
       .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, "running")))
       .run();
     log.warn(
       { jobId: row.id, type: row.type, timeoutMs },
-      "Failed stalled memory job due to timeout",
+      "Failed stalled memory job due to timeout"
     );
   }
   return stalled.length;

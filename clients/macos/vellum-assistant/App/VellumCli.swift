@@ -111,6 +111,7 @@ final class VellumCli {
     /// child processes. Centralised so every call site stays in sync.
     nonisolated private static let forwardedEnvKeys: [String] = [
         "VELLUM_PLATFORM_URL",
+        "VELLUM_WORKSPACE_DIR",
         "ASSISTANT_GIT_USER_NAME", "ASSISTANT_GIT_USER_EMAIL",
         "CLI_GIT_USER_NAME", "CLI_GIT_USER_EMAIL",
         "PROXY_ALLOWED_HOSTS", "HTTP_USER_AGENT", "DOCTOR_SERVICE_URL",

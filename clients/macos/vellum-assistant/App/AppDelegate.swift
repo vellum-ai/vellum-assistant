@@ -12,10 +12,20 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDe
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
-    /// The canonical product name shown in menus and the About panel.
-    /// Use this instead of hardcoding "Vellum" so the name is defined
-    /// in one place.
-    public static let appName = "Vellum"
+    /// The canonical product / brand name shown in menus, the About panel,
+    /// and tooltips.  For CI builds this is either "Vellum" (production) or
+    /// "Vellum Staging" (staging).  Local dev builds where
+    /// `BUNDLE_DISPLAY_NAME` is a custom assistant name (e.g. "Jarvis") fall
+    /// back to "Vellum" so menus and the About panel always show the brand.
+    public static let appName: String = {
+        let display = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "Vellum"
+        // CI sets BUNDLE_DISPLAY_NAME to "Vellum" or "Vellum Staging".
+        // Local dev builds may set it to a custom assistant name.  Only
+        // recognise values that start with "Vellum" as valid brand names.
+        return display.hasPrefix("Vellum") ? display : "Vellum"
+    }()
 
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
     /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
@@ -122,10 +132,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Text that was in the chat input before PTT voice recording started,
     /// so we can prepend it to partial/final transcriptions instead of overwriting.
     var preVoiceInputText: String?
-    var statusIconCancellable: AnyCancellable?
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
-    var conversationBadgeCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
@@ -138,6 +146,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cancelled before creating a new subscription (e.g. on reconnection or
     /// assistant switch), preventing duplicate event processing.
     var eventSubscriptionTask: Task<Void, Never>?
+    /// In-flight managed-assistant switch task. Cancelled when a new switch
+    /// begins so a stale bootstrap cannot reconnect the wrong assistant.
+    var managedSwitchTask: Task<Void, Never>?
     /// Pending fallback notification tokens, keyed by conversationId.
     /// Used to avoid duplicate native alerts when notification_intent arrives.
     var pendingFallbackNotifications: [String: UUID] = [:]
@@ -204,6 +215,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // may be a custom dock label (e.g. an assistant name), so we patch
         // both the process name and the main menu items.
         ProcessInfo.processInfo.processName = Self.appName
+
+        FontWarmupCoordinator.shared.start(registerFonts: {
+            AppDelegate.registerBundledFonts()
+        })
     }
 
     /// Installs observers that patch the app menu bar title and items to
@@ -348,6 +363,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // sets up voice input monitors.
         PTTActivator.warmCache()
 
+        // Seed the IdentityInfo in-memory cache so that hot paths (menu bar,
+        // command palette, session overlay) never perform synchronous file I/O
+        // on the main thread. The cache is refreshed asynchronously and also
+        // on workspace/assistant changes via the connectedAssistantId publisher.
+        IdentityInfo.warmCache()
+
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
         _ = ChatDiagnosticsStore.shared
@@ -462,7 +483,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         applyThemePreference()
-        registerBundledFonts()
         AvatarAppearanceManager.shared.start()
 
         #if DEBUG
@@ -472,9 +492,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         if let statusFile = ProcessInfo.processInfo.environment["E2E_STATUS_FILE"] {
-            let overlay = E2EStatusOverlayWindow(statusFilePath: statusFile)
-            overlay.show()
-            self.e2eStatusOverlayWindow = overlay
+            Task { @MainActor in
+                await FontWarmupCoordinator.shared.awaitReady()
+                let overlay = E2EStatusOverlayWindow(statusFilePath: statusFile)
+                overlay.show()
+                self.e2eStatusOverlayWindow = overlay
+            }
         }
 
         // Set up menu bar and hotkeys early so they work regardless of auth state.
@@ -497,13 +520,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
 
         if !skipOnboarding && !hasAssistants {
-            log.info("[appLaunch] → showOnboarding()")
-            showOnboarding()
+            log.info("[appLaunch] → showOnboarding() (awaiting font warmup)")
+            Task { @MainActor in
+                await FontWarmupCoordinator.shared.awaitReady()
+                self.showOnboarding()
+            }
             return
         }
 
-        log.info("[appLaunch] → startAuthenticatedFlow()")
-        startAuthenticatedFlow()
+        log.info("[appLaunch] → startAuthenticatedFlow() (awaiting font warmup)")
+        Task { @MainActor in
+            await FontWarmupCoordinator.shared.awaitReady()
+            self.startAuthenticatedFlow()
+        }
     }
 
     var hasSetupApp = false
@@ -696,10 +725,32 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Application Lifecycle
 
+    /// Defers termination so `cli.stop()` can run asynchronously without
+    /// blocking the main thread.  macOS calls this before
+    /// `applicationWillTerminate`; returning `.terminateLater` keeps the
+    /// run loop alive until `reply(toApplicationShouldTerminate:)` is
+    /// called.
+    ///
+    /// Reference: https://developer.apple.com/documentation/appkit/nsapplicationdelegate/applicationshouldterminate(_:)
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let cli = vellumCli
+        Task.detached {
+            await cli.stop()
+            await MainActor.run {
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
         // If Sparkle has a deferred update ready, install it now during
         // the quit sequence so the new version launches after termination.
         updateManager.installDeferredUpdateIfAvailable()
+
+        // Restore the Vellum logo so the pinned dock tile caches the
+        // correct icon instead of whatever avatar was showing at quit time.
+        AvatarAppearanceManager.shared.restoreBundleIcon()
 
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
@@ -721,13 +772,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = appMenuActivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        statusIconCancellable?.cancel()
-        conversationBadgeCancellable?.cancel()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusCancellable?.cancel()
         pulseTimer?.invalidate()
         pulseTimer = nil
         threadWindowManager?.closeAll()
+        voiceInput?.prepareForTermination()
         voiceInput?.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()
@@ -740,17 +790,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()
-        // Blocking is intentional here — the process exits immediately after
-        // this callback returns, so we must wait synchronously for the CLI to
-        // finish stopping the daemon/gateway.  stop() is nonisolated so
-        // Task.detached avoids a deadlock with the main-thread semaphore.
-        let cli = vellumCli
-        let sem = DispatchSemaphore(value: 0)
-        Task.detached {
-            await cli.stop()
-            sem.signal()
-        }
-        _ = sem.wait(timeout: .now() + 16)
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)
@@ -784,6 +823,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
               let color = onboardingState?.hatchAvatarColor else {
             onboardingState = nil
             return
+        }
+        // Eagerly apply onboarding avatar traits so the ComingAliveOverlay
+        // (and any other UI) can render the character avatar immediately
+        // instead of falling back to the bundled green V logo while the
+        // async daemon sync completes.
+        if AvatarAppearanceManager.shared.customAvatarImage == nil,
+           AvatarAppearanceManager.shared.characterBodyShape == nil {
+            let image = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
+            AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: body, eyeStyle: eyes, color: color)
         }
         Task {
             await AvatarAppearanceManager.shared.syncTraitsToDaemon(

@@ -42,17 +42,16 @@ import {
   provenanceFromTrustContext,
   updateConversationContextWindow,
   updateConversationTitle,
+  updateMessageMetadata,
 } from "../memory/conversation-crud.js";
-import {
-  rebuildConversationDiskViewFromDbState,
-  syncMessageToDisk,
-} from "../memory/conversation-disk-view.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
   queueRegenerateConversationTitle,
   UNTITLED_FALLBACK,
 } from "../memory/conversation-title-service.js";
+import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -89,34 +88,29 @@ import {
   classifyConversationError,
   isUserCancellation,
 } from "./conversation-error.js";
-import { consolidateAssistantMessages } from "./conversation-history.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
-import { prepareMemoryContext } from "./conversation-memory.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import type {
   ActiveSurfaceContext,
   ChannelCapabilities,
-  ChannelTurnContextParams,
   InboundActorContext,
   InjectionMode,
-  InterfaceTurnContextParams,
   TrustContext,
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildUnifiedTurnContextBlock,
+  findLastInjectedNowContent,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   readNowScratchpad,
-  stripInjectedContext,
+  stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
-import {
-  buildTemporalContext,
-  extractUserTimeZoneFromRecall,
-} from "./date-context.js";
+import { formatTurnTimestamp } from "./date-context.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -125,6 +119,7 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
+import type { MemoryRecalled } from "./message-types/memory.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation-agent-loop");
@@ -205,6 +200,7 @@ export interface AgentLoopConversationContext {
   contextCompactedAt: number | null;
 
   readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
+  readonly graphMemory: ConversationGraphMemory;
 
   currentActiveSurfaceId?: string;
   currentPage?: string;
@@ -503,6 +499,7 @@ export async function runAgentLoopImpl(
     }
 
     const isFirstMessage = ctx.messages.length === 1;
+    let shouldInjectWorkspace = isFirstMessage;
 
     const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
     if (compactCheck.needed) {
@@ -525,6 +522,9 @@ export async function runAgentLoopImpl(
       ctx.messages = compacted.messages;
       ctx.contextCompactedMessageCount += compacted.compactedPersistedMessages;
       ctx.contextCompactedAt = Date.now();
+      // Notify memory graph that compaction happened — triggers full context
+      // reload on the next turn to replenish lost memory context.
+      ctx.graphMemory.onCompacted(compacted.compactedPersistedMessages);
       updateConversationContextWindow(
         ctx.conversationId,
         compacted.summaryText,
@@ -554,6 +554,7 @@ export async function runAgentLoopImpl(
         compacted.summaryCacheReadInputTokens ?? 0,
         collapseRawResponses(compacted.summaryRawResponses),
       );
+      shouldInjectWorkspace = true;
     }
 
     const state = createEventHandlerState();
@@ -597,50 +598,93 @@ export async function runAgentLoopImpl(
 
     let runMessages = ctx.messages;
 
-    const memoryResult = await prepareMemoryContext(
-      {
-        conversationId: ctx.conversationId,
-        messages: ctx.messages,
-        systemPrompt: ctx.systemPrompt,
-        provider: ctx.provider,
-        scopeId: ctx.memoryPolicy.scopeId,
-        includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
-        trustClass: resolveTrustClass(ctx.trustContext),
-      },
-      content,
-      userMessageId,
-      abortController.signal,
-      onEvent,
-    );
+    // Memory graph retrieval — dispatches to context-load / per-turn based on
+    // conversation state.
+    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
+    if (isTrustedActor) {
+      const graphResult = await ctx.graphMemory.prepareMemory(
+        ctx.messages,
+        getConfig(),
+        abortController.signal,
+        onEvent,
+      );
+      runMessages = graphResult.runMessages;
 
-    const { recall } = memoryResult;
+      // Persist the injected block text in message metadata so it survives
+      // conversation reloads (eviction, restart, fork). loadFromDb re-injects
+      // from metadata.
+      if (graphResult.injectedBlockText) {
+        try {
+          updateMessageMetadata(userMessageId, {
+            memoryInjectedBlock: graphResult.injectedBlockText,
+          });
+        } catch (err) {
+          rlog.warn(
+            { err },
+            "Failed to persist memory injection to metadata (non-fatal)",
+          );
+        }
+      }
 
-    try {
-      recordMemoryRecallLog({
-        conversationId: ctx.conversationId,
-        enabled: recall.enabled,
-        degraded: recall.degraded,
-        provider: recall.provider,
-        model: recall.model,
-        degradationJson: recall.degradation,
-        semanticHits: recall.semanticHits,
-        mergedCount: recall.mergedCount,
-        selectedCount: recall.selectedCount,
-        tier1Count: recall.tier1Count ?? 0,
-        tier2Count: recall.tier2Count ?? 0,
-        hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,
-        sparseVectorUsed: recall.sparseVectorUsed ?? false,
-        injectedTokens: recall.injectedTokens,
-        latencyMs: recall.latencyMs,
-        topCandidatesJson: recall.topCandidates,
-        injectedText: recall.injectedText || undefined,
-        reason: recall.reason,
-      });
-    } catch (err) {
-      log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
+      const m = graphResult.metrics;
+
+      try {
+        recordMemoryRecallLog({
+          conversationId: ctx.conversationId,
+          enabled: true,
+          degraded: false,
+          provider: m?.embeddingProvider ?? undefined,
+          model: m?.embeddingModel ?? undefined,
+          semanticHits: m?.semanticHits ?? 0,
+          mergedCount: m?.mergedCount ?? 0,
+          selectedCount: m?.selectedCount ?? 0,
+          tier1Count: m?.tier1Count ?? 0,
+          tier2Count: m?.tier2Count ?? 0,
+          hybridSearchLatencyMs: m?.hybridSearchLatencyMs ?? 0,
+          sparseVectorUsed: m?.sparseVectorUsed ?? false,
+          injectedTokens: graphResult.injectedTokens,
+          latencyMs: graphResult.latencyMs,
+          topCandidatesJson: (m?.topCandidates ?? []).map((c) => ({
+            key: c.nodeId,
+            type: c.type,
+            kind: "graph",
+            finalScore: c.score,
+            semantic: c.semanticSimilarity,
+            recency: c.recencyBoost,
+          })),
+          injectedText: graphResult.injectedBlockText ?? undefined,
+          reason: `graph:${graphResult.mode}`,
+        });
+      } catch (err) {
+        log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
+      }
+
+      if (m) {
+        const memoryRecalledEvent: MemoryRecalled = {
+          type: "memory_recalled",
+          provider: m.embeddingProvider ?? "unknown",
+          model: m.embeddingModel ?? "unknown",
+          semanticHits: m.semanticHits,
+          mergedCount: m.mergedCount,
+          selectedCount: m.selectedCount,
+          tier1Count: m.tier1Count,
+          tier2Count: m.tier2Count,
+          hybridSearchLatencyMs: m.hybridSearchLatencyMs,
+          sparseVectorUsed: m.sparseVectorUsed,
+          injectedTokens: graphResult.injectedTokens,
+          latencyMs: graphResult.latencyMs,
+          topCandidates: m.topCandidates.map((c) => ({
+            key: c.nodeId,
+            type: c.type,
+            kind: "graph",
+            finalScore: c.score,
+            semantic: c.semanticSimilarity,
+            recency: c.recencyBoost,
+          })),
+        };
+        onEvent(memoryRecalledEvent);
+      }
     }
-
-    runMessages = memoryResult.runMessages;
 
     // Build active surface context
     let activeSurface: ActiveSurfaceContext | null = null;
@@ -671,39 +715,20 @@ export async function runAgentLoopImpl(
 
     ctx.refreshWorkspaceTopLevelContextIfNeeded();
 
-    // Compute fresh temporal context each turn for date grounding.
+    // Compute fresh turn timestamp for date grounding.
     // Absolute "now" is always anchored to assistant host clock, while local
     // date semantics prefer configured user timezone, then recalled memory.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
-    const recalledUserTimeZone = extractUserTimeZoneFromRecall(
-      recall.injectedText,
-    );
-    const temporalContext = buildTemporalContext({
+    const recalledUserTimeZone = null;
+    const timestamp = formatTurnTimestamp({
       hostTimeZone,
       configuredUserTimeZone,
       userTimeZone: recalledUserTimeZone,
     });
 
-    // Use the channel/interface context captured at the top of this function
-    // so it reflects the channel/interface that originally sent *this* turn's
-    // message, even if a newer message from a different channel arrived since.
-    const channelTurnContext: ChannelTurnContextParams = {
-      turnContext: capturedTurnChannelContext,
-      conversationOriginChannel: getConversationOriginChannel(
-        ctx.conversationId,
-      ),
-    };
-
-    const interfaceTurnContext: InterfaceTurnContextParams = {
-      turnContext: capturedTurnInterfaceContext,
-      conversationOriginInterface: getConversationOriginInterface(
-        ctx.conversationId,
-      ),
-    };
-
-    // Resolve the inbound actor context for the model's <inbound_actor_context>
-    // block. When the conversation carries enough identity info, use the unified
+    // Resolve the inbound actor context for the unified <turn_context> block.
+    // When the conversation carries enough identity info, use the unified
     // actor trust resolver so member status/policy and guardian binding details
     // are fresh for this turn. The conversation runtime context remains the source
     // for policy gating; this block is model-facing grounding metadata.
@@ -724,29 +749,48 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Read NOW.md scratchpad fresh each turn so mid-conversation edits are
-    // picked up without caching or conversation eviction.  Only inject for
-    // guardian conversations — the scratchpad may contain private context
-    // (mood, relationship state, personal details) that should not be
-    // exposed to trusted contacts or unknown actors.
-    const nowScratchpad =
-      resolveTrustClass(ctx.trustContext) === "guardian"
-        ? readNowScratchpad()
-        : null;
+    // Build unified turn context block that replaces the separate temporal,
+    // channel, interface, and actor context blocks.
+    const interfaceName =
+      capturedTurnInterfaceContext.userMessageInterface ?? undefined;
+    const channelName =
+      capturedTurnChannelContext?.userMessageChannel ?? undefined;
+    const isGuardian =
+      resolvedInboundActorContext?.trustClass === "guardian" ||
+      !resolvedInboundActorContext;
+    const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
+      isGuardian
+        ? { timestamp, interfaceName, channelName }
+        : {
+            timestamp,
+            interfaceName,
+            channelName,
+            actorContext: resolvedInboundActorContext,
+          },
+    );
+
+    // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
 
+    // Only inject NOW.md if it changed since the last injection in the
+    // conversation.  Keeping the previous injection in place avoids mutating
+    // historical user messages and preserves the cached prefix.
+    const currentNowContent = readNowScratchpad();
+    const lastInjectedNow = findLastInjectedNowContent(ctx.messages);
+    const nowScratchpad =
+      currentNowContent !== lastInjectedNow ? currentNowContent : null;
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       activeSurface,
-      workspaceTopLevelContext: ctx.workspaceTopLevelContext,
+      workspaceTopLevelContext: shouldInjectWorkspace
+        ? ctx.workspaceTopLevelContext
+        : null,
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
-      channelTurnContext,
-      interfaceTurnContext,
-      inboundActorContext: resolvedInboundActorContext,
-      temporalContext,
+      unifiedTurnContext: unifiedTurnContextStr,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
@@ -860,13 +904,24 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryCacheReadInputTokens ?? 0,
             collapseRawResponses(step.compactionResult.summaryRawResponses),
           );
+          ctx.graphMemory.onCompacted(
+            step.compactionResult.compactedPersistedMessages,
+          );
+          shouldInjectWorkspace = true;
         }
 
         // Re-inject with potentially downgraded injection mode
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          workspaceTopLevelContext: shouldInjectWorkspace
+            ? ctx.workspaceTopLevelContext
+            : null,
           mode: currentInjectionMode,
         });
+        if (isTrustedActor && currentInjectionMode !== "minimal") {
+          const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+          runMessages = memResult.runMessages;
+        }
 
         // Re-estimate with injections included — step.estimatedTokens was
         // computed on bare history (ctx.messages) and doesn't account for
@@ -990,7 +1045,7 @@ export async function runAgentLoopImpl(
 
       // Strip injected context from updated history before compacting,
       // so we compact the "raw" persistent messages.
-      const rawHistory = stripInjectedContext(updatedHistory);
+      const rawHistory = stripInjectionsForCompaction(updatedHistory);
       ctx.messages = rawHistory;
 
       ctx.emitActivityState(
@@ -1044,13 +1099,22 @@ export async function runAgentLoopImpl(
           midLoopCompact.summaryCacheReadInputTokens ?? 0,
           collapseRawResponses(midLoopCompact.summaryRawResponses),
         );
+        ctx.graphMemory.onCompacted(midLoopCompact.compactedPersistedMessages);
+        shouldInjectWorkspace = true;
       }
 
       // Re-inject runtime context and re-enter the agent loop
       runMessages = applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
+        workspaceTopLevelContext: shouldInjectWorkspace
+          ? ctx.workspaceTopLevelContext
+          : null,
         mode: currentInjectionMode,
       });
+      if (isTrustedActor && currentInjectionMode !== "minimal") {
+        const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+        runMessages = memResult.runMessages;
+      }
       preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
 
@@ -1123,7 +1187,7 @@ export async function runAgentLoopImpl(
     // convergence loop operates on the full (larger) history.
     if (state.contextTooLargeDetected) {
       if (updatedHistory.length > preRunHistoryLength) {
-        ctx.messages = stripInjectedContext(updatedHistory);
+        ctx.messages = stripInjectionsForCompaction(updatedHistory);
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
       }
@@ -1240,12 +1304,23 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryCacheReadInputTokens ?? 0,
             collapseRawResponses(step.compactionResult.summaryRawResponses),
           );
+          ctx.graphMemory.onCompacted(
+            step.compactionResult.compactedPersistedMessages,
+          );
+          shouldInjectWorkspace = true;
         }
 
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          workspaceTopLevelContext: shouldInjectWorkspace
+            ? ctx.workspaceTopLevelContext
+            : null,
           mode: currentInjectionMode,
         });
+        if (isTrustedActor && currentInjectionMode !== "minimal") {
+          const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+          runMessages = memResult.runMessages;
+        }
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
@@ -1277,7 +1352,7 @@ export async function runAgentLoopImpl(
           // tier operates on up-to-date history instead of stale
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
-            ctx.messages = stripInjectedContext(updatedHistory);
+            ctx.messages = stripInjectionsForCompaction(updatedHistory);
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
           }
@@ -1347,12 +1422,24 @@ export async function runAgentLoopImpl(
                 emergencyCompact.summaryCacheReadInputTokens ?? 0,
                 collapseRawResponses(emergencyCompact.summaryRawResponses),
               );
+              ctx.graphMemory.onCompacted(
+                emergencyCompact.compactedPersistedMessages,
+              );
+              shouldInjectWorkspace = true;
             }
 
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
+              workspaceTopLevelContext: shouldInjectWorkspace
+                ? ctx.workspaceTopLevelContext
+                : null,
               mode: currentInjectionMode,
             });
+            if (isTrustedActor && currentInjectionMode !== "minimal") {
+              const memResult =
+                ctx.graphMemory.reinjectCachedMemory(runMessages);
+              runMessages = memResult.runMessages;
+            }
             preRepairMessages = runMessages;
             preRunHistoryLength = runMessages.length;
             state.contextTooLargeDetected = false;
@@ -1451,12 +1538,23 @@ export async function runAgentLoopImpl(
               emergencyCompact.summaryCacheReadInputTokens ?? 0,
               collapseRawResponses(emergencyCompact.summaryRawResponses),
             );
+            ctx.graphMemory.onCompacted(
+              emergencyCompact.compactedPersistedMessages,
+            );
+            shouldInjectWorkspace = true;
           }
 
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
+            workspaceTopLevelContext: shouldInjectWorkspace
+              ? ctx.workspaceTopLevelContext
+              : null,
             mode: currentInjectionMode,
           });
+          if (isTrustedActor && currentInjectionMode !== "minimal") {
+            const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
+            runMessages = memResult.runMessages;
+          }
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
           state.contextTooLargeDetected = false;
@@ -1594,7 +1692,11 @@ export async function runAgentLoopImpl(
       { providerName: ctx.provider.name, toolTokenBudget },
     );
 
-    ctx.messages = stripInjectedContext(restoredHistory);
+    // Persist injections in history: runtime-injected context stays on
+    // historical user messages so the conversation prefix is stable for
+    // Anthropic's prefix caching.  Stripping only happens during
+    // compaction/overflow recovery (where a cache miss is expected).
+    ctx.messages = restoredHistory;
 
     emitUsage(
       ctx,
@@ -1609,7 +1711,10 @@ export async function runAgentLoopImpl(
       collapseRawResponses(state.exchangeRawResponses),
       state.exchangeProviderName,
       state.exchangeLlmCallCount,
-      { tokens: postLoopContextEstimate, maxTokens: config.contextWindow.maxInputTokens },
+      {
+        tokens: postLoopContextEstimate,
+        maxTokens: config.contextWindow.maxInputTokens,
+      },
     );
 
     void getHookManager().trigger("post-message", {
@@ -1842,15 +1947,10 @@ export async function runAgentLoopImpl(
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
 
-    if (userMessageId) {
-      const didMutateHistory = consolidateAssistantMessages(
-        ctx.conversationId,
-        userMessageId,
-      );
-      if (didMutateHistory) {
-        rebuildConversationDiskViewFromDbState(ctx.conversationId);
-      }
-    }
+    // Consolidation deferred to compaction: keeping assistant + tool_result
+    // messages unconsolidated preserves the exact message structure sent to
+    // the API, enabling stable prefix caching across turns.  Compaction
+    // consolidates when it summarizes old messages (cache miss is expected).
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
 

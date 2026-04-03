@@ -13,7 +13,8 @@ import {
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { writeInitialConfig } from "./config-utils";
-import { DEFAULT_GATEWAY_PORT, PROVIDER_ENV_VAR_NAMES } from "./constants";
+import { DEFAULT_GATEWAY_PORT } from "./constants";
+import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";
@@ -519,7 +520,7 @@ export function serviceDockerRunArgs(opts: {
         "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,
         "-e",
-        "IS_CONTAINERIZED=false",
+        "IS_CONTAINERIZED=true",
         "-e",
         `VELLUM_ASSISTANT_NAME=${instanceName}`,
         "-e",
@@ -804,6 +805,9 @@ function affectedServices(
  * images and restart their containers.
  */
 function startFileWatcher(opts: {
+  signingKey?: string;
+  bootstrapSecret?: string;
+  cesServiceToken?: string;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
@@ -825,6 +829,9 @@ function startFileWatcher(opts: {
 
   const configs = serviceImageConfigs(repoRoot, imageTags);
   const runArgs = serviceDockerRunArgs({
+    signingKey: opts.signingKey,
+    bootstrapSecret: opts.bootstrapSecret,
+    cesServiceToken: opts.cesServiceToken,
     gatewayPort,
     imageTags,
     instanceName,
@@ -1105,6 +1112,9 @@ export async function hatchDocker(
       saveAssistantEntry({ ...dockerEntry, watcherPid: process.pid });
 
       const stopWatcher = startFileWatcher({
+        signingKey,
+        bootstrapSecret,
+        cesServiceToken,
         gatewayPort,
         imageTags,
         instanceName,

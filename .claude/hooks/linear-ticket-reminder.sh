@@ -7,8 +7,6 @@
 
 REMIND_NAMES=(
   "Vincent"
-  "Harrison Ngo"
-  "NgoHarrison"
   "Alex Nork"
 )
 

@@ -1,4 +1,4 @@
-import { eq, like } from "drizzle-orm";
+import { eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
@@ -12,7 +12,8 @@ import { getQdrantClient } from "../qdrant-client.js";
 import {
   mediaAssets,
   memoryEmbeddings,
-  memoryItems,
+  memoryGraphNodes,
+  memoryGraphTriggers,
   memorySegments,
   memorySummaries,
   messages,
@@ -23,15 +24,6 @@ const log = getLogger("memory-jobs-worker");
 export async function rebuildIndexJob(): Promise<void> {
   const db = getDb();
   db.delete(memoryEmbeddings).run();
-
-  const items = db
-    .select({ id: memoryItems.id })
-    .from(memoryItems)
-    .where(eq(memoryItems.status, "active"))
-    .all();
-  for (const item of items) {
-    enqueueMemoryJob("embed_item", { itemId: item.id });
-  }
 
   const summaries = db
     .select({ id: memorySummaries.id })
@@ -76,6 +68,26 @@ export async function rebuildIndexJob(): Promise<void> {
         });
       }
     }
+  }
+
+  // Re-embed graph nodes stored in the memory graph.
+  const graphNodes = db
+    .select({ id: memoryGraphNodes.id })
+    .from(memoryGraphNodes)
+    .where(ne(memoryGraphNodes.fidelity, "gone"))
+    .all();
+  for (const node of graphNodes) {
+    enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+  }
+
+  // Re-embed semantic triggers that have condition text.
+  const triggers = db
+    .select({ id: memoryGraphTriggers.id })
+    .from(memoryGraphTriggers)
+    .where(isNotNull(memoryGraphTriggers.condition))
+    .all();
+  for (const trigger of triggers) {
+    enqueueMemoryJob("graph_trigger_embed", { triggerId: trigger.id });
   }
 }
 

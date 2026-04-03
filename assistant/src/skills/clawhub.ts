@@ -1,14 +1,13 @@
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
+import {
+  computeSkillHash,
+  readInstallMeta,
+  writeInstallMeta,
+} from "./install-meta.js";
 
 const log = getLogger("clawhub");
 
@@ -54,61 +53,15 @@ export function loadIntegrityManifest(): IntegrityManifest {
   }
 }
 
-function saveIntegrityManifest(manifest: IntegrityManifest): void {
-  writeFileSync(
-    getIntegrityPath(),
-    JSON.stringify(manifest, null, 2) + "\n",
-    "utf-8",
-  );
-}
-
-/** Collect all file contents in a directory tree, sorted by relative path for determinism. */
-function collectFileContents(
-  dir: string,
-  prefix = "",
-): Array<{ relPath: string; content: Buffer }> {
-  const results: Array<{ relPath: string; content: Buffer }> = [];
-  if (!existsSync(dir)) return results;
-
-  const entries = readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...collectFileContents(fullPath, relPath));
-    } else if (entry.isFile()) {
-      results.push({ relPath, content: readFileSync(fullPath) });
-    }
-  }
-  return results.sort((a, b) => a.relPath.localeCompare(b.relPath));
-}
-
-/**
- * Compute a SHA-256 hash over all files in a skill directory.
- * Returns format: "v2:sha256hex" (version prefix added to support hash format evolution).
- */
-function computeSkillHash(skillDir: string): string | null {
-  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) return null;
-
-  const files = collectFileContents(skillDir);
-  if (files.length === 0) return null;
-
-  const hasher = new Bun.CryptoHasher("sha256");
-  for (const file of files) {
-    // Length-prefix each segment to prevent boundary ambiguity collisions
-    const pathBuf = Buffer.from(file.relPath, "utf-8");
-    hasher.update(`${pathBuf.length}:`);
-    hasher.update(pathBuf);
-    hasher.update(`${file.content.length}:`);
-    hasher.update(file.content);
-  }
-  return `v2:${hasher.digest("hex")}`;
-}
-
 /**
  * Record or verify the content hash of an installed skill.
  * On first install: stores the hash (trust-on-first-use).
  * On subsequent installs: compares with stored hash and warns on mismatch.
+ *
+ * Always writes to `install-meta.json`. For skills that don't have one yet,
+ * creates a new `install-meta.json` with minimal metadata. Reads from the
+ * legacy `.integrity.json` manifest as a read-only fallback for stored hashes
+ * from skills that haven't been migrated yet.
  */
 export function verifyAndRecordSkillHash(slug: string): void {
   const skillDir = join(getManagedSkillsDir(), slug);
@@ -118,17 +71,28 @@ export function verifyAndRecordSkillHash(slug: string): void {
     return;
   }
 
-  const manifest = loadIntegrityManifest();
-  const existing = manifest[slug];
+  // Try install-meta.json first for stored hash
+  const installMeta = readInstallMeta(skillDir);
+  let storedHash: string | undefined;
 
-  if (existing) {
-    const storedHash = existing.sha256;
+  if (installMeta?.contentHash) {
+    storedHash = installMeta.contentHash;
+  } else {
+    // Fall back to legacy .integrity.json manifest
+    const manifest = loadIntegrityManifest();
+    const existing = manifest[slug];
+    if (existing) {
+      storedHash =
+        typeof existing.sha256 === "string" ? existing.sha256 : undefined;
+    }
+  }
 
-    // Guard against corrupted manifest entries where sha256 is not a string
+  if (storedHash) {
+    // Guard against corrupted entries where hash is not a string
     if (typeof storedHash !== "string") {
       log.warn(
         { slug },
-        "Integrity manifest entry has non-string sha256 — re-recording hash",
+        "Stored hash has non-string value — re-recording hash",
       );
     } else if (!storedHash.startsWith("v2:")) {
       // Unknown format (not v2: prefix) — warn about integrity mismatch
@@ -155,9 +119,18 @@ export function verifyAndRecordSkillHash(slug: string): void {
     );
   }
 
-  // Always store the latest hash
-  manifest[slug] = { sha256: hash, installedAt: new Date().toISOString() };
-  saveIntegrityManifest(manifest);
+  // Write to install-meta.json (preferred). If no install-meta exists yet,
+  // create one with minimal metadata.
+  if (installMeta) {
+    writeInstallMeta(skillDir, { ...installMeta, contentHash: hash });
+  } else {
+    writeInstallMeta(skillDir, {
+      origin: "clawhub",
+      installedAt: new Date().toISOString(),
+      slug,
+      contentHash: hash,
+    });
+  }
 }
 
 interface ClawhubInstallResult {
@@ -248,7 +221,7 @@ async function runClawhub(
 
 export async function clawhubInstall(
   slug: string,
-  opts?: { version?: string },
+  opts?: { version?: string; contactId?: string },
 ): Promise<ClawhubInstallResult> {
   if (!validateSlug(slug)) {
     return { success: false, error: `Invalid skill slug: ${slug}` };
@@ -264,7 +237,19 @@ export async function clawhubInstall(
         result.stderr.trim() || result.stdout.trim() || "Unknown error";
       return { success: false, error };
     }
-    verifyAndRecordSkillHash(slug);
+
+    // Write install-meta.json for the installed skill.
+    // contentHash is included here, so there's no need to call
+    // verifyAndRecordSkillHash() — it would just rewrite the same data.
+    const skillDir = join(getManagedSkillsDir(), slug);
+    writeInstallMeta(skillDir, {
+      origin: "clawhub",
+      slug,
+      installedAt: new Date().toISOString(),
+      ...(opts?.contactId ? { installedBy: opts.contactId } : {}),
+      contentHash: computeSkillHash(skillDir) ?? undefined,
+    });
+
     return { success: true, skillName: slug };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -292,63 +277,63 @@ export async function clawhubUpdate(
 
 export async function clawhubSearch(
   query: string,
+  opts?: { limit?: number },
 ): Promise<ClawhubSearchResult> {
+  const limit = opts?.limit ?? 25;
+
   // Empty query: use explore (browse trending) instead of search
   if (!query.trim()) {
-    return clawhubExplore();
+    return clawhubExplore({ limit });
   }
 
+  const result = await runClawhub(["search", query, "--limit", String(limit)]);
+  if (result.exitCode !== 0) {
+    const error =
+      result.stderr.trim() || result.stdout.trim() || "Unknown error";
+    throw new Error(`clawhub search failed: ${error}`);
+  }
+  // Try JSON first
   try {
-    const result = await runClawhub(["search", query, "--limit", "25"]);
-    if (result.exitCode !== 0) {
-      return { skills: [] };
+    const parsed = JSON.parse(result.stdout);
+    if (Array.isArray(parsed)) {
+      return {
+        skills: parsed.map((s: ClawhubSearchResultItem) => ({
+          ...s,
+          source: s.source ?? ("clawhub" as const),
+        })),
+      };
     }
-    // Try JSON first
-    try {
-      const parsed = JSON.parse(result.stdout);
-      if (Array.isArray(parsed)) {
-        return {
-          skills: parsed.map((s: ClawhubSearchResultItem) => ({
-            ...s,
-            source: s.source ?? ("clawhub" as const),
-          })),
-        };
-      }
-      if (parsed.skills && Array.isArray(parsed.skills)) {
-        return {
-          skills: parsed.skills.map((s: ClawhubSearchResultItem) => ({
-            ...s,
-            source: s.source ?? ("clawhub" as const),
-          })),
-        };
-      }
-    } catch {
-      // CLI outputs text: "slug vVersion  DisplayName  (score)"
+    if (parsed.skills && Array.isArray(parsed.skills)) {
+      return {
+        skills: parsed.skills.map((s: ClawhubSearchResultItem) => ({
+          ...s,
+          source: s.source ?? ("clawhub" as const),
+        })),
+      };
     }
-
-    // Parse text output lines: "slug vVersion  Display Name  (score)"
-    const skills: ClawhubSearchResultItem[] = [];
-    for (const line of result.stdout.split("\n")) {
-      const match = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
-      if (match) {
-        skills.push({
-          slug: match[1],
-          version: match[2],
-          name: match[3].trim(),
-          description: "",
-          author: "",
-          stars: 0,
-          installs: 0,
-          createdAt: 0,
-          source: "clawhub",
-        });
-      }
-    }
-    return { skills };
-  } catch (err) {
-    log.warn({ err }, "clawhub search failed");
-    return { skills: [] };
+  } catch {
+    // CLI outputs text: "slug vVersion  DisplayName  (score)"
   }
+
+  // Parse text output lines: "slug vVersion  Display Name  (score)"
+  const skills: ClawhubSearchResultItem[] = [];
+  for (const line of result.stdout.split("\n")) {
+    const match = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
+    if (match) {
+      skills.push({
+        slug: match[1],
+        version: match[2],
+        name: match[3].trim(),
+        description: "",
+        author: "",
+        stars: 0,
+        installs: 0,
+        createdAt: 0,
+        source: "clawhub",
+      });
+    }
+  }
+  return { skills };
 }
 
 export async function clawhubExplore(opts?: {
@@ -358,46 +343,41 @@ export async function clawhubExplore(opts?: {
   const limit = String(opts?.limit ?? 25);
   const sort = opts?.sort ?? "installsAllTime";
 
+  const result = await runClawhub([
+    "explore",
+    "--json",
+    "--limit",
+    limit,
+    "--sort",
+    sort,
+  ]);
+  if (result.exitCode !== 0) {
+    const error =
+      result.stderr.trim() || result.stdout.trim() || "Unknown error";
+    throw new Error(`clawhub explore failed: ${error}`);
+  }
   try {
-    const result = await runClawhub([
-      "explore",
-      "--json",
-      "--limit",
-      limit,
-      "--sort",
-      sort,
-    ]);
-    if (result.exitCode !== 0) {
-      return { skills: [] };
-    }
-    try {
-      const parsed = JSON.parse(result.stdout);
-      const items = parsed.items ?? parsed;
-      if (!Array.isArray(items)) return { skills: [] };
+    const parsed = JSON.parse(result.stdout);
+    const items = parsed.items ?? parsed;
+    if (!Array.isArray(items)) return { skills: [] };
 
-      // Normalize explore response to ClawhubSearchResultItem shape
-      const skills: ClawhubSearchResultItem[] = items.map(
-        (item: Record<string, unknown>) => ({
-          name: (item.displayName as string) ?? (item.slug as string) ?? "",
-          slug: (item.slug as string) ?? "",
-          description: (item.summary as string) ?? "",
-          author: (item.author as string) ?? "",
-          stars: (item.stats as Record<string, number>)?.stars ?? 0,
-          installs:
-            (item.stats as Record<string, number>)?.installsAllTime ?? 0,
-          version: (item.tags as Record<string, string>)?.latest ?? "",
-          createdAt: (item.createdAt as number) ?? 0,
-          source: "clawhub",
-        }),
-      );
-      return { skills };
-    } catch {
-      // parse failure
-    }
-    return { skills: [] };
-  } catch (err) {
-    log.warn({ err }, "clawhub explore failed");
-    return { skills: [] };
+    // Normalize explore response to ClawhubSearchResultItem shape
+    const skills: ClawhubSearchResultItem[] = items.map(
+      (item: Record<string, unknown>) => ({
+        name: (item.displayName as string) ?? (item.slug as string) ?? "",
+        slug: (item.slug as string) ?? "",
+        description: (item.summary as string) ?? "",
+        author: (item.author as string) ?? "",
+        stars: (item.stats as Record<string, number>)?.stars ?? 0,
+        installs: (item.stats as Record<string, number>)?.installsAllTime ?? 0,
+        version: (item.tags as Record<string, string>)?.latest ?? "",
+        createdAt: (item.createdAt as number) ?? 0,
+        source: "clawhub",
+      }),
+    );
+    return { skills };
+  } catch {
+    throw new Error("Failed to parse clawhub explore output");
   }
 }
 

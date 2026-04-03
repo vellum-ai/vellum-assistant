@@ -58,7 +58,7 @@ struct AssistantTransferSection: View {
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
+        .vCard()
         .alert("Transfer to Cloud", isPresented: $showingConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Transfer", role: .destructive) {
@@ -155,8 +155,8 @@ struct AssistantTransferSection: View {
             }
 
             // Step 3 — Import bundle to managed assistant
-            currentStep = "Importing data to cloud..."
-            try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
+            currentStep = "Uploading data to cloud..."
+            try await importBundleToManaged(bundleData: bundleData)
 
             // Step 4 — Switch to managed assistant
             currentStep = "Switching to cloud assistant..."
@@ -370,28 +370,29 @@ struct AssistantTransferSection: View {
         throw TransferError.notSignedIn
     }
 
-    /// Imports a `.vbundle` archive into the managed assistant via the platform API.
-    private func importBundleToManaged(bundleData: Data, managedAssistantId: String) async throws {
-        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        UserDefaults.standard.set(managedAssistantId, forKey: "connectedAssistantId")
-        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
+    /// Imports a `.vbundle` archive into the managed assistant via the signed URL upload flow.
+    ///
+    /// Uses 3 steps: request signed URL → upload to GCS → trigger import from GCS.
+    /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
+    private func importBundleToManaged(bundleData: Data) async throws {
+        // Step 1: Request a signed upload URL from the platform
+        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
 
-        let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/migrations/import",
-            body: bundleData,
-            contentType: "application/octet-stream",
-            timeout: 120
-        )
+        // Step 2: Upload bundle directly to GCS via signed URL
+        try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)
 
-        guard response.isSuccess else {
-            if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+        // Step 3: Trigger import from GCS
+        let (statusCode, data) = try await PlatformMigrationClient.importFromGcs(bundleKey: uploadInfo.bundleKey)
+
+        guard (200..<300).contains(statusCode) else {
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errorMsg = json["error"] as? String {
                 throw TransferError.importFailed(message: errorMsg)
             }
-            throw TransferError.importFailed(message: "HTTP \(response.statusCode)")
+            throw TransferError.importFailed(message: "HTTP \(statusCode)")
         }
 
-        if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let success = json["success"] as? Bool, !success {
             let errorMsg = (json["error"] as? String) ?? "Import reported failure"
             throw TransferError.importFailed(message: errorMsg)

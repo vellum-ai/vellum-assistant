@@ -45,11 +45,11 @@ create-dmg \
   --volname "Vellum" \
   --background "build/dmg-background@2x.png" \
   --window-pos 200 120 \
-  --window-size 660 400 \
-  --icon-size 128 \
+  --window-size 660 500 \
+  --icon-size 80 \
   --text-size 10 \
-  --icon "Vellum.app" 175 190 \
-  --icon "Applications" 530 190 \
+  --icon "Vellum.app" 200 200 \
+  --icon "Applications" 460 200 \
   --hide-extension "Vellum.app" \
   --no-internet-enable \
   "$DMG_PATH" \

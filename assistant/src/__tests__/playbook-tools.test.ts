@@ -41,7 +41,9 @@ const ctx: ToolContext = {
 };
 
 function clearPlaybooks(): void {
-  getRawDb().run("DELETE FROM memory_items WHERE kind = 'playbook'");
+  getRawDb().run(
+    "DELETE FROM memory_graph_nodes WHERE source_conversations LIKE '%playbook:%'",
+  );
 }
 
 function extractPlaybookId(content: string): string {

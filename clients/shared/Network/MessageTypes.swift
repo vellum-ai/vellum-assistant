@@ -18,13 +18,6 @@ import Foundation
 // │                                 │ contract type is skipped (SKIP_TYPES)    │
 // │ GenerationCancelledMessage      │ Swift adds `conversationId` for conversation  │
 // │                                 │ filtering not present in the contract    │
-// │ ClawhubSkillItem                │ Decoded from nested `data` field of      │
-// │                                 │ skills_operation_response, not a direct  │
-// │                                 │ wire message                             │
-// │ ClawhubSearchData               │ Wrapper for ClawhubSkillItem array,      │
-// │                                 │ not a direct wire message                │
-// │ SkillsOperationResponseMessage  │ Uses typed ClawhubSearchData? for `data` │
-// │                                 │ instead of generated AnyCodable?         │
 // │ TraceEventMessage               │ References hand-maintained TraceEventKind│
 // │                                 │ via string `kind`; contract type skipped │
 // │ ConversationErrorMessage        │ References hand-maintained               │
@@ -49,6 +42,17 @@ import Foundation
 // │                                 │ code generator cannot express it        │
 // │ HostCuResultPayload             │ Posted back to daemon; hand-maintained  │
 // │                                 │ alongside HostCuRequest                 │
+// │ SkillSearchResult               │ Client-only result wrapper for search;  │
+// │                                 │ not a wire type                         │
+// │ SkillOperationResult            │ Client-only result wrapper for skill    │
+// │                                 │ operations; not a wire type             │
+// │ SkillOriginMeta (enum)         │ Discriminated union over `origin`;     │
+// │                                 │ custom Decodable init dispatches on    │
+// │                                 │ origin string                          │
+// │ ClawhubOriginMeta              │ Payload struct for clawhub origin;     │
+// │                                 │ decoded from flat fields               │
+// │ SkillsshOriginMeta             │ Payload struct for skillssh origin;    │
+// │                                 │ decoded from flat fields               │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -895,34 +899,45 @@ extension ErrorMessage {
 /// Backed by generated `AppDataResponse`.
 public typealias AppDataResponseMessage = AppDataResponse
 
-/// ClaWHub metadata for a skill.
-/// Backed by generated `SkillsListResponseSkillClawhub`.
-public typealias ClawhubInfo = SkillsListResponseSkillClawhub
-
-/// Provenance metadata indicating whether a skill is first-party, third-party, or local.
-/// Backed by generated `SkillsListResponseSkillProvenance`.
-public typealias SkillProvenance = SkillsListResponseSkillProvenance
-
 /// Full skill info from the daemon's resolved skill list.
 /// Backed by generated `SkillsListResponseSkill`.
 public typealias SkillInfo = SkillsListResponseSkill
 
+/// Result of a skill search operation.
+public struct SkillSearchResult: Sendable {
+    public let success: Bool
+    public let error: String?
+    public let skills: [SkillInfo]
+
+    public init(success: Bool, error: String? = nil, skills: [SkillInfo] = []) {
+        self.success = success
+        self.error = error
+        self.skills = skills
+    }
+}
+
 extension SkillsListResponseSkill: Identifiable {}
 
 extension SkillsListResponseSkill {
-    /// Returns a copy with a different `state`, preserving all other fields including `id`.
-    public func withState(_ newState: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, installStatus: installStatus, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, clawhub: clawhub, provenance: provenance)
+    /// Returns a copy with a different `status`, preserving all other fields including `id`.
+    public func withStatus(_ newStatus: String) -> Self {
+        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, sourceRepo: sourceRepo)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.
-    public var isAvailable: Bool { installStatus == "available" }
+    public var isAvailable: Bool { status == "available" }
 
     /// Whether the skill is a bundled (core) skill.
-    public var isBundled: Bool { installStatus == "bundled" }
+    public var isBundled: Bool { kind == "bundled" }
 
     /// Whether the skill is currently installed (explicitly installed or bundled).
-    public var isInstalled: Bool { installStatus == "installed" || installStatus == "bundled" }
+    public var isInstalled: Bool { kind == "installed" || kind == "bundled" }
+
+    /// Whether the skill is currently enabled.
+    public var isEnabled: Bool { status == "enabled" }
+
+    /// Whether the skill is currently disabled.
+    public var isDisabled: Bool { status == "disabled" }
 }
 
 /// Response containing the list of available skills.
@@ -1000,56 +1015,96 @@ public typealias GenerateAvatarResponseMessage = GenerateAvatarResponse
 /// Backed by generated `SkillStateChanged`.
 public typealias SkillStateChangedMessage = SkillStateChanged
 
-/// A skill returned from a search or explore query.
-/// Kept hand-maintained — this type is decoded from the `data` field of
-/// `skills_operation_response` (which is `AnyCodable` in the contract).
-public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
-    public var id: String { slug }
-    public let name: String
+/// Minimal result for non-search skill operations (enable, disable, install, etc.).
+public struct SkillOperationResult: Sendable {
+    public let success: Bool
+    public let error: String?
+    public init(success: Bool, error: String? = nil) {
+        self.success = success
+        self.error = error
+    }
+}
+
+// MARK: - Skill Origin Meta
+
+/// Origin-specific metadata for a skill sourced from ClaWHub.
+public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
     public let slug: String
-    public let description: String
     public let author: String
     public let stars: Int
     public let installs: Int
-    public let version: String
-    /// Epoch milliseconds when the skill was first published.
-    public let createdAt: Int
-    /// Where this skill comes from: "vellum" (first-party) or "clawhub" (community).
-    public let source: String
+    public let reports: Int
+    public let publishedAt: String?
+}
 
-    public var isVellum: Bool { source == "vellum" }
+/// Origin-specific metadata for a skill sourced from Skills.sh.
+public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
+    public let slug: String
+    public let sourceRepo: String
+    public let installs: Int
+}
 
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
-        slug = try container.decode(String.self, forKey: .slug)
-        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
-        author = try container.decodeIfPresent(String.self, forKey: .author) ?? ""
-        stars = try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0
-        installs = try container.decodeIfPresent(Int.self, forKey: .installs) ?? 0
-        version = try container.decodeIfPresent(String.self, forKey: .version) ?? ""
-        createdAt = try container.decodeIfPresent(Int.self, forKey: .createdAt) ?? 0
-        source = try container.decodeIfPresent(String.self, forKey: .source) ?? "clawhub"
-    }
+/// Discriminated union over the `origin` field of a skill.
+/// Constructed via the `originMeta` computed property, which dispatches on origin.
+public enum SkillOriginMeta: Sendable, Equatable {
+    case vellum
+    case clawhub(ClawhubOriginMeta)
+    case skillssh(SkillsshOriginMeta)
+    case custom
+}
 
-    private enum CodingKeys: String, CodingKey {
-        case name, slug, description, author, stars, installs, version, createdAt, source
+extension SkillsListResponseSkill {
+    /// Decoded origin-specific metadata. Lazily parses from the flat fields.
+    public var originMeta: SkillOriginMeta {
+        switch origin {
+        case "clawhub":
+            return .clawhub(ClawhubOriginMeta(
+                slug: slug ?? id,
+                author: author ?? "",
+                stars: stars ?? 0,
+                installs: installs ?? 0,
+                reports: reports ?? 0,
+                publishedAt: publishedAt
+            ))
+        case "skillssh":
+            return .skillssh(SkillsshOriginMeta(
+                slug: slug ?? id,
+                sourceRepo: sourceRepo ?? "",
+                installs: installs ?? 0
+            ))
+        case "vellum":
+            return .vellum
+        default:
+            return .custom
+        }
     }
 }
 
-/// Wrapper for ClaWHub search results embedded in `skills_operation_response.data`.
-public struct ClawhubSearchData: Decodable, Sendable {
-    public let skills: [ClawhubSkillItem]
-}
-
-/// Generic operation response.
-/// Kept hand-maintained — the `data` field is typed as `ClawhubSearchData?`
-/// for search results, while the generated type uses `AnyCodable?`.
-public struct SkillsOperationResponseMessage: Decodable, Sendable {
-    public let operation: String
-    public let success: Bool
-    public let error: String?
-    public let data: ClawhubSearchData?
+extension SkillDetailHTTPResponse {
+    /// Decoded origin-specific metadata. Lazily parses from the flat fields.
+    public var originMeta: SkillOriginMeta {
+        switch origin {
+        case "clawhub":
+            return .clawhub(ClawhubOriginMeta(
+                slug: slug ?? id,
+                author: author ?? "",
+                stars: stars ?? 0,
+                installs: installs ?? 0,
+                reports: reports ?? 0,
+                publishedAt: publishedAt
+            ))
+        case "skillssh":
+            return .skillssh(SkillsshOriginMeta(
+                slug: slug ?? id,
+                sourceRepo: sourceRepo ?? "",
+                installs: installs ?? 0
+            ))
+        case "vellum":
+            return .vellum
+        default:
+            return .custom
+        }
+    }
 }
 
 /// Skill info from a ClaWHub inspect response.
@@ -1243,6 +1298,7 @@ public struct TraceEventsHistoryResponse: Decodable, Sendable {
 public enum ConversationErrorCode: String, CaseIterable, Codable, Sendable {
     case providerNetwork = "PROVIDER_NETWORK"
     case providerRateLimit = "PROVIDER_RATE_LIMIT"
+    case providerOverloaded = "PROVIDER_OVERLOADED"
     case providerApi = "PROVIDER_API"
     case providerBilling = "PROVIDER_BILLING"
     case providerOrdering = "PROVIDER_ORDERING"
@@ -2056,6 +2112,7 @@ public enum ServerMessage: Decodable, Sendable {
     case conversationListResponse(ConversationListResponseMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
+    case memoryRecalled(MemoryRecalledMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
@@ -2077,7 +2134,6 @@ public enum ServerMessage: Decodable, Sendable {
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case skillStateChanged(SkillStateChangedMessage)
-    case skillsOperationResponse(SkillsOperationResponseMessage)
     case skillsInspectResponse(SkillsInspectResponseMessage)
     case skillsDraftResponse(SkillsDraftResponseMessage)
     case suggestionResponse(SuggestionResponseMessage)
@@ -2163,7 +2219,6 @@ public enum ServerMessage: Decodable, Sendable {
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
     case guardianActionsPendingResponse(GuardianActionsPendingResponseMessage)
-    case guardianActionDecisionResponse(GuardianActionDecisionResponseMessage)
     case recordingPause(RecordingPause)
     case recordingResume(RecordingResume)
     case recordingStart(RecordingStart)
@@ -2239,6 +2294,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "memory_status":
             let message = try MemoryStatusMessage(from: decoder)
             self = .memoryStatus(message)
+        case "memory_recalled":
+            let message = try MemoryRecalledMessage(from: decoder)
+            self = .memoryRecalled(message)
         case "dictation_response":
             let message = try DictationResponseMessage(from: decoder)
             self = .dictationResponse(message)
@@ -2317,9 +2375,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "skills_state_changed":
             let message = try SkillStateChangedMessage(from: decoder)
             self = .skillStateChanged(message)
-        case "skills_operation_response":
-            let message = try SkillsOperationResponseMessage(from: decoder)
-            self = .skillsOperationResponse(message)
         case "skills_inspect_response":
             let message = try SkillsInspectResponseMessage(from: decoder)
             self = .skillsInspectResponse(message)
@@ -2564,9 +2619,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "guardian_actions_pending_response":
             let message = try GuardianActionsPendingResponseMessage(from: decoder)
             self = .guardianActionsPendingResponse(message)
-        case "guardian_action_decision_response":
-            let message = try GuardianActionDecisionResponseMessage(from: decoder)
-            self = .guardianActionDecisionResponse(message)
         case "recording_pause":
             let message = try RecordingPause(from: decoder)
             self = .recordingPause(message)

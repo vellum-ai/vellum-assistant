@@ -2,10 +2,12 @@
  * Regression tests for app surface refresh and eventing side effects in
  * createToolExecutor (conversation-tool-setup.ts).
  *
- * The app_refresh hook is the sole hook for app change refresh. These tests
- * verify that app_refresh, app_create, and app_delete hooks fire correctly,
- * and that removed hooks (app_update, app_file_edit, app_file_write) no
- * longer trigger side effects.
+ * Tests verify that app_refresh, app_create, and app_delete hooks fire
+ * correctly, and that removed hooks (app_update, app_file_edit,
+ * app_file_write) no longer trigger side effects.
+ *
+ * File-change detection for file_write/file_edit is handled by
+ * AppSourceWatcher (see app-source-watcher.test.ts).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -40,6 +42,16 @@ mock.module("../services/published-app-updater.js", () => ({
 // Mock browser-screencast registration (no-op)
 mock.module("../tools/browser/browser-screencast.js", () => ({
   registerConversationSender: mock(() => {}),
+}));
+
+// Mock app-store functions used by handleAppChange in tool-side-effects
+mock.module("../memory/app-store.js", () => ({
+  getApp: mock(() => null),
+  getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
+  isMultifileApp: mock(() => false),
+  getAppsDir: mock(() => "/tmp/test-apps"),
+  resolveAppIdByDirName: mock(() => null),
+  resolveAppIdFromPath: mock(() => null),
 }));
 
 // ---------------------------------------------------------------------------
@@ -423,4 +435,5 @@ describe("session-tool-setup app refresh side effects", () => {
       expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
     });
   });
+
 });

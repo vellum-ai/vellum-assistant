@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ShellOutputResult } from "../tools/shared/shell-output.js";
@@ -722,9 +723,14 @@ describe("formatShellOutput", () => {
   });
 
   test("truncates very long output", () => {
-    const longOutput = "x".repeat(60_000);
+    const longOutput = "x".repeat(30_000);
     const result = formatShellOutput(longOutput, "", 0, false, 120);
-    expect(result.content).toContain('<output_truncated limit="50K" />');
-    expect(result.content.length).toBeLessThan(60_000);
+    expect(result.content).toContain('limit="20K"');
+    // Extract the file="..." attribute from the truncation tag
+    const fileMatch = result.content.match(/file="([^"]+)"/);
+    expect(fileMatch).not.toBeNull();
+    const filePath = fileMatch![1];
+    expect(existsSync(filePath)).toBe(true);
+    expect(readFileSync(filePath, "utf-8")).toBe(longOutput);
   });
 });

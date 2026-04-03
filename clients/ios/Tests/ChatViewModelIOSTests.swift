@@ -212,7 +212,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
         viewModel.flushStreamingBuffer()
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(messageId: "msg-1")))
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
@@ -223,7 +223,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.isSending = true
         viewModel.isThinking = true
 
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(messageId: "msg-1")))
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
@@ -309,7 +309,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[1].text, "iOS is great!")
 
         // 5. Message completes
-        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(messageId: "msg-1")))
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.messages[1].isStreaming)
     }
@@ -372,7 +372,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     func testRespondToAlwaysAllowSendsHighRiskDecision() async {
         let mockInteraction = MockInteractionClient()
-        mockInteraction.results = [true]
+        mockInteraction.results = [.success]
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-hr"
@@ -394,7 +394,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     func testRespondToAlwaysAllowSendsDefaultDecision() async {
         let mockInteraction = MockInteractionClient()
-        mockInteraction.results = [true]
+        mockInteraction.results = [.success]
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-default"
@@ -414,7 +414,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     func testRespondToAlwaysAllowFallsBackWhenSendFails() async {
         let mockInteraction = MockInteractionClient()
         // First call (always_allow_high_risk) fails, fallback (allow) also fails
-        mockInteraction.results = [false, false]
+        mockInteraction.results = [.failed, .failed]
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-fallback"
@@ -453,7 +453,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     func testRespondToAlwaysAllowConnectedSendFailureFallsBackToAllow() async {
         let mockInteraction = MockInteractionClient()
         // First call (always_allow_high_risk) fails, fallback (allow) succeeds
-        mockInteraction.results = [false, true]
+        mockInteraction.results = [.failed, .success]
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-fail-once"
@@ -534,10 +534,10 @@ private final class MockInteractionClient: InteractionClientProtocol {
 
     private(set) var calls: [Call] = []
     /// Return values for successive calls. Last value repeats for any extra calls.
-    var results: [Bool] = [true]
+    var results: [ConfirmationSendResult] = [.success]
 
-    func sendConfirmationResponse(requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) async -> Bool {
-        let result = calls.count < results.count ? results[calls.count] : results.last ?? true
+    func sendConfirmationResponse(requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) async -> ConfirmationSendResult {
+        let result = calls.count < results.count ? results[calls.count] : results.last ?? .success
         calls.append(Call(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope))
         return result
     }

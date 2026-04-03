@@ -2,7 +2,7 @@ import Foundation
 
 /// Cross-platform store for skills data operations.
 ///
-/// Encapsulates all daemon communication for listing, searching, inspecting,
+/// Encapsulates all daemon communication for listing, searching,
 /// installing, uninstalling, enabling, disabling, configuring, drafting, and
 /// creating skills. Platform-specific UI state (panel presentation, tab
 /// selection, etc.) remains in the platform view model that delegates here.
@@ -15,12 +15,8 @@ public final class SkillsStore: ObservableObject {
     @Published public var loadedBodies: [String: String] = [:]
     @Published public var isLoading = false
 
-    @Published public var searchResults: [ClawhubSkillItem] = []
+    @Published public var searchResults: [SkillInfo] = []
     @Published public var isSearching = false
-
-    @Published public var inspectedSkill: ClawhubInspectData?
-    @Published public var isInspecting = false
-    @Published public var inspectError: String?
 
     @Published public var installResult: InstallResult?
 
@@ -88,8 +84,6 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Private State
 
     private let skillsClient: SkillsClientProtocol
-    private var inspectCache: [String: ClawhubInspectData] = [:]
-    private var currentInspectSlug: String?
     private var lastSearchQuery: String?
     private var draftTask: Task<Void, Never>?
     private var createTask: Task<Void, Never>?
@@ -148,9 +142,9 @@ public final class SkillsStore: ObservableObject {
         isSearching = true
 
         Task {
-            let response = await skillsClient.searchSkills(query: query)
-            if let response, response.success, let data = response.data {
-                searchResults = data.skills
+            let result = await skillsClient.searchSkills(query: query)
+            if let result, result.success {
+                searchResults = result.skills
             } else {
                 searchResults = []
             }
@@ -174,7 +168,6 @@ public final class SkillsStore: ObservableObject {
             }
             installResult = result
             if result.success {
-                inspectCache.removeValue(forKey: slug)
                 fetchSkills(force: true)
             }
             Task { @MainActor in
@@ -183,34 +176,6 @@ public final class SkillsStore: ObservableObject {
                     self.installResult = nil
                 }
             }
-        }
-    }
-
-    // MARK: - Inspect Skill
-
-    public func inspectSkill(slug: String) {
-        currentInspectSlug = slug
-        inspectError = nil
-
-        if let cached = inspectCache[slug] {
-            inspectedSkill = cached
-            isInspecting = false
-            return
-        }
-
-        isInspecting = true
-        inspectedSkill = nil
-
-        Task {
-            let response = await skillsClient.inspectSkill(slug: slug)
-            guard currentInspectSlug == slug else { return }
-            if let data = response?.data {
-                inspectedSkill = data
-                inspectCache[slug] = data
-            } else {
-                inspectError = response?.error ?? "Inspection timed out"
-            }
-            isInspecting = false
         }
     }
 
@@ -231,7 +196,6 @@ public final class SkillsStore: ObservableObject {
             }
             uninstallResult = result
             if result.success {
-                inspectCache.removeAll()
                 fetchSkills(force: true)
             }
             Task { @MainActor in
@@ -264,15 +228,6 @@ public final class SkillsStore: ObservableObject {
 
     public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) {
         Task { _ = await skillsClient.configureSkill(name: name, env: env, apiKey: apiKey, config: config) }
-    }
-
-    // MARK: - Clear Inspection
-
-    public func clearInspection() {
-        currentInspectSlug = nil
-        inspectedSkill = nil
-        isInspecting = false
-        inspectError = nil
     }
 
     // MARK: - Skill Drafting

@@ -177,6 +177,38 @@ describe("Shell Parser", () => {
           result.dangerousPatterns.some((p) => p.type === "pipe_to_shell"),
         ).toBe(false);
       });
+
+      test("pipe to python3 -c is not flagged (inline code, not stdin exec)", async () => {
+        const result = await parse(
+          'cat data.json | python3 -c "import sys; print(sys.stdin.read())"',
+        );
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "pipe_to_shell"),
+        ).toBe(false);
+      });
+
+      test("pipe to node -e is not flagged (inline code)", async () => {
+        const result = await parse(
+          "cat data.json | node -e \"process.stdin.resume()\"",
+        );
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "pipe_to_shell"),
+        ).toBe(false);
+      });
+
+      test("pipe to python3 without flags is flagged (stdin exec)", async () => {
+        const result = await parse("cat exploit.py | python3");
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "pipe_to_shell"),
+        ).toBe(true);
+      });
+
+      test("pipe to python3 - is flagged (explicit stdin exec)", async () => {
+        const result = await parse("cat exploit.py | python3 -");
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "pipe_to_shell"),
+        ).toBe(true);
+      });
     });
 
     // base64_execute

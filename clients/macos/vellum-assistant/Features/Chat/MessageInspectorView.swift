@@ -10,6 +10,8 @@ struct MessageInspectorView: View {
 
     @State private var viewState = MessageInspectorViewState()
     @State private var payloadModels: [String: MessageInspectorPayloadModel] = [:]
+    @State private var payloadLoadingIDs: Set<String> = []
+    @State private var payloadFailedIDs: Set<String> = []
 
     init(
         messageId: String,
@@ -198,7 +200,7 @@ struct MessageInspectorView: View {
 
                     Spacer(minLength: VSpacing.sm)
 
-                    if index == 0 {
+                    if index == viewState.logs.count - 1 {
                         Text("Latest")
                             .font(VFont.labelSmall)
                             .foregroundStyle(VColor.primaryBase)
@@ -294,12 +296,11 @@ struct MessageInspectorView: View {
 
     private var detailTabBar: some View {
         VTabs(
-            items: MessageInspectorDetailTab.allCases.map { (label: $0.label, icon: $0.icon.rawValue, tag: $0) },
+            items: MessageInspectorDetailTab.allCases.map { (label: $0.label, tag: $0) },
             selection: Binding(
                 get: { viewState.selectedDetailTab },
                 set: { viewState.selectDetailTab($0) }
-            ),
-            style: .underline
+            )
         )
     }
 
@@ -319,33 +320,60 @@ struct MessageInspectorView: View {
         }
     }
 
+    @ViewBuilder
     private func rawPayloadTab(for entry: LLMRequestLogEntry) -> some View {
-        VStack(spacing: 0) {
-            HStack {
-                VTabs(
-                    items: RawPayloadPane.allCases.map { (label: $0.label, tag: $0) },
-                    selection: rawPaneBinding,
-                    style: .pill,
-                    size: .compact
-                )
-                .fixedSize()
+        Group {
+            if payloadLoadingIDs.contains(entry.id) {
+                VStack {
+                    ProgressView()
+                        .padding(.top, VSpacing.xl)
+                    Text("Loading raw payloads…")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .padding(.top, VSpacing.sm)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if payloadFailedIDs.contains(entry.id) {
+                VEmptyState(
+                    title: "Couldn't load raw payloads",
+                    subtitle: "The payload request failed. Try again.",
+                    icon: VIcon.triangleAlert.rawValue,
+                    actionLabel: "Retry",
+                    actionIcon: VIcon.refreshCw.rawValue
+                ) {
+                    Task { await loadPayloadIfNeeded(for: entry) }
+                }
+            } else {
+                VStack(spacing: 0) {
+                    HStack {
+                        VSegmentControl(
+                            items: RawPayloadPane.allCases.map { (label: $0.label, tag: $0) },
+                            selection: rawPaneBinding
+                        )
+                        .fixedSize()
 
-                Spacer()
+                        Spacer()
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.sm)
+
+                    MessageInspectorPayloadView(
+                        title: viewState.selectedRawPane.label,
+                        model: payloadBinding(
+                            for: payloadKey(for: entry.id, kind: viewState.selectedRawPane.rawValue)
+                        )
+                    )
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.lg)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(VColor.surfaceBase)
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
-
-            MessageInspectorPayloadView(
-                title: viewState.selectedRawPane.label,
-                model: payloadBinding(
-                    for: payloadKey(for: entry.id, kind: viewState.selectedRawPane.rawValue)
-                )
-            )
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.bottom, VSpacing.lg)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(VColor.surfaceBase)
+        .task(id: entry.id) {
+            await loadPayloadIfNeeded(for: entry)
+        }
     }
 
     private var rawPaneBinding: Binding<RawPayloadPane> {
@@ -370,14 +398,26 @@ struct MessageInspectorView: View {
     private func reloadContext(resetSelection: Bool) async {
         let requestToken = viewState.beginLoading(resetSelection: resetSelection)
         payloadModels = [:]
+        payloadLoadingIDs = []
+        payloadFailedIDs = []
 
         do {
             let result = try await llmContextClient.fetchContextResult(messageId: messageId)
             try Task.checkCancellation()
             guard viewState.isActiveLoad(requestToken) else { return }
 
+            // If an older daemon still includes inline payloads, populate eagerly.
             if case let .loaded(response) = result {
-                payloadModels = payloadModelsByKey(for: response.logs)
+                for entry in response.logs {
+                    if let req = entry.requestPayload, req.value != nil {
+                        payloadModels[payloadKey(for: entry.id, kind: "request")] =
+                            MessageInspectorPayloadModel(payload: req)
+                    }
+                    if let res = entry.responsePayload, res.value != nil {
+                        payloadModels[payloadKey(for: entry.id, kind: "response")] =
+                            MessageInspectorPayloadModel(payload: res)
+                    }
+                }
             }
 
             viewState.finishLoading(with: result, requestToken: requestToken)
@@ -389,15 +429,30 @@ struct MessageInspectorView: View {
         }
     }
 
-    private func payloadModelsByKey(for logs: [LLMRequestLogEntry]) -> [String: MessageInspectorPayloadModel] {
-        MessageInspectorViewState.ordered(logs).reduce(into: [:]) { models, entry in
-            models[payloadKey(for: entry.id, kind: "request")] = MessageInspectorPayloadModel(
-                payload: entry.requestPayload
-            )
-            models[payloadKey(for: entry.id, kind: "response")] = MessageInspectorPayloadModel(
-                payload: entry.responsePayload
-            )
+    @MainActor
+    private func loadPayloadIfNeeded(for entry: LLMRequestLogEntry) async {
+        let reqKey = payloadKey(for: entry.id, kind: "request")
+        let resKey = payloadKey(for: entry.id, kind: "response")
+
+        // Already loaded or in flight.
+        if payloadModels[reqKey] != nil || payloadLoadingIDs.contains(entry.id) {
+            return
         }
+
+        payloadLoadingIDs.insert(entry.id)
+        payloadFailedIDs.remove(entry.id)
+
+        guard let payload = await llmContextClient.fetchLogPayload(logId: entry.id) else {
+            payloadLoadingIDs.remove(entry.id)
+            if !Task.isCancelled {
+                payloadFailedIDs.insert(entry.id)
+            }
+            return
+        }
+
+        payloadModels[reqKey] = MessageInspectorPayloadModel(payload: payload.requestPayload)
+        payloadModels[resKey] = MessageInspectorPayloadModel(payload: payload.responsePayload)
+        payloadLoadingIDs.remove(entry.id)
     }
 
     private func payloadKey(for entryID: String, kind: String) -> String {
@@ -552,20 +607,6 @@ enum MessageInspectorDetailTab: String, CaseIterable {
         }
     }
 
-    var icon: VIcon {
-        switch self {
-        case .overview:
-            return .layoutGrid
-        case .memory:
-            return .brain
-        case .prompt:
-            return .scrollText
-        case .response:
-            return .messageSquare
-        case .raw:
-            return .fileCode
-        }
-    }
 }
 
 struct MessageInspectorViewState {
@@ -623,7 +664,7 @@ struct MessageInspectorViewState {
                 return
             }
 
-            selectedLogID = orderedLogs.first?.id
+            selectedLogID = orderedLogs.last?.id
         case .empty:
             logs = []
             memoryRecall = nil
@@ -653,10 +694,10 @@ struct MessageInspectorViewState {
     static func ordered(_ logs: [LLMRequestLogEntry]) -> [LLMRequestLogEntry] {
         logs.sorted { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
-                return lhs.createdAt > rhs.createdAt
+                return lhs.createdAt < rhs.createdAt
             }
 
-            return lhs.id > rhs.id
+            return lhs.id < rhs.id
         }
     }
 }

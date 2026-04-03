@@ -6,7 +6,7 @@ enum OnboardingHostingModeResolver {
         userHostedEnabled: Bool,
         localDockerEnabled: Bool
     ) -> [OnboardingState.HostingMode] {
-        var modes: [OnboardingState.HostingMode] = [.local, .vellumCloud]
+        var modes: [OnboardingState.HostingMode] = [.vellumCloud, .local]
         if localDockerEnabled {
             // Keep "Local" as the default choice and expose the legacy
             // non-Docker hatch explicitly as an escape hatch.
@@ -177,7 +177,7 @@ struct APIKeyStepView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.sm) {
                         Text(title)
-                            .font(VFont.bodyLargeEmphasised)
+                            .font(VFont.bodyLargeDefault)
                             .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentDefault)
 
                         Spacer()
@@ -215,7 +215,7 @@ struct APIKeyStepView: View {
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
-            .frame(minHeight: 64)
+            .frame(minHeight: 80)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.xl)

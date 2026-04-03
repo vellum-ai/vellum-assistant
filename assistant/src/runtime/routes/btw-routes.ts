@@ -16,6 +16,8 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
+import { getConfig } from "../../config/loader.js";
+import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import {
   resolveChannelPersona,
@@ -34,6 +36,9 @@ const log = getLogger("btw-routes");
 
 /** Conversation key used by the client for identity intro generation. */
 const IDENTITY_INTRO_KEY = "identity-intro";
+
+/** Conversation key used by the client for empty-state greeting generation. */
+const GREETING_KEY = "greeting";
 
 /**
  * Parse the `## Identity Intro` section from SOUL.md.
@@ -132,6 +137,18 @@ async function handleBtw(
     }
   }
 
+  // ----- Greeting context enrichment -----
+  // Inject NOW.md scratchpad so the model has contextual awareness (mood,
+  // current activity) and produces varied, relevant greetings instead of
+  // the same deterministic output each time.
+  let effectiveContent = trimmedContent;
+  if (conversationKey === GREETING_KEY) {
+    const now = readNowScratchpad();
+    if (now) {
+      effectiveContent = `${trimmedContent}\n\n<context>\n${now}\n</context>`;
+    }
+  }
+
   // Look up an existing conversation — never create one.  BTW is ephemeral
   // (the file header promises "No messages are persisted"), so we must not
   // call getOrCreateConversation which would insert a DB row.  When no
@@ -150,14 +167,18 @@ async function handleBtw(
       (async () => {
         try {
           const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
+          const isGreeting = conversationKey === GREETING_KEY;
           const userPersona = resolveGuardianPersona();
           const channelPersona = resolveChannelPersona(undefined);
           const result = await runBtwSidechain({
-            content: trimmedContent,
+            content: effectiveContent,
             conversation,
             signal: req.signal,
             userPersona,
             channelPersona,
+            ...(isGreeting
+              ? { modelIntent: getConfig().ui.greetingModelIntent }
+              : {}),
             onEvent: (event) => {
               if (event.type === "text_delta") {
                 controller.enqueue(

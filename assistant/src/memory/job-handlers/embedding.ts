@@ -11,7 +11,6 @@ import type { MemoryJob } from "../jobs-store.js";
 import { extractMediaBlocks } from "../message-content.js";
 import {
   mediaAssets,
-  memoryItems,
   memorySegments,
   memorySummaries,
   messages,
@@ -19,7 +18,7 @@ import {
 
 export async function embedSegmentJob(
   job: MemoryJob,
-  config: AssistantConfig,
+  config: AssistantConfig
 ): Promise<void> {
   const segmentId = asString(job.payload.segmentId);
   if (!segmentId) return;
@@ -38,34 +37,9 @@ export async function embedSegmentJob(
   });
 }
 
-export async function embedItemJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const itemId = asString(job.payload.itemId);
-  if (!itemId) return;
-  const db = getDb();
-  const item = db
-    .select()
-    .from(memoryItems)
-    .where(eq(memoryItems.id, itemId))
-    .get();
-  if (!item || item.status !== "active") return;
-  const text = `<kind>${item.kind}</kind> ${item.subject}: ${item.statement}`;
-  await embedAndUpsert(config, "item", item.id, text, {
-    kind: item.kind,
-    subject: item.subject,
-    status: item.status,
-    confidence: item.confidence,
-    created_at: item.firstSeenAt,
-    last_seen_at: item.lastSeenAt,
-    memory_scope_id: item.scopeId,
-  });
-}
-
 export async function embedSummaryJob(
   job: MemoryJob,
-  config: AssistantConfig,
+  config: AssistantConfig
 ): Promise<void> {
   const summaryId = asString(job.payload.summaryId);
   if (!summaryId) return;
@@ -86,13 +60,13 @@ export async function embedSummaryJob(
       created_at: summary.startAt,
       last_seen_at: summary.endAt,
       memory_scope_id: summary.scopeId,
-    },
+    }
   );
 }
 
 export async function embedMediaJob(
   job: MemoryJob,
-  config: AssistantConfig,
+  config: AssistantConfig
 ): Promise<void> {
   const assetId = asString(job.payload.assetId);
   if (!assetId) return;
@@ -125,7 +99,7 @@ export async function embedMediaJob(
 
 export async function embedAttachmentJob(
   job: MemoryJob,
-  config: AssistantConfig,
+  config: AssistantConfig
 ): Promise<void> {
   const messageId = asString(job.payload.messageId);
   const blockIndex = job.payload.blockIndex as number;

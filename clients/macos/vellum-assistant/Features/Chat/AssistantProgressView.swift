@@ -343,7 +343,6 @@ struct AssistantProgressView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .textSelection(.disabled)
         .onChange(of: toolCalls) { _, newToolCalls in
             handleToolCallsChange(newToolCalls)
         }
@@ -480,7 +479,7 @@ struct AssistantProgressView: View {
                 && tc.inputFull.isEmpty
                 && tc.result == nil
                 && tc.inputRawDict == nil
-                && tc.cachedImage == nil
+                && tc.cachedImages.isEmpty
         }
     }
 
@@ -976,6 +975,7 @@ private struct StepDetailRow: View {
             }
         }
         .padding(.bottom, VSpacing.sm)
+        .textSelection(.enabled)
     }
 
     // MARK: - Output Block
@@ -993,11 +993,12 @@ private struct StepDetailRow: View {
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 if lineCount > 500 {
-                    // Long outputs get a height-bounded ScrollView
+                    // Content at 500+ lines always exceeds 400pt, so a fixed
+                    // height lets sizeThatFits return without measuring content.
                     ScrollView {
                         outputTextView(text: text, attributedText: attributedText)
                     }
-                    .frame(maxHeight: 400)
+                    .frame(height: 400)
                 } else if let attrText = attributedText {
                     Text(attrText)
                         .font(VFont.bodySmallDefault)
@@ -1021,10 +1022,23 @@ private struct StepDetailRow: View {
                     .stroke(VColor.borderBase, lineWidth: 0.5)
             )
 
-            VButton(label: copyLabel, iconOnly: VIcon.copy.rawValue, style: .ghost, iconSize: 24, iconColor: VColor.contentTertiary) {
+            ChatEquatableButton(
+                config: ChatButtonConfig(
+                    label: copyLabel,
+                    iconOnly: VIcon.copy.rawValue,
+                    style: .ghost,
+                    size: .regular,
+                    iconSize: 24,
+                    iconColorRole: .contentTertiary,
+                    tooltip: nil,
+                    isDisabled: false,
+                    closureIdentity: copyText.hashValue
+                )
+            ) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(copyText, forType: .string)
             }
+            .equatable()
             .padding(VSpacing.xs)
         }
     }

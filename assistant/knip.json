@@ -5,7 +5,8 @@
     "scripts/**/*.ts",
     "src/daemon/main.ts",
     "src/messaging/providers/*/types.ts",
-    "src/messaging/providers/*/client.ts"
+    "src/messaging/providers/*/client.ts",
+    "src/memory/graph/inspect.ts"
   ],
   "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
   "ignoreDependencies": [

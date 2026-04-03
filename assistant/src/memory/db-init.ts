@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { getDb, getSqlite } from "./db-connection.js";
+import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   addCoreColumns,
   createActorRefreshTokenRecordsTable,
@@ -56,7 +57,11 @@ import {
   migrateContactsRolePrincipal,
   migrateContactsUserFileColumn,
   migrateConversationForkLineage,
+  migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
+  migrateCreateConversationGraphMemoryState,
+  migrateCreateMemoryGraphNodeEdits,
+  migrateCreateMemoryGraphTables,
   migrateCreateMemoryRecallLogs,
   migrateCreateThreadStartersTable,
   migrateCreateTraceEventsTable,
@@ -69,6 +74,7 @@ import {
   migrateDropEntityTables,
   migrateDropLegacyMemberGuardianTables,
   migrateDropLoopbackPortColumn,
+  migrateDropMemoryItemsTables,
   migrateDropMemorySegmentFts,
   migrateDropOrphanedMediaTables,
   migrateDropRemindersTable,
@@ -91,6 +97,7 @@ import {
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
+  migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
@@ -111,6 +118,7 @@ import {
   migrateRenameGmailProviderKeyToGoogle,
   migrateRenameGuardianVerificationValues,
   migrateRenameInboxThreadStateTable,
+  migrateRenameMemoryGraphTypeValues,
   migrateRenameNotificationThreadColumns,
   migrateRenameSequenceEnrollmentsThreadIdColumn,
   migrateRenameSequenceStepsReplyKey,
@@ -123,7 +131,9 @@ import {
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
   migrateSchemaIndexesAndColumns,
+  migrateScrubCorruptedImageAttachments,
   migrateStripIntegrationPrefixFromProviderKeys,
+  migrateStripThinkingFromConsolidated,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
@@ -139,8 +149,8 @@ import {
 // ---------------------------------------------------------------------------
 
 function getTemplateDbPath(): string {
-  // Hash this file + all migration files so the template auto-invalidates
-  // when any migration changes.
+  // Hash this file + all migration files + bootstrap migration so the template
+  // auto-invalidates when any migration changes.
   const thisFile = new URL(import.meta.url).pathname;
   const hash = createHash("md5");
   hash.update(readFileSync(thisFile, "utf-8"));
@@ -149,6 +159,12 @@ function getTemplateDbPath(): string {
     if (name.endsWith(".ts")) {
       hash.update(readFileSync(join(migrationsDir, name), "utf-8"));
     }
+  }
+  // Include the bootstrap migration (migrateToolCreatedItems) which also runs
+  // during initializeDb but lives outside the migrations/ directory.
+  const bootstrapFile = join(dirname(thisFile), "graph", "bootstrap.ts");
+  if (existsSync(bootstrapFile)) {
+    hash.update(readFileSync(bootstrapFile, "utf-8"));
   }
   return join(
     tmpdir(),
@@ -548,6 +564,41 @@ export function initializeDb(): void {
   // 100. Drop the vestigial callback_transport column from oauth_providers
   // (transport is now chosen per-flow via the callbackTransport option, not per-provider)
   migrateDropCallbackTransportColumn(database);
+
+  // 101. Memory graph tables (nodes, edges, triggers)
+  migrateCreateMemoryGraphTables(database);
+
+  // 101a. Add nullable image_refs TEXT column to memory_graph_nodes.
+  // MUST run before migrateToolCreatedItems (101b) because that migration
+  // inserts rows into memory_graph_nodes including the image_refs column.
+  migrateMemoryGraphImageRefs(database);
+
+  // 101b. Migrate tool-created items from legacy memory_items → graph nodes.
+  // MUST run before migration 102 drops memory_items so data is preserved.
+  migrateToolCreatedItems();
+
+  // 102. Drop legacy memory_items and memory_item_sources tables (migrated to memory_graph_nodes)
+  migrateDropMemoryItemsTables(database);
+
+  // 103. Rename legacy memory graph node type values: style → behavioral, relationship → semantic
+  migrateRenameMemoryGraphTypeValues(database);
+
+  // 104. Memory graph node edit history
+  migrateCreateMemoryGraphNodeEdits(database);
+
+  // 105. Remove image attachments containing HTML error pages instead of image data
+  migrateScrubCorruptedImageAttachments(database);
+
+  // 106. Persist graph memory tracker state across conversation eviction
+  migrateCreateConversationGraphMemoryState(database);
+
+  // 107. Add last_message_at denormalized column for message-based sorting
+  migrateConversationsLastMessageAt(database);
+
+  // 108. Strip thinking/redacted_thinking from consolidated assistant messages
+  // so the Anthropic provider no longer needs to mutate historical messages,
+  // enabling append-only conversation history for prefix caching.
+  migrateStripThinkingFromConsolidated(database);
 
   validateMigrationState(database);
 

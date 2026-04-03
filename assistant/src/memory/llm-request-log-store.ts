@@ -99,7 +99,9 @@ export function setMessageIdOnLogs(
   const db = getDb();
   db.update(llmRequestLogs)
     .set({ messageId })
-    .where(inArray(llmRequestLogs.id, logIds))
+    .where(
+      and(inArray(llmRequestLogs.id, logIds), isNull(llmRequestLogs.messageId)),
+    )
     .run();
 }
 
@@ -185,18 +187,75 @@ function selectOrphanedLogsInRange(
     .all();
 }
 
+/**
+ * Find unlinked logs — logs with `message_id IS NULL` that haven't been
+ * backfilled yet. This covers the race where the client queries the inspector
+ * before `backfillMessageIdOnLogs` runs in `handleMessageComplete`, or when
+ * the backfill fails silently (try-catch in the agent loop).
+ *
+ * Scoped to a single conversation and a time range to avoid cross-turn bleed.
+ */
+function selectUnlinkedLogsInRange(
+  conversationId: string,
+  startTime: number,
+  endTime: number,
+): LogRow[] {
+  if (endTime <= startTime) return [];
+  const db = getDb();
+  return db
+    .select({
+      id: llmRequestLogs.id,
+      conversationId: llmRequestLogs.conversationId,
+      messageId: llmRequestLogs.messageId,
+      provider: llmRequestLogs.provider,
+      requestPayload: llmRequestLogs.requestPayload,
+      responsePayload: llmRequestLogs.responsePayload,
+      createdAt: llmRequestLogs.createdAt,
+    })
+    .from(llmRequestLogs)
+    .where(
+      and(
+        eq(llmRequestLogs.conversationId, conversationId),
+        gte(llmRequestLogs.createdAt, startTime),
+        lte(llmRequestLogs.createdAt, endTime),
+        isNull(llmRequestLogs.messageId),
+      ),
+    )
+    .orderBy(llmRequestLogs.createdAt)
+    .all();
+}
+
+export function getRequestLogById(logId: string): LogRow | null {
+  const db = getDb();
+  return (
+    db
+      .select({
+        id: llmRequestLogs.id,
+        conversationId: llmRequestLogs.conversationId,
+        messageId: llmRequestLogs.messageId,
+        provider: llmRequestLogs.provider,
+        requestPayload: llmRequestLogs.requestPayload,
+        responsePayload: llmRequestLogs.responsePayload,
+        createdAt: llmRequestLogs.createdAt,
+      })
+      .from(llmRequestLogs)
+      .where(eq(llmRequestLogs.id, logId))
+      .get() ?? null
+  );
+}
+
 export function getRequestLogsByMessageId(messageId: string): LogRow[] {
   // Resolve all assistant message IDs in the same turn so the inspector
   // shows every LLM call from the entire agent turn, not just the queried message.
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
   const turnLogs = selectLogsByMessageIds(turnMessageIds);
 
-  // Orphaned-log recovery: intermediate assistant messages within a turn can
-  // be deleted (e.g. by retry / deleteLastExchange) while their
-  // llm_request_logs rows survive. When that happens the message-ID-based
-  // query misses those logs. We detect orphaned logs (logs whose message_id
-  // references a deleted message) within the turn's time window and merge
-  // them with the message-ID-based results.
+  // Recovery: find logs in the turn's time window that the message-ID-based
+  // query missed. Two categories:
+  //  1. Orphaned — messageId references a deleted message (retry/deleteLastExchange).
+  //  2. Unlinked — messageId is still NULL because the backfill hasn't run yet
+  //     or failed silently. This covers the race where the client queries the
+  //     inspector before handleMessageComplete persists and backfills.
   const message = getMessageById(messageId);
   if (message) {
     const bounds = getTurnTimeBounds(message.conversationId, message.createdAt);
@@ -206,10 +265,16 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
         bounds.startTime,
         bounds.endTime,
       );
-      if (orphanedLogs.length > 0) {
+      const unlinkedLogs = selectUnlinkedLogsInRange(
+        message.conversationId,
+        bounds.startTime,
+        bounds.endTime,
+      );
+
+      if (orphanedLogs.length > 0 || unlinkedLogs.length > 0) {
         const seen = new Set(turnLogs.map((l) => l.id));
         const merged = [...turnLogs];
-        for (const log of orphanedLogs) {
+        for (const log of [...orphanedLogs, ...unlinkedLogs]) {
           if (!seen.has(log.id)) {
             merged.push(log);
             seen.add(log.id);
@@ -218,6 +283,20 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
         merged.sort(
           (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
         );
+
+        // Opportunistically backfill recovered unlinked logs so future queries
+        // hit the fast indexed-by-messageId path.
+        if (unlinkedLogs.length > 0 && turnMessageIds.length > 0) {
+          try {
+            setMessageIdOnLogs(
+              unlinkedLogs.map((l) => l.id),
+              turnMessageIds[turnMessageIds.length - 1]!,
+            );
+          } catch {
+            // non-fatal — the recovery already returned the right data
+          }
+        }
+
         return merged;
       }
     }

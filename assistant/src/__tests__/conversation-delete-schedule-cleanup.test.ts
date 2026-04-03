@@ -68,9 +68,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
   beforeEach(() => {
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
-    getRawDb().run("DELETE FROM memory_item_sources");
+    getRawDb().run("DELETE FROM memory_graph_nodes");
     getRawDb().run("DELETE FROM memory_segments");
-    getRawDb().run("DELETE FROM memory_items");
     getRawDb().run("DELETE FROM memory_summaries");
     getRawDb().run("DELETE FROM memory_embeddings");
     getRawDb().run("DELETE FROM memory_jobs");
@@ -293,9 +292,8 @@ describe("POST /conversations/:id/wipe — schedule cleanup", () => {
   beforeEach(() => {
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
-    getRawDb().run("DELETE FROM memory_item_sources");
+    getRawDb().run("DELETE FROM memory_graph_nodes");
     getRawDb().run("DELETE FROM memory_segments");
-    getRawDb().run("DELETE FROM memory_items");
     getRawDb().run("DELETE FROM memory_summaries");
     getRawDb().run("DELETE FROM memory_embeddings");
     getRawDb().run("DELETE FROM memory_jobs");

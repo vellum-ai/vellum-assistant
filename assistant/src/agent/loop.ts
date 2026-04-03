@@ -101,10 +101,7 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
   minTurnIntervalMs: 150,
 };
 
-const PROGRESS_CHECK_INTERVAL = 5;
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
-const PROGRESS_CHECK_REMINDER =
-  "You have been using tools for several turns. Check whether you are making meaningful progress toward the user's goal. If you are stuck in a loop or not making progress, summarize what you have tried and ask the user for guidance instead of continuing.";
 
 export interface ResolvedSystemPrompt {
   systemPrompt: string;
@@ -573,21 +570,11 @@ export class AgentLoop {
           break;
         }
 
-        // Track tool-use turns and inject progress reminder every N turns
         toolUseTurns++;
-        const isProgressCheckTurn =
-          toolUseTurns % PROGRESS_CHECK_INTERVAL === 0;
-        if (isProgressCheckTurn) {
-          resultBlocks.push({
-            type: "text",
-            text: `<system_notice>${PROGRESS_CHECK_REMINDER}</system_notice>`,
-          });
-        }
 
         // When any tool returned an error, nudge the LLM to retry with
         // corrected parameters instead of ending its turn. Skip the nudge
-        // when the progress check fires (to avoid contradictory instructions)
-        // and after MAX_CONSECUTIVE_ERROR_NUDGES consecutive error turns
+        // after MAX_CONSECUTIVE_ERROR_NUDGES consecutive error turns
         // (the error is likely unrecoverable at that point).
         const hasToolError = toolResults.some(({ result }) => result.isError);
         if (hasToolError) {
@@ -597,7 +584,6 @@ export class AgentLoop {
         }
         if (
           hasToolError &&
-          !isProgressCheckTurn &&
           consecutiveErrorTurns <= MAX_CONSECUTIVE_ERROR_NUDGES
         ) {
           resultBlocks.push({

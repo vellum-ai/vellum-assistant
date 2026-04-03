@@ -603,6 +603,27 @@ describe("RetryProvider — streaming response handling", () => {
     expect(receivedSignal).toBe(controller.signal);
   });
 
+  test("retries overloaded_error with undefined statusCode (mid-stream SSE)", async () => {
+    let callCount = 0;
+    const inner: Provider = {
+      name: "retry-overloaded-undefined",
+      async sendMessage() {
+        callCount++;
+        if (callCount <= 1) {
+          throw new ProviderError(
+            'Anthropic API error (undefined): {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+            "anthropic",
+            undefined,
+          );
+        }
+        return successResponse();
+      },
+    };
+    const provider = new RetryProvider(inner);
+    await provider.sendMessage(MESSAGES);
+    expect(callCount).toBe(2);
+  });
+
   test("events accumulate across retries (each attempt delivers events independently)", async () => {
     let callCount = 0;
     const inner: Provider = {

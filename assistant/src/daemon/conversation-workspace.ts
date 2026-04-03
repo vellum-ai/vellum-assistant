@@ -33,8 +33,7 @@ export function refreshWorkspaceTopLevelContextIfNeeded(
     currentConversationPath = `conversations/${resolvedDirName}/`;
   }
   ctx.workspaceTopLevelContext = renderWorkspaceTopLevelContext(snapshot, {
-    currentConversationPath,
-    currentConversationAttachmentsPath: currentConversationPath
+    conversationAttachmentsPath: currentConversationPath
       ? `${currentConversationPath}attachments/`
       : null,
   });

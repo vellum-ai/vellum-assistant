@@ -5,7 +5,7 @@
  * suggestion chips shown on the empty conversation page.
  */
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { loadSkillCatalog } from "../../config/skills.js";
@@ -26,7 +26,7 @@ import { rawAll, rawGet } from "../raw-query.js";
 import {
   conversationStarters,
   memoryCheckpoints,
-  memoryItems,
+  memoryGraphNodes,
 } from "../schema.js";
 
 const log = getLogger("conversation-starters-gen");
@@ -42,32 +42,47 @@ const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 // ── Rollup construction ───────────────────────────────────────────
 
 export function buildMemoryRollup(scopeId: string): string {
-  const db = getDb();
-  const items = db
-    .select({
-      kind: memoryItems.kind,
-      subject: memoryItems.subject,
-      statement: memoryItems.statement,
-      importance: memoryItems.importance,
-    })
-    .from(memoryItems)
-    .where(
-      and(eq(memoryItems.status, "active"), eq(memoryItems.scopeId, scopeId)),
-    )
-    .orderBy(desc(memoryItems.importance))
-    .limit(60)
-    .all();
+  let rows: Array<{
+    type: string;
+    content: string;
+    significance: number | null;
+  }>;
+  try {
+    const db = getDb();
+    rows = db
+      .select({
+        type: memoryGraphNodes.type,
+        content: memoryGraphNodes.content,
+        significance: memoryGraphNodes.significance,
+      })
+      .from(memoryGraphNodes)
+      .where(
+        and(
+          sql`${memoryGraphNodes.fidelity} != 'gone'`,
+          eq(memoryGraphNodes.scopeId, scopeId),
+        )
+      )
+      .orderBy(desc(memoryGraphNodes.significance))
+      .limit(60)
+      .all();
+  } catch {
+    // Table may have been dropped (migration 203)
+    return "";
+  }
 
-  if (items.length === 0) return "";
+  if (rows.length === 0) return "";
 
   const byKind = new Map<string, string[]>();
-  for (const item of items) {
-    let lines = byKind.get(item.kind);
+  for (const item of rows) {
+    const nl = item.content.indexOf("\n");
+    const subject = nl >= 0 ? item.content.slice(0, nl) : item.content;
+    const statement = nl >= 0 ? item.content.slice(nl + 1) : item.content;
+    let lines = byKind.get(item.type);
     if (!lines) {
       lines = [];
-      byKind.set(item.kind, lines);
+      byKind.set(item.type, lines);
     }
-    lines.push(`- ${item.subject}: ${item.statement}`);
+    lines.push(`- ${subject}: ${statement}`);
   }
 
   let rollup = "";
@@ -90,21 +105,25 @@ function buildNewItemsDiff(scopeId: string): string {
 
   const newItems = rawAll<{
     kind: string;
-    subject: string;
-    statement: string;
+    content: string;
   }>(
-    `SELECT kind, subject, statement FROM memory_items
-     WHERE status = 'active' AND scope_id = ? AND first_seen_at > ?
-     ORDER BY first_seen_at DESC LIMIT 20`,
+    `SELECT type AS kind, content FROM memory_graph_nodes
+     WHERE fidelity != 'gone' AND scope_id = ? AND created > ?
+     ORDER BY created DESC LIMIT 20`,
     scopeId,
-    lastGenAt,
+    lastGenAt
   );
 
   if (newItems.length === 0) return "";
 
   return (
     "## New since last generation\n" +
-    newItems.map((i) => `- (${i.kind}) ${i.subject}: ${i.statement}`).join("\n")
+    newItems.map((i) => {
+      const nl = i.content.indexOf("\n");
+      const subject = nl >= 0 ? i.content.slice(0, nl) : i.content;
+      const statement = nl >= 0 ? i.content.slice(nl + 1) : i.content;
+      return `- (${i.kind}) ${subject}: ${statement}`;
+    }).join("\n")
   );
 }
 
@@ -143,8 +162,7 @@ export const CONVERSATION_STARTER_CATEGORIES = [
   "integration",
 ] as const;
 
-export type ConversationStarterCategory =
-  (typeof CONVERSATION_STARTER_CATEGORIES)[number];
+export type ConversationStarterCategory = typeof CONVERSATION_STARTER_CATEGORIES[number];
 
 interface GeneratedStarter {
   label: string;
@@ -168,7 +186,15 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   const skills = buildSkillsSummary();
 
   const now = new Date();
-  const timeContext = `Current time: ${now.toLocaleString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`;
+  const timeContext = `Current time: ${now.toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  })}`;
 
   // Truncate identity context to prevent oversized prompts when SOUL.md /
   // IDENTITY.md / USER.md are large.
@@ -185,7 +211,11 @@ ${timeContext}
 
 Your goal: suggest the 4 most useful things this person could ask you to do right now.
 
-${identityContext ? `## Assistant identity & user profile\n\n${identityContext}\n\n` : ""}## What you know
+${
+  identityContext
+    ? `## Assistant identity & user profile\n\n${identityContext}\n\n`
+    : ""
+}## What you know
 
 ${rollup}
 ${diff}
@@ -253,7 +283,7 @@ Bad → Good (assistant voice → user voice):
     const response = await provider.sendMessage(
       [
         userMessage(
-          "Generate personalized conversation starters based on my context.",
+          "Generate personalized conversation starters based on my context."
         ),
       ],
       [
@@ -303,14 +333,14 @@ Bad → Good (assistant voice → user voice):
           },
         },
         signal,
-      },
+      }
     );
     cleanup();
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) {
       log.warn(
-        "No tool_use block in conversation starters generation response",
+        "No tool_use block in conversation starters generation response"
       );
       return [];
     }
@@ -327,7 +357,7 @@ Bad → Good (assistant voice → user voice):
           typeof s.label === "string" &&
           s.label.length > 0 &&
           typeof s.prompt === "string" &&
-          s.prompt.length > 0,
+          s.prompt.length > 0
       )
       .slice(0, 4)
       .map((s) => ({
@@ -336,7 +366,7 @@ Bad → Good (assistant voice → user voice):
         category:
           typeof s.category === "string" &&
           (CONVERSATION_STARTER_CATEGORIES as readonly string[]).includes(
-            s.category,
+            s.category
           )
             ? s.category
             : "productivity",
@@ -350,7 +380,7 @@ Bad → Good (assistant voice → user voice):
 // ── Job handler ───────────────────────────────────────────────────
 
 export async function generateConversationStartersJob(
-  job: MemoryJob,
+  job: MemoryJob
 ): Promise<void> {
   const scopeId = asString(job.payload.scopeId) ?? "default";
 
@@ -373,16 +403,24 @@ export async function generateConversationStartersJob(
     ? parseInt(batchCheckpoint.value, 10) + 1
     : 1;
 
-  // Collect the memory kinds that informed this batch
-  const kindRows = db
-    .select({ kind: memoryItems.kind })
-    .from(memoryItems)
-    .where(
-      and(eq(memoryItems.status, "active"), eq(memoryItems.scopeId, scopeId)),
-    )
-    .groupBy(memoryItems.kind)
-    .all();
-  const sourceKinds = kindRows.map((r) => r.kind).join(",");
+  // Collect the memory types that informed this batch
+  let sourceKinds = "";
+  try {
+    const kindRows = db
+      .select({ kind: memoryGraphNodes.type })
+      .from(memoryGraphNodes)
+      .where(
+        and(
+          sql`${memoryGraphNodes.fidelity} != 'gone'`,
+          eq(memoryGraphNodes.scopeId, scopeId),
+        )
+      )
+      .groupBy(memoryGraphNodes.type)
+      .all();
+    sourceKinds = kindRows.map((r) => r.kind).join(",");
+  } catch {
+    // Table may have been dropped (migration 203)
+  }
 
   // Remove previous starters for this scope before inserting the new batch
   db.delete(conversationStarters)
@@ -408,8 +446,8 @@ export async function generateConversationStartersJob(
 
   // Count active items for checkpoint
   const countRow = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM memory_items WHERE status = 'active' AND scope_id = ?`,
-    scopeId,
+    `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
+    scopeId
   );
   const totalActive = countRow?.c ?? 0;
 
@@ -430,6 +468,6 @@ export async function generateConversationStartersJob(
 
   log.info(
     { scopeId, batch: nextBatch, count: starters.length },
-    "Generated conversation starters",
+    "Generated conversation starters"
   );
 }

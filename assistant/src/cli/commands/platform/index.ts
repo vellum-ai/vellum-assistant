@@ -14,19 +14,19 @@ import { registerPlatformDisconnectCommand } from "./disconnect.js";
 export function registerPlatformCommand(program: Command): void {
   const platform = program
     .command("platform")
-    .description("Manage platform integration for containerized deployments")
+    .description("Manage Vellum Platform integration")
     .option("--json", "Machine-readable compact JSON output");
 
   platform.addHelpText(
     "after",
     `
-The platform subsystem manages the connection to Vellum Platform, callback
-routing, containerized deployment context, and webhook forwarding for
-assistants. Use 'connect', 'status', and 'disconnect' to manage platform
-credentials. When IS_CONTAINERIZED=true with a configured VELLUM_PLATFORM_URL
-and PLATFORM_ASSISTANT_ID, external service callbacks (Telegram webhooks,
-Twilio webhooks, OAuth redirects) route through the platform's gateway proxy
-instead of hitting the assistant directly.
+The platform subsystem manages the connection to Vellum Platform. Use
+'connect', 'status', and 'disconnect' to manage platform credentials.
+Any assistant using the managed LLM proxy can use these commands.
+
+When IS_PLATFORM=true (platform-managed deployments), external service
+callbacks (Telegram webhooks, Twilio webhooks, OAuth redirects) also
+route through the platform's gateway proxy via 'callback-routes'.
 
 Examples:
   $ assistant platform status --json
@@ -54,11 +54,11 @@ Examples:
       "after",
       `
 Reads platform-related environment variables and stored credentials to report
-the current containerized deployment context and connection state. Does not
+the current platform deployment context and connection state. Does not
 require the assistant to be running.
 
 Fields:
-  containerized       Whether IS_CONTAINERIZED is set (boolean)
+  isPlatform          Whether IS_PLATFORM is set (boolean)
   baseUrl             VELLUM_PLATFORM_URL — the platform gateway base URL
   assistantId         PLATFORM_ASSISTANT_ID — this assistant's platform UUID
   hasInternalApiKey   Whether PLATFORM_INTERNAL_API_KEY is set (boolean,
@@ -112,7 +112,7 @@ Examples:
         const connected = !!storedBaseUrl && hasStoredApiKey;
 
         const result = {
-          containerized: context.containerized,
+          isPlatform: context.isPlatform,
           baseUrl: context.platformBaseUrl,
           assistantId: context.assistantId,
           hasInternalApiKey: context.hasInternalApiKey,
@@ -126,7 +126,7 @@ Examples:
         if (shouldOutputJson(cmd)) {
           writeOutput(cmd, result);
         } else {
-          log.info(`Containerized: ${result.containerized}`);
+          log.info(`Platform: ${result.isPlatform}`);
           log.info(`Base URL: ${result.baseUrl || "(not set)"}`);
           log.info(`Assistant ID: ${result.assistantId || "(not set)"}`);
           log.info(
@@ -167,7 +167,7 @@ Examples:
     "after",
     `
 Callback routes tell the platform gateway how to forward inbound provider
-webhooks to the correct containerized assistant instance. Each route maps a
+webhooks to the correct platform-managed assistant instance. Each route maps a
 callback path and type to a stable external URL that external services
 (Telegram, Twilio, OAuth providers) should use.
 
@@ -196,7 +196,7 @@ Examples:
       `
 Registers a callback route with the platform's internal gateway endpoint so
 the platform knows how to forward inbound provider webhooks to this
-containerized assistant instance.
+platform-managed assistant instance.
 
 Arguments:
   --path    The path portion after the ingress base URL. Leading/trailing
@@ -210,7 +210,7 @@ Known callback path/type combinations:
   --path webhooks/twilio/status     --type twilio_status
   --path oauth/callback             --type oauth
 
-Requires a containerized environment (IS_CONTAINERIZED=true) with
+Requires a platform-managed environment (IS_PLATFORM=true) with
 VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID configured. Returns the
 platform-provided stable callback URL that external services should use.
 
@@ -225,7 +225,7 @@ Examples:
           writeOutput(cmd, {
             ok: false,
             error:
-              "Platform callbacks not available — missing containerized platform registration context",
+              "Platform callbacks not available — missing platform registration context",
           });
           process.exitCode = 1;
           return;

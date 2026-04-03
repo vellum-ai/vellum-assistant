@@ -10,6 +10,7 @@ import { mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { ensureBun } from "../util/bun-runtime.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("package-resolver");
@@ -117,14 +118,11 @@ async function installPackage(
   log.info({ pkg }, "Installing package into shared cache");
 
   try {
-    const proc = Bun.spawn(["bun", "install", "--no-save", pkg], {
+    const bunPath = await ensureBun();
+    const proc = Bun.spawn([bunPath, "install", "--no-save", pkg], {
       cwd: cacheDir,
       stdout: "pipe",
       stderr: "pipe",
-      env: {
-        ...process.env,
-        PATH: `${homedir()}/.bun/bin:${process.env.PATH}`,
-      },
     });
 
     // Race against timeout

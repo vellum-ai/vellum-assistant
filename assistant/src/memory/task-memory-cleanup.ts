@@ -24,62 +24,41 @@ export function isConversationFailed(conversationId: string): boolean {
 }
 
 /**
- * Invalidate assistant-extracted memory items sourced *exclusively* from
- * messages in the given conversation. Called when a background task or
- * schedule fails — the assistant's optimistic claims (e.g., "I booked an
- * appointment") are not trustworthy if the task didn't complete.
+ * Invalidate assistant-inferred memory graph nodes sourced *exclusively* from
+ * the given conversation. Called when a background task or schedule fails —
+ * the assistant's optimistic claims are not trustworthy if the task didn't
+ * complete.
  *
- * The failed state is derived from durable storage (task_runs / cron_runs),
- * so any pending or future extraction jobs for this conversation are blocked
- * from creating new assistant-extracted items — even after daemon restarts.
- *
- * Items that also have sources from other conversations are left alone
- * only when those conversations come from non-failed task/schedule runs
- * (or are ordinary user conversations). This prevents cascading failures
- * from mutually protecting each other — if two conversations both source
- * a memory item and both fail, the item is correctly invalidated.
+ * Nodes that also have sources from other non-failed conversations are left
+ * alone (corroboration). Uses the `source_conversations` JSON array to
+ * determine provenance.
  */
 export function invalidateAssistantInferredItemsForConversation(
   conversationId: string,
 ): number {
-  // Cancel pending extraction jobs for this conversation's messages
-  // so the worker never processes them. Jobs already running will be
-  // caught by the isConversationFailed check in the extraction handler.
-  // NOTE: Only extract_items jobs are cancelled here — not embed_item or
-  // other job types. Multi-sourced items may still be valid (corroborated
-  // by other conversations), and their embedding jobs must not be killed.
-  // The broader cancelPendingJobsForConversation is used by the wipe path.
   cancelPendingExtractionJobsForConversation(conversationId);
 
   const affected = rawRun(
-    `UPDATE memory_items
-        SET status = 'invalidated',
-            invalid_at = ?
-      WHERE source_type = 'extraction'
-        AND source_message_role = 'assistant'
-        AND status = 'active'
-        AND id IN (
-          SELECT mis.memory_item_id
-            FROM memory_item_sources mis
-            JOIN messages m ON m.id = mis.message_id
-           WHERE m.conversation_id = ?
+    `UPDATE memory_graph_nodes
+        SET fidelity = 'gone',
+            last_accessed = ?
+      WHERE source_type = 'inferred'
+        AND fidelity != 'gone'
+        AND EXISTS (
+          SELECT 1 FROM json_each(source_conversations) jc
+           WHERE jc.value = ?
         )
         AND NOT EXISTS (
-          SELECT 1
-            FROM memory_item_sources mis2
-            JOIN messages m2 ON m2.id = mis2.message_id
-           WHERE mis2.memory_item_id = memory_items.id
-             AND m2.conversation_id != ?
-             -- Only count as corroboration if the other conversation is NOT
-             -- from a failed task run or failed schedule run.
+          SELECT 1 FROM json_each(source_conversations) jc2
+           WHERE jc2.value != ?
              AND NOT EXISTS (
                SELECT 1 FROM task_runs tr
-                WHERE tr.conversation_id = m2.conversation_id
+                WHERE tr.conversation_id = jc2.value
                   AND tr.status = 'failed'
              )
              AND NOT EXISTS (
                SELECT 1 FROM cron_runs cr
-                WHERE cr.conversation_id = m2.conversation_id
+                WHERE cr.conversation_id = jc2.value
                   AND cr.status = 'error'
              )
         )`,
@@ -91,7 +70,7 @@ export function invalidateAssistantInferredItemsForConversation(
   if (affected > 0) {
     log.info(
       { conversationId, affected },
-      "Invalidated assistant-inferred memory items after task failure",
+      "Invalidated assistant-inferred memory graph nodes after task failure",
     );
   }
 
@@ -103,7 +82,7 @@ export function invalidateAssistantInferredItemsForConversation(
  * Covers every job type: `extract_items`, `embed_attachment` (keyed by messageId),
  * `embed_segment` (keyed by segmentId via memory_segments),
  * `build_conversation_summary` (keyed by conversationId),
- * and `embed_item` (keyed by itemId sourced from the conversation's messages).
+ * and `embed_graph_node` (keyed by nodeId sourced from the conversation).
  */
 export function cancelPendingJobsForConversation(
   conversationId: string,
@@ -155,18 +134,17 @@ export function cancelPendingJobsForConversation(
     conversationId,
   );
 
-  // Jobs keyed by itemId: embed_item (items sourced from this conversation)
+  // Jobs keyed by nodeId: embed_graph_node (nodes sourced from this conversation)
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
             last_error = ?,
             updated_at = ?
       WHERE status IN ('pending', 'running')
-        AND json_extract(payload, '$.itemId') IN (
-          SELECT mis.memory_item_id
-            FROM memory_item_sources mis
-            JOIN messages m ON m.id = mis.message_id
-           WHERE m.conversation_id = ?
+        AND json_extract(payload, '$.nodeId') IN (
+          SELECT mgn.id
+            FROM memory_graph_nodes mgn, json_each(mgn.source_conversations) jc
+           WHERE jc.value = ?
         )`,
     reason,
     now,
@@ -186,8 +164,8 @@ export function cancelPendingJobsForConversation(
 /**
  * Cancel only pending/running `extract_items` jobs for messages in the
  * given conversation. Used by the task-failure path where we want to
- * stop new extractions but must NOT cancel `embed_item` jobs — those
- * items may be multi-sourced and still valid.
+ * stop new extractions but must NOT cancel `embed_graph_node` jobs —
+ * those nodes may be multi-sourced and still valid.
  */
 function cancelPendingExtractionJobsForConversation(
   conversationId: string,

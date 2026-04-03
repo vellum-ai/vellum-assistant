@@ -1,6 +1,9 @@
 /**
  * Route handlers for memory item CRUD endpoints.
  *
+ * Queries memory_graph_nodes and maps results to the client's
+ * MemoryItemPayload shape for backwards compatibility.
+ *
  * GET    /v1/memory-items        — list memory items (with filtering, search, sort, pagination)
  * GET    /v1/memory-items/:id    — get a single memory item
  * POST   /v1/memory-items        — create a new memory item
@@ -8,8 +11,17 @@
  * DELETE /v1/memory-items/:id    — delete a memory item and its embeddings
  */
 
-import { and, asc, count, desc, eq, inArray, like, ne, or } from "drizzle-orm";
-import { v4 as uuid } from "uuid";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  like,
+  ne,
+  notInArray,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
@@ -19,15 +31,23 @@ import {
   generateSparseEmbedding,
   getMemoryBackendStatus,
 } from "../../memory/embedding-backend.js";
-import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
+import {
+  createNode,
+  deleteNode,
+  getNode,
+  updateNode,
+} from "../../memory/graph/store.js";
+import type {
+  Fidelity,
+  ImageRef,
+  MemoryNode,
+  MemoryType,
+  NewNode,
+} from "../../memory/graph/types.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { withQdrantBreaker } from "../../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../memory/qdrant-client.js";
-import {
-  conversations,
-  memoryEmbeddings,
-  memoryItems,
-} from "../../memory/schema.js";
+import { conversations, memoryGraphNodes } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteContext, RouteDefinition } from "../http-router.js";
@@ -38,23 +58,20 @@ const log = getLogger("memory-item-routes");
 // Constants
 // ---------------------------------------------------------------------------
 
-const VALID_KINDS = [
-  "identity",
-  "preference",
-  "project",
-  "decision",
-  "constraint",
-  "event",
-  "capability",
-  "journal",
-] as const;
-
-type MemoryItemKind = (typeof VALID_KINDS)[number];
+const VALID_TYPES: MemoryType[] = [
+  "episodic",
+  "semantic",
+  "procedural",
+  "emotional",
+  "prospective",
+  "behavioral",
+  "narrative",
+  "shared",
+];
 
 const VALID_SORT_FIELDS = [
   "lastSeenAt",
   "importance",
-  "accessCount",
   "kind",
   "firstSeenAt",
 ] as const;
@@ -62,19 +79,18 @@ const VALID_SORT_FIELDS = [
 type SortField = (typeof VALID_SORT_FIELDS)[number];
 
 const SORT_COLUMN_MAP = {
-  lastSeenAt: memoryItems.lastSeenAt,
-  importance: memoryItems.importance,
-  accessCount: memoryItems.accessCount,
-  kind: memoryItems.kind,
-  firstSeenAt: memoryItems.firstSeenAt,
+  lastSeenAt: memoryGraphNodes.lastAccessed,
+  importance: memoryGraphNodes.significance,
+  kind: memoryGraphNodes.type,
+  firstSeenAt: memoryGraphNodes.created,
 } as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function isValidKind(value: string): value is MemoryItemKind {
-  return (VALID_KINDS as readonly string[]).includes(value);
+function isValidType(value: string): value is MemoryType {
+  return (VALID_TYPES as string[]).includes(value);
 }
 
 function isValidSortField(value: string): value is SortField {
@@ -82,11 +98,63 @@ function isValidSortField(value: string): value is SortField {
 }
 
 /**
+ * Split graph node content into subject (first line) and statement (rest).
+ * Playbooks store JSON in statement; other nodes use plain prose.
+ */
+function splitContent(content: string): { subject: string; statement: string } {
+  const newlineIdx = content.indexOf("\n");
+  if (newlineIdx === -1) {
+    return { subject: content, statement: content };
+  }
+  return {
+    subject: content.slice(0, newlineIdx).trim(),
+    statement: content.slice(newlineIdx + 1).trim(),
+  };
+}
+
+/**
+ * Map a graph node to the client's MemoryItemPayload shape.
+ */
+function nodeToPayload(
+  node: MemoryNode,
+  scopeLabel: string | null = null,
+): Record<string, unknown> {
+  const { subject, statement } = splitContent(node.content);
+  return {
+    id: node.id,
+    kind: node.type,
+    subject,
+    statement,
+    status: node.fidelity === "gone" ? "superseded" : "active",
+    confidence: node.confidence,
+    importance: node.significance,
+    eventDate: node.eventDate,
+    firstSeenAt: node.created,
+    lastSeenAt: node.lastAccessed,
+
+    // Graph-specific fields
+    fidelity: node.fidelity,
+    sourceType: node.sourceType,
+    narrativeRole: node.narrativeRole,
+    partOfStory: node.partOfStory,
+    reinforcementCount: node.reinforcementCount,
+    stability: node.stability,
+    emotionalCharge: node.emotionalCharge,
+
+    scopeId: node.scopeId,
+    scopeLabel,
+
+    // Legacy fields — not applicable to graph nodes
+    accessCount: null,
+    verificationState: null,
+    lastUsedAt: null,
+    supersedes: null,
+    supersededBy: null,
+  };
+}
+
+/**
  * Resolve a `scopeLabel` for a memory item based on its `scopeId`.
- *
- * - `"default"` → `null`
- * - `"private:<conversationId>"` → `"Private · <title>"` when the conversation
- *   has a title, or `"Private"` when it doesn't (or the conversation was deleted).
  */
 function resolveScopeLabel(
   scopeId: string,
@@ -103,7 +171,6 @@ function resolveScopeLabel(
 
 /**
  * Batch-fetch conversation titles for a set of private-scoped memory items.
- * Returns a Map from conversation ID → title (or null).
  */
 function buildConversationTitleMap(
   db: ReturnType<typeof getDb>,
@@ -133,20 +200,6 @@ function buildConversationTitleMap(
 // Semantic search constants
 // ---------------------------------------------------------------------------
 
-/**
- * Maximum number of candidate IDs fetched from Qdrant for semantic search.
- *
- * Kind-filtering and pagination happen *after* this fetch, so if a broad query
- * matches more items than this ceiling, results beyond it are silently excluded
- * — kind-filtered counts may be under-reported and offsets past this value are
- * unreachable. The limit exists to bound Qdrant query cost and the size of the
- * subsequent `IN (...)` SQL clauses (SQLite's SQLITE_MAX_VARIABLE_NUMBER is
- * 32,766 in Bun's bundled build, so 10k stays well within that).
- *
- * If this becomes a real bottleneck for large memory stores, consider pushing
- * kind/status filters into Qdrant payload filtering so the fetch limit only
- * needs to cover the final result set.
- */
 const SEMANTIC_SEARCH_FETCH_CEILING = 10_000;
 
 // ---------------------------------------------------------------------------
@@ -154,15 +207,14 @@ const SEMANTIC_SEARCH_FETCH_CEILING = 10_000;
 // ---------------------------------------------------------------------------
 
 /**
- * Attempt hybrid semantic search for memory items via Qdrant.
- * Returns ordered item IDs + total count on success, or `null` when
+ * Hybrid semantic search for graph nodes via Qdrant.
+ * Returns ordered node IDs + total count on success, or `null` when
  * the embedding backend / Qdrant is unavailable (caller falls back to SQL).
  */
-async function searchItemsSemantic(
+async function searchNodesSemantic(
   query: string,
   fetchLimit: number,
   kindFilter: string | null,
-  statusFilter: string,
 ): Promise<{ ids: string[]; total: number } | null> {
   try {
     const config = getConfig();
@@ -176,13 +228,10 @@ async function searchItemsSemantic(
     const sparse = generateSparseEmbedding(query);
     const sparseVector = { indices: sparse.indices, values: sparse.values };
 
-    // Build Qdrant filter — items only, exclude sentinel
+    // Filter to graph_node target_type, exclude gone nodes
     const mustConditions: Array<Record<string, unknown>> = [
-      { key: "target_type", match: { value: "item" } },
+      { key: "target_type", match: { value: "graph_node" } },
     ];
-    if (statusFilter && statusFilter !== "all") {
-      mustConditions.push({ key: "status", match: { value: statusFilter } });
-    }
     if (kindFilter) {
       mustConditions.push({ key: "kind", match: { value: kindFilter } });
     }
@@ -204,11 +253,6 @@ async function searchItemsSemantic(
     );
 
     const ids = results.map((r) => r.payload.target_id);
-
-    // Use the vector search result count as the pagination total.
-    // A DB-wide COUNT would include items with no embedding yet (lagging) and
-    // items irrelevant to the search query, inflating the total and causing
-    // clients to paginate into empty pages.
     return { ids, total: ids.length };
   } catch (err) {
     log.warn({ err }, "Semantic memory search failed, falling back to SQL");
@@ -229,10 +273,10 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
   const limitParam = Number(url.searchParams.get("limit") ?? 100);
   const offsetParam = Number(url.searchParams.get("offset") ?? 0);
 
-  if (kindParam && !isValidKind(kindParam)) {
+  if (kindParam && !isValidType(kindParam)) {
     return httpError(
       "BAD_REQUEST",
-      `Invalid kind "${kindParam}". Must be one of: ${VALID_KINDS.join(", ")}`,
+      `Invalid kind "${kindParam}". Must be one of: ${VALID_TYPES.join(", ")}`,
       400,
     );
   }
@@ -255,57 +299,62 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
   const db = getDb();
 
+  // Build fidelity filter based on status param
+  const fidelityFilter =
+    statusParam === "all"
+      ? undefined
+      : statusParam === "inactive"
+        ? eq(memoryGraphNodes.fidelity, "gone")
+        : notInArray(memoryGraphNodes.fidelity, ["gone"]);
+
   // ── Semantic search path ────────────────────────────────────────────
-  // When a search query is present, try Qdrant hybrid search first.
-  // Falls back to SQL LIKE when embeddings / Qdrant are unavailable.
   if (searchParam) {
-    // Search WITHOUT kind filter so we can compute cross-kind counts.
-    // Kind filtering is applied post-hoc while preserving relevance order.
-    const semanticResult = await searchItemsSemantic(
+    const semanticResult = await searchNodesSemantic(
       searchParam,
       SEMANTIC_SEARCH_FETCH_CEILING,
       null,
-      statusParam,
     );
 
     if (semanticResult && semanticResult.ids.length > 0) {
-      // Compute kindCounts from all semantic matches (no kind filter).
-      // Status filter is applied as defense-in-depth against stale Qdrant payloads.
-      const kindCountConditions = [inArray(memoryItems.id, semanticResult.ids)];
-      if (statusParam && statusParam !== "all") {
-        kindCountConditions.push(eq(memoryItems.status, statusParam));
-      }
+      // Compute kindCounts from all semantic matches
+      const kindCountConditions = [
+        inArray(memoryGraphNodes.id, semanticResult.ids),
+      ];
+      if (fidelityFilter) kindCountConditions.push(fidelityFilter);
+
       const kindCountRows = db
-        .select({ kind: memoryItems.kind, count: count() })
-        .from(memoryItems)
+        .select({ kind: memoryGraphNodes.type, count: count() })
+        .from(memoryGraphNodes)
         .where(and(...kindCountConditions))
-        .groupBy(memoryItems.kind)
+        .groupBy(memoryGraphNodes.type)
         .all();
       const semanticKindCounts: Record<string, number> = {};
       for (const row of kindCountRows) {
         semanticKindCounts[row.kind] = row.count;
       }
 
-      // Apply kind filter while preserving semantic relevance ordering.
-      // Status filter is applied here too for defense-in-depth consistency.
+      // Apply kind + fidelity filter while preserving semantic relevance ordering
       let filteredIds = semanticResult.ids;
-      if (kindParam) {
-        const kindFilterConditions = [
-          inArray(memoryItems.id, semanticResult.ids),
-          eq(memoryItems.kind, kindParam),
+      {
+        const filterConditions = [
+          inArray(memoryGraphNodes.id, semanticResult.ids),
         ];
-        if (statusParam && statusParam !== "all") {
-          kindFilterConditions.push(eq(memoryItems.status, statusParam));
+        if (kindParam) {
+          filterConditions.push(eq(memoryGraphNodes.type, kindParam));
         }
-        const kindIdSet = new Set(
-          db
-            .select({ id: memoryItems.id })
-            .from(memoryItems)
-            .where(and(...kindFilterConditions))
-            .all()
-            .map((r) => r.id),
-        );
-        filteredIds = semanticResult.ids.filter((id) => kindIdSet.has(id));
+        if (fidelityFilter) filterConditions.push(fidelityFilter);
+
+        if (filterConditions.length > 1) {
+          const validIdSet = new Set(
+            db
+              .select({ id: memoryGraphNodes.id })
+              .from(memoryGraphNodes)
+              .where(and(...filterConditions))
+              .all()
+              .map((r) => r.id),
+          );
+          filteredIds = semanticResult.ids.filter((id) => validIdSet.has(id));
+        }
       }
 
       const total = filteredIds.length;
@@ -319,19 +368,15 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
         });
       }
 
-      // Re-apply DB-side filters as defense-in-depth against stale Qdrant
-      // payloads leaking deleted/mismatched rows.
-      const hydrationConditions = [inArray(memoryItems.id, pageIds)];
-      if (statusParam && statusParam !== "all") {
-        hydrationConditions.push(eq(memoryItems.status, statusParam));
-      }
-      if (kindParam) {
-        hydrationConditions.push(eq(memoryItems.kind, kindParam));
-      }
+      // Hydrate nodes from DB
+      const hydrationConditions = [inArray(memoryGraphNodes.id, pageIds)];
+      if (fidelityFilter) hydrationConditions.push(fidelityFilter);
+      if (kindParam)
+        hydrationConditions.push(eq(memoryGraphNodes.type, kindParam));
 
       const rows = db
         .select()
-        .from(memoryItems)
+        .from(memoryGraphNodes)
         .where(and(...hydrationConditions))
         .all();
 
@@ -341,44 +386,34 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
       const titleMap = buildConversationTitleMap(
         db,
-        rows.map((i) => i.scopeId),
+        rows.map((r) => r.scopeId),
       );
-      const enrichedItems = rows.map((item) => ({
-        ...item,
-        scopeLabel: resolveScopeLabel(item.scopeId, titleMap),
-      }));
-
-      return Response.json({
-        items: enrichedItems,
-        total,
-        kindCounts: semanticKindCounts,
+      const items = rows.map((row) => {
+        const node = rowToNode(row);
+        return nodeToPayload(node, resolveScopeLabel(node.scopeId, titleMap));
       });
+
+      return Response.json({ items, total, kindCounts: semanticKindCounts });
     }
-    // semanticResult was null (Qdrant unavailable) or empty — fall through to SQL
+    // Fall through to SQL path
   }
 
   // ── Kind counts for SQL path ───────────────────────────────────────
-  // Respects status/search filters but NOT kind filter, so the sidebar
-  // can show totals for every kind simultaneously.
   const kindCountConditions = [];
-  if (statusParam && statusParam !== "all") {
-    kindCountConditions.push(eq(memoryItems.status, statusParam));
-  }
+  if (fidelityFilter) kindCountConditions.push(fidelityFilter);
   if (searchParam) {
     kindCountConditions.push(
-      or(
-        like(memoryItems.subject, `%${searchParam}%`),
-        like(memoryItems.statement, `%${searchParam}%`),
-      )!,
+      like(memoryGraphNodes.content, `%${searchParam}%`),
     );
   }
   const kindCountWhere =
     kindCountConditions.length > 0 ? and(...kindCountConditions) : undefined;
+
   const sqlKindCountRows = db
-    .select({ kind: memoryItems.kind, count: count() })
-    .from(memoryItems)
+    .select({ kind: memoryGraphNodes.type, count: count() })
+    .from(memoryGraphNodes)
     .where(kindCountWhere)
-    .groupBy(memoryItems.kind)
+    .groupBy(memoryGraphNodes.type)
     .all();
   const kindCounts: Record<string, number> = {};
   for (const row of sqlKindCountRows) {
@@ -387,19 +422,10 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
   // ── SQL path (default or fallback) ──────────────────────────────────
   const conditions = [];
-  if (statusParam && statusParam !== "all") {
-    conditions.push(eq(memoryItems.status, statusParam));
-  }
-  if (kindParam) {
-    conditions.push(eq(memoryItems.kind, kindParam));
-  }
+  if (fidelityFilter) conditions.push(fidelityFilter);
+  if (kindParam) conditions.push(eq(memoryGraphNodes.type, kindParam));
   if (searchParam) {
-    conditions.push(
-      or(
-        like(memoryItems.subject, `%${searchParam}%`),
-        like(memoryItems.statement, `%${searchParam}%`),
-      )!,
-    );
+    conditions.push(like(memoryGraphNodes.content, `%${searchParam}%`));
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -407,7 +433,7 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
   // Count query
   const countResult = db
     .select({ count: count() })
-    .from(memoryItems)
+    .from(memoryGraphNodes)
     .where(whereClause)
     .get();
   const total = countResult?.count ?? 0;
@@ -416,26 +442,25 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
   const sortColumn = SORT_COLUMN_MAP[sortParam];
   const orderFn = orderParam === "asc" ? asc : desc;
 
-  const items = db
+  const rows = db
     .select()
-    .from(memoryItems)
+    .from(memoryGraphNodes)
     .where(whereClause)
     .orderBy(orderFn(sortColumn))
     .limit(limitParam)
     .offset(offsetParam)
     .all();
 
-  // Resolve scope labels for private-scoped items
   const titleMap = buildConversationTitleMap(
     db,
-    items.map((i) => i.scopeId),
+    rows.map((r) => r.scopeId),
   );
-  const enrichedItems = items.map((item) => ({
-    ...item,
-    scopeLabel: resolveScopeLabel(item.scopeId, titleMap),
-  }));
+  const items = rows.map((row) => {
+    const node = rowToNode(row);
+    return nodeToPayload(node, resolveScopeLabel(node.scopeId, titleMap));
+  });
 
-  return Response.json({ items: enrichedItems, total, kindCounts });
+  return Response.json({ items, total, kindCounts });
 }
 
 // ---------------------------------------------------------------------------
@@ -444,51 +469,17 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
 export function handleGetMemoryItem(ctx: RouteContext): Response {
   const { id } = ctx.params;
-  const db = getDb();
 
-  const item = db
-    .select()
-    .from(memoryItems)
-    .where(eq(memoryItems.id, id))
-    .get();
-
-  if (!item) {
+  const node = getNode(id);
+  if (!node) {
     return httpError("NOT_FOUND", "Memory item not found", 404);
   }
 
-  let supersedesSubject: string | undefined;
-  let supersededBySubject: string | undefined;
+  const db = getDb();
+  const titleMap = buildConversationTitleMap(db, [node.scopeId]);
+  const scopeLabel = resolveScopeLabel(node.scopeId, titleMap);
 
-  if (item.supersedes) {
-    const superseded = db
-      .select({ subject: memoryItems.subject })
-      .from(memoryItems)
-      .where(eq(memoryItems.id, item.supersedes))
-      .get();
-    supersedesSubject = superseded?.subject;
-  }
-
-  if (item.supersededBy) {
-    const superseding = db
-      .select({ subject: memoryItems.subject })
-      .from(memoryItems)
-      .where(eq(memoryItems.id, item.supersededBy))
-      .get();
-    supersededBySubject = superseding?.subject;
-  }
-
-  // Resolve scope label
-  const titleMap = buildConversationTitleMap(db, [item.scopeId]);
-  const scopeLabel = resolveScopeLabel(item.scopeId, titleMap);
-
-  return Response.json({
-    item: {
-      ...item,
-      scopeLabel,
-      ...(supersedesSubject !== undefined ? { supersedesSubject } : {}),
-      ...(supersededBySubject !== undefined ? { supersededBySubject } : {}),
-    },
-  });
+  return Response.json({ item: nodeToPayload(node, scopeLabel) });
 }
 
 // ---------------------------------------------------------------------------
@@ -507,25 +498,14 @@ export async function handleCreateMemoryItem(
 
   const { kind, subject, statement, importance } = body;
 
-  // Validate kind
-  if (typeof kind !== "string" || !isValidKind(kind)) {
+  if (typeof kind !== "string" || !isValidType(kind)) {
     return httpError(
       "BAD_REQUEST",
-      `kind is required and must be one of: ${VALID_KINDS.join(", ")}`,
+      `kind is required and must be one of: ${VALID_TYPES.join(", ")}`,
       400,
     );
   }
 
-  // Validate subject
-  if (typeof subject !== "string" || subject.trim().length === 0) {
-    return httpError(
-      "BAD_REQUEST",
-      "subject is required and must be a non-empty string",
-      400,
-    );
-  }
-
-  // Validate statement
   if (typeof statement !== "string" || statement.trim().length === 0) {
     return httpError(
       "BAD_REQUEST",
@@ -534,27 +514,21 @@ export async function handleCreateMemoryItem(
     );
   }
 
-  const trimmedSubject = subject.trim();
+  const trimmedSubject = typeof subject === "string" ? subject.trim() : "";
   const trimmedStatement = statement.trim();
+  const content = trimmedSubject
+    ? `${trimmedSubject}\n${trimmedStatement}`
+    : trimmedStatement;
 
-  const scopeId = "default";
-  const fingerprint = computeMemoryFingerprint(
-    scopeId,
-    kind,
-    trimmedSubject,
-    trimmedStatement,
-  );
-
+  // Check for duplicate content
   const db = getDb();
-
-  // Check for existing item with same fingerprint + scopeId
   const existing = db
-    .select()
-    .from(memoryItems)
+    .select({ id: memoryGraphNodes.id })
+    .from(memoryGraphNodes)
     .where(
       and(
-        eq(memoryItems.fingerprint, fingerprint),
-        eq(memoryItems.scopeId, scopeId),
+        eq(memoryGraphNodes.content, content),
+        ne(memoryGraphNodes.fidelity, "gone"),
       ),
     )
     .get();
@@ -567,44 +541,43 @@ export async function handleCreateMemoryItem(
     );
   }
 
-  const id = uuid();
   const now = Date.now();
+  const newNode: NewNode = {
+    content,
+    type: kind as MemoryType,
+    created: now,
+    lastAccessed: now,
+    lastConsolidated: now,
+    eventDate: null,
+    emotionalCharge: {
+      valence: 0,
+      intensity: 0.1,
+      decayCurve: "linear",
+      decayRate: 0.05,
+      originalIntensity: 0.1,
+    },
+    fidelity: "vivid",
+    confidence: 0.95,
+    significance: importance ?? 0.8,
+    stability: 14,
+    reinforcementCount: 0,
+    lastReinforced: now,
+    sourceConversations: [],
+    sourceType: "direct",
+    narrativeRole: null,
+    partOfStory: null,
+    imageRefs: null,
+    scopeId: "default",
+  };
 
-  db.insert(memoryItems)
-    .values({
-      id,
-      kind,
-      subject: trimmedSubject,
-      statement: trimmedStatement,
-      status: "active",
-      confidence: 0.95,
-      importance: importance ?? 0.8,
-      fingerprint,
-      sourceType: "tool",
-      verificationState: "user_confirmed",
-      scopeId,
-      firstSeenAt: now,
-      lastSeenAt: now,
-      lastUsedAt: null,
-      overrideConfidence: "explicit",
-    })
-    .run();
+  const created = createNode(newNode);
+  enqueueMemoryJob("embed_graph_node", { nodeId: created.id });
 
-  enqueueMemoryJob("embed_item", { itemId: id });
-
-  // Fetch the inserted row to return it
-  const insertedRow = db
-    .select()
-    .from(memoryItems)
-    .where(eq(memoryItems.id, id))
-    .get();
-
-  // Enrich with scopeLabel for API consistency
-  const titleMap = buildConversationTitleMap(db, [scopeId]);
-  const scopeLabel = resolveScopeLabel(scopeId, titleMap);
+  const titleMap = buildConversationTitleMap(db, [created.scopeId]);
+  const scopeLabel = resolveScopeLabel(created.scopeId, titleMap);
 
   return Response.json(
-    { item: { ...insertedRow, scopeLabel } },
+    { item: nodeToPayload(created, scopeLabel) },
     { status: 201 },
   );
 }
@@ -617,114 +590,82 @@ export async function handleUpdateMemoryItem(
   ctx: RouteContext,
 ): Promise<Response> {
   const { id } = ctx.params;
+
+  const existing = getNode(id);
+  if (!existing) {
+    return httpError("NOT_FOUND", "Memory item not found", 404);
+  }
+
   const body = (await ctx.req.json()) as {
     subject?: string;
     statement?: string;
     kind?: string;
     status?: string;
     importance?: number;
-    sourceType?: string;
-    verificationState?: string;
   };
 
-  const db = getDb();
-
-  const existing = db
-    .select()
-    .from(memoryItems)
-    .where(eq(memoryItems.id, id))
-    .get();
-
-  if (!existing) {
-    return httpError("NOT_FOUND", "Memory item not found", 404);
-  }
-
-  // Build the update set with only provided fields
-  const set: Record<string, unknown> = {
-    lastSeenAt: Date.now(),
+  const changes: Partial<Omit<MemoryNode, "id">> = {
+    lastAccessed: Date.now(),
   };
 
-  if (body.subject !== undefined) {
-    if (typeof body.subject !== "string") {
-      return httpError("BAD_REQUEST", "subject must be a string", 400);
+  // Rebuild content if subject or statement changed
+  const { subject: existingSubject, statement: existingStatement } =
+    splitContent(existing.content);
+  const newSubject =
+    body.subject !== undefined ? body.subject.trim() : existingSubject;
+  const newStatement =
+    body.statement !== undefined ? body.statement.trim() : existingStatement;
+
+  let contentChanged = false;
+  if (body.subject !== undefined || body.statement !== undefined) {
+    const newContent = newSubject
+      ? `${newSubject}\n${newStatement}`
+      : newStatement;
+    if (newContent !== existing.content) {
+      changes.content = newContent;
+      contentChanged = true;
     }
-    set.subject = body.subject.trim();
   }
-  if (body.statement !== undefined) {
-    if (typeof body.statement !== "string") {
-      return httpError("BAD_REQUEST", "statement must be a string", 400);
-    }
-    set.statement = body.statement.trim();
-  }
+
   if (body.kind !== undefined) {
-    if (!isValidKind(body.kind)) {
+    if (!isValidType(body.kind)) {
       return httpError(
         "BAD_REQUEST",
-        `Invalid kind "${body.kind}". Must be one of: ${VALID_KINDS.join(", ")}`,
+        `Invalid kind "${body.kind}". Must be one of: ${VALID_TYPES.join(", ")}`,
         400,
       );
     }
-    set.kind = body.kind;
-  }
-  if (body.status !== undefined) {
-    set.status = body.status;
-  }
-  if (body.importance !== undefined) {
-    set.importance = body.importance;
-  }
-  if (body.sourceType !== undefined) {
-    set.sourceType = body.sourceType;
+    changes.type = body.kind as MemoryType;
   }
 
-  // Accept verificationState from clients that haven't migrated to sourceType yet.
-  // Map verificationState → sourceType for forward compat, and write both fields.
-  if (body.verificationState !== undefined) {
-    set.verificationState = body.verificationState;
-    // Map verificationState to sourceType if sourceType wasn't explicitly provided
-    if (body.sourceType === undefined) {
-      set.sourceType =
-        body.verificationState === "user_confirmed" ? "tool" : "extraction";
+  if (body.status !== undefined) {
+    // Map client status to fidelity
+    if (body.status === "superseded" || body.status === "inactive") {
+      changes.fidelity = "gone";
+    } else if (body.status === "active") {
+      changes.fidelity = "vivid";
     }
   }
-  // If sourceType was set (either directly or via mapping), also write verificationState
-  if (body.sourceType !== undefined && body.verificationState === undefined) {
-    set.verificationState =
-      body.sourceType === "tool"
-        ? "user_confirmed"
-        : existing.verificationState === "user_reported"
-          ? "user_reported"
-          : "assistant_inferred";
+
+  if (body.importance !== undefined) {
+    changes.significance = body.importance;
   }
 
-  // If subject, statement, or kind changed, recompute fingerprint
-  const contentChanged =
-    body.subject !== undefined ||
-    body.statement !== undefined ||
-    body.kind !== undefined;
-
-  if (contentChanged) {
-    const newSubject = (set.subject as string | undefined) ?? existing.subject;
-    const newStatement =
-      (set.statement as string | undefined) ?? existing.statement;
-    const newKind = (set.kind as string | undefined) ?? existing.kind;
-    const scopeId = existing.scopeId;
-
-    const fingerprint = computeMemoryFingerprint(
-      scopeId,
-      newKind,
-      newSubject,
-      newStatement,
-    );
-
-    // Check for collision (exclude self)
+  // Check for content collision when content changed OR when reactivating a
+  // gone item (which could duplicate an existing active item's content).
+  const reactivating =
+    changes.fidelity === "vivid" && existing.fidelity === "gone";
+  if (contentChanged || reactivating) {
+    const contentToCheck = changes.content ?? existing.content;
+    const db = getDb();
     const collision = db
-      .select({ id: memoryItems.id })
-      .from(memoryItems)
+      .select({ id: memoryGraphNodes.id })
+      .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryItems.fingerprint, fingerprint),
-          eq(memoryItems.scopeId, scopeId),
-          ne(memoryItems.id, id),
+          eq(memoryGraphNodes.content, contentToCheck),
+          ne(memoryGraphNodes.id, id),
+          ne(memoryGraphNodes.fidelity, "gone"),
         ),
       )
       .get();
@@ -736,36 +677,25 @@ export async function handleUpdateMemoryItem(
         409,
       );
     }
-
-    set.fingerprint = fingerprint;
   }
 
-  db.update(memoryItems).set(set).where(eq(memoryItems.id, id)).run();
+  updateNode(id, changes);
 
-  // If statement changed, enqueue embed job
-  if (body.statement !== undefined) {
-    enqueueMemoryJob("embed_item", { itemId: id });
+  if (contentChanged) {
+    enqueueMemoryJob("embed_graph_node", { nodeId: id });
   }
 
-  // Fetch and return the updated row
-  const updatedRow = db
-    .select()
-    .from(memoryItems)
-    .where(eq(memoryItems.id, id))
-    .get();
+  // Fetch updated node
+  const updated = getNode(id);
+  if (!updated) {
+    return httpError("NOT_FOUND", "Memory item not found after update", 404);
+  }
 
-  // Enrich with scopeLabel for API consistency
-  const patchTitleMap = buildConversationTitleMap(db, [
-    updatedRow?.scopeId ?? existing.scopeId,
-  ]);
-  const patchScopeLabel = resolveScopeLabel(
-    updatedRow?.scopeId ?? existing.scopeId,
-    patchTitleMap,
-  );
+  const db = getDb();
+  const titleMap = buildConversationTitleMap(db, [updated.scopeId]);
+  const scopeLabel = resolveScopeLabel(updated.scopeId, titleMap);
 
-  return Response.json({
-    item: { ...updatedRow, scopeLabel: patchScopeLabel },
-  });
+  return Response.json({ item: nodeToPayload(updated, scopeLabel) });
 }
 
 // ---------------------------------------------------------------------------
@@ -776,32 +706,55 @@ export async function handleDeleteMemoryItem(
   ctx: RouteContext,
 ): Promise<Response> {
   const { id } = ctx.params;
-  const db = getDb();
 
-  const existing = db
-    .select()
-    .from(memoryItems)
-    .where(eq(memoryItems.id, id))
-    .get();
-
+  const existing = getNode(id);
   if (!existing) {
     return httpError("NOT_FOUND", "Memory item not found", 404);
   }
 
-  // Delete embeddings for this item
-  db.delete(memoryEmbeddings)
-    .where(
-      and(
-        eq(memoryEmbeddings.targetType, "item"),
-        eq(memoryEmbeddings.targetId, id),
-      ),
-    )
-    .run();
+  // Hard-delete the node (cascades to edges and triggers via FK)
+  deleteNode(id);
 
-  // Delete the item (cascades memoryItemSources)
-  db.delete(memoryItems).where(eq(memoryItems.id, id)).run();
+  // Clean up Qdrant vectors asynchronously
+  enqueueMemoryJob("delete_qdrant_vectors", {
+    targetType: "graph_node",
+    targetId: id,
+  });
 
   return new Response(null, { status: 204 });
+}
+
+// ---------------------------------------------------------------------------
+// Row → MemoryNode helper (inline version of store's rowToNode)
+// ---------------------------------------------------------------------------
+
+function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
+  return {
+    id: row.id,
+    content: row.content,
+    type: row.type as MemoryType,
+    created: row.created,
+    lastAccessed: row.lastAccessed,
+    lastConsolidated: row.lastConsolidated,
+    eventDate: row.eventDate ?? null,
+    emotionalCharge: JSON.parse(row.emotionalCharge),
+    fidelity: row.fidelity as Fidelity,
+    confidence: row.confidence,
+    significance: row.significance,
+    stability: row.stability,
+    reinforcementCount: row.reinforcementCount,
+    lastReinforced: row.lastReinforced,
+    sourceConversations: JSON.parse(row.sourceConversations) as string[],
+    sourceType: row.sourceType as
+      | "direct"
+      | "inferred"
+      | "observed"
+      | "told-by-other",
+    narrativeRole: row.narrativeRole,
+    partOfStory: row.partOfStory,
+    imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
+    scopeId: row.scopeId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -865,14 +818,13 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       policyKey: "memory-items",
       summary: "Get a memory item",
-      description:
-        "Return a single memory item by ID with supersession metadata.",
+      description: "Return a single memory item by ID with graph metadata.",
       tags: ["memory"],
       responseBody: z.object({
         item: z
           .object({})
           .passthrough()
-          .describe("Memory item with scopeLabel and supersession info"),
+          .describe("Memory item with scopeLabel and graph metadata"),
       }),
       handler: (ctx) => handleGetMemoryItem(ctx),
     },
@@ -880,13 +832,16 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
       endpoint: "memory-items",
       method: "POST",
       summary: "Create a memory item",
-      description: "Create a new memory item and enqueue embedding.",
+      description: "Create a new memory graph node and enqueue embedding.",
       tags: ["memory"],
       requestBody: z.object({
         kind: z
           .string()
-          .describe("Memory kind (identity, preference, project, etc.)"),
-        subject: z.string().describe("Subject line"),
+          .describe("Memory type (episodic, semantic, procedural, etc.)"),
+        subject: z
+          .string()
+          .describe("Subject line (first line of content)")
+          .optional(),
         statement: z.string().describe("Statement content"),
         importance: z
           .number()
@@ -903,16 +858,14 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
       method: "PATCH",
       policyKey: "memory-items",
       summary: "Update a memory item",
-      description: "Partially update fields on an existing memory item.",
+      description: "Partially update fields on an existing memory graph node.",
       tags: ["memory"],
       requestBody: z.object({
-        subject: z.string(),
-        statement: z.string(),
-        kind: z.string(),
-        status: z.string(),
-        importance: z.number(),
-        sourceType: z.string(),
-        verificationState: z.string(),
+        subject: z.string().optional(),
+        statement: z.string().optional(),
+        kind: z.string().optional(),
+        status: z.string().optional(),
+        importance: z.number().optional(),
       }),
       responseBody: z.object({
         item: z.object({}).passthrough().describe("Updated memory item"),
@@ -924,7 +877,7 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
       method: "DELETE",
       policyKey: "memory-items",
       summary: "Delete a memory item",
-      description: "Delete a memory item and its embeddings.",
+      description: "Delete a memory graph node and its embeddings.",
       tags: ["memory"],
       responseBody: z.object({
         ok: z.boolean(),

@@ -19,9 +19,10 @@ struct SidebarConversationsHeader: View {
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
-            Text("Conversations")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(VColor.contentDefault)
+            Text("Threads")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentTertiary)
+                .padding(.leading, VSpacing.xs)
             Spacer()
             HStack(spacing: VSpacing.xs) {
                 if hasUnseenConversations {
@@ -41,11 +42,11 @@ struct SidebarConversationsHeader: View {
                         style: .ghost,
                         action: onCreateGroup
                     )
+                    .disabled(isLoading)
                     .vTooltip("New group")
                 }
                 VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewConversation)
                     .disabled(isLoading)
-                    .opacity(isLoading ? 0.4 : 1)
                     .vTooltip(newChatTooltip)
             }
         }

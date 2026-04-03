@@ -10,6 +10,10 @@ import {
   NOTIFICATION_SOURCE_EVENT_NAMES,
 } from "../../notifications/signal.js";
 import type { NotificationChannel } from "../../notifications/types.js";
+import {
+  initAuthSigningKey,
+  resolveSigningKey,
+} from "../../runtime/auth/token-service.js";
 import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -159,7 +163,7 @@ Examples:
           visibleInSourceNow: boolean;
           deadlineAt?: string;
           preferredChannels?: string;
-          conversationId?: string;
+          sessionId?: string;
           dedupeKey?: string;
         },
         cmd: Command,
@@ -251,8 +255,9 @@ Examples:
           }
 
           initializeDb();
+          initAuthSigningKey(resolveSigningKey());
 
-          const sourceContextId = opts.conversationId ?? `cli-${Date.now()}`;
+          const sourceContextId = opts.sessionId ?? `cli-${Date.now()}`;
 
           const result = await emitNotificationSignal({
             sourceEventName: opts.sourceEventName,

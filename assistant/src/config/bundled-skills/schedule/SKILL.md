@@ -101,9 +101,9 @@ Optionally pass `routing_hints` (a JSON object) to influence routing decisions (
 
 - **Default to `all_channels`** for most notifications. Users usually want to be notified wherever they are.
 - **Use `single_channel`** only when the user explicitly specifies a single channel (e.g. "remind me on Telegram").
-- **Check `user_message_channel` (or `channel` when all channels are the same)** from the turn context. If the user is currently active on a specific channel, include it as a routing hint:
+- **Check the `source_channel` field** from the `<turn_context>` block (not `interface` — interface values like `macos`, `ios`, `cli` are not valid channel names). If present, include it as a routing hint:
   ```
-  routing_hints: { preferred_channels: ["vellum"] }
+  routing_hints: { preferred_channels: ["<source_channel value>"] }
   routing_intent: "all_channels"
   ```
 

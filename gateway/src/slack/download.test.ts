@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { ContentMismatchError } from "../download-validation.js";
 import type { SlackFile } from "./normalize.js";
 
 type FetchFn = (
@@ -67,9 +68,7 @@ describe("downloadSlackFile", () => {
 
     expect(result.filename).toBe("test-image.png");
     expect(result.mimeType).toBe("image/png");
-    expect(result.data).toBe(
-      Buffer.from(fileBuffer).toString("base64"),
-    );
+    expect(result.data).toBe(Buffer.from(fileBuffer).toString("base64"));
 
     // Verify the correct URL and auth header were used
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -101,21 +100,68 @@ describe("downloadSlackFile", () => {
       url_private: undefined,
     });
 
-    await expect(
-      downloadSlackFile(file, "xoxb-test-token"),
-    ).rejects.toThrow("Slack file F12345 has no download URL");
+    await expect(downloadSlackFile(file, "xoxb-test-token")).rejects.toThrow(
+      "Slack file F12345 has no download URL",
+    );
   });
 
-  test("throws on HTTP error response", async () => {
+  test("uses redirect: manual to prevent auth header stripping", async () => {
+    const fileBuffer = makePngBuffer();
+    fetchMock = mock(async () => new Response(fileBuffer));
+
+    const file = makeSlackFile();
+    await downloadSlackFile(file, "xoxb-test-token");
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect((init as RequestInit).redirect).toBe("manual");
+  });
+
+  test("follows redirect to CDN without auth header", async () => {
+    const fileBuffer = makePngBuffer();
+    let callCount = 0;
+    fetchMock = mock(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "https://files-edge.slack.com/signed/F12345" },
+        });
+      }
+      return new Response(fileBuffer);
+    });
+
+    const file = makeSlackFile();
+    const result = await downloadSlackFile(file, "xoxb-test-token");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Second call should be to the redirect URL without auth
+    const [redirectUrl, redirectInit] = fetchMock.mock.calls[1];
+    expect(redirectUrl).toBe("https://files-edge.slack.com/signed/F12345");
+    expect((redirectInit as RequestInit).headers).toBeUndefined();
+    expect(result.mimeType).toBe("image/png");
+  });
+
+  test("throws when redirect has no Location header", async () => {
     fetchMock = mock(
-      async () => new Response("Forbidden", { status: 403, statusText: "Forbidden" }),
+      async () => new Response(null, { status: 302 }),
     );
 
     const file = makeSlackFile();
 
-    await expect(
-      downloadSlackFile(file, "xoxb-test-token"),
-    ).rejects.toThrow(
+    await expect(downloadSlackFile(file, "xoxb-test-token")).rejects.toThrow(
+      "returned 302 redirect with no Location header",
+    );
+  });
+
+  test("throws on HTTP error response", async () => {
+    fetchMock = mock(
+      async () =>
+        new Response("Forbidden", { status: 403, statusText: "Forbidden" }),
+    );
+
+    const file = makeSlackFile();
+
+    await expect(downloadSlackFile(file, "xoxb-test-token")).rejects.toThrow(
       "Failed to download Slack file F12345: 403 Forbidden",
     );
   });
@@ -179,5 +225,30 @@ describe("downloadSlackFile", () => {
     const result = await downloadSlackFile(file, "xoxb-test-token");
 
     expect(result.filename).toBe("slack_file_F12345");
+  });
+
+  test("throws ContentMismatchError when Slack returns HTML error page", async () => {
+    const htmlBuffer = new TextEncoder().encode(
+      "<!DOCTYPE html><html><body><h1>Error</h1></body></html>",
+    ).buffer;
+    fetchMock = mock(async () => new Response(htmlBuffer));
+
+    const file = makeSlackFile({ mimetype: "image/png" });
+
+    await expect(
+      downloadSlackFile(file, "xoxb-test-token"),
+    ).rejects.toBeInstanceOf(ContentMismatchError);
+  });
+
+  test("succeeds with valid image data when validation is active", async () => {
+    const fileBuffer = makePngBuffer();
+    fetchMock = mock(async () => new Response(fileBuffer));
+
+    const file = makeSlackFile({ mimetype: "image/png" });
+    const result = await downloadSlackFile(file, "xoxb-test-token");
+
+    expect(result.filename).toBe("test-image.png");
+    expect(result.mimeType).toBe("image/png");
+    expect(result.data).toBe(Buffer.from(fileBuffer).toString("base64"));
   });
 });

@@ -8,6 +8,17 @@ private final class AttributedStringCacheEntry: NSObject {
     init(_ attributedString: AttributedString) { self.attributedString = attributedString }
 }
 
+#if os(macOS)
+private final class MeasuredTextCacheEntry: NSObject {
+    let nsAttributedString: NSAttributedString
+    let size: CGSize
+    init(nsAttributedString: NSAttributedString, size: CGSize) {
+        self.nsAttributedString = nsAttributedString
+        self.size = size
+    }
+}
+#endif
+
 /// Reusable view that renders parsed `MarkdownSegment` arrays.
 /// Groups consecutive text-selectable segments (text, headings, lists) into
 /// unified Text views so that text selection can span across paragraphs.
@@ -45,17 +56,7 @@ struct MarkdownSegmentView: View, Equatable {
                 switch group {
                 case .selectableRun(let runSegments):
                     #if os(macOS)
-                    let attributed = buildCombinedAttributedString(from: runSegments)
-                    let nsAttributed = Self.convertToNSAttributedString(
-                        attributed,
-                        font: VFont.nsChat,
-                        textColor: NSColor(textColor)
-                    )
-                    let measuredSize = VSelectableTextView.measureSize(
-                        attributedString: nsAttributed,
-                        lineSpacing: 4,
-                        maxWidth: maxContentWidth ?? VSpacing.chatBubbleMaxWidth
-                    )
+                    let (nsAttributed, measuredSize) = resolveSelectableRunMeasurement(runSegments)
                     VSelectableTextView(
                         attributedString: nsAttributed,
                         maxWidth: maxContentWidth,
@@ -75,21 +76,6 @@ struct MarkdownSegmentView: View, Equatable {
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
                     #endif
-
-                case .heading(let level, let headingText):
-                    let headingFont: Font = switch level {
-                    case 1: .system(size: 20, weight: .bold)
-                    case 2: .system(size: 16, weight: .semibold)
-                    case 3: .system(size: 14, weight: .semibold)
-                    default: .system(size: 14, weight: .semibold)
-                    }
-                    Text(headingText)
-                        .font(headingFont)
-                        .foregroundStyle(textColor)
-                        .optionalMaxWidth(maxContentWidth)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, level == 1 ? 4 : 2)
 
                 case .codeBlock(let language, let code):
                     CodeBlockView(
@@ -126,10 +112,8 @@ struct MarkdownSegmentView: View, Equatable {
 
     /// Groups of segments for rendering.
     private enum SegmentGroup {
-        /// Consecutive text paragraphs combined for cross-paragraph selection.
+        /// Consecutive text paragraphs and headings combined for cross-paragraph selection.
         case selectableRun([MarkdownSegment])
-        /// A heading rendered as its own block for spacing control.
-        case heading(level: Int, text: String)
         case codeBlock(language: String?, code: String)
         case table(headers: [String], rows: [[String]])
         case image(alt: String, url: String)
@@ -183,9 +167,8 @@ struct MarkdownSegmentView: View, Equatable {
             switch segment {
             case .text:
                 currentRun.append(segment)
-            case .heading(let level, let text):
-                flushRun()
-                groups.append(.heading(level: level, text: text))
+            case .heading:
+                currentRun.append(segment)
             case .list:
                 currentRun.append(segment)
             case .codeBlock(let language, let code):
@@ -221,6 +204,21 @@ struct MarkdownSegmentView: View, Equatable {
         return cache
     }()
 
+    #if os(macOS)
+    @MainActor private static var measuredTextCache: NSCache<NSNumber, MeasuredTextCacheEntry> = {
+        let cache = NSCache<NSNumber, MeasuredTextCacheEntry>()
+        cache.countLimit = 500
+        cache.totalCostLimit = 20_000_000 // ~20 MB
+        return cache
+    }()
+
+    #if DEBUG
+    /// Exposed for testing: number of cache insertions into `measuredTextCache`.
+    /// NSCache doesn't expose its count, so we maintain a parallel counter.
+    @MainActor static var _measuredTextCacheInsertCount: Int = 0
+    #endif
+    #endif
+
     // MARK: - Cache Guardrails
 
     private static let maxCacheableTextLength = 10_000
@@ -234,6 +232,12 @@ struct MarkdownSegmentView: View, Equatable {
         prefixWidthCache.removeAll()
         groupedSegmentsCache.removeAll()
         MarkdownTableView.clearCellAttributedStringCache()
+        #if os(macOS)
+        measuredTextCache.removeAllObjects()
+        #if DEBUG
+        _measuredTextCacheInsertCount = 0
+        #endif
+        #endif
     }
 
     /// Rough character count of the text content within a segment array.
@@ -286,6 +290,56 @@ struct MarkdownSegmentView: View, Equatable {
         return result
     }
 
+    #if os(macOS)
+    /// Computes or retrieves from cache the `(NSAttributedString, CGSize)` pair
+    /// for a selectable text run.  `internal` so `@testable import` tests can
+    /// exercise the cache directly (SwiftUI `body` evaluation does not force
+    /// `ForEach` row closures to execute in a unit-test context).
+    @MainActor func resolveSelectableRunMeasurement(
+        _ runSegments: [MarkdownSegment]
+    ) -> (NSAttributedString, CGSize) {
+        var hasher = Hasher()
+        for segment in runSegments { hasher.combine(segment) }
+        hasher.combine(textColor.description)
+        hasher.combine(secondaryTextColor.description)
+        hasher.combine(codeTextColor.description)
+        hasher.combine(codeBackgroundColor.description)
+        let effectiveMaxWidth = maxContentWidth ?? VSpacing.chatBubbleMaxWidth
+        hasher.combine(effectiveMaxWidth)
+        let key = hasher.finalize()
+
+        let keyNS = key as NSNumber
+        if let cached = Self.measuredTextCache.object(forKey: keyNS) {
+            return (cached.nsAttributedString, cached.size)
+        }
+
+        os_signpost(.begin, log: PerfSignposts.log, name: "selectableRunMeasure")
+        let attributed = buildCombinedAttributedString(from: runSegments)
+        let nsAttributed = Self.convertToNSAttributedString(
+            attributed, font: VFont.nsChat, textColor: NSColor(textColor)
+        )
+        let size = VSelectableTextView.measureSize(
+            attributedString: nsAttributed,
+            lineSpacing: 4,
+            maxWidth: effectiveMaxWidth
+        )
+        os_signpost(.end, log: PerfSignposts.log, name: "selectableRunMeasure")
+
+        let textLen = Self.segmentTextLength(runSegments)
+        if textLen <= Self.maxCacheableTextLength {
+            Self.measuredTextCache.setObject(
+                MeasuredTextCacheEntry(nsAttributedString: nsAttributed, size: size),
+                forKey: keyNS,
+                cost: textLen * 15
+            )
+            #if DEBUG
+            Self._measuredTextCacheInsertCount += 1
+            #endif
+        }
+        return (nsAttributed, size)
+    }
+    #endif
+
     /// Pure builder with no side effects — separated for caching.
     private static func buildAttributedStringUncached(
         from segments: [MarkdownSegment],
@@ -309,6 +363,24 @@ struct MarkdownSegmentView: View, Equatable {
                     ?? AttributedString(text)
                 result += attributed
 
+            case .heading(let level, let text):
+                var headingAttr = (try? AttributedString(markdown: text, options: mdOptions))
+                    ?? AttributedString(text)
+                let headingSize: CGFloat = switch level {
+                case 1: 20
+                case 2: 16
+                default: 14
+                }
+                let headingWght = level == 1 ? 700 : 600
+                let headingNS = VFont.nsInter(weight: headingWght, size: headingSize)
+                headingAttr.font = Font(headingNS)
+                if index > 0 {
+                    let paraStyle = NSMutableParagraphStyle()
+                    paraStyle.paragraphSpacingBefore = level == 1 ? 8 : 4
+                    headingAttr.applyParagraphStyle(paraStyle)
+                }
+                result += headingAttr
+
             case .list(let items):
                 for (itemIndex, item) in items.enumerated() {
                     if itemIndex > 0 {
@@ -331,7 +403,7 @@ struct MarkdownSegmentView: View, Equatable {
                     if let cached = prefixWidthCache[prefixText] {
                         prefixWidth = cached
                     } else {
-                        let font = NSFont(name: "DMSans-Regular", size: 16) ?? NSFont.systemFont(ofSize: 16)
+                        let font = VFont.nsChat
                         let prefixNS = NSString(string: prefixText)
                         prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                         if prefixWidthCache.count < 200 {
@@ -369,55 +441,10 @@ struct MarkdownSegmentView: View, Equatable {
             leading.backgroundColor = codeBackgroundColor
             result.insert(leading, at: range.lowerBound)
         }
-        // Apply synthetic italic/bold to emphasized runs.
-        // DM Sans doesn't ship an italic font face, so SwiftUI can't resolve
-        // the italic trait from .emphasized inlinePresentationIntent. We detect
-        // emphasized runs and apply a synthetic oblique via affine transform.
-        var emphOnlyRanges: [Range<AttributedString.Index>] = []
-        var boldOnlyRanges: [Range<AttributedString.Index>] = []
-        var boldEmphRanges: [Range<AttributedString.Index>] = []
-        for run in result.runs {
-            guard let intent = run.inlinePresentationIntent, !intent.contains(.code) else { continue }
-            let isEmph = intent.contains(.emphasized)
-            let isBold = intent.contains(.stronglyEmphasized)
-            if isEmph && isBold {
-                boldEmphRanges.append(run.range)
-            } else if isEmph {
-                emphOnlyRanges.append(run.range)
-            } else if isBold {
-                boldOnlyRanges.append(run.range)
-            }
-        }
-        if !emphOnlyRanges.isEmpty || !boldOnlyRanges.isEmpty || !boldEmphRanges.isEmpty {
-            let sz: CGFloat = 16 // matches VFont.chat size
-            let wght = 0x77676874
-            var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
-            if !emphOnlyRanges.isEmpty {
-                let italicCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique)
-                let italicFont = Font(italicCT as NSFont)
-                for range in emphOnlyRanges { result[range].font = italicFont }
-            }
-            if !boldOnlyRanges.isEmpty {
-                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
-                let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
-                let boldCT = CTFontCreateCopyWithAttributes(
-                    baseCT, sz, nil,
-                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
-                )
-                let boldFont = Font(boldCT as NSFont)
-                for range in boldOnlyRanges { result[range].font = boldFont }
-            }
-            if !boldEmphRanges.isEmpty {
-                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
-                let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
-                let boldItalicCT = CTFontCreateCopyWithAttributes(
-                    baseCT, sz, &oblique,
-                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
-                )
-                let boldItalicFont = Font(boldItalicCT as NSFont)
-                for range in boldEmphRanges { result[range].font = boldItalicFont }
-            }
-        }
+        // Synthetic italic/bold is applied later in convertToNSAttributedString
+        // where we work directly with NSFont, avoiding the SwiftUI Font→NSFont
+        // round-trip that loses the oblique transform during AttributedString→
+        // NSAttributedString conversion.
 
         // Underline links so they are visually distinct from plain text
         for run in result.runs where result[run.range].link != nil {
@@ -441,6 +468,43 @@ struct MarkdownSegmentView: View, Equatable {
     ) -> NSAttributedString {
         let ns = NSMutableAttributedString(source)
         let fullRange = NSRange(location: 0, length: ns.length)
+
+        // Apply italic/bold to emphasized runs using Inter via CTFont.
+        // InterVariable doesn't bundle an italic face, so we apply a synthetic
+        // oblique via affine transform (same approach as the old DM Sans code).
+        let sz = font.pointSize
+        var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
+        let baseCT = CTFontCreateWithName("InterVariable" as CFString, sz, nil)
+        let italicNS = CTFontCreateWithName("InterVariable" as CFString, sz, &oblique) as NSFont
+        let boldWght = 700
+        let wghtTag = 0x77676874
+        let boldVars: [CFNumber: CFNumber] = [wghtTag as CFNumber: boldWght as CFNumber]
+        let boldNS = CTFontCreateCopyWithAttributes(
+            baseCT, sz, nil,
+            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+        ) as NSFont
+        let boldItalicNS = CTFontCreateCopyWithAttributes(
+            baseCT, sz, &oblique,
+            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+        ) as NSFont
+
+        ns.enumerateAttribute(.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
+            guard let rawValue = (value as? NSNumber)?.uintValue else { return }
+            let intent = InlinePresentationIntent(rawValue: rawValue)
+            guard !intent.contains(.code) else { return }
+            // Skip runs that already have an explicit font (e.g. headings)
+            if ns.attribute(.font, at: range.location, effectiveRange: nil) != nil { return }
+
+            let isEmph = intent.contains(.emphasized)
+            let isBold = intent.contains(.stronglyEmphasized)
+            if isEmph && isBold {
+                ns.addAttribute(.font, value: boldItalicNS, range: range)
+            } else if isEmph {
+                ns.addAttribute(.font, value: italicNS, range: range)
+            } else if isBold {
+                ns.addAttribute(.font, value: boldNS, range: range)
+            }
+        }
 
         // Apply base font where no explicit font attribute exists
         ns.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
@@ -476,6 +540,13 @@ private struct CodeBlockView: View, Equatable {
 
     @State private var isHovered = false
 
+    /// Line height derived from the actual monospace font metrics via
+    /// NSLayoutManager, so it stays correct if the font or size changes.
+    private static let codeLineHeight: CGFloat = {
+        let lm = NSLayoutManager()
+        return ceil(lm.defaultLineHeight(for: VFont.nsMono))
+    }()
+
     static func == (lhs: CodeBlockView, rhs: CodeBlockView) -> Bool {
         lhs.language == rhs.language
             && lhs.code == rhs.code
@@ -503,6 +574,12 @@ private struct CodeBlockView: View, Equatable {
                 .padding(.top, VSpacing.xs)
             }
 
+            // Pre-compute height from line count so the ScrollView has a
+            // definite size during LazyVStack's sizeThatFits pass, avoiding
+            // expensive Core Text measurement for off-screen cells.
+            let codeLineCount = code.components(separatedBy: "\n").count
+            let codeBlockHeight = CGFloat(codeLineCount) * Self.codeLineHeight + VSpacing.sm * 2
+
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.custom("DMMono-Regular", size: 13))
@@ -510,6 +587,7 @@ private struct CodeBlockView: View, Equatable {
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(VSpacing.sm)
             }
+            .frame(height: codeBlockHeight)
         }
         .optionalMaxWidth(maxContentWidth)
         .background(codeBackgroundColor)

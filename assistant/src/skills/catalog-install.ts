@@ -14,9 +14,10 @@ import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { getPlatformBaseUrl } from "../config/env.js";
+import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir, readPlatformToken } from "../util/platform.js";
-import { deleteSkillCapabilityMemory } from "./skill-memory.js";
+import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 
 const log = getLogger("catalog-install");
 
@@ -263,13 +264,14 @@ export function uninstallSkillLocally(skillId: string): void {
 
   rmSync(skillDir, { recursive: true, force: true });
   removeSkillsIndexEntry(skillId);
-  deleteSkillCapabilityMemory(skillId);
+  deleteSkillCapabilityNode(skillId);
 }
 
 export async function installSkillLocally(
   skillId: string,
   catalogEntry: CatalogSkill,
   overwrite: boolean,
+  contactId?: string,
 ): Promise<void> {
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
   const skillFilePath = join(skillDir, "SKILL.md");
@@ -294,19 +296,18 @@ export async function installSkillLocally(
     await fetchAndExtractSkill(skillId, skillDir);
   }
 
-  // Write version metadata
-  if (catalogEntry.version) {
-    const meta = {
-      version: catalogEntry.version,
-      installedAt: new Date().toISOString(),
-    };
-    atomicWriteFile(
-      join(skillDir, "version.json"),
-      JSON.stringify(meta, null, 2) + "\n",
-    );
-  }
+  // Write install metadata
+  writeInstallMeta(skillDir, {
+    origin: "vellum",
+    installedAt: new Date().toISOString(),
+    ...(catalogEntry.version ? { version: catalogEntry.version } : {}),
+    ...(contactId ? { installedBy: contactId } : {}),
+    contentHash: computeSkillHash(skillDir) ?? undefined,
+  });
 
-  // Install npm dependencies if the skill has a package.json
+  // Post-install: install dependencies first, then index the skill.
+  // Running bun install before upsertSkillsIndex ensures we don't index a
+  // skill whose dependencies failed to install.
   if (existsSync(join(skillDir, "package.json"))) {
     const bunPath = `${homedir()}/.bun/bin`;
     execSync("bun install", {
@@ -315,8 +316,6 @@ export async function installSkillLocally(
       env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
     });
   }
-
-  // Register in SKILLS.md only after all steps succeed
   upsertSkillsIndex(skillId);
 }
 
@@ -393,6 +392,8 @@ export async function autoInstallFromCatalog(
     return false;
   }
 
+  // installSkillLocally handles dependency installation and SKILLS.md indexing.
   await installSkillLocally(skillId, entry, false);
+
   return true;
 }

@@ -23,7 +23,7 @@ public struct VCard<Content: View>: View {
     private var backgroundColor: Color {
         if isActive { return VColor.surfaceActive }
         if isHovered && action != nil { return VColor.surfaceBase }
-        return VColor.surfaceOverlay
+        return VColor.surfaceLift
     }
 
     public var body: some View {
@@ -33,15 +33,11 @@ public struct VCard<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.xl)
-                    .strokeBorder(VColor.borderDisabled, lineWidth: 2)
+                    .strokeBorder(VColor.borderHover, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            .onHover { isHovered = $0 }
+            .onTapGesture { action?() }
+            .pointerCursor(enabled: action != nil, onHover: { isHovered = $0 })
             .animation(VAnimation.fast, value: isHovered)
-            .if(action != nil) { view in
-                view
-                    .onTapGesture { action?() }
-                    .pointerCursor()
-            }
     }
 }

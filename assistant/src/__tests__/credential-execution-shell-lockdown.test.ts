@@ -33,8 +33,8 @@ describe("trust class categorization for CES lockdown", () => {
     expect(isUntrustedTrustClass("unknown")).toBe(true);
   });
 
-  test("undefined is not untrusted", () => {
-    expect(isUntrustedTrustClass(undefined)).toBe(false);
+  test("undefined is untrusted", () => {
+    expect(isUntrustedTrustClass(undefined)).toBe(true);
   });
 });
 

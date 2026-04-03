@@ -374,6 +374,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Message content
   { endpoint: "messages/content", scopes: ["chat.read"] },
   { endpoint: "messages/llm-context", scopes: ["chat.read"] },
+  { endpoint: "llm-request-logs/payload", scopes: ["chat.read"] },
   { endpoint: "messages/tts", scopes: ["chat.read"] },
 
   // Queued message deletion
@@ -530,4 +531,10 @@ registerPolicy("admin/workspace-commit", {
 registerPolicy("admin/rollback-migrations", {
   requiredScopes: ["internal.write"],
   allowedPrincipalTypes: ["svc_gateway"],
+});
+
+// User-defined routes under /x/*
+registerPolicy("x", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
 });

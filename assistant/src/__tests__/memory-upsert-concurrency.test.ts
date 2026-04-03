@@ -61,21 +61,15 @@ mock.module("../config/loader.js", () => ({
 
 import { getDb, initializeDb } from "../memory/db.js";
 import { indexMessageNow } from "../memory/indexer.js";
-import {
-  conversations,
-  memoryItems,
-  memorySegments,
-  messages,
-} from "../memory/schema.js";
+import { conversations, memorySegments, messages } from "../memory/schema.js";
 
 // Initialize DB once for the entire file. Each test cleans its own tables.
 initializeDb();
 
 function resetTables() {
   const db = getDb();
-  db.run("DELETE FROM memory_item_sources");
   db.run("DELETE FROM memory_embeddings");
-  db.run("DELETE FROM memory_items");
+  db.run("DELETE FROM memory_graph_nodes");
   db.run("DELETE FROM memory_segments");
   db.run("DELETE FROM memory_jobs");
   db.run("DELETE FROM messages");
@@ -555,101 +549,3 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test suite: memory_items fingerprint uniqueness under race conditions
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("memory_items fingerprint uniqueness under race conditions", () => {
-  beforeEach(() => {
-    resetTables();
-  });
-
-  test("duplicate inserts with identical fingerprints produce exactly one row", () => {
-    // The memory_items table has a unique constraint on (fingerprint, scope_id).
-    // Two sequential inserts for the same fingerprint simulate duplicate extractor
-    // runs.  Only one INSERT must land; the second must be absorbed by ON CONFLICT.
-    const db = getDb();
-    const now = Date.now();
-    const fingerprint = "fp-race-unique-test-concurrency";
-    const scopeId = "default";
-
-    // Use raw SQL to replicate what the items-extractor would do when a second
-    // run tries to INSERT the same fingerprint that already exists.
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-
-    raw.run(`
-      INSERT INTO memory_items (
-        id, kind, subject, statement, status, confidence, importance,
-        fingerprint, verification_state, scope_id, first_seen_at, last_seen_at
-      ) VALUES (
-        'item-race-1', 'preference', 'code style', 'I prefer tabs over spaces.',
-        'active', 0.8, 0.6, '${fingerprint}', 'user_reported', '${scopeId}',
-        ${now}, ${now}
-      )
-    `);
-
-    // Second "worker" tries to insert the same fingerprint — must not create a
-    // duplicate.  INSERT OR IGNORE / ON CONFLICT DO NOTHING is the expected
-    // behavior for the unique constraint.
-    expect(() => {
-      raw.run(`
-        INSERT OR IGNORE INTO memory_items (
-          id, kind, subject, statement, status, confidence, importance,
-          fingerprint, verification_state, scope_id, first_seen_at, last_seen_at
-        ) VALUES (
-          'item-race-2', 'preference', 'code style', 'I prefer tabs over spaces.',
-          'active', 0.8, 0.6, '${fingerprint}', 'user_reported', '${scopeId}',
-          ${now + 1}, ${now + 1}
-        )
-      `);
-    }).not.toThrow();
-
-    const rows = db
-      .select()
-      .from(memoryItems)
-      .all()
-      .filter((r) => r.fingerprint === fingerprint);
-
-    // Only the first insert must have landed.
-    expect(rows).toHaveLength(1);
-    expect(rows[0].id).toBe("item-race-1");
-  });
-
-  test("bare INSERT without IGNORE throws on duplicate fingerprint+scopeId", () => {
-    // Verify the DB-level unique constraint is actually enforced so that any code
-    // path that accidentally omits ON CONFLICT will fail loudly rather than silently
-    // producing inconsistent state.
-    const db = getDb();
-    const now = Date.now();
-    const fingerprint = "fp-constraint-enforcement-test";
-
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-
-    raw.run(`
-      INSERT INTO memory_items (
-        id, kind, subject, statement, status, confidence, importance,
-        fingerprint, verification_state, scope_id, first_seen_at, last_seen_at
-      ) VALUES (
-        'item-constraint-a', 'preference', 'editor', 'I use VS Code.',
-        'active', 0.9, 0.7, '${fingerprint}', 'user_reported', 'default',
-        ${now}, ${now}
-      )
-    `);
-
-    // A bare INSERT (no ON CONFLICT) for the same fingerprint+scope_id must throw.
-    expect(() => {
-      raw.run(`
-        INSERT INTO memory_items (
-          id, kind, subject, statement, status, confidence, importance,
-          fingerprint, verification_state, scope_id, first_seen_at, last_seen_at
-        ) VALUES (
-          'item-constraint-b', 'preference', 'editor', 'I use VS Code.',
-          'active', 0.9, 0.7, '${fingerprint}', 'user_reported', 'default',
-          ${now + 1}, ${now + 1}
-        )
-      `);
-    }).toThrow();
-  });
-});

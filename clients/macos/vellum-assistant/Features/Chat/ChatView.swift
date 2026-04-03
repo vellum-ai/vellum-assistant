@@ -306,12 +306,12 @@ struct ChatView: View {
                 dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
                 onConfirmationAllow: isReadonly ? nil : { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
                 onConfirmationDeny: isReadonly ? nil : { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-                onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
+                onAlwaysAllow: isReadonly ? nil : { requestId, selectedPattern, selectedScope, decision in
                     viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
                 },
-                onTemporaryAllow: { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
+                onTemporaryAllow: isReadonly ? nil : { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
                 onSurfaceAction: isReadonly ? nil : { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-                onGuardianAction: { requestId, action in viewModel.submitGuardianDecision(requestId: requestId, action: action) },
+                onGuardianAction: isReadonly ? nil : { requestId, action in viewModel.submitGuardianDecision(requestId: requestId, action: action) },
                 onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
                 onForkFromMessage: onForkFromMessage,
                 showInspectButton: showInspectButton,
@@ -325,7 +325,7 @@ struct ChatView: View {
                 onRehydrateMessage: { messageId in viewModel.rehydrateMessage(id: messageId) },
                 onSurfaceRefetch: { surfaceId, conversationId in viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId) },
                 onRetryFailedMessage: isReadonly ? nil : { messageId in viewModel.retryFailedMessage(id: messageId) },
-                onRetryConversationError: { messageId in viewModel.retryAfterConversationError(messageId: messageId) },
+                onRetryConversationError: isReadonly ? nil : { messageId in viewModel.retryAfterConversationError(messageId: messageId) },
                 subagentDetailStore: viewModel.subagentDetailStore,
                 activePendingRequestId: viewModel.activePendingRequestId,
                 paginatedVisibleMessages: viewModel.paginatedVisibleMessages,
@@ -578,7 +578,7 @@ struct ChatView: View {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.allowedContentTypes = [
-            .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
+            .png, .jpeg, .gif, .webP, .heic, .heif, .pdf, .plainText, .commaSeparatedText,
             UTType("net.daringfireball.markdown") ?? .plainText,
             .movie, .mpeg4Movie, .quickTimeMovie, .avi,
             .mp3, .wav, .aiff, .audio,

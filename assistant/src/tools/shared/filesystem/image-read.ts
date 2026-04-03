@@ -1,8 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync, statSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync, statSync } from "node:fs";
 
+import { optimizeImageForTransport } from "../../../agent/image-optimize.js";
 import type { ImageContent } from "../../../providers/types.js";
 import type { ToolExecutionResult } from "../../types.js";
 
@@ -16,12 +14,6 @@ export const IMAGE_EXTENSIONS = new Set([
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB — LLM API transport limit (post-optimization)
 const MAX_SOURCE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB — pre-optimization guard
-
-// Images above this threshold get auto-optimized via sips (macOS) to avoid
-// sending multi-MB base64 payloads to the LLM API.
-const OPTIMIZE_THRESHOLD_BYTES = 1 * 1024 * 1024; // 1 MB
-const OPTIMIZE_MAX_DIMENSION = 1568; // Anthropic's recommended max
-const OPTIMIZE_JPEG_QUALITY = 80;
 
 /**
  * Detect the actual image format from the first bytes of the buffer.
@@ -70,36 +62,6 @@ function detectMediaType(buf: Buffer): string | null {
 }
 
 /**
- * Use macOS `sips` to resize and convert an image to JPEG.
- * Returns the path to the optimized temp file, or null if sips is unavailable.
- */
-function optimizeWithSips(srcPath: string): string | null {
-  const tmpPath = join(tmpdir(), `vellum-view-image-${Date.now()}.jpg`);
-  try {
-    execFileSync(
-      "sips",
-      [
-        "--resampleHeightWidthMax",
-        String(OPTIMIZE_MAX_DIMENSION),
-        "-s",
-        "format",
-        "jpeg",
-        "-s",
-        "formatOptions",
-        String(OPTIMIZE_JPEG_QUALITY),
-        srcPath,
-        "--out",
-        tmpPath,
-      ],
-      { stdio: "pipe", timeout: 15_000 },
-    );
-    return tmpPath;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Read an image file from disk, optionally optimize it, and return a
  * ToolExecutionResult with base64-encoded image content blocks.
  *
@@ -130,51 +92,11 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
   }
 
   let buffer: Buffer;
-  let optimized = false;
-  let tmpPath: string | null = null;
-
   try {
-    if (stat.size > OPTIMIZE_THRESHOLD_BYTES) {
-      tmpPath = optimizeWithSips(resolvedPath);
-      if (tmpPath) {
-        buffer = readFileSync(tmpPath) as Buffer;
-        optimized = true;
-      } else {
-        // sips unavailable — fast-fail if original file exceeds the transport limit
-        if (stat.size > MAX_SIZE_BYTES) {
-          const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
-          return {
-            content: `Error: image too large (${sizeMB} MB). Maximum is 20 MB. Image optimization (sips) is unavailable on this platform.`,
-            isError: true,
-          };
-        }
-        buffer = readFileSync(resolvedPath) as Buffer;
-      }
-    } else {
-      buffer = readFileSync(resolvedPath) as Buffer;
-    }
+    buffer = readFileSync(resolvedPath) as Buffer;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error reading file: ${msg}`, isError: true };
-  } finally {
-    if (tmpPath) {
-      try {
-        unlinkSync(tmpPath);
-      } catch {
-        /* ignore cleanup errors */
-      }
-    }
-  }
-
-  if (buffer.length > MAX_SIZE_BYTES) {
-    const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
-    const msg = optimized
-      ? `Error: image too large after optimization (${sizeMB} MB). Maximum is 20 MB.`
-      : `Error: image too large (${sizeMB} MB). Maximum is 20 MB.`;
-    return {
-      content: msg,
-      isError: true,
-    };
   }
 
   // Detect actual format from magic bytes - never trust the file extension
@@ -187,25 +109,40 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
     };
   }
 
-  const base64Data = buffer.toString("base64");
+  // Optimize before size-checking — oversized images may compress under the limit.
+  const rawBase64 = buffer.toString("base64");
+  const { data: base64Data, mediaType: finalType } =
+    optimizeImageForTransport(rawBase64, detectedType);
+  const optimized = base64Data !== rawBase64;
+
+  const optimizedBytes = optimized
+    ? Math.ceil((base64Data.length * 3) / 4)
+    : buffer.length;
+  if (optimizedBytes > MAX_SIZE_BYTES) {
+    const sizeMB = (optimizedBytes / (1024 * 1024)).toFixed(1);
+    return {
+      content: `Error: image too large (${sizeMB} MB). Maximum is 20 MB even after optimization.`,
+      isError: true,
+    };
+  }
 
   const imageBlock: ImageContent = {
     type: "image" as const,
     source: {
       type: "base64" as const,
-      media_type: detectedType,
+      media_type: finalType,
       data: base64Data,
     },
   };
 
   const sizeSuffix = optimized
     ? ` (optimized from ${(stat.size / 1024).toFixed(0)} KB to ${(
-        buffer.length / 1024
+        optimizedBytes / 1024
       ).toFixed(0)} KB)`
     : "";
 
   return {
-    content: `Image loaded: ${resolvedPath} (${buffer.length} bytes, ${detectedType})${sizeSuffix}`,
+    content: `Image loaded: ${resolvedPath} (${optimizedBytes} bytes, ${finalType})${sizeSuffix}`,
     isError: false,
     contentBlocks: [imageBlock],
   };

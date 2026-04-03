@@ -12,7 +12,9 @@ final class ComposerTextView: NSTextView {
 
     // MARK: - Properties
 
-    var placeholderString: String = ""
+    var placeholderString: String = "" {
+        didSet { needsDisplay = true }
+    }
     var cmdEnterToSend: Bool = false
     var onSubmit: (() -> Void)?
     var onTab: (() -> Bool)?
@@ -21,6 +23,11 @@ final class ComposerTextView: NSTextView {
     var onEscape: (() -> Bool)?
     var onPasteImage: (() -> Void)?
     var onFocusChanged: ((Bool) -> Void)?
+    /// When this returns `true`, Return bypasses ``ComposerReturnKeyRouting``
+    /// and fires ``onSubmit`` directly. Used to let active picker popups
+    /// (emoji, slash commands) intercept Return regardless of the
+    /// send-mode preference.
+    var shouldOverrideReturn: (() -> Bool)?
 
     // MARK: - Placeholder Drawing
 
@@ -72,6 +79,10 @@ final class ComposerTextView: NSTextView {
         let isReturn = event.keyCode == 36 || event.keyCode == 76
 
         if isReturn {
+            if shouldOverrideReturn?() == true {
+                onSubmit?()
+                return
+            }
             let action = ComposerReturnKeyRouting.resolve(
                 cmdEnterToSend: cmdEnterToSend,
                 modifiers: modifiers
@@ -129,7 +140,7 @@ final class ComposerTextView: NSTextView {
             .urlReadingFileURLsOnly: true,
         ]) as? [URL])?.contains { url in
             let ext = url.pathExtension.lowercased()
-            return ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "bmp"].contains(ext)
+            return ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tiff", "bmp"].contains(ext)
         } ?? false
         let hasImageData = pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil
         return hasImageFile || hasImageData

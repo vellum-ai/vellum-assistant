@@ -65,19 +65,22 @@ public final class AuthService {
         let body: Any?
         let headers: [String: String]
         let retryAfterSession410: Bool
+        let timeoutInterval: TimeInterval?
 
         init(
             path: String,
             method: String = "GET",
             body: Any? = nil,
             headers: [String: String] = [:],
-            retryAfterSession410: Bool = false
+            retryAfterSession410: Bool = false,
+            timeoutInterval: TimeInterval? = nil
         ) {
             self.path = path
             self.method = method
             self.body = body
             self.headers = headers
             self.retryAfterSession410 = retryAfterSession410
+            self.timeoutInterval = timeoutInterval
         }
     }
 
@@ -95,8 +98,8 @@ public final class AuthService {
         try await request(AuthRequestConfig(path: "config", retryAfterSession410: true))
     }
 
-    public func getSession() async throws -> AllauthResponse<SessionData> {
-        try await request(AuthRequestConfig(path: "auth/session"))
+    public func getSession(timeout: TimeInterval? = nil) async throws -> AllauthResponse<SessionData> {
+        try await request(AuthRequestConfig(path: "auth/session", timeoutInterval: timeout))
     }
 
     public func logout() async throws -> AllauthResponse<EmptyData> {
@@ -323,8 +326,23 @@ public final class AuthService {
 
         log.debug("Platform request POST assistants/hatch/ -> \(statusCode)")
 
-        if statusCode == 401 || statusCode == 403 {
+        if statusCode == 401 {
             throw PlatformAPIError.authenticationRequired
+        }
+
+        if statusCode == 403 {
+            // Surface the server's detail message (e.g. "Hatching is not
+            // currently available for your account.") instead of collapsing
+            // all 403s into a generic "Authentication required" error.
+            let detail: String
+            if let body = try? JSONDecoder().decode([String: String].self, from: data),
+               let message = body["detail"] {
+                detail = message
+            } else {
+                let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                detail = (raw?.isEmpty == false) ? raw! : "Access denied"
+            }
+            throw PlatformAPIError.accessDenied(detail: detail)
         }
 
         guard (200..<300).contains(statusCode) else {
@@ -651,6 +669,9 @@ public final class AuthService {
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = requestConfig.method
+        if let timeout = requestConfig.timeoutInterval {
+            urlRequest.timeoutInterval = timeout
+        }
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 

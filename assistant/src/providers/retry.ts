@@ -34,16 +34,30 @@ const RETRYABLE_STREAM_PATTERNS = [
   "stream has ended, this shouldn't happen",
 ];
 
+/**
+ * Patterns that indicate a transient provider error even when no HTTP status
+ * code is available (e.g. overloaded errors delivered as SSE events mid-stream
+ * where the initial HTTP response was 200).
+ */
+const RETRYABLE_PROVIDER_MESSAGE_PATTERNS = [/overloaded/i];
+
 function isRetryableStreamError(error: unknown): boolean {
   if (!(error instanceof ProviderError)) return false;
   if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
   return RETRYABLE_STREAM_PATTERNS.some((p) => error.message.includes(p));
 }
 
+function isRetryableProviderMessage(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) return false;
+  if (error.statusCode !== undefined) return false; // has a real HTTP status — handled by status check
+  return RETRYABLE_PROVIDER_MESSAGE_PATTERNS.some((p) => p.test(error.message));
+}
+
 function isRetryableError(error: unknown): boolean {
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
+  if (isRetryableProviderMessage(error)) return true;
   if (isRetryableStreamError(error)) return true;
   return isRetryableNetworkError(error);
 }
@@ -161,9 +175,11 @@ export class RetryProvider implements Provider {
                   error.statusCode !== undefined &&
                   error.statusCode >= 500
                 ? `server_error_${error.statusCode}`
-                : isRetryableStreamError(error)
-                  ? "stream_corruption"
-                  : "network_error";
+                : isRetryableProviderMessage(error)
+                  ? "provider_overloaded"
+                  : isRetryableStreamError(error)
+                    ? "stream_corruption"
+                    : "network_error";
           log.warn(
             {
               attempt: attempt + 1,

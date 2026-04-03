@@ -1,5 +1,25 @@
 import Foundation
 
+/// Emotional charge metadata for a graph memory node.
+public struct EmotionalChargePayload: Codable, Hashable, Sendable {
+    public let valence: Double?
+    public let intensity: Double?
+    public let decayCurve: String?
+    public let decayRate: Double?
+    public let originalIntensity: Double?
+}
+
+/// Bucketed importance level derived from the 0–1 importance score.
+public enum ImportanceLevel: Int, Comparable {
+    case low = 1
+    case medium = 2
+    case high = 3
+
+    public static func < (lhs: ImportanceLevel, rhs: ImportanceLevel) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
 /// A single memory item returned by the assistant's memory API.
 public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
     public let id: String
@@ -7,27 +27,30 @@ public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
     public let subject: String
     public let statement: String
     public let status: String
-    public let confidence: Double
+    public let confidence: Double?
     public let importance: Double?
-    public let accessCount: Int
-    public let verificationState: String
-    public let scopeId: String
-    public let scopeLabel: String?
     public let firstSeenAt: Int      // epoch ms
     public let lastSeenAt: Int       // epoch ms
+
+    // Graph-specific fields
+    public let fidelity: String?
+    public let sourceType: String?
+    public let narrativeRole: String?
+    public let partOfStory: String?
+    public let reinforcementCount: Int?
+    public let stability: Double?
+    public let emotionalCharge: EmotionalChargePayload?
+
+    // Legacy fields — optional for backward compatibility
+    public let accessCount: Int?
+    public let verificationState: String?
+    public let scopeId: String?
+    public let scopeLabel: String?
     public let lastUsedAt: Int?      // epoch ms
     public let supersedes: String?
     public let supersededBy: String?
-    public let supersedesSubject: String?    // populated by GET detail
-    public let supersededBySubject: String?  // populated by GET detail
-
-    enum CodingKeys: String, CodingKey {
-        case id, kind, subject, statement, status, confidence, importance
-        case accessCount, verificationState, scopeId, scopeLabel
-        case firstSeenAt, lastSeenAt, lastUsedAt
-        case supersedes, supersededBy
-        case supersedesSubject, supersededBySubject
-    }
+    public let supersedesSubject: String?
+    public let supersededBySubject: String?
 
     // MARK: - Date Helpers
 
@@ -52,6 +75,25 @@ public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         return formatter.localizedString(for: lastSeenDate, relativeTo: Date())
+    }
+
+    /// Bucketed importance level for visual indicators (dots, bars).
+    public var importanceLevel: ImportanceLevel {
+        let value = importance ?? 0
+        if value >= 0.66 { return .high }
+        if value >= 0.33 { return .medium }
+        return .low
+    }
+
+    /// Human-readable label for the source type, or nil if unknown.
+    public var sourceLabel: String? {
+        switch sourceType {
+        case "direct": return "Told directly"
+        case "observed": return "Observed"
+        case "inferred": return "Inferred"
+        case "told-by-other": return "Told by other"
+        default: return nil
+        }
     }
 
     // MARK: - Status Helpers

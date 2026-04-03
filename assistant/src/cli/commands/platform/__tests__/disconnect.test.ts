@@ -36,7 +36,7 @@ mock.module("../../../../config/env-registry.js", () => ({
 
 mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolvePlatformCallbackRegistrationContext: async () => ({
-    containerized: false,
+    isPlatform: false,
     platformBaseUrl: "",
     assistantId: "",
     hasInternalApiKey: false,

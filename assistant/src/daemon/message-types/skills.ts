@@ -76,33 +76,50 @@ export interface SkillsCreateRequest {
 
 // === Server → Client ===
 
+/** Fields shared by all skill origins. */
+interface SlimSkillBase {
+  id: string;
+  name: string;
+  description: string;
+  emoji?: string;
+  kind: "bundled" | "installed" | "catalog";
+  status: "enabled" | "disabled" | "available";
+}
+
+interface VellumSlimSkill extends SlimSkillBase {
+  origin: "vellum";
+}
+
+interface ClawhubSlimSkill extends SlimSkillBase {
+  origin: "clawhub";
+  slug: string;
+  author: string;
+  stars: number;
+  installs: number;
+  reports: number;
+  publishedAt?: string;
+}
+
+interface SkillsshSlimSkill extends SlimSkillBase {
+  origin: "skillssh";
+  slug: string;
+  sourceRepo: string;
+  installs: number;
+}
+
+interface CustomSlimSkill extends SlimSkillBase {
+  origin: "custom";
+}
+
+export type SlimSkillResponse =
+  | VellumSlimSkill
+  | ClawhubSlimSkill
+  | SkillsshSlimSkill
+  | CustomSlimSkill;
+
 export interface SkillsListResponse {
   type: "skills_list_response";
-  skills: Array<{
-    id: string;
-    name: string;
-    description: string;
-    emoji?: string;
-    homepage?: string;
-    source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
-    state: "enabled" | "disabled";
-    installedVersion?: string;
-    latestVersion?: string;
-    updateAvailable: boolean;
-    clawhub?: {
-      author: string;
-      stars: number;
-      installs: number;
-      reports: number;
-      publishedAt: string;
-    };
-    provenance?: {
-      kind: "first-party" | "third-party" | "local";
-      provider?: string;
-      originId?: string;
-      sourceUrl?: string;
-    };
-  }>;
+  skills: SlimSkillResponse[];
 }
 
 export interface SkillStateChanged {
@@ -111,21 +128,66 @@ export interface SkillStateChanged {
   state: "enabled" | "disabled" | "installed" | "uninstalled";
 }
 
-export interface SkillsOperationResponse {
-  type: "skills_operation_response";
-  operation: string;
-  success: boolean;
-  error?: string;
-  data?: unknown;
-}
-
-export interface SkillDetailResponse {
+export interface SkillBodyResponse {
   type: "skill_detail_response";
   skillId: string;
   body: string;
   icon?: string;
   error?: string;
 }
+
+// ─── Detail endpoint response (HTTP API) ──────────────────────────────────
+
+interface SkillDetailBase {
+  id: string;
+  name: string;
+  description: string;
+  emoji?: string;
+  kind: "bundled" | "installed" | "catalog";
+  status: "enabled" | "disabled" | "available";
+}
+
+interface VellumSkillDetail extends SkillDetailBase {
+  origin: "vellum";
+}
+
+interface ClawhubSkillDetail extends SkillDetailBase {
+  origin: "clawhub";
+  slug: string;
+  author: string;
+  stars: number;
+  installs: number;
+  reports: number;
+  publishedAt?: string;
+  // Enrichment fields (from clawhubInspect):
+  owner?: { handle: string; displayName: string; image?: string } | null;
+  stats?: {
+    stars: number;
+    installs: number;
+    downloads: number;
+    versions: number;
+  } | null;
+  latestVersion?: { version: string; changelog?: string } | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+}
+
+interface SkillsshSkillDetail extends SkillDetailBase {
+  origin: "skillssh";
+  slug: string;
+  sourceRepo: string;
+  installs: number;
+}
+
+interface CustomSkillDetail extends SkillDetailBase {
+  origin: "custom";
+}
+
+export type SkillDetailResponse =
+  | VellumSkillDetail
+  | ClawhubSkillDetail
+  | SkillsshSkillDetail
+  | CustomSkillDetail;
 
 export interface SkillsDraftResponse {
   type: "skills_draft_response";
@@ -181,8 +243,7 @@ export type _SkillsClientMessages =
 
 export type _SkillsServerMessages =
   | SkillsListResponse
-  | SkillDetailResponse
+  | SkillBodyResponse
   | SkillStateChanged
-  | SkillsOperationResponse
   | SkillsInspectResponse
   | SkillsDraftResponse;

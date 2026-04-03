@@ -4,7 +4,6 @@
 !assistant/**
 !credential-executor/
 !credential-executor/**
-!meta/provider-env-vars.json
 !packages/
 !packages/**
 

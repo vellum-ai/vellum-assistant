@@ -143,6 +143,8 @@ struct ChatConversationErrorToast: View {
             return .wifiOff
         case .rateLimit:
             return .clockAlert
+        case .providerOverloaded:
+            return .cloudOff
         case .providerApi:
             return .cloudOff
         case .providerBilling:
@@ -178,7 +180,7 @@ struct ChatConversationErrorToast: View {
             return VColor.systemPositiveStrong
         case .contextTooLarge:
             return VColor.systemMidStrong
-        case .providerOrdering, .providerWebSearch:
+        case .providerOverloaded, .providerOrdering, .providerWebSearch:
             return VColor.systemMidStrong
         default:
             return VColor.systemNegativeStrong

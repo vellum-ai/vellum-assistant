@@ -12,12 +12,14 @@ import { resolve } from "node:path";
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
+import { ensureBun } from "../util/bun-runtime.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   ensureDataDir,
   getDaemonStartupLockPath,
   getDaemonStderrLogPath,
+  getDataDir,
   getPidPath,
   getWorkspaceConfigPath,
 } from "../util/platform.js";
@@ -371,6 +373,10 @@ async function startDaemonLocked(): Promise<{
     }
   }
 
+  // Resolve bun before opening stderrFd to avoid leaking the file
+  // descriptor if ensureBun() throws (same pattern as loadOrCreateSigningKey).
+  const bunPath = await ensureBun();
+
   // Redirect the child's stderr to a file instead of piping it back to the
   // parent. A pipe's read end is destroyed when the parent exits, leaving
   // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
@@ -378,7 +384,7 @@ async function startDaemonLocked(): Promise<{
   const stderrPath = getDaemonStderrLogPath();
   const stderrFd = openSync(stderrPath, "w");
 
-  const child = spawn("bun", ["run", mainPath], {
+  const child = spawn(bunPath, ["run", mainPath], {
     detached: true,
     stdio: ["ignore", "ignore", stderrFd],
     env: spawnEnv,
@@ -413,7 +419,7 @@ async function startDaemonLocked(): Promise<{
       const stderr = readFileSync(stderrPath, "utf-8").trim();
       const detail = stderr
         ? `\n${stderr}`
-        : `\nCheck logs at ~/.vellum/workspace/data/logs/ for details.`;
+        : `\nCheck logs at ${getDataDir()}/logs/ for details.`;
       throw new DaemonError(
         `Daemon exited immediately (code ${
           childExitCode ?? "unknown"

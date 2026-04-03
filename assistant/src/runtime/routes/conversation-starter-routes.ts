@@ -161,9 +161,9 @@ function handleListConversationStarters(url: URL): Response {
     });
   }
 
-  // No starters — check whether we have memory items to generate from.
+  // No starters — check whether we have memory graph nodes to generate from.
   const memoryCount = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM memory_items WHERE status = 'active' AND scope_id = ?`,
+    `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
     scopeId,
   );
 

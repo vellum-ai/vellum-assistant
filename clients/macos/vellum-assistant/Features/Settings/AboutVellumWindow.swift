@@ -50,9 +50,7 @@ struct AboutVellumView: View {
               let appParsed = VersionCompat.parse(appVersion) else {
             return false
         }
-        return sgParsed.major == appParsed.major
-            && sgParsed.minor == appParsed.minor
-            && sgParsed.patch == appParsed.patch
+        return sgParsed.coreEquals(appParsed)
     }
 
     var body: some View {
@@ -63,7 +61,7 @@ struct AboutVellumView: View {
                 .frame(width: 80, height: 80)
 
             // App Name
-            Text("Vellum")
+            Text(AppDelegate.appName)
                 .font(VFont.titleMedium)
                 .foregroundStyle(VColor.contentEmphasized)
 
@@ -121,8 +119,8 @@ struct AboutVellumView: View {
             Task {
                 let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
                 lockfileAssistants = assistants
+                await fetchHealthz()
             }
-            Task { await fetchHealthz() }
         }
     }
 
@@ -304,7 +302,7 @@ struct AboutVellumView: View {
         guard !selectedAssistantId.isEmpty else { return }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "health",
+                path: "assistants/{assistantId}/healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()

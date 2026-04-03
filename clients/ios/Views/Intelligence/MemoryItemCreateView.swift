@@ -6,7 +6,7 @@ struct MemoryItemCreateView: View {
     var store: MemoryItemsStore
     @Environment(\.dismiss) private var dismiss
 
-    @State private var kind: String = "identity"
+    @State private var kind: String = "semantic"
     @State private var subject: String = ""
     @State private var statement: String = ""
     @State private var importance: Double = 0.8

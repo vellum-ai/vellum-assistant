@@ -206,6 +206,7 @@ public enum PlatformAPIError: LocalizedError, Sendable {
     case decodingError(String)
     case serverError(statusCode: Int, detail: String?)
     case authenticationRequired
+    case accessDenied(detail: String)
 
     public var errorDescription: String? {
         switch self {
@@ -219,6 +220,8 @@ public enum PlatformAPIError: LocalizedError, Sendable {
             return detail ?? "Server error (\(statusCode))"
         case .authenticationRequired:
             return "Authentication required"
+        case .accessDenied(let detail):
+            return detail
         }
     }
 }

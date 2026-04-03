@@ -23,7 +23,7 @@ Look for an entry with `service: "notion"`. The credential may be stored under o
 - `field: "internal_secret"` - Internal integration (new default setup)
 - `field: "access_token"` - OAuth/Public integration (legacy setup)
 
-If neither exists, tell the user: "Notion is not connected yet. Load the **notion-oauth-app-setup** skill to set it up first."
+If neither exists, tell the user: "Notion is not connected yet. Load the **vellum-oauth-integrations** skill to set it up first."
 
 **Step 2 - Make authenticated API calls:**
 
@@ -249,7 +249,7 @@ When a response includes `"has_more": true`, pass `"start_cursor": response.next
 
 ## Error Handling
 
-- **401 Unauthorized**: The token is missing, invalid, or expired. For Internal integrations, ask the user to re-run the **notion-oauth-app-setup** skill. For OAuth connections, the access token may need to be refreshed or re-authorized.
+- **401 Unauthorized**: The token is missing, invalid, or expired. For Internal integrations, ask the user to re-run the **vellum-oauth-integrations** skill. For OAuth connections, the access token may need to be refreshed or re-authorized.
 - **403 Forbidden**: The integration doesn't have access to the requested page or database. Remind the user that they need to share the page/database with the "Vellum Assistant" integration in Notion (via the Share menu → "Add connections").
 - **404 Not Found**: The page or database ID doesn't exist or the integration can't see it. Verify the ID and check sharing settings.
 - **400 Bad Request**: Check the request body structure. The Notion API error response includes a `message` field with details.

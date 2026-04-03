@@ -1,20 +1,20 @@
 /**
- * Compile all active playbook memory items into a triage context block
+ * Compile all active playbook graph nodes into a triage context block
  * that can be injected into the system prompt alongside the contact
  * graph.
  */
 
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { getDb } from "../memory/db.js";
-import { memoryItems } from "../memory/schema.js";
+import { memoryGraphNodes } from "../memory/schema.js";
 import type { Playbook } from "./types.js";
 import { parsePlaybookStatement } from "./types.js";
 
 export interface CompiledPlaybooks {
   /** Formatted text block ready for system prompt injection. */
   text: string;
-  /** Total number of active playbook items found. */
+  /** Total number of active playbook nodes found. */
   totalCount: number;
   /** Number of playbooks successfully parsed and included. */
   includedCount: number;
@@ -26,8 +26,7 @@ export interface CompilePlaybooksOptions {
 
 interface PlaybookRow {
   id: string;
-  subject: string;
-  statement: string;
+  content: string;
 }
 
 export function compilePlaybooks(
@@ -38,31 +37,33 @@ export function compilePlaybooks(
 
   const rows: PlaybookRow[] = db
     .select({
-      id: memoryItems.id,
-      subject: memoryItems.subject,
-      statement: memoryItems.statement,
+      id: memoryGraphNodes.id,
+      content: memoryGraphNodes.content,
     })
-    .from(memoryItems)
+    .from(memoryGraphNodes)
     .where(
       and(
-        eq(memoryItems.kind, "playbook"),
-        eq(memoryItems.status, "active"),
-        eq(memoryItems.scopeId, scopeId),
-        isNull(memoryItems.invalidAt),
+        eq(memoryGraphNodes.scopeId, scopeId),
+        sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'`,
+        sql`${memoryGraphNodes.fidelity} != 'gone'`,
       ),
     )
-    .orderBy(desc(memoryItems.importance))
+    .orderBy(sql`${memoryGraphNodes.significance} DESC`)
     .all();
 
   if (rows.length === 0) {
     return { text: "", totalCount: 0, includedCount: 0 };
   }
 
-  const parsed: Array<{ id: string; subject: string; playbook: Playbook }> = [];
+  const parsed: Array<{ id: string; playbook: Playbook }> = [];
   for (const row of rows) {
-    const playbook = parsePlaybookStatement(row.statement);
+    // Content format: "Playbook: <trigger>\n<json statement>"
+    const newlineIdx = row.content.indexOf("\n");
+    if (newlineIdx === -1) continue;
+    const statement = row.content.slice(newlineIdx + 1);
+    const playbook = parsePlaybookStatement(statement);
     if (playbook) {
-      parsed.push({ id: row.id, subject: row.subject, playbook });
+      parsed.push({ id: row.id, playbook });
     }
   }
 

@@ -5,6 +5,9 @@ import Foundation
 @MainActor @Observable
 public final class MemoryItemsStore {
     public var items: [MemoryItemPayload] = []
+    /// Superset of `items` — accumulates entries across filter/search/page loads
+    /// so cross-reference features (e.g. "Possibly Related") have a wider pool.
+    public private(set) var allLoadedItems: [MemoryItemPayload] = []
     public var total: Int = 0
     public var kindCounts: [String: Int] = [:]
     public var isLoading = false
@@ -22,7 +25,10 @@ public final class MemoryItemsStore {
         self.memoryItemClient = memoryItemClient
     }
 
-    /// Load memory items using the current filter state.
+    /// Whether more items are available beyond what's been loaded.
+    public var hasMore: Bool { items.count < total }
+
+    /// Load memory items using the current filter state (resets to first page).
     public func loadItems() async {
         isLoading = true
         let response = await memoryItemClient.fetchMemoryItems(
@@ -36,6 +42,7 @@ public final class MemoryItemsStore {
         )
         if let response {
             items = response.items
+            mergeIntoAllLoaded(response.items)
             total = response.total
             if let serverCounts = response.kindCounts {
                 kindCounts = serverCounts
@@ -48,6 +55,27 @@ public final class MemoryItemsStore {
                 }
                 kindCounts = derived
             }
+        }
+        isLoading = false
+    }
+
+    /// Load the next page of items (appends to existing).
+    public func loadMore() async {
+        guard !isLoading, hasMore else { return }
+        isLoading = true
+        let response = await memoryItemClient.fetchMemoryItems(
+            kind: kindFilter,
+            status: statusFilter,
+            search: searchText.isEmpty ? nil : searchText,
+            sort: sortField,
+            order: sortOrder,
+            limit: 100,
+            offset: items.count
+        )
+        if let response {
+            items.append(contentsOf: response.items)
+            mergeIntoAllLoaded(response.items)
+            total = response.total
         }
         isLoading = false
     }
@@ -100,13 +128,29 @@ public final class MemoryItemsStore {
         if let idx = items.firstIndex(where: { $0.id == id }) {
             items[idx] = detail
         }
+        if let idx = allLoadedItems.firstIndex(where: { $0.id == id }) {
+            allLoadedItems[idx] = detail
+        }
         return detail
     }
 
     /// Delete a memory item and refresh the list on success.
     public func deleteItem(id: String) async -> Bool {
         let success = await memoryItemClient.deleteMemoryItem(id: id)
-        if success { await loadItems() }
+        if success {
+            allLoadedItems.removeAll { $0.id == id }
+            await loadItems()
+        }
         return success
+    }
+
+    private func mergeIntoAllLoaded(_ newItems: [MemoryItemPayload]) {
+        for item in newItems {
+            if let idx = allLoadedItems.firstIndex(where: { $0.id == item.id }) {
+                allLoadedItems[idx] = item
+            } else {
+                allLoadedItems.append(item)
+            }
+        }
     }
 }

@@ -496,9 +496,9 @@ describe("atomic write safety", () => {
     });
 
     const skillDir = join(TEST_DIR, "skills", "atomic-overwrite");
-    const files = readdirSync(skillDir);
-    // Only SKILL.md should exist — no .tmp-* leftover files
-    expect(files).toEqual(["SKILL.md"]);
+    const files = readdirSync(skillDir).sort();
+    // SKILL.md and install-meta.json should exist — no .tmp-* leftover files
+    expect(files).toEqual(["SKILL.md", "install-meta.json"]);
 
     const content = readFileSync(join(skillDir, "SKILL.md"), "utf-8");
     expect(content).toContain('name: "V2"');
@@ -649,7 +649,7 @@ describe("version metadata", () => {
     expect(readSkillVersion("no-version")).toBeNull();
   });
 
-  test("createManagedSkill writes version.json when version is provided", () => {
+  test("createManagedSkill writes install-meta.json when version is provided", () => {
     createManagedSkill({
       id: "versioned",
       name: "Versioned",
@@ -662,7 +662,7 @@ describe("version metadata", () => {
     expect(version).toBe("v1:abc123");
   });
 
-  test("version.json contains valid JSON with version and installedAt", () => {
+  test("install-meta.json contains valid JSON with origin, version, and installedAt", () => {
     createManagedSkill({
       id: "version-meta",
       name: "Meta",
@@ -671,16 +671,43 @@ describe("version metadata", () => {
       version: "v1:deadbeef",
     });
 
-    const metaPath = join(TEST_DIR, "skills", "version-meta", "version.json");
+    const metaPath = join(
+      TEST_DIR,
+      "skills",
+      "version-meta",
+      "install-meta.json",
+    );
     expect(existsSync(metaPath)).toBe(true);
     const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+    expect(meta.origin).toBe("custom");
     expect(meta.version).toBe("v1:deadbeef");
     expect(typeof meta.installedAt).toBe("string");
     // installedAt should be a valid ISO date
     expect(new Date(meta.installedAt).toISOString()).toBe(meta.installedAt);
   });
 
-  test("overwrite updates version.json", () => {
+  test("install-meta.json includes installedBy when contactId is provided", () => {
+    createManagedSkill({
+      id: "with-contact",
+      name: "With Contact",
+      description: "Has contactId",
+      bodyMarkdown: "Body.",
+      contactId: "contact-uuid-456",
+    });
+
+    const metaPath = join(
+      TEST_DIR,
+      "skills",
+      "with-contact",
+      "install-meta.json",
+    );
+    expect(existsSync(metaPath)).toBe(true);
+    const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+    expect(meta.origin).toBe("custom");
+    expect(meta.installedBy).toBe("contact-uuid-456");
+  });
+
+  test("overwrite updates install-meta.json", () => {
     createManagedSkill({
       id: "update-version",
       name: "V1",
@@ -701,21 +728,21 @@ describe("version metadata", () => {
     expect(readSkillVersion("update-version")).toBe("v1:second");
   });
 
-  test("readSkillVersion returns null for corrupted version.json", () => {
+  test("readSkillVersion returns null for corrupted install-meta.json", () => {
     createManagedSkill({
       id: "corrupt-version",
       name: "Corrupt",
-      description: "Will corrupt version file",
+      description: "Will corrupt meta file",
       bodyMarkdown: "Body.",
       version: "v1:valid",
     });
 
-    // Corrupt the version.json
+    // Corrupt the install-meta.json
     const metaPath = join(
       TEST_DIR,
       "skills",
       "corrupt-version",
-      "version.json",
+      "install-meta.json",
     );
     writeFileSync(metaPath, "{invalid json!!!", "utf-8");
 

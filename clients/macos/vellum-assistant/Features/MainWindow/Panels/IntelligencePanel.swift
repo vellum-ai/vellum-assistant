@@ -17,11 +17,9 @@ struct IntelligencePanel: View {
 
     @State private var selectedTab: IntelligenceTab
     @State private var cachedAssistantName: String = "Your Assistant"
-    @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
-    private static let contactsFeatureFlagKey = "contacts"
     private static let emailFeatureFlagKey = "email-channel"
 
     init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
@@ -69,17 +67,12 @@ struct IntelligencePanel: View {
         .task {
             let info = await IdentityInfo.loadAsync()
             cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
-            await loadContactsFeatureFlag()
+            await loadFeatureFlags()
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
                let enabled = notification.userInfo?["enabled"] as? Bool {
-                if key == Self.contactsFeatureFlagKey {
-                    isContactsEnabled = enabled
-                    if !enabled && selectedTab == .contacts {
-                        selectedTab = .identity
-                    }
-                } else if key == Self.emailFeatureFlagKey {
+                if key == Self.emailFeatureFlagKey {
                     isEmailEnabled = enabled
                 }
             }
@@ -87,19 +80,13 @@ struct IntelligencePanel: View {
     }
 
     private var visibleTabs: [IntelligenceTab] {
-        IntelligenceTab.allCases.filter { tab in
-            if tab == .contacts { return isContactsEnabled }
-            return true
-        }
+        IntelligenceTab.allCases
     }
 
-    private func loadContactsFeatureFlag() async {
+    private func loadFeatureFlags() async {
         let featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
         do {
             let flags = try await featureFlagClient.getFeatureFlags()
-            if let contactsFlag = flags.first(where: { $0.key == Self.contactsFeatureFlagKey }) {
-                isContactsEnabled = contactsFlag.enabled
-            }
             if let emailFlag = flags.first(where: { $0.key == Self.emailFeatureFlagKey }) {
                 isEmailEnabled = emailFlag.enabled
             }
@@ -108,9 +95,6 @@ struct IntelligencePanel: View {
             let resolved = AssistantFeatureFlagResolver.resolvedFlags(
                 registry: loadFeatureFlagRegistry()
             )
-            if let contactsEnabled = resolved[Self.contactsFeatureFlagKey] {
-                isContactsEnabled = contactsEnabled
-            }
             if let emailEnabled = resolved[Self.emailFeatureFlagKey] {
                 isEmailEnabled = emailEnabled
             }

@@ -317,7 +317,8 @@ export function normalizeSlackDirectMessage(
   if (botUserId && event.user === botUserId) return null;
   // Ignore message subtypes (edits, deletions, etc.) — only handle plain user messages.
   // message_changed is handled separately by normalizeSlackMessageEdit.
-  if (event.subtype) return null;
+  // file_share is allowed so image/file uploads are delivered to the assistant.
+  if (event.subtype && event.subtype !== "file_share") return null;
   // user is required for routing
   if (!event.user) return null;
 
@@ -400,7 +401,8 @@ export function normalizeSlackChannelMessage(
   botToken?: string,
 ): NormalizedSlackEvent | null {
   if (botUserId && event.user === botUserId) return null;
-  if (event.subtype) return null;
+  // file_share is allowed so image/file uploads are delivered to the assistant.
+  if (event.subtype && event.subtype !== "file_share") return null;
   if (!event.user) return null;
 
   const routing = resolveAssistant(config, event.channel, event.user);

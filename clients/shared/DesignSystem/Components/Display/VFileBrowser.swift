@@ -100,11 +100,11 @@ public struct VFileBrowser<ContentPane: View>: View {
         }
         .padding(VSpacing.md)
         .frame(width: sidebarWidth)
-        .background(VColor.surfaceOverlay)
+        .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .strokeBorder(VColor.borderDisabled, lineWidth: 2)
+                .strokeBorder(VColor.borderHover, lineWidth: 1)
         )
     }
 
@@ -113,11 +113,11 @@ public struct VFileBrowser<ContentPane: View>: View {
     private var rightPane: some View {
         contentPane(selectedFile)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.surfaceOverlay)
+            .background(VColor.surfaceLift)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.xl)
-                    .strokeBorder(VColor.borderDisabled, lineWidth: 2)
+                    .strokeBorder(VColor.borderHover, lineWidth: 1)
             )
     }
 }

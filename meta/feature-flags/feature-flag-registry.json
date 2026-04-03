@@ -26,14 +26,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "contacts",
-      "scope": "assistant",
-      "key": "contacts",
-      "label": "Contacts",
-      "description": "Show the Contacts tab in Settings for viewing and managing contacts",
-      "defaultEnabled": true
-    },
-    {
       "id": "email-channel",
       "scope": "assistant",
       "key": "email-channel",
@@ -138,102 +130,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "integration-twitter",
-      "scope": "assistant",
-      "key": "integration-twitter",
-      "label": "Twitter / X Integration",
-      "description": "Enable the Twitter / X OAuth setup skill for connecting to the Twitter API",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-github",
-      "scope": "assistant",
-      "key": "integration-github",
-      "label": "GitHub Integration",
-      "description": "Enable the GitHub OAuth setup skill for connecting to GitHub",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-linear",
-      "scope": "assistant",
-      "key": "integration-linear",
-      "label": "Linear Integration",
-      "description": "Enable the Linear OAuth setup skill for connecting to Linear",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-spotify",
-      "scope": "assistant",
-      "key": "integration-spotify",
-      "label": "Spotify Integration",
-      "description": "Enable the Spotify OAuth setup skill for connecting to the Spotify API",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-todoist",
-      "scope": "assistant",
-      "key": "integration-todoist",
-      "label": "Todoist Integration",
-      "description": "Enable the Todoist OAuth setup skill for connecting to Todoist",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-discord",
-      "scope": "assistant",
-      "key": "integration-discord",
-      "label": "Discord Integration",
-      "description": "Enable the Discord OAuth setup skill for connecting to Discord",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-dropbox",
-      "scope": "assistant",
-      "key": "integration-dropbox",
-      "label": "Dropbox Integration",
-      "description": "Enable the Dropbox OAuth setup skill for connecting to Dropbox",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-asana",
-      "scope": "assistant",
-      "key": "integration-asana",
-      "label": "Asana Integration",
-      "description": "Enable the Asana OAuth setup skill for connecting to Asana",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-airtable",
-      "scope": "assistant",
-      "key": "integration-airtable",
-      "label": "Airtable Integration",
-      "description": "Enable the Airtable OAuth setup skill for connecting to Airtable",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-hubspot",
-      "scope": "assistant",
-      "key": "integration-hubspot",
-      "label": "HubSpot Integration",
-      "description": "Enable the HubSpot OAuth setup skill for connecting to HubSpot CRM",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-figma",
-      "scope": "assistant",
-      "key": "integration-figma",
-      "label": "Figma Integration",
-      "description": "Enable the Figma OAuth setup skill for connecting to Figma",
-      "defaultEnabled": false
-    },
-    {
-      "id": "integration-notion",
-      "scope": "assistant",
-      "key": "integration-notion",
-      "label": "Notion Integration",
-      "description": "Enable the Notion setup skill for connecting to Notion",
-      "defaultEnabled": false
-    },
-    {
       "id": "conversation-starters",
       "scope": "assistant",
       "key": "conversation-starters",
@@ -271,6 +167,14 @@
       "key": "settings-schedules",
       "label": "Schedules Settings Tab",
       "description": "Show the Schedules tab in Settings for viewing and managing schedules",
+      "defaultEnabled": false
+    },
+    {
+      "id": "settings-integrations-grid",
+      "scope": "assistant",
+      "key": "settings-integrations-grid",
+      "label": "Integrations Grid",
+      "description": "Show the Integrations grid in Models & Services settings, replacing individual OAuth provider cards",
       "defaultEnabled": false
     },
     {
@@ -338,14 +242,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "show-background-conversations",
-      "scope": "assistant",
-      "key": "show-background-conversations",
-      "label": "Show Background Conversations",
-      "description": "Include background conversations (heartbeat, tasks) in the sidebar conversation list",
-      "defaultEnabled": false
-    },
-    {
       "id": "voice-mode",
       "scope": "assistant",
       "key": "voice-mode",
@@ -379,3 +275,4 @@
     }
   ]
 }
+

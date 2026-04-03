@@ -27,6 +27,8 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
+import { ProviderError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
   cleanAssistantContent,
@@ -40,6 +42,8 @@ import {
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import type { ServerMessage } from "./message-protocol.js";
+
+const log = getLogger("agent-loop-handlers");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -273,7 +277,11 @@ export function handleThinkingDelta(
   }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
-  deps.onEvent({ type: "assistant_thinking_delta", thinking: event.thinking, conversationId: deps.ctx.conversationId });
+  deps.onEvent({
+    type: "assistant_thinking_delta",
+    thinking: event.thinking,
+    conversationId: deps.ctx.conversationId,
+  });
 }
 
 export function handleToolUse(
@@ -427,20 +435,16 @@ export function handleToolResult(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_result" }>,
 ): void {
-  const imageBlock = event.contentBlocks?.find(
+  const imageBlocks = event.contentBlocks?.filter(
     (b): b is ImageContent => b.type === "image",
   );
-  deps.onEvent({
-    type: "tool_result",
-    toolName: "",
-    result: event.content,
-    isError: event.isError,
-    diff: event.diff,
-    status: event.status,
-    conversationId: deps.ctx.conversationId,
-    imageData: imageBlock?.source.data,
-    toolUseId: event.toolUseId,
-  });
+  const imageDataList = imageBlocks?.length
+    ? imageBlocks.map((b) => b.source.data)
+    : undefined;
+
+  // Perform state mutations before deps.onEvent() so that if onEvent throws
+  // (e.g. SSE disconnection) and the error is suppressed by dispatchAgentEvent,
+  // critical state like pendingToolResults and currentToolUseId is still updated.
   state.pendingToolResults.set(event.toolUseId, {
     content: event.content,
     isError: event.isError,
@@ -501,8 +505,29 @@ export function handleToolResult(
     return ts && ts.completedAt != null;
   });
   if (allToolsDone && state.currentTurnToolUseIds.length > 0) {
-    annotatePersistedAssistantMessage(state, deps);
+    try {
+      annotatePersistedAssistantMessage(state, deps);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: deps.ctx.conversationId },
+        "Failed to annotate persisted assistant message (non-fatal)",
+      );
+    }
   }
+
+  // Send to client last so state is consistent even if onEvent throws.
+  deps.onEvent({
+    type: "tool_result",
+    toolName: "",
+    result: event.content,
+    isError: event.isError,
+    diff: event.diff,
+    status: event.status,
+    conversationId: deps.ctx.conversationId,
+    imageData: imageDataList?.[0],
+    imageDataList,
+    toolUseId: event.toolUseId,
+  });
 }
 
 /**
@@ -606,6 +631,25 @@ export function handleError(
       state.orderingErrorDetected = true;
       state.deferredOrderingError = event.error.message;
     } else {
+      if (classified.errorCategory === "provider_api_error") {
+        log.error(
+          {
+            conversationId: deps.ctx.conversationId,
+            errorCode: classified.code,
+            errorCategory: classified.errorCategory,
+            statusCode:
+              event.error instanceof ProviderError
+                ? event.error.statusCode
+                : undefined,
+            provider:
+              event.error instanceof ProviderError
+                ? event.error.provider
+                : undefined,
+            errorMessage: event.error.message,
+          },
+          "Provider rejected request with unclassified 4xx error",
+        );
+      }
       deps.onEvent(
         buildConversationErrorMessage(deps.ctx.conversationId, classified),
       );
@@ -837,75 +881,92 @@ export async function dispatchAgentEvent(
   deps: EventHandlerDeps,
   event: AgentEvent,
 ): Promise<void> {
-  switch (event.type) {
-    case "text_delta":
-      handleTextDelta(state, deps, event);
-      break;
-    case "thinking_delta":
-      handleThinkingDelta(state, deps, event);
-      break;
-    case "tool_use":
-      handleToolUse(state, deps, event);
-      break;
-    case "tool_use_preview_start":
-      handleToolUsePreviewStart(state, deps, event);
-      break;
-    case "tool_output_chunk":
-      handleToolOutputChunk(state, deps, event);
-      break;
-    case "input_json_delta":
-      handleInputJsonDelta(state, deps, event);
-      break;
-    case "tool_result":
-      handleToolResult(state, deps, event);
-      break;
-    case "server_tool_start": {
-      const friendlyNames: Record<string, string> = {
-        web_search: "Searching the web",
-      };
-      const statusText = friendlyNames[event.name] ?? `Running ${event.name}`;
-      deps.ctx.emitActivityState(
-        "tool_running",
-        "tool_use_start",
-        "assistant_turn",
-        deps.reqId,
-        statusText,
-      );
-      // Emit tool_use_start so the client renders a tool chip (like other tools)
-      deps.onEvent({
-        type: "tool_use_start",
-        toolName: event.name,
-        input: event.input,
-        conversationId: deps.ctx.conversationId,
-        toolUseId: event.toolUseId,
-      });
-      break;
+  try {
+    switch (event.type) {
+      case "text_delta":
+        handleTextDelta(state, deps, event);
+        break;
+      case "thinking_delta":
+        handleThinkingDelta(state, deps, event);
+        break;
+      case "tool_use":
+        handleToolUse(state, deps, event);
+        break;
+      case "tool_use_preview_start":
+        handleToolUsePreviewStart(state, deps, event);
+        break;
+      case "tool_output_chunk":
+        handleToolOutputChunk(state, deps, event);
+        break;
+      case "input_json_delta":
+        handleInputJsonDelta(state, deps, event);
+        break;
+      case "tool_result":
+        handleToolResult(state, deps, event);
+        break;
+      case "server_tool_start": {
+        const friendlyNames: Record<string, string> = {
+          web_search: "Searching the web",
+        };
+        const statusText = friendlyNames[event.name] ?? `Running ${event.name}`;
+        deps.ctx.emitActivityState(
+          "tool_running",
+          "tool_use_start",
+          "assistant_turn",
+          deps.reqId,
+          statusText,
+        );
+        deps.onEvent({
+          type: "tool_use_start",
+          toolName: event.name,
+          input: event.input,
+          conversationId: deps.ctx.conversationId,
+          toolUseId: event.toolUseId,
+        });
+        break;
+      }
+      case "server_tool_complete": {
+        deps.ctx.emitActivityState(
+          "streaming",
+          "tool_result_received",
+          "assistant_turn",
+          deps.reqId,
+        );
+        deps.onEvent({
+          type: "tool_result",
+          toolName: "",
+          result: "",
+          isError: event.isError,
+          conversationId: deps.ctx.conversationId,
+          toolUseId: event.toolUseId,
+        });
+        break;
+      }
+      case "error":
+        handleError(state, deps, event);
+        break;
+      case "message_complete":
+        await handleMessageComplete(state, deps, event);
+        break;
+      case "usage":
+        handleUsage(state, deps, event);
+        break;
     }
-    case "server_tool_complete": {
-      deps.ctx.emitActivityState(
-        "streaming",
-        "tool_result_received",
-        "assistant_turn",
-        deps.reqId,
-      );
-      deps.onEvent({
-        type: "tool_result",
-        toolName: "",
-        result: "",
-        isError: event.isError,
-        conversationId: deps.ctx.conversationId,
-        toolUseId: event.toolUseId,
-      });
-      break;
+  } catch (err) {
+    log.error(
+      { err, eventType: event.type, conversationId: deps.ctx.conversationId },
+      "Event dispatch failed; suppressing to keep agent loop alive",
+    );
+    // Re-throw errors from critical handlers that must not be silently swallowed:
+    // - message_complete: persists assistant message to DB, sets state flags
+    // - error: sets recovery flags (contextTooLargeDetected, orderingErrorDetected)
+    // - usage: records token accounting
+    if (
+      event.type === "message_complete" ||
+      event.type === "error" ||
+      event.type === "usage"
+    ) {
+      throw err;
     }
-    case "error":
-      handleError(state, deps, event);
-      break;
-    case "message_complete":
-      await handleMessageComplete(state, deps, event);
-      break;
-    case "usage":
-      handleUsage(state, deps, event);
-      break;
   }
 }

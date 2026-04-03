@@ -73,7 +73,6 @@ export interface SkillSummary {
   bundled?: boolean;
   icon?: string;
   emoji?: string;
-  homepage?: string;
   source: SkillSource;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;
@@ -962,8 +961,9 @@ function isEscapingSymlink(filePath: string, rootDir: string): boolean {
 /**
  * Check for a `references/` subdirectory within a skill directory and return
  * a formatted listing of available `.md` reference files with full absolute
- * paths. Returns `null` if no references exist. Files are listed in
- * alphabetical order. Non-`.md` files are ignored. Symlinks that resolve
+ * paths. Returns `null` if no references exist. Files are discovered
+ * recursively through subdirectories and listed alphabetically within each
+ * directory level. Non-`.md` files are ignored. Symlinks that resolve
  * outside the skill directory are skipped.
  */
 export function listReferenceFiles(directoryPath: string): string | null {
@@ -977,10 +977,21 @@ export function listReferenceFiles(directoryPath: string): string | null {
       return null;
     }
 
-    const entries = readdirSync(refsDir);
+    const entries = readdirSync(refsDir, { recursive: true }) as string[];
     const mdFiles = entries
       .filter((f) => f.toLowerCase().endsWith(".md"))
-      .filter((f) => !isEscapingSymlink(join(refsDir, f), directoryPath))
+      .filter((f) => {
+        // Check the file itself
+        if (isEscapingSymlink(join(refsDir, f), directoryPath)) return false;
+        // Check all intermediate directory components (e.g. for "sub/dir/file.md"
+        // check "sub" and "sub/dir") to prevent traversal through symlinked dirs.
+        const parts = f.split("/");
+        for (let i = 1; i < parts.length; i++) {
+          const ancestor = join(refsDir, ...parts.slice(0, i));
+          if (isEscapingSymlink(ancestor, directoryPath)) return false;
+        }
+        return true;
+      })
       .sort((a, b) => a.localeCompare(b));
 
     if (mdFiles.length === 0) return null;
@@ -991,8 +1002,8 @@ export function listReferenceFiles(directoryPath: string): string | null {
       "The following reference files are available in this skill's directory. Use `file_read` to load any that are relevant to the current task:",
       "",
     ];
-    for (const filename of mdFiles) {
-      lines.push(`- \`${join(refsDir, filename)}\``);
+    for (const filepath of mdFiles) {
+      lines.push(`- \`${join(refsDir, filepath)}\` (references/${filepath})`);
     }
 
     return lines.join("\n");

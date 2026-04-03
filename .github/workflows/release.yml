@@ -21,17 +21,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      version: ${{ steps.extract.outputs.version }}
+      version: ${{ steps.finalize.outputs.version }}
+      base_version: ${{ steps.extract.outputs.base_version }}
       is_staging: ${{ steps.detect-staging.outputs.is_staging }}
+      docker_environments: ${{ steps.finalize.outputs.docker_environments }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
 
       - name: Extract version from branch name
         id: extract
         run: |
           BRANCH="${GITHUB_REF_NAME}"
           if [[ "$BRANCH" == release/v* ]]; then
-            VERSION="${BRANCH#release/v}"
+            BASE_VERSION="${BRANCH#release/v}"
+            # Only allow clean semver branches (e.g. release/v0.6.0), reject
+            # branches with suffixes like release/v0.6.0-foo.
+            if ! [[ "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Branch '$BRANCH' is not a valid release branch. Expected release/vMAJOR.MINOR.PATCH (e.g. release/v0.6.0), got suffix '$BASE_VERSION'."
+              exit 1
+            fi
           elif [ "$BRANCH" = "main" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             git fetch --tags
             LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
@@ -41,13 +59,13 @@ jobs:
             LATEST_VERSION=${LATEST_TAG#v}
             IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
             PATCH=$((PATCH + 1))
-            VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            echo "Computed next patch version from $LATEST_TAG: $VERSION"
+            BASE_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "Computed next patch version from $LATEST_TAG: $BASE_VERSION"
           else
             echo "::error::Workflow must run on a release/v* branch or be manually dispatched from main, got '$BRANCH'"
             exit 1
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Detect staging release
         id: detect-staging
@@ -63,9 +81,34 @@ jobs:
             echo "Commit-triggered release — staging only"
           fi
 
+      - name: Compute final version
+        id: finalize
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          BASE_VERSION="${{ steps.extract.outputs.base_version }}"
+          IS_STAGING="${{ steps.detect-staging.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            # Use the number of times this workflow has run on this branch
+            # as the prerelease suffix — monotonically increasing and scoped
+            # to the branch (e.g. v0.6.0-staging.3 for the 3rd run).
+            WORKFLOW_FILE="release.yml"
+            RUN_COUNT=$(gh api "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_FILE}/runs?branch=${GITHUB_REF_NAME}" --jq '.total_count' || true)
+            if [ -z "$RUN_COUNT" ] || ! [ "$RUN_COUNT" -ge 1 ] 2>/dev/null; then
+              echo "::warning::Failed to query workflow run count (got '${RUN_COUNT}'), falling back to 1"
+              RUN_COUNT=1
+            fi
+            VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
+            echo "Staging prerelease version: $VERSION"
+            echo 'docker_environments=["dev"]' >> "$GITHUB_OUTPUT"
+          else
+            VERSION="$BASE_VERSION"
+            echo 'docker_environments=["dev","production"]' >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   push-assistant-image:
     needs: [extract-version, ci-assistant]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
@@ -74,14 +117,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -111,6 +163,9 @@ jobs:
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json assistant/src/config/feature-flag-registry.json
+
+      - name: Stamp release version into package.json
+        run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' assistant/package.json > assistant/package.json.tmp && mv assistant/package.json.tmp assistant/package.json
 
       - name: Build and push by digest
         id: build
@@ -144,7 +199,7 @@ jobs:
 
   push-assistant-manifest:
     needs: [extract-version, push-assistant-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -153,9 +208,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Fail if image build failed
         if: needs.push-assistant-image.result != 'success'
         run: |
@@ -164,6 +226,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get release SHA
         id: release-sha
@@ -202,9 +266,12 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
           GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$IS_STAGING" != "true" ]; then
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -259,7 +326,6 @@ jobs:
 
   push-gateway-image:
     needs: [extract-version, ci-gateway]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -268,14 +334,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -305,6 +380,9 @@ jobs:
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json gateway/src/feature-flag-registry.json
+
+      - name: Stamp release version into package.json
+        run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' gateway/package.json > gateway/package.json.tmp && mv gateway/package.json.tmp gateway/package.json
 
       - name: Build and push by digest
         id: build
@@ -337,7 +415,6 @@ jobs:
 
   push-credential-executor-image:
     needs: [extract-version, ci-credential-executor]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -346,14 +423,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -380,6 +466,9 @@ jobs:
         id: image
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp release version into package.json
+        run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' credential-executor/package.json > credential-executor/package.json.tmp && mv credential-executor/package.json.tmp credential-executor/package.json
 
       - name: Build and push by digest
         id: build
@@ -413,7 +502,7 @@ jobs:
 
   push-gateway-manifest:
     needs: [extract-version, push-gateway-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -422,9 +511,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Fail if image build failed
         if: needs.push-gateway-image.result != 'success'
         run: |
@@ -433,6 +529,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get release SHA
         id: release-sha
@@ -471,9 +569,12 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
           GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$IS_STAGING" != "true" ]; then
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -528,7 +629,7 @@ jobs:
 
   push-credential-executor-manifest:
     needs: [extract-version, push-credential-executor-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -537,9 +638,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Fail if image build failed
         if: needs.push-credential-executor-image.result != 'success'
         run: |
@@ -548,6 +656,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get release SHA
         id: release-sha
@@ -586,9 +696,12 @@ jobs:
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
           VERSION="${{ needs.extract-version.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
           GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
-          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          if [ "$IS_STAGING" != "true" ]; then
+            GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          fi
 
           echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
@@ -672,8 +785,17 @@ jobs:
             dockerfile: credential-executor/Dockerfile
             feature_flag_path: ""
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -706,6 +828,13 @@ jobs:
         if: matrix.feature_flag_path != ''
         run: cp meta/feature-flags/feature-flag-registry.json ${{ matrix.feature_flag_path }}
 
+      - name: Stamp release version into package.json
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          for pkg in assistant/package.json gateway/package.json credential-executor/package.json; do
+            [ -f "$pkg" ] && jq --arg v "$VERSION" '.version = $v' "$pkg" > "${pkg}.tmp" && mv "${pkg}.tmp" "$pkg"
+          done
+
       - name: Build and push multi-platform image to Docker Hub
         uses: docker/build-push-action@v6
         with:
@@ -725,13 +854,12 @@ jobs:
 
   register-release:
     needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, production]
+        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
@@ -820,9 +948,12 @@ jobs:
           ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          IS_STABLE="true"
+
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \
             --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson is_stable "$IS_STABLE" \
             --argjson db_migration_version "${{ steps.migration-ceilings.outputs.db_version }}" \
             --arg last_workspace_migration_id "${{ steps.migration-ceilings.outputs.ws_id }}" \
             --arg assistant_repo "$ASSISTANT_REPO" \
@@ -840,7 +971,7 @@ jobs:
             '{
               version: $version,
               released_at: $released_at,
-              is_stable: true,
+              is_stable: $is_stable,
               db_migration_version: $db_migration_version,
               last_workspace_migration_id: $last_workspace_migration_id,
               assistant_image: {
@@ -940,6 +1071,66 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  # ── Staging: pack CLI tarball and dispatch QA to platform repo ──────
+  pack-cli:
+    needs: [extract-version, ci-cli]
+    if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Install dependencies
+        run: |
+          cd cli
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+
+      - name: Pack CLI tarball
+        run: |
+          cd cli
+          npm pack
+          TARBALL=$(ls vellumai-cli-*.tgz)
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "Packed: $TARBALL"
+        id: pack
+
+      - name: Upload CLI tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-tarball
+          path: cli/${{ steps.pack.outputs.tarball }}
+          retention-days: 7
+
+  trigger-platform-qa:
+    needs: [extract-version, pack-cli]
+    if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: vellum-assistant-platform
+
+      - name: Trigger platform QA
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh workflow run qa-cli-staging.yaml \
+            --repo vellum-ai/vellum-assistant-platform \
+            --field version="${{ needs.extract-version.outputs.version }}" \
+            --field run_id="${{ github.run_id }}"
+
   publish-meta:
     needs: [extract-version, publish-npm]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
@@ -966,7 +1157,7 @@ jobs:
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
   # This is the primary/default build.
   build-macos-arm64:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -1014,12 +1205,19 @@ jobs:
       - name: Set version
         id: version
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          DISPLAY_VERSION="${BRANCH#release/v}"
+          # For staging, use the full prerelease version as DISPLAY_VERSION so
+          # the About window shows e.g. "0.6.0-staging.3" instead of just "0.6.0".
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          else
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
+          fi
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION / Full version: ${{ needs.extract-version.outputs.version }}"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -1043,6 +1241,12 @@ jobs:
 
       - name: Build release .app
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
+            export BUNDLE_DISPLAY_NAME="Vellum Staging"
+          fi
+          BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -1054,13 +1258,13 @@ jobs:
           SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
-          APP_PATH="dist/Vellum.app"
+          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
           ls -la "$APP_PATH"
           codesign --verify --strict "$APP_PATH"
           echo "Code signature verified"
 
           echo "Main executable architecture:"
-          file "$APP_PATH/Contents/MacOS/Vellum"
+          file "$APP_PATH/Contents/MacOS/$BUNDLE_DISPLAY_NAME"
 
       - name: Upload dSYMs to Sentry
         continue-on-error: true
@@ -1102,7 +1306,13 @@ jobs:
 
       - name: Create DMG
         run: |
-          APP_PATH="dist/Vellum.app"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            BUNDLE_DISPLAY_NAME="Vellum Staging"
+          else
+            BUNDLE_DISPLAY_NAME="Vellum"
+          fi
+          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
 
           DMG_STAGING="build/dmg-staging"
           mkdir -p "$DMG_STAGING"
@@ -1113,15 +1323,15 @@ jobs:
           du -sh "$DMG_STAGING"
 
           create-dmg \
-            --volname "Vellum" \
+            --volname "$BUNDLE_DISPLAY_NAME" \
             --background "dmg/dmg-background@2x.png" \
             --window-pos 200 120 \
             --window-size 660 400 \
             --icon-size 128 \
             --text-size 10 \
-            --icon "Vellum.app" 175 190 \
+            --icon "$BUNDLE_DISPLAY_NAME.app" 175 190 \
             --icon "Applications" 530 190 \
-            --hide-extension "Vellum.app" \
+            --hide-extension "$BUNDLE_DISPLAY_NAME.app" \
             --no-internet-enable \
             "$DMG_PATH" \
             "$DMG_STAGING/" \
@@ -1212,8 +1422,14 @@ jobs:
 
       - name: Build ZIP for Sparkle auto-update
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            BUNDLE_DISPLAY_NAME="Vellum Staging"
+          else
+            BUNDLE_DISPLAY_NAME="Vellum"
+          fi
           cd dist
-          ditto -c -k --keepParent Vellum.app vellum-assistant.zip
+          ditto -c -k --keepParent "$BUNDLE_DISPLAY_NAME.app" vellum-assistant.zip
           echo "Sparkle ZIP created:"
           ls -lh vellum-assistant.zip
 
@@ -1308,7 +1524,7 @@ jobs:
   # produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -1357,11 +1573,16 @@ jobs:
       - name: Set version
         id: version
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          DISPLAY_VERSION="${BRANCH#release/v}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          else
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
+          fi
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -1435,6 +1656,12 @@ jobs:
 
       - name: Build release .app
         run: |
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
+            export BUNDLE_DISPLAY_NAME="Vellum Staging"
+          fi
+          BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
@@ -1446,13 +1673,13 @@ jobs:
           SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
-          APP_PATH="dist/Vellum.app"
+          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
           ls -la "$APP_PATH"
           codesign --verify --strict "$APP_PATH"
           echo "Code signature verified"
 
           echo "Main executable architecture:"
-          file "$APP_PATH/Contents/MacOS/Vellum"
+          file "$APP_PATH/Contents/MacOS/$BUNDLE_DISPLAY_NAME"
 
           echo "Daemon binary architecture:"
           file "$APP_PATH/Contents/MacOS/vellum-daemon"
@@ -1495,7 +1722,13 @@ jobs:
 
       - name: Create DMG
         run: |
-          APP_PATH="dist/Vellum.app"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            BUNDLE_DISPLAY_NAME="Vellum Staging"
+          else
+            BUNDLE_DISPLAY_NAME="Vellum"
+          fi
+          APP_PATH="dist/$BUNDLE_DISPLAY_NAME.app"
 
           DMG_STAGING="build/dmg-staging"
           mkdir -p "$DMG_STAGING"
@@ -1506,15 +1739,15 @@ jobs:
           du -sh "$DMG_STAGING"
 
           create-dmg \
-            --volname "Vellum" \
+            --volname "$BUNDLE_DISPLAY_NAME" \
             --background "dmg/dmg-background@2x.png" \
             --window-pos 200 120 \
             --window-size 660 400 \
             --icon-size 128 \
             --text-size 10 \
-            --icon "Vellum.app" 175 190 \
+            --icon "$BUNDLE_DISPLAY_NAME.app" 175 190 \
             --icon "Applications" 530 190 \
-            --hide-extension "Vellum.app" \
+            --hide-extension "$BUNDLE_DISPLAY_NAME.app" \
             --no-internet-enable \
             "$DMG_PATH" \
             "$DMG_STAGING/" \
@@ -1958,7 +2191,7 @@ jobs:
         working-directory: credential-executor
 
   build-ios:
-    needs: [ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -2050,12 +2283,17 @@ jobs:
       - name: Set version
         id: version
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
-          DISPLAY_VERSION="${BRANCH#release/v}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
+          if [ "$IS_STAGING" = "true" ]; then
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.version }}"
+          else
+            DISPLAY_VERSION="${{ needs.extract-version.outputs.base_version }}"
+          fi
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+          echo "version=${{ needs.extract-version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION / Full version: ${{ needs.extract-version.outputs.version }}"
 
       - name: Cache Homebrew XcodeGen
         id: cache-xcodegen-release
@@ -2208,10 +2446,91 @@ jobs:
             sleep 30
           done
 
+  notify-staging-dmg:
+    name: Slack Notification (Staging DMG Ready)
+    needs: [extract-version, build-macos-arm64, build-macos-x64]
+    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Build Slack payload
+        env:
+          SLACK_USER_ID: ${{ inputs.slack_user_id }}
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          ARM_RESULT="${{ needs.build-macos-arm64.result }}"
+          X64_RESULT="${{ needs.build-macos-x64.result }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ -n "$SLACK_USER_ID" ]; then
+            TRIGGERED_BY="<@${SLACK_USER_ID}>"
+          else
+            TRIGGERED_BY="${{ github.actor }}"
+          fi
+
+          ci_icon() { if [ "$1" = "success" ]; then printf '✅'; elif [ "$1" = "skipped" ]; then printf '⏭️'; else printf '❌'; fi; }
+
+          if [ "$ARM_RESULT" = "success" ]; then
+            HEADER="✅ Desktop DMG Ready — v${VERSION}"
+            BODY=$(printf 'The staging Desktop DMG has finished building and is available for testing.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s` (staging)\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
+          else
+            HEADER="❌ Desktop DMG Build Failed — v${VERSION}"
+            BODY=$(printf 'The staging Desktop DMG build failed.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s` (staging)\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
+          fi
+
+          BLOCKS="[]"
+          BLOCKS=$(echo "$BLOCKS" | jq --arg header "$HEADER" '. + [{ type: "header", text: { type: "plain_text", text: $header } }]')
+          BLOCKS=$(echo "$BLOCKS" | jq --arg body "$BODY" '. + [{ type: "section", text: { type: "mrkdwn", text: $body } }]')
+
+          ARTIFACTS_URL="${RUN_URL}#artifacts"
+
+          if [ "$ARM_RESULT" = "success" ]; then
+            DOWNLOAD_BTN=$(jq -n --arg url "$ARTIFACTS_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "Download DMG" },
+              url: $url,
+              style: "primary"
+            }')
+          else
+            DOWNLOAD_BTN=$(jq -n --arg url "$RUN_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "View Run" },
+              url: $url,
+              style: "danger"
+            }')
+          fi
+
+          BLOCKS=$(echo "$BLOCKS" | jq --argjson btn "$DOWNLOAD_BTN" '. + [{ type: "actions", elements: [$btn] }]')
+
+          jq -n --argjson blocks "$BLOCKS" '{
+            unfurl_links: false,
+            unfurl_media: false,
+            blocks: $blocks
+          }' > /tmp/slack-payload.json
+
+      - name: Notify Slack
+        id: slack
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload-file-path: /tmp/slack-payload.json
+          errors: true
+
+      - name: Log Slack notification result
+        if: always()
+        run: |
+          echo "Slack step outcome: ${{ steps.slack.outcome }}"
+          if [ "${{ steps.slack.outcome }}" != "success" ]; then
+            echo "::warning::Staging DMG Slack notification failed to send."
+          fi
+
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2239,10 +2558,22 @@ jobs:
             RELEASE_FAILED="true"
           fi
 
-          # For staging releases, check that desktop app artifacts were successfully built
+          # For staging releases, check that desktop app and Docker images were successfully pushed
           STAGING_READY="true"
           if [ "$IS_STAGING" = "true" ]; then
             if [ "${{ needs.build-macos-arm64.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.push-assistant-manifest.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.push-gateway-manifest.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.push-credential-executor-manifest.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.register-release.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
           fi
@@ -2280,6 +2611,8 @@ jobs:
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
           DH=$(ci_icon "${{ needs.push-dockerhub-image.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
+          PC=$(ci_icon "${{ needs.pack-cli.result }}")
+          TQ=$(ci_icon "${{ needs.trigger-platform-qa.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PLAYWRIGHT_LINE=""
@@ -2292,7 +2625,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
@@ -2301,7 +2634,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
@@ -2363,7 +2696,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ] && [ "$STAGING_READY" = "true" ] && [ "$IS_RELEASE_BRANCH" = "true" ] && [ -n "$RELEASE_TRIGGER_SECRET" ]; then
-            RELEASE_BRANCH="release/${VERSION_TAG}"
+            RELEASE_BRANCH="release/v${{ needs.extract-version.outputs.base_version }}"
             GO_LIVE_TS=$(date +%s)
             GO_LIVE_SIG=$(echo -n "${RELEASE_BRANCH}:${GO_LIVE_TS}" | openssl dgst -sha256 -hmac "$RELEASE_TRIGGER_SECRET" -hex | awk '{print $NF}')
             GO_LIVE_URL="https://qa.vellum.ai/api/slack/go-live?branch=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RELEASE_BRANCH}', safe=''))")&ts=${GO_LIVE_TS}&sig=${GO_LIVE_SIG}"

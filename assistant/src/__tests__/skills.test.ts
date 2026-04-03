@@ -642,7 +642,7 @@ describe("ingress-dependent setup skills declare public-ingress intentionally", 
       "utf-8",
     );
     expect(content).toContain("avoid-when:");
-    expect(content.toLowerCase()).toContain("managed/containerized");
+    expect(content.toLowerCase()).toContain("platform-managed");
   });
 });
 

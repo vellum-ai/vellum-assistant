@@ -71,18 +71,11 @@ public struct VInputChromeModifier: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         content
-            .background(shape.fill(isDisabled ? VColor.surfaceOverlay : VColor.surfaceBase))
+            .background(shape.fill(VColor.surfaceLift))
             .overlay(
-                shape.strokeBorder(
-                    borderColor,
-                    lineWidth: (isFocused || isError) ? 1.5 : 1
-                )
+                shape.strokeBorder(borderColor, lineWidth: 1)
             )
             .clipShape(shape)
-            .shadow(
-                color: isFocused && !isError ? VColor.primaryBase.opacity(0.10) : .clear,
-                radius: 4
-            )
             .opacity(isDisabled ? 0.6 : 1.0)
     }
 
@@ -93,7 +86,7 @@ public struct VInputChromeModifier: ViewModifier {
         if isFocused {
             return VColor.borderActive
         }
-        return VColor.borderBase.opacity(0.72)
+        return VColor.borderElement
     }
 }
 
@@ -244,6 +237,16 @@ public struct VTextField: View {
                     .font(font)
                     .foregroundStyle(VColor.contentDefault)
                     .onSubmit { onSubmit?() }
+                    // SecureField is single-line by design (Apple docs) and
+                    // renders blank when the bound string contains newline
+                    // characters. Strip newlines on change so pasted multi-line
+                    // credentials (PEM keys, JSON tokens) display as masked dots.
+                    .onChange(of: text) { _, newValue in
+                        let stripped = newValue.filter { !$0.isNewline }
+                        if stripped != newValue {
+                            text = stripped
+                        }
+                    }
             } else {
                 TextField(placeholder, text: $text)
                     .textFieldStyle(.plain)

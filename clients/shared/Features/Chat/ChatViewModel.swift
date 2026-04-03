@@ -149,6 +149,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// send-in-progress indicator gets stuck.
     @ObservationIgnored private var sendingWatchdogTask: Task<Void, Never>?
 
+    /// Per-requestId safety-net timeouts that clear the submitting spinner if
+    /// a guardian decision HTTP response takes longer than 15 seconds.  Keyed
+    /// by requestId so concurrent submissions each get an independent timeout.
+    @ObservationIgnored private var guardianDecisionTimeoutTasks: [String: Task<Void, Never>] = [:]
+
     // MARK: - Observation compatibility
 
     /// No-op — retained for protocol conformance (MessageSendCoordinatorDelegate).
@@ -334,6 +339,17 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     }
     public var activePendingRequestId: String? {
         messageManager.activePendingRequestId
+    }
+    /// Whether any message contains non-empty text. O(1) cached value kept in
+    /// sync with the message array by ChatMessageManager's Combine pipeline.
+    public var hasNonEmptyMessage: Bool {
+        messageManager.hasNonEmptyMessage
+    }
+    /// The daemon message ID of the last persisted, non-streaming, non-hidden
+    /// message. O(1) cached value kept in sync with the message array by
+    /// ChatMessageManager's Combine pipeline.
+    public var latestPersistedTipDaemonMessageId: String? {
+        messageManager.latestPersistedTipDaemonMessageId
     }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
@@ -1624,17 +1640,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // When the last message is from the user (i.e. the assistant never
         // responded — e.g. because the send was rate-limited with 429), resend
         // the original message instead of regenerating. A /regenerate request
-        // would fail with 404 because the daemon never received the message.
+        // would fail because the daemon has no assistant response to regenerate.
         if let lastMsg = messages.last, lastMsg.role == .user {
             lastFailedMessageText = lastMsg.text
             lastFailedMessageDisplayText = nil
             lastFailedMessageAutomated = lastMsg.isHidden
             lastFailedMessageBypassSecretCheck = false
             // Preserve attachments so they are resent with the retry.
-            // ChatAttachment.data may already be cleared for older messages,
-            // but for a just-sent 429'd message it is still populated.
-            // Also keep file-path-based attachments even when data is empty,
-            // since the daemon can read the file from disk.
             lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
                 guard !att.data.isEmpty || att.filePath != nil else { return nil }
                 return UserMessageAttachment(
@@ -1650,6 +1662,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             }
             retryLastMessage()
         } else {
+            // The daemon already persisted both the user message and the error
+            // assistant message. Regenerate deletes the error message and re-runs
+            // the agent loop with the existing user message, avoiding duplicates.
             regenerateLastMessage()
         }
     }
@@ -1749,10 +1764,19 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         markConfirmationInFlight(requestId: requestId, decision: decision)
         inlineResponseHandledRequestIds.insert(requestId)
         Task {
-            let success = await performConfirmationResponse(
+            let result = await performConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
             )
-            if !success {
+            switch result {
+            case .success:
+                break
+            case .alreadyResolved:
+                // The backend already auto-denied this confirmation (e.g. a new
+                // message arrived). Collapse the prompt silently — the SSE
+                // confirmation_state_changed event will confirm the final state.
+                log.info("[confirm-flow] respondToConfirmation: already resolved, collapsing silently: requestId=\(requestId, privacy: .public)")
+                self.collapseStaleConfirmation(requestId: requestId)
+            case .failed:
                 log.error("[confirm-flow] respondToConfirmation POST failed (will show error banner): requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
                 self.revertConfirmationInFlight(requestId: requestId)
                 self.inlineResponseHandledRequestIds.remove(requestId)
@@ -1769,29 +1793,36 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         markConfirmationInFlight(requestId: requestId, decision: decision)
         inlineResponseHandledRequestIds.insert(requestId)
         Task {
-            let success = await interactionClient.sendConfirmationResponse(
+            let result = await interactionClient.sendConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
             )
-            guard success else {
+            switch result {
+            case .success:
+                if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+                    self.messages[index].confirmation?.approvedDecision = decision
+                }
+                self.clearPendingConfirmation(requestId: requestId)
+                self.onInlineConfirmationResponse?(requestId, "allow")
+                self.inlineResponseHandledRequestIds.insert(requestId)
+            case .alreadyResolved:
+                log.info("[confirm-flow] respondToAlwaysAllow: already resolved, collapsing silently: requestId=\(requestId, privacy: .public)")
+                self.collapseStaleConfirmation(requestId: requestId)
+            case .failed:
                 log.warning("Always-allow send failed, trying one-time allow fallback")
-                let fallbackSuccess = await self.performConfirmationResponse(
+                let fallbackResult = await self.performConfirmationResponse(
                     requestId: requestId, decision: "allow", selectedPattern: nil, selectedScope: nil
                 )
-                if !fallbackSuccess {
+                switch fallbackResult {
+                case .success:
+                    self.errorText = "Preference could not be saved. This action was allowed once."
+                case .alreadyResolved:
+                    log.info("[confirm-flow] respondToAlwaysAllow fallback: already resolved, collapsing silently: requestId=\(requestId, privacy: .public)")
+                    self.collapseStaleConfirmation(requestId: requestId)
+                case .failed:
                     self.revertConfirmationInFlight(requestId: requestId)
                     self.inlineResponseHandledRequestIds.remove(requestId)
                 }
-                if fallbackSuccess {
-                    self.errorText = "Preference could not be saved. This action was allowed once."
-                }
-                return
             }
-            if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-                self.messages[index].confirmation?.approvedDecision = decision
-            }
-            self.clearPendingConfirmation(requestId: requestId)
-            self.onInlineConfirmationResponse?(requestId, "allow")
-            self.inlineResponseHandledRequestIds.insert(requestId)
         }
     }
 
@@ -1814,18 +1845,29 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         messages[index].confirmation?.approvedDecision = nil
     }
 
+    /// Collapse a stale confirmation that was already resolved by the backend
+    /// (e.g. auto-denied when a new message arrived). Marks it as denied and
+    /// cleans up tracking state without showing an error banner.
+    private func collapseStaleConfirmation(requestId: String) {
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = .denied
+        }
+        clearPendingConfirmation(requestId: requestId)
+        onInlineConfirmationResponse?(requestId, "deny")
+        inlineResponseHandledRequestIds.insert(requestId)
+    }
+
     /// Shared async helper that sends a confirmation response and updates UI state on success.
-    /// Returns `true` if the send succeeded, `false` otherwise.
     private func performConfirmationResponse(
         requestId: String,
         decision: String,
         selectedPattern: String?,
         selectedScope: String?
-    ) async -> Bool {
-        let success = await interactionClient.sendConfirmationResponse(
+    ) async -> ConfirmationSendResult {
+        let result = await interactionClient.sendConfirmationResponse(
             requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
         )
-        guard success else { return false }
+        guard result == .success else { return result }
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
             messages[index].confirmation?.state = isApproval ? .approved : .denied
@@ -1836,7 +1878,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         clearPendingConfirmation(requestId: requestId)
         onInlineConfirmationResponse?(requestId, decision)
         inlineResponseHandledRequestIds.insert(requestId)
-        return true
+        return .success
     }
 
     /// Update the inline confirmation message state without sending a response to the daemon.
@@ -2131,6 +2173,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
+        guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -2177,7 +2220,28 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
         Task {
             let response = await guardianClient.submitDecision(requestId: requestId, action: action, conversationId: conversationId)
-            if response == nil {
+
+            // Cancel the safety-net timeout for this specific requestId — we have an HTTP response.
+            guardianDecisionTimeoutTasks[requestId]?.cancel()
+            guardianDecisionTimeoutTasks[requestId] = nil
+
+            if let response {
+                if response.applied {
+                    // Real server decision — route to the handler for resolved state.
+                    handleGuardianActionDecisionResponse(response)
+                } else {
+                    // Transport failure (HTTP error, network timeout) or server
+                    // explicitly said stale/not-found. GuardianClient synthesizes
+                    // applied=false for HTTP errors — don't mark the prompt as
+                    // .stale on a transient 5xx. Instead, revert submitting state
+                    // and let the user retry.
+                    pendingGuardianActions.removeValue(forKey: requestId)
+                    if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }) {
+                        messages[idx].guardianDecision?.isSubmitting = false
+                    }
+                    refreshGuardianPrompts()
+                }
+            } else {
                 log.error("Failed to submit guardian decision for requestId \(requestId)")
                 pendingGuardianActions.removeValue(forKey: requestId)
                 // Revert submitting state on failure
@@ -2185,6 +2249,25 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     messages[idx].guardianDecision?.isSubmitting = false
                 }
             }
+        }
+
+        // Safety-net timeout: if the decision is still submitting after 15s,
+        // clear the spinner and re-sync with the server. Don't remove from
+        // pendingGuardianActions — let the main response handler or refresh
+        // handle the cleanup so the action label is preserved.
+        // Cancel any previous timeout for the SAME requestId only — other
+        // in-flight submissions keep their own independent timeouts.
+        guardianDecisionTimeoutTasks[requestId]?.cancel()
+        guardianDecisionTimeoutTasks[requestId] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if let idx = self.messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }),
+               self.messages[idx].guardianDecision?.isSubmitting == true {
+                log.warning("Guardian decision submit timed out for requestId \(requestId, privacy: .public)")
+                self.messages[idx].guardianDecision?.isSubmitting = false
+                self.refreshGuardianPrompts()
+            }
+            self.guardianDecisionTimeoutTasks[requestId] = nil
         }
     }
 

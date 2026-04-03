@@ -133,7 +133,7 @@ describe("trusted contact lifecycle notification signals", () => {
     resetState();
   });
 
-  test("guardian deny emits guardian_decision and denied signals", async () => {
+  test("guardian deny emits guardian_decision and denied signals with display names", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
     createGuardianBinding({
       channel: "telegram",
@@ -148,6 +148,17 @@ describe("trusted contact lifecycle notification signals", () => {
       externalChatId: "guardian-chat-789",
       status: "active",
       policy: "allow",
+      displayName: "Guardian Bob",
+    });
+
+    // Set up requester contact with a display name so payloads are enriched
+    upsertContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "requester-user-456",
+      externalChatId: "requester-chat-456",
+      status: "pending",
+      policy: "ask",
+      displayName: "Alice Requester",
     });
 
     const testRequestId = `req-deny-${Date.now()}`;
@@ -199,11 +210,15 @@ describe("trusted contact lifecycle notification signals", () => {
     expect(gdPayload.decision).toBe("denied");
     expect(gdPayload.requesterExternalUserId).toBe("requester-user-456");
     expect(gdPayload.decidedByExternalUserId).toBe("guardian-user-789");
+    expect(gdPayload.requesterDisplayName).toBe("Alice Requester");
+    expect(gdPayload.decidedByDisplayName).toBe("Guardian Bob");
 
     // Verify denied payload
     const dPayload = deniedSignals[0].contextPayload as Record<string, unknown>;
     expect(dPayload.decision).toBe("denied");
     expect(dPayload.requesterExternalUserId).toBe("requester-user-456");
+    expect(dPayload.requesterDisplayName).toBe("Alice Requester");
+    expect(dPayload.decidedByDisplayName).toBe("Guardian Bob");
 
     // Verify deduplication keys are distinct
     expect(guardianDecisionSignals[0].dedupeKey).toContain(
@@ -212,7 +227,7 @@ describe("trusted contact lifecycle notification signals", () => {
     expect(deniedSignals[0].dedupeKey).toContain("trusted-contact:denied:");
   });
 
-  test("guardian approve emits guardian_decision and verification_sent signals", async () => {
+  test("guardian approve emits guardian_decision and verification_sent signals with display names", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
     createGuardianBinding({
       channel: "telegram",
@@ -227,6 +242,17 @@ describe("trusted contact lifecycle notification signals", () => {
       externalChatId: "guardian-chat-789",
       status: "active",
       policy: "allow",
+      displayName: "Guardian Bob",
+    });
+
+    // Set up requester contact with a display name
+    upsertContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "requester-user-456",
+      externalChatId: "requester-chat-456",
+      status: "pending",
+      policy: "ask",
+      displayName: "Alice Requester",
     });
 
     const testRequestId = `req-approve-${Date.now()}`;
@@ -276,6 +302,8 @@ describe("trusted contact lifecycle notification signals", () => {
     const vsPayload = vsSignal.contextPayload as Record<string, unknown>;
     expect(vsPayload.requesterExternalUserId).toBe("requester-user-456");
     expect(vsPayload.verificationSessionId).toBeDefined();
+    expect(vsPayload.requesterDisplayName).toBe("Alice Requester");
+    expect(vsPayload.decidedByDisplayName).toBe("Guardian Bob");
     expect(
       (vsSignal.attentionHints as Record<string, unknown>).visibleInSourceNow,
     ).toBe(true);
@@ -339,6 +367,92 @@ describe("trusted contact lifecycle notification signals", () => {
     );
     // guardian_decision and denied — both keyed on approval.id
     expect(signals.length).toBe(2);
+  });
+
+  test("display name fields fall back to null when contacts have no display name", async () => {
+    // Set up guardian binding — createGuardianBinding creates a contact with
+    // displayName defaulting to the externalUserId. We need to verify the
+    // null-fallback path for display name resolution, so we use a guardian
+    // whose external user ID does NOT have a matching contact_channels row.
+    //
+    // Strategy: create the guardian binding normally (so the sender is
+    // classified as trustClass="guardian"), then use a DIFFERENT external
+    // user ID in the approval request's guardianExternalUserId field. The
+    // decidedByExternalUserId comes from actorExternalId (the real guardian),
+    // which DOES have a contact. To truly get null, we clear the guardian
+    // contact's displayName to empty string after creation — the signal
+    // enrichment code treats empty string the same as null for display
+    // purposes.
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "guardian-noname-111",
+      guardianDeliveryChatId: "guardian-chat-111",
+      guardianPrincipalId: "guardian-noname-111",
+      verifiedVia: "test",
+    });
+
+    // Clear the guardian contact's displayName to empty string so the
+    // display name resolution returns a falsy value. createGuardianBinding
+    // defaults displayName to the externalUserId, which would be a non-empty
+    // string and defeat the purpose of this test.
+    const db = getDb();
+    db.run("UPDATE contacts SET display_name = '' WHERE role = 'guardian'");
+
+    // Do NOT create a requester contact — display name should resolve to null
+
+    const testRequestId = `req-noname-${Date.now()}`;
+
+    createApprovalRequest({
+      runId: `ingress-access-request-${Date.now()}`,
+      requestId: testRequestId,
+      conversationId: "access-req-telegram-requester-noname-222",
+      channel: "telegram",
+      requesterExternalUserId: "requester-noname-222",
+      requesterChatId: "requester-chat-222",
+      guardianExternalUserId: "guardian-noname-111",
+      guardianChatId: "guardian-chat-111",
+      toolName: "ingress_access_request",
+      riskLevel: "access_request",
+      reason: "Unknown user requesting access",
+      expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
+    });
+
+    // Guardian denies via callback button
+    const guardianReq = buildInboundRequest({
+      conversationExternalId: "guardian-chat-111",
+      actorExternalId: "guardian-noname-111",
+      actorDisplayName: "Guardian",
+      content: "",
+      callbackData: `apr:${testRequestId}:reject`,
+    });
+
+    await handleChannelInbound(guardianReq, undefined, TEST_BEARER_TOKEN);
+
+    const guardianDecisionSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === "ingress.trusted_contact.guardian_decision",
+    );
+    const deniedSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === "ingress.trusted_contact.denied",
+    );
+
+    expect(guardianDecisionSignals.length).toBe(1);
+    expect(deniedSignals.length).toBe(1);
+
+    // Verify display names fall back to null/empty when contacts have no
+    // display name set.
+    const gdPayload = guardianDecisionSignals[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(gdPayload.requesterDisplayName).toBeNull();
+    // Guardian contact exists but displayName was cleared to empty string.
+    // The signal enrichment resolves displayName from the contact record,
+    // so decidedByDisplayName will be "" (empty string) rather than null.
+    expect(gdPayload.decidedByDisplayName).toBe("");
+
+    const dPayload = deniedSignals[0].contextPayload as Record<string, unknown>;
+    expect(dPayload.requesterDisplayName).toBeNull();
+    expect(dPayload.decidedByDisplayName).toBe("");
   });
 });
 

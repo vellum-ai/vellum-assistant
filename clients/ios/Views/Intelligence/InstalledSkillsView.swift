@@ -50,7 +50,7 @@ struct InstalledSkillsView: View {
                     skillRow(skill)
                 }
                 .swipeActions(edge: .leading) {
-                    if skill.state == "enabled" {
+                    if skill.status == "enabled" {
                         Button {
                             skillsStore.disableSkill(name: skill.name)
                         } label: {
@@ -93,7 +93,7 @@ struct InstalledSkillsView: View {
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentDefault)
 
-                    stateBadge(skill.state)
+                    stateBadge(skill.status)
                 }
 
                 if !skill.description.isEmpty {
@@ -109,7 +109,7 @@ struct InstalledSkillsView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Skill: \(skill.name), \(skill.state)")
+        .accessibilityLabel("Skill: \(skill.name), \(skill.status)")
         .accessibilityHint("Opens skill details")
     }
 

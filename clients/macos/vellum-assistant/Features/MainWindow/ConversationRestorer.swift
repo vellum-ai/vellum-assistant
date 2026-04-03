@@ -279,7 +279,7 @@ final class ConversationRestorer {
                 isArchived: delegate.isConversationArchived(session.id),
                 groupId: groupId,
                 displayOrder: session.displayOrder.map { Int($0) },
-                lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+                lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.lastMessageAt ?? session.updatedAt) / 1000.0),
                 kind: kind,
                 source: session.source,
                 scheduleJobId: session.scheduleJobId,

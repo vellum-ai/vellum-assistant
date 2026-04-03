@@ -648,6 +648,7 @@ struct ChatContentView: View {
         switch category {
         case .providerNetwork: return .wifiOff
         case .rateLimit: return .clockAlert
+        case .providerOverloaded: return .cloudOff
         case .providerApi: return .cloudOff
         case .providerOrdering: return .cloudOff
         case .providerWebSearch: return .cloudOff
@@ -664,7 +665,7 @@ struct ChatContentView: View {
     private func conversationErrorAccent(_ category: ConversationErrorCategory) -> Color {
         switch category {
         case .rateLimit: return VColor.systemNegativeHover
-        case .providerNetwork: return .orange
+        case .providerNetwork, .providerOverloaded: return .orange
         case .conversationAborted: return VColor.contentSecondary
         case .contextTooLarge: return VColor.systemNegativeHover
         default: return VColor.systemNegativeStrong

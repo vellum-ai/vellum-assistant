@@ -6,7 +6,13 @@
  * in the same flow a real daemon conversation would follow.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -23,6 +29,7 @@ import {
   getEnrichmentService,
 } from "../workspace/commit-message-enrichment-service.js";
 import {
+  _resetBreaker,
   _resetGitServiceRegistry,
   getWorkspaceGitService,
   WorkspaceGitService,
@@ -183,6 +190,27 @@ describe("Workspace git lifecycle (integration)", () => {
     // ----------------------------------------------------------------
     await commitTurnChanges(testDir, conversationId, 3);
     expect(commitCount(testDir)).toBe(3); // Still 3
+
+    // Drain fire-and-forget enrichment from turn commits before heartbeat
+    // testing. Enrichment's writeNote() can leave a stale index.lock on
+    // some git versions (see heartbeat-service.ts:240-242), causing the
+    // heartbeat commit to fail with "index.lock: File exists".
+    await getEnrichmentService().shutdown();
+    _resetEnrichmentService();
+
+    // On CI, the enrichment service's spawned git child processes may still
+    // be alive briefly after the queue drains, holding index.lock. Remove it
+    // unconditionally and reset the circuit breaker so the heartbeat portion
+    // starts clean.
+    const lockPath = join(testDir, ".git", "index.lock");
+    if (existsSync(lockPath)) {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        /* race: already gone */
+      }
+    }
+    _resetBreaker(service);
 
     // ----------------------------------------------------------------
     // Step 5: Heartbeat safety net — simulate uncommitted changes

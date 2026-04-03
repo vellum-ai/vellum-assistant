@@ -17,7 +17,10 @@
  */
 
 import type { ContextWindowConfig } from "../config/types.js";
-import { estimatePromptTokens } from "../context/token-estimator.js";
+import {
+  estimateContentBlockTokens,
+  estimatePromptTokens,
+} from "../context/token-estimator.js";
 import { truncateToolResultsAcrossHistory } from "../context/tool-result-truncation.js";
 import type {
   ContextWindowCompactOptions,
@@ -26,6 +29,7 @@ import type {
 import type { Message } from "../providers/types.js";
 import {
   countMediaBlocks,
+  estimateUnconditionalStubTokens,
   stripMediaPayloadsForRetry,
 } from "./conversation-media-retry.js";
 import type { InjectionMode } from "./conversation-runtime-assembly.js";
@@ -240,7 +244,47 @@ function applyMediaStubbing(
   let nextMessages = messages;
 
   if (mediaCount > 0) {
-    const stripped = stripMediaPayloadsForRetry(messages);
+    // Compute the token budget available for media content.
+    const totalTokens = estimatePromptTokens(messages, config.systemPrompt, {
+      providerName: config.providerName,
+      toolTokenBudget: config.toolTokenBudget,
+    });
+
+    // Sum tokens for all image and file blocks (top-level and nested in tool_result).
+    let mediaTokens = 0;
+    for (const msg of messages) {
+      for (const block of msg.content) {
+        if (block.type === "image" || block.type === "file") {
+          mediaTokens += estimateContentBlockTokens(block, {
+            providerName: config.providerName,
+          });
+        } else if (block.type === "tool_result" && block.contentBlocks) {
+          for (const cb of block.contentBlocks) {
+            if (cb.type === "image" || cb.type === "file") {
+              mediaTokens += estimateContentBlockTokens(cb, {
+                providerName: config.providerName,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const nonMediaTokens = totalTokens - mediaTokens;
+
+    // Account for the token cost of text stubs that replace unconditionally
+    // stubbed media (non-latest-user images/files, tool_result-nested media).
+    // Without this adjustment the budget is systematically over-allocated.
+    const estimatedStubTokens = estimateUnconditionalStubTokens(messages, {
+      providerName: config.providerName,
+    });
+    const adjustedNonMediaTokens = nonMediaTokens + estimatedStubTokens;
+    const mediaTokenBudget = Math.max(0, config.targetTokens - adjustedNonMediaTokens);
+
+    const stripped = stripMediaPayloadsForRetry(messages, {
+      mediaTokenBudget,
+      providerName: config.providerName,
+    });
     if (stripped.modified) {
       nextMessages = stripped.messages;
     }

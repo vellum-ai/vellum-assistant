@@ -220,7 +220,7 @@ struct ChatBubble: View, Equatable {
 
     private var bubbleFill: AnyShapeStyle {
         if isUser {
-            AnyShapeStyle(VColor.surfaceActive)
+            AnyShapeStyle(VColor.surfaceLift)
         } else if message.isError {
             AnyShapeStyle(VColor.systemNegativeStrong.opacity(0.1))
         } else {
@@ -449,9 +449,10 @@ struct ChatBubble: View, Equatable {
             Text("Failed to send")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.systemNegativeStrong)
-            VButton(label: "Retry", style: .ghost, size: .inline) {
+            ChatEquatableButton(textLabel: "Retry", style: .ghost, size: .inline) {
                 onRetryFailedMessage?(message.id)
             }
+            .equatable()
         }
         .textSelection(.disabled)
     }

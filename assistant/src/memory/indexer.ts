@@ -149,33 +149,47 @@ export async function indexMessageNow(
         tx,
       );
     }
-
   });
 
   // ── Batch extraction tracking ──────────────────────────────────────
   // Instead of per-message extraction, track pending unextracted messages
   // and trigger batch extraction when the threshold is reached or after idle.
-  if (shouldExtract && isTrustedActor && !input.automated && config.extraction.useLLM) {
-    const pendingKey = `batch_extract:${input.conversationId}:pending_count`;
-    const currentVal = getMemoryCheckpoint(pendingKey);
-    const pendingCount = (currentVal ? parseInt(currentVal, 10) : 0) + 1;
-    setMemoryCheckpoint(pendingKey, String(pendingCount));
-
+  if (
+    shouldExtract &&
+    isTrustedActor &&
+    !input.automated &&
+    config.extraction.useLLM
+  ) {
     const batchSize = config.extraction.batchSize ?? 10;
     const idleTimeoutMs = config.extraction.idleTimeoutMs ?? 300_000;
 
-    if (pendingCount >= batchSize) {
-      // Threshold reached — trigger immediate batch extraction
-      enqueueMemoryJob("batch_extract", {
+    // ── Graph extraction ────────────────────────────────────────────
+    const graphPendingKey = `graph_extract:${input.conversationId}:pending_count`;
+    const graphCurrentVal = getMemoryCheckpoint(graphPendingKey);
+    const graphPendingCount =
+      (graphCurrentVal ? parseInt(graphCurrentVal, 10) : 0) + 1;
+    setMemoryCheckpoint(graphPendingKey, String(graphPendingCount));
+
+    if (graphPendingCount >= batchSize) {
+      enqueueMemoryJob("graph_extract", {
         conversationId: input.conversationId,
         scopeId: input.scopeId ?? "default",
       });
+      setMemoryCheckpoint(graphPendingKey, "0");
     }
 
-    // Also maintain idle debounce: enqueue a delayed batch_extract that fires
-    // if no new messages arrive within the idle timeout window.
     upsertDebouncedJob(
-      "batch_extract",
+      "graph_extract",
+      { conversationId: input.conversationId },
+      Date.now() + idleTimeoutMs,
+    );
+
+    // ── Conversation summarization (independent of extraction) ────────
+    // Summaries feed the graph retrieval pipeline via fetchRecentSummaries().
+    // Debounced on the same idle timeout — no threshold trigger needed since
+    // summaries compress the whole conversation, not incremental batches.
+    upsertDebouncedJob(
+      "build_conversation_summary",
       { conversationId: input.conversationId },
       Date.now() + idleTimeoutMs,
     );
@@ -203,15 +217,19 @@ export async function indexMessageNow(
     log.info("Skipping extraction jobs for automated message");
   }
 
-  if (!config.extraction.useLLM && shouldExtract && isTrustedActor && !input.automated) {
-    log.info("Skipping extraction job: LLM extraction is disabled (useLLM=false)");
+  if (
+    !config.extraction.useLLM &&
+    shouldExtract &&
+    isTrustedActor &&
+    !input.automated
+  ) {
+    log.info(
+      "Skipping extraction job: LLM extraction is disabled (useLLM=false)",
+    );
   }
 
   const storedSegments = segments.length - skippedShortSegments;
-  const enqueuedJobs =
-    storedSegments -
-    skippedEmbedJobs +
-    mediaBlocks.length;
+  const enqueuedJobs = storedSegments - skippedEmbedJobs + mediaBlocks.length;
   return {
     indexedSegments: storedSegments,
     enqueuedJobs,

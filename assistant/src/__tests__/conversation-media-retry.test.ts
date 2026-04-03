@@ -18,6 +18,15 @@ function makeImageBlock(
   };
 }
 
+function makeImageBlockWithSize(
+  dataLength: number,
+): Extract<ContentBlock, { type: "image" }> {
+  return {
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data: "A".repeat(dataLength) },
+  };
+}
+
 function makeUserMessage(...blocks: ContentBlock[]): Message {
   return { role: "user", content: blocks };
 }
@@ -87,5 +96,87 @@ describe("stripMediaPayloadsForRetry", () => {
     // Latest kept turn image → kept
     const latestBlocks = result.messages[3].content;
     expect(latestBlocks.filter((b) => b.type === "image").length).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Budget-aware media retention
+  // ---------------------------------------------------------------------------
+
+  test("budget-aware: keeps images that fit within token budget", () => {
+    // Non-Anthropic estimation: estimateTextTokens(base64Data) + overhead (~19 tokens).
+    // Data length 4000 → 1000 data tokens + 19 overhead ≈ 1019 tokens/image.
+    // Budget of 3500 allows 3 images (3 * 1019 = 3057 <= 3500) but not 4.
+    const images = Array.from({ length: 5 }, () => makeImageBlockWithSize(4000));
+    const messages: Message[] = [
+      makeUserMessage({ type: "text", text: "describe these" }, ...images),
+    ];
+
+    const result = stripMediaPayloadsForRetry(messages, {
+      mediaTokenBudget: 3500,
+      providerName: "mock",
+    });
+    expect(result.modified).toBe(true);
+
+    const content = result.messages[0].content;
+    const keptImages = content.filter((b) => b.type === "image");
+    const stubs = content.filter(
+      (b) => b.type === "text" && (b as { text: string }).text.includes("Image omitted"),
+    );
+    expect(keptImages.length).toBe(3);
+    expect(stubs.length).toBe(2);
+  });
+
+  test("budget-aware: keeps all images when budget is generous", () => {
+    const images = Array.from({ length: 3 }, () => makeImageBlockWithSize(100));
+    const messages: Message[] = [
+      makeUserMessage({ type: "text", text: "describe these" }, ...images),
+    ];
+
+    const result = stripMediaPayloadsForRetry(messages, {
+      mediaTokenBudget: 100_000,
+      providerName: "mock",
+    });
+    expect(result.modified).toBe(false);
+    expect(result.replacedBlocks).toBe(0);
+
+    const content = result.messages[0].content;
+    const keptImages = content.filter((b) => b.type === "image");
+    expect(keptImages.length).toBe(3);
+  });
+
+  test("budget-aware: stubs all when budget is zero", () => {
+    const images = Array.from({ length: 3 }, () => makeImageBlockWithSize(100));
+    const messages: Message[] = [
+      makeUserMessage({ type: "text", text: "describe these" }, ...images),
+    ];
+
+    const result = stripMediaPayloadsForRetry(messages, {
+      mediaTokenBudget: 0,
+      providerName: "mock",
+    });
+    expect(result.modified).toBe(true);
+    expect(result.replacedBlocks).toBe(3);
+
+    const content = result.messages[0].content;
+    const keptImages = content.filter((b) => b.type === "image");
+    expect(keptImages.length).toBe(0);
+  });
+
+  test("no options falls back to hardcoded limit", () => {
+    const images = Array.from({ length: 5 }, () => makeImageBlockWithSize(100));
+    const messages: Message[] = [
+      makeUserMessage({ type: "text", text: "describe these" }, ...images),
+    ];
+
+    const result = stripMediaPayloadsForRetry(messages);
+    expect(result.modified).toBe(true);
+
+    const content = result.messages[0].content;
+    const keptImages = content.filter((b) => b.type === "image");
+    const stubs = content.filter(
+      (b) => b.type === "text" && (b as { text: string }).text.includes("Image omitted"),
+    );
+    expect(keptImages.length).toBe(3);
+    expect(stubs.length).toBe(2);
   });
 });

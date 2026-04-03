@@ -11,7 +11,7 @@ let mockGetSecureKeyViaDaemon: (
 let mockResolvePlatformCallbackRegistrationContext: () => Promise<
   Record<string, unknown>
 > = async () => ({
-  containerized: false,
+  isPlatform: false,
   platformBaseUrl: "",
   assistantId: "",
   hasInternalApiKey: false,
@@ -138,7 +138,7 @@ describe("assistant platform status", () => {
   beforeEach(() => {
     mockGetSecureKeyViaDaemon = async () => undefined;
     mockResolvePlatformCallbackRegistrationContext = async () => ({
-      containerized: false,
+      isPlatform: false,
       platformBaseUrl: "",
       assistantId: "",
       hasInternalApiKey: false,
@@ -158,7 +158,7 @@ describe("assistant platform status", () => {
 
     // GIVEN a containerized environment with platform configuration
     mockResolvePlatformCallbackRegistrationContext = async () => ({
-      containerized: true,
+      isPlatform: true,
       platformBaseUrl: "https://platform.vellum.ai",
       assistantId: "asst-abc-123",
       hasInternalApiKey: true,
@@ -191,7 +191,7 @@ describe("assistant platform status", () => {
 
     // AND the output contains the expected status fields
     const parsed = JSON.parse(stdout);
-    expect(parsed.containerized).toBe(true);
+    expect(parsed.isPlatform).toBe(true);
     expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
     expect(parsed.assistantId).toBe("asst-abc-123");
     expect(parsed.hasInternalApiKey).toBe(true);
@@ -211,7 +211,7 @@ describe("assistant platform status", () => {
 
     // GIVEN a disconnected environment with no stored credentials
     mockResolvePlatformCallbackRegistrationContext = async () => ({
-      containerized: false,
+      isPlatform: false,
       platformBaseUrl: "",
       assistantId: "",
       hasInternalApiKey: false,

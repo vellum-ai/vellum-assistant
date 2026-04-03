@@ -12,6 +12,7 @@ import {
   uninstallSkillLocally,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
+import { clawhubSearch } from "../../skills/clawhub.js";
 import type {
   AuditResponse,
   SkillsShSearchResult,
@@ -111,7 +112,9 @@ Examples:
 
   skills
     .command("search <query>")
-    .description("Search the Vellum catalog and skills.sh community registry")
+    .description(
+      "Search the Vellum catalog, skills.sh, and clawhub community registries",
+    )
     .option("--limit <n>", "Maximum number of community results", "10")
     .option("--json", "Machine-readable JSON output")
     .addHelpText(
@@ -119,11 +122,11 @@ Examples:
       `
 Arguments:
   query    Free-text search term matched against skill names, descriptions,
-           and tags. Searches the Vellum catalog first, then the skills.sh
-           community registry.
+           and tags. Searches the Vellum catalog, the skills.sh community
+           registry, and the clawhub registry.
 
-Displays results from both sources with clear labels. When a skill ID
-exists in both the Vellum catalog and the community registry, a conflict
+Displays results from all sources with clear labels. When a skill ID
+exists in both the Vellum catalog and a community registry, a conflict
 note is shown with guidance on which install command to use.
 
 Examples:
@@ -155,38 +158,73 @@ Examples:
           (s) => s.description,
         ]);
 
-        // ── Community registry search (non-fatal on failure) ─────────
+        // ── Community registry searches (non-fatal on failure) ────────
+        // Run skills.sh and clawhub searches in parallel.
         let registryResults: SkillsShSearchResult[] = [];
         let registryError: string | undefined;
-        try {
-          registryResults = await searchSkillsRegistry(query, limit);
-        } catch (err) {
-          registryError = err instanceof Error ? err.message : String(err);
+        let clawhubResults: Awaited<
+          ReturnType<typeof clawhubSearch>
+        >["skills"] = [];
+        let clawhubError: string | undefined;
+
+        const [skillsShResult, clawhubResult] = await Promise.allSettled([
+          searchSkillsRegistry(query, limit),
+          clawhubSearch(query, { limit }),
+        ]);
+
+        if (skillsShResult.status === "fulfilled") {
+          registryResults = skillsShResult.value;
+        } else {
+          registryError =
+            skillsShResult.reason instanceof Error
+              ? skillsShResult.reason.message
+              : String(skillsShResult.reason);
+        }
+
+        if (clawhubResult.status === "fulfilled") {
+          clawhubResults = clawhubResult.value.skills;
+        } else {
+          clawhubError =
+            clawhubResult.reason instanceof Error
+              ? clawhubResult.reason.message
+              : String(clawhubResult.reason);
         }
 
         // ── Conflict detection ───────────────────────────────────────
         const catalogIds = new Set(catalogMatches.map((s) => s.id));
-        const conflictIds = new Set(
-          registryResults
+        const conflictIds = new Set([
+          ...registryResults
             .filter((r) => catalogIds.has(r.skillId))
             .map((r) => r.skillId),
-        );
+          ...clawhubResults
+            .filter((r) => catalogIds.has(r.slug))
+            .map((r) => r.slug),
+        ]);
 
-        if (catalogMatches.length === 0 && registryResults.length === 0) {
+        if (
+          catalogMatches.length === 0 &&
+          registryResults.length === 0 &&
+          clawhubResults.length === 0
+        ) {
           if (json) {
             console.log(
               JSON.stringify({
                 ok: true,
                 catalog: [],
                 community: [],
+                clawhub: [],
                 audits: {},
                 ...(registryError ? { registryError } : {}),
+                ...(clawhubError ? { clawhubError } : {}),
               }),
             );
           } else {
             log.info(`No skills found for "${query}".`);
             if (registryError) {
               log.warn(`(skills.sh registry unavailable: ${registryError})`);
+            }
+            if (clawhubError) {
+              log.warn(`(clawhub registry unavailable: ${clawhubError})`);
             }
           }
           return;
@@ -219,8 +257,10 @@ Examples:
               ok: true,
               catalog: catalogMatches,
               community: registryResults,
+              clawhub: clawhubResults,
               audits: allAudits,
               ...(registryError ? { registryError } : {}),
+              ...(clawhubError ? { clawhubError } : {}),
             }),
           );
           return;
@@ -279,6 +319,38 @@ Examples:
           }
         } else if (registryError) {
           log.warn(`\n(skills.sh registry unavailable: ${registryError})`);
+        }
+
+        // ── Display clawhub results ─────────────────────────────────
+        if (clawhubResults.length > 0) {
+          log.info(`Clawhub registry (${clawhubResults.length}):\n`);
+          for (const r of clawhubResults) {
+            const installed = isInstalled(r.slug);
+            const badge = installed ? " [installed]" : "";
+            log.info(`  ${r.name}${badge}`);
+            if (r.name !== r.slug) {
+              log.info(`    ID: ${r.slug}`);
+            }
+            if (r.author) {
+              log.info(`    Author: ${r.author}`);
+            }
+            if (r.description) {
+              log.info(`    Description: ${r.description}`);
+            }
+            if (r.stars > 0) {
+              log.info(`    Stars: ${r.stars}`);
+            }
+            if (r.installs > 0) {
+              log.info(`    Installs: ${r.installs}`);
+            }
+            log.info(`    Install: npx clawhub install ${r.slug}`);
+            if (conflictIds.has(r.slug)) {
+              log.info(`    NOTE: Conflicts with Vellum catalog skill`);
+            }
+            log.info("");
+          }
+        } else if (clawhubError) {
+          log.warn(`\n(clawhub registry unavailable: ${clawhubError})`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -416,8 +488,8 @@ Arguments:
 
 Notes:
   Fetches the skill's SKILL.md and supporting files from the specified GitHub
-  repository and installs them into the workspace skills directory. A
-  version.json file is written with origin metadata for provenance tracking.
+  repository and installs them into the workspace skills directory. An
+  install-meta.json file is written with origin metadata for provenance tracking.
 
 Examples:
   $ assistant skills add vercel-labs/skills@find-skills

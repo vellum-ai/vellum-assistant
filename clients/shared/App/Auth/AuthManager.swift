@@ -53,17 +53,38 @@ public final class AuthManager {
             return
         }
 
-        do {
-            let response = try await authService.getSession()
-            if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
-                state = .authenticated(user)
-            } else {
+        var lastError: Error?
+        for attempt in 1...3 {
+            guard !Task.isCancelled else { state = .unauthenticated; return }
+            do {
+                let response = try await authService.getSession(timeout: 10)
+                if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
+                    state = .authenticated(user)
+                    return
+                } else {
+                    // Server responded but session is invalid — no retry needed
+                    state = .unauthenticated
+                    return
+                }
+            } catch is CancellationError {
                 state = .unauthenticated
+                return
+            } catch {
+                if Task.isCancelled {
+                    state = .unauthenticated
+                    return
+                }
+                lastError = error
+                log.warning("Session check attempt \(attempt)/3 failed: \(error.localizedDescription, privacy: .public)")
+                if attempt < 3 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds between retries
+                    guard !Task.isCancelled else { state = .unauthenticated; return }
+                }
             }
-        } catch {
-            log.error("Session check failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
-            state = .unauthenticated
         }
+        // All retries exhausted — network likely still unavailable
+        log.error("Session check failed after 3 attempts: baseURL=\(self.authService.baseURL, privacy: .public) error=\(lastError?.localizedDescription ?? "unknown", privacy: .public)")
+        state = .unauthenticated
     }
 
     public func startWorkOSLogin() async {

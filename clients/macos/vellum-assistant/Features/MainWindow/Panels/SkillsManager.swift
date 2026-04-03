@@ -2,17 +2,28 @@ import SwiftUI
 import Combine
 import VellumAssistantShared
 
-/// Filter for showing all skills or only installed ones.
+/// Filter for showing skills by status or source.
 enum SkillFilter: String, CaseIterable {
     case all = "All"
     case installed = "Installed"
+    case available = "Available"
+    case vellum = "Vellum"
+    case community = "Community"
+    case custom = "Custom"
 
     var icon: VIcon {
         switch self {
-        case .all: return .circle
+        case .all: return .layoutGrid
         case .installed: return .circleCheck
+        case .available: return .arrowDownToLine
+        case .vellum: return .package
+        case .community: return .globe
+        case .custom: return .user
         }
     }
+
+    static var statusFilters: [SkillFilter] { [.all, .installed, .available] }
+    static var sourceFilters: [SkillFilter] { [.vellum, .community, .custom] }
 }
 
 @MainActor
@@ -127,10 +138,19 @@ final class SkillsManager {
         let hasSearch = !query.isEmpty
 
         let baseSkills: [SkillInfo]
-        if skillFilter == .all {
+        switch skillFilter {
+        case .all:
             baseSkills = skills
-        } else {
+        case .installed:
             baseSkills = skills.filter { $0.isInstalled }
+        case .available:
+            baseSkills = skills.filter { $0.isAvailable }
+        case .vellum:
+            baseSkills = skills.filter { $0.origin == "vellum" }
+        case .community:
+            baseSkills = skills.filter { $0.origin == "clawhub" || $0.origin == "skillssh" }
+        case .custom:
+            baseSkills = skills.filter { $0.origin == "custom" }
         }
 
         let searchFiltered: [SkillInfo]
@@ -139,7 +159,7 @@ final class SkillsManager {
                 $0.name.lowercased().contains(query) ||
                 $0.description.lowercased().contains(query) ||
                 $0.id.lowercased().contains(query) ||
-                Self.sourceLabel($0.source).lowercased().contains(query)
+                Self.sourceLabel($0.origin).lowercased().contains(query)
             }
         } else {
             searchFiltered = baseSkills
@@ -163,30 +183,28 @@ final class SkillsManager {
 
         filteredSkills = categoryFiltered.sorted { a, b in
             if a.isInstalled != b.isInstalled { return a.isInstalled }
-            let aManaged = (a.source == "managed" || a.source == "clawhub")
-            let bManaged = (b.source == "managed" || b.source == "clawhub")
-            if a.isInstalled && b.isInstalled && aManaged != bManaged { return aManaged }
+            let aCommunity = (a.origin == "clawhub" || a.origin == "skillssh")
+            let bCommunity = (b.origin == "clawhub" || b.origin == "skillssh")
+            if a.isInstalled && b.isInstalled && aCommunity != bCommunity { return aCommunity }
             return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
         }
     }
 
     // MARK: - Helpers
 
-    /// Human-readable label for a skill source.
-    static func sourceLabel(_ source: String) -> String {
-        switch source {
-        case "bundled":
-            return "Core"
-        case "managed", "clawhub":
-            return "Installed"
-        case "workspace":
-            return "Created"
-        case "extra":
-            return "Extra"
-        case "catalog":
-            return "Available"
+    /// Human-readable label for a skill origin.
+    static func sourceLabel(_ origin: String) -> String {
+        switch origin {
+        case "vellum":
+            return "Vellum"
+        case "clawhub":
+            return "Community"
+        case "skillssh":
+            return "Community"
+        case "custom":
+            return "Custom"
         default:
-            return source.replacingOccurrences(of: "-", with: " ").capitalized
+            return origin.replacingOccurrences(of: "-", with: " ").capitalized
         }
     }
 

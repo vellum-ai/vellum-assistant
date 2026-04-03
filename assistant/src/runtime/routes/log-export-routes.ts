@@ -447,6 +447,7 @@ function formatBytes(bytes: number): string {
 
 /** Directory prefixes to skip when collecting workspace files. */
 const WORKSPACE_SKIP_DIRS = new Set([
+  "bin",
   "embedding-models",
   "data/qdrant",
   "data/attachments",
@@ -561,7 +562,64 @@ function collectWorkspaceFiles(): Record<string, string> {
   }
 
   walk(wsDir);
+
+  // For each skipped directory that exists, emit a lightweight manifest
+  // showing entry counts and sizes so diagnostics show what was excluded.
+  for (const prefix of WORKSPACE_SKIP_DIRS) {
+    const dirPath = join(wsDir, prefix);
+    if (!existsSync(dirPath)) continue;
+    try {
+      // Skip symlinks — they could point outside the workspace boundary
+      if (lstatSync(dirPath).isSymbolicLink()) continue;
+      const manifest = buildSkippedDirManifest(dirPath);
+      if (manifest) {
+        result[`${prefix}/_manifest.txt`] = manifest;
+      }
+    } catch {
+      // Best-effort — skip if unreadable
+    }
+  }
+
   return result;
+}
+
+/**
+ * Build a redacted summary manifest for a skipped workspace directory.
+ * Reports entry counts and shallow size totals without disclosing
+ * individual filenames (which may contain user-sensitive data).
+ * Only uses stat.size on direct children — no recursive walks.
+ */
+function buildSkippedDirManifest(dirPath: string): string | undefined {
+  const entries = readdirSync(dirPath);
+  if (entries.length === 0) return undefined;
+
+  let fileCount = 0;
+  let dirCount = 0;
+  let totalFileBytes = 0;
+
+  for (const entry of entries) {
+    try {
+      const stat = lstatSync(join(dirPath, entry));
+      if (stat.isDirectory()) {
+        dirCount++;
+      } else if (stat.isFile()) {
+        fileCount++;
+        totalFileBytes += stat.size;
+      }
+    } catch {
+      // Skip unreadable entries
+    }
+  }
+
+  const lines: string[] = [];
+  if (fileCount > 0) {
+    lines.push(`${fileCount} file(s), ${formatBytes(totalFileBytes)}`);
+  }
+  if (dirCount > 0) {
+    lines.push(`${dirCount} subdirectory(ies)`);
+  }
+
+  return lines.length > 0 ? lines.join("\n") + "\n" : undefined;
 }
 
 /**

@@ -1,7 +1,7 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { getDb } from "../../../../memory/db.js";
-import { memoryItems } from "../../../../memory/schema.js";
+import { memoryGraphNodes } from "../../../../memory/schema.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
 import type {
   ToolContext,
@@ -23,22 +23,20 @@ export async function executePlaybookList(
 
     const rows = db
       .select({
-        id: memoryItems.id,
-        subject: memoryItems.subject,
-        statement: memoryItems.statement,
-        importance: memoryItems.importance,
-        lastSeenAt: memoryItems.lastSeenAt,
+        id: memoryGraphNodes.id,
+        content: memoryGraphNodes.content,
+        significance: memoryGraphNodes.significance,
+        lastAccessed: memoryGraphNodes.lastAccessed,
       })
-      .from(memoryItems)
+      .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryItems.kind, "playbook"),
-          eq(memoryItems.status, "active"),
-          eq(memoryItems.scopeId, scopeId),
-          isNull(memoryItems.invalidAt),
+          eq(memoryGraphNodes.scopeId, scopeId),
+          sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'`,
+          sql`${memoryGraphNodes.fidelity} != 'gone'`,
         ),
       )
-      .orderBy(desc(memoryItems.importance))
+      .orderBy(sql`${memoryGraphNodes.significance} DESC`)
       .all();
 
     if (rows.length === 0) {
@@ -47,12 +45,14 @@ export async function executePlaybookList(
 
     const entries: Array<{
       id: string;
-      subject: string;
-      statement: string;
       playbook: NonNullable<ReturnType<typeof parsePlaybookStatement>>;
     }> = [];
     for (const row of rows) {
-      const playbook = parsePlaybookStatement(row.statement);
+      // Content format: "Playbook: <trigger>\n<json statement>"
+      const newlineIdx = row.content.indexOf("\n");
+      if (newlineIdx === -1) continue;
+      const statement = row.content.slice(newlineIdx + 1);
+      const playbook = parsePlaybookStatement(statement);
       if (!playbook) continue;
 
       // Apply filters
@@ -66,8 +66,6 @@ export async function executePlaybookList(
 
       entries.push({
         id: row.id,
-        subject: row.subject,
-        statement: row.statement,
         playbook,
       });
     }

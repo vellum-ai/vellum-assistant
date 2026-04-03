@@ -757,7 +757,10 @@ describe("resolveOrHatchTarget", () => {
     findAssistantByNameMock.mockReturnValue(null);
 
     const result = await resolveOrHatchTarget("platform", "nonexistent");
-    expect(hatchAssistantMock).toHaveBeenCalledWith("platform-token");
+    expect(hatchAssistantMock).toHaveBeenCalledWith(
+      "platform-token",
+      "org-123",
+    );
     expect(saveAssistantEntryMock).toHaveBeenCalledWith(
       expect.objectContaining({
         assistantId: "platform-new-id",
@@ -1270,6 +1273,169 @@ describe("signed-URL upload flow", () => {
 
     try {
       await expect(teleport()).rejects.toThrow("too large");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Platform teleport org ID and reordered flow tests
+// ---------------------------------------------------------------------------
+
+describe("platform teleport org ID and reordered flow", () => {
+  test("hatchAssistant is called with the org ID from fetchOrganizationId", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    fetchOrganizationIdMock.mockResolvedValue("test-org-456");
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // fetchOrganizationId should have been called
+      expect(fetchOrganizationIdMock).toHaveBeenCalled();
+      // hatchAssistant must be called with (token, orgId)
+      expect(hatchAssistantMock).toHaveBeenCalledWith(
+        "platform-token",
+        "test-org-456",
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("upload to GCS happens before hatchAssistant for platform targets", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    const callOrder: string[] = [];
+
+    platformRequestUploadUrlMock.mockImplementation(async () => {
+      callOrder.push("platformRequestUploadUrl");
+      return {
+        uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
+        bundleKey: "bundle-key-123",
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      };
+    });
+
+    platformUploadToSignedUrlMock.mockImplementation(async () => {
+      callOrder.push("platformUploadToSignedUrl");
+    });
+
+    hatchAssistantMock.mockImplementation(async () => {
+      callOrder.push("hatchAssistant");
+      return { id: "platform-new-id", name: "platform-new", status: "active" };
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Verify ordering: upload steps come before hatch
+      const uploadUrlIdx = callOrder.indexOf("platformRequestUploadUrl");
+      const uploadIdx = callOrder.indexOf("platformUploadToSignedUrl");
+      const hatchIdx = callOrder.indexOf("hatchAssistant");
+
+      expect(uploadUrlIdx).toBeGreaterThanOrEqual(0);
+      expect(uploadIdx).toBeGreaterThanOrEqual(0);
+      expect(hatchIdx).toBeGreaterThanOrEqual(0);
+      expect(uploadUrlIdx).toBeLessThan(hatchIdx);
+      expect(uploadIdx).toBeLessThan(hatchIdx);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("signed-URL fallback: when platformRequestUploadUrl throws 'not available', falls back to inline upload via importToAssistant", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Simulate 503 — signed uploads not available
+    platformRequestUploadUrlMock.mockRejectedValue(
+      new Error("Signed uploads are not available on this platform instance"),
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Upload URL was attempted but failed
+      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
+      // No signed URL upload should have happened
+      expect(platformUploadToSignedUrlMock).not.toHaveBeenCalled();
+      // Should NOT use GCS-based import
+      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
+      // Should fall back to inline import
+      expect(platformImportBundleMock).toHaveBeenCalled();
+      // Hatch should still succeed
+      expect(hatchAssistantMock).toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("bundleKey from pre-upload is forwarded to platformImportBundleFromGcs", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Return a specific bundle key from the pre-upload step
+    platformRequestUploadUrlMock.mockResolvedValue({
+      uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
+      bundleKey: "pre-uploaded-key-789",
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // The bundle key from the pre-upload step should be forwarded to GCS import
+      expect(platformImportBundleFromGcsMock).toHaveBeenCalledWith(
+        "pre-uploaded-key-789",
+        "platform-token",
+        expect.any(String),
+        expect.any(String),
+      );
+      // Inline import should NOT be used since signed upload succeeded
+      expect(platformImportBundleMock).not.toHaveBeenCalled();
     } finally {
       globalThis.fetch = originalFetch;
     }

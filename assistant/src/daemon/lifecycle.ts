@@ -82,7 +82,6 @@ import {
   setCesClient,
   setCesReconnect,
 } from "../security/secure-keys.js";
-import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
@@ -642,18 +641,44 @@ export async function runDaemon(): Promise<void> {
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
 
-      // Seed capability memories for all enabled skills so the memory
-      // pipeline can surface relevant skills via semantic search.
-      try {
-        seedCatalogSkillMemories();
-      } catch (err) {
-        log.warn({ err }, "Catalog skill memory seeding failed — continuing");
-      }
-
       try {
         seedCliCommandMemories();
       } catch (err) {
         log.warn({ err }, "CLI command memory seeding failed — continuing");
+      }
+
+      // Seed capability graph nodes (new memory graph system)
+      try {
+        const {
+          seedSkillGraphNodes,
+          seedCliGraphNodes,
+          seedUninstalledCatalogSkillMemories,
+        } = await import("../memory/graph/capability-seed.js");
+        seedSkillGraphNodes();
+        seedCliGraphNodes();
+        void seedUninstalledCatalogSkillMemories().catch((err) =>
+          log.warn(
+            { err },
+            "Uninstalled catalog skill memory seeding failed — continuing",
+          ),
+        );
+      } catch (err) {
+        log.warn({ err }, "Graph capability seeding failed — continuing");
+      }
+
+      // Auto-bootstrap: if the graph has no non-procedural nodes but historical
+      // segments exist, enqueue a one-time graph_bootstrap job to populate the
+      // graph from conversation history and journal files.
+      try {
+        const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
+          await import("../memory/graph/bootstrap.js");
+        maybeEnqueueGraphBootstrap();
+        // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
+        void cleanupStaleItemVectors().catch((err) =>
+          log.warn({ err }, "Stale item vector cleanup failed — continuing"),
+        );
+      } catch (err) {
+        log.warn({ err }, "Graph bootstrap check failed — continuing");
       }
     }
 

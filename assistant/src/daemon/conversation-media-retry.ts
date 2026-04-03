@@ -6,13 +6,25 @@
  * text stubs to shrink the payload before retrying.
  */
 
+import { estimateContentBlockTokens } from "../context/token-estimator.js";
 import { getSummaryFromContextMessage } from "../context/window-manager.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+
+export interface StripMediaOptions {
+  /** Token budget available for media in the latest user message. Keeps as
+   *  many images as fit within this budget instead of the hardcoded limit. */
+  mediaTokenBudget?: number;
+  /** Provider name for per-image token estimation. */
+  providerName?: string;
+}
 
 const RETRY_KEEP_LATEST_MEDIA_BLOCKS = 3;
 const MAX_MEDIA_STUB_TEXT = 2_000;
 
-export function stripMediaPayloadsForRetry(messages: Message[]): {
+export function stripMediaPayloadsForRetry(
+  messages: Message[],
+  options?: StripMediaOptions,
+): {
   messages: Message[];
   modified: boolean;
   replacedBlocks: number;
@@ -31,6 +43,8 @@ export function stripMediaPayloadsForRetry(messages: Message[]): {
   let modified = false;
   let replacedBlocks = 0;
   let keptLatestMediaBlocks = 0;
+  let cumulativeMediaTokens = 0;
+  const useBudget = options?.mediaTokenBudget != null;
 
   const nextMessages = messages.map((msg, msgIndex) => {
     const nextContent: ContentBlock[] = [];
@@ -39,9 +53,20 @@ export function stripMediaPayloadsForRetry(messages: Message[]): {
       // few (in the most recent user message) and strip older ones so the
       // retry can actually reduce context size when images are the cause.
       if (block.type === "image") {
-        const keep =
-          latestUserIndex === msgIndex &&
-          keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+        let keep = false;
+        if (latestUserIndex === msgIndex) {
+          if (useBudget) {
+            const cost = estimateContentBlockTokens(block, {
+              providerName: options!.providerName,
+            });
+            if (cumulativeMediaTokens + cost <= options!.mediaTokenBudget!) {
+              cumulativeMediaTokens += cost;
+              keep = true;
+            }
+          } else {
+            keep = keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+          }
+        }
         if (keep) {
           keptLatestMediaBlocks += 1;
           nextContent.push(block);
@@ -54,9 +79,20 @@ export function stripMediaPayloadsForRetry(messages: Message[]): {
       }
 
       if (block.type === "file") {
-        const keep =
-          latestUserIndex === msgIndex &&
-          keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+        let keep = false;
+        if (latestUserIndex === msgIndex) {
+          if (useBudget) {
+            const cost = estimateContentBlockTokens(block, {
+              providerName: options!.providerName,
+            });
+            if (cumulativeMediaTokens + cost <= options!.mediaTokenBudget!) {
+              cumulativeMediaTokens += cost;
+              keep = true;
+            }
+          } else {
+            keep = keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+          }
+        }
         if (keep) {
           keptLatestMediaBlocks += 1;
           nextContent.push(block);
@@ -110,6 +146,48 @@ export function stripMediaPayloadsForRetry(messages: Message[]): {
     replacedBlocks,
     latestUserIndex,
   };
+}
+
+/**
+ * Estimate the total token cost of stubs that will replace unconditionally
+ * stubbed media blocks (non-latest-user-message images/files and all
+ * tool_result-nested media). This lets callers account for stub overhead
+ * when computing the available media token budget.
+ */
+export function estimateUnconditionalStubTokens(
+  messages: Message[],
+  options?: { providerName?: string },
+): number {
+  let latestUserIndex: number | null = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "user") continue;
+    if (isToolResultOnlyMessage(msg)) continue;
+    if (getSummaryFromContextMessage(msg) != null) continue;
+    latestUserIndex = i;
+    break;
+  }
+
+  let stubTokens = 0;
+  for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
+    const msg = messages[msgIndex];
+    for (const block of msg.content) {
+      if (block.type === "image" && msgIndex !== latestUserIndex) {
+        stubTokens += estimateContentBlockTokens(imageBlockToStub(block), options);
+      } else if (block.type === "file" && msgIndex !== latestUserIndex) {
+        stubTokens += estimateContentBlockTokens(fileBlockToStub(block), options);
+      } else if (block.type === "tool_result" && block.contentBlocks) { // guard:allow-tool-result-only — web_search_tool_result has no contentBlocks
+        for (const cb of block.contentBlocks) {
+          if (cb.type === "image") {
+            stubTokens += estimateContentBlockTokens(imageBlockToStub(cb), options);
+          } else if (cb.type === "file") {
+            stubTokens += estimateContentBlockTokens(fileBlockToStub(cb), options);
+          }
+        }
+      }
+    }
+  }
+  return stubTokens;
 }
 
 function imageBlockToStub(

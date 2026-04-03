@@ -1897,7 +1897,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testPopulateFromHistoryUsesTextSegments() {
-        let toolCall = HistoryResponseToolCall(name: "memory_manage", input: ["key": AnyCodable("task")], result: "saved", isError: nil, imageData: nil)
+        let toolCall = HistoryResponseToolCall(name: "memory_manage", input: ["key": AnyCodable("task")], result: "saved", isError: nil)
         let historyItems: [HistoryResponseMessage] = [
             HistoryResponseMessage(
                 id: nil,
@@ -1923,7 +1923,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testPopulateFromHistoryFallsBackToLegacy() {
-        let toolCall = HistoryResponseToolCall(name: "bash", input: ["command": AnyCodable("ls")], result: "file.txt", isError: nil, imageData: nil)
+        let toolCall = HistoryResponseToolCall(name: "bash", input: ["command": AnyCodable("ls")], result: "file.txt", isError: nil)
         let historyItems: [HistoryResponseMessage] = [
             HistoryResponseMessage(
                 id: nil,
@@ -1970,7 +1970,7 @@ final class ChatViewModelTests: XCTestCase {
         // should produce separate text segments with interleaved content order.
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Let me check.")))
         viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], conversationId: nil)))
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, conversationId: nil)))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Here are the files.")))
         // Flush the second text delta so it lands in messages.
         viewModel.flushStreamingBuffer()
@@ -2239,8 +2239,7 @@ final class ChatViewModelTests: XCTestCase {
                     isError: true,
                     diff: nil,
                     status: nil,
-                    conversationId: nil,
-                    imageData: nil
+                    conversationId: nil
                 )
             )
         )
@@ -2289,8 +2288,7 @@ final class ChatViewModelTests: XCTestCase {
                     isError: true,
                     diff: nil,
                     status: nil,
-                    conversationId: nil,
-                    imageData: nil
+                    conversationId: nil
                 )
             )
         )
@@ -2316,7 +2314,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking, "Tool chip is visible, thinking should be false")
 
         // Tool completes — agent is processing the result but isn't "thinking" yet
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not restore after tool result — tool chip indicates activity")
     }
 
@@ -2324,7 +2322,7 @@ final class ChatViewModelTests: XCTestCase {
         // If isSending is false (shouldn't happen normally), don't set thinking
         viewModel.isSending = false
         viewModel.isThinking = false
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "ok", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "ok", isError: nil, diff: nil, status: nil, conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not restore when not sending")
     }
 
@@ -2332,7 +2330,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isSending = true
         viewModel.isCancelling = true
         viewModel.isThinking = false
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "ok", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "ok", isError: nil, diff: nil, status: nil, conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not restore during cancellation")
     }
 
@@ -2366,7 +2364,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
 
         // First tool completes — no "Thinking" flash between tools
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "files", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "files", isError: nil, diff: nil, status: nil, conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not show between tools")
 
         // Second tool starts
@@ -2374,7 +2372,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking, "Thinking should stay false when new tool starts")
 
         // Second tool completes
-        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "file_read", result: "contents", isError: nil, diff: nil, status: nil, conversationId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "file_read", result: "contents", isError: nil, diff: nil, status: nil, conversationId: nil)))
         XCTAssertFalse(viewModel.isThinking, "Thinking should not show after second tool")
 
         // Message completes

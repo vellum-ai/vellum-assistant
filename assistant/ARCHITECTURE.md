@@ -17,7 +17,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - The same resolver is used by:
   - `/channels/inbound` (Telegram/WhatsApp path) before run orchestration.
   - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
-- Runtime channel runs pass this as `trustContext`, and conversation runtime assembly injects `<inbound_actor_context>` (via `inboundActorContextFromTrustContext()`) into provider-facing prompts.
+- Runtime channel runs pass this as `trustContext`, and conversation runtime assembly includes actor context in the unified `<turn_context>` block (via `buildUnifiedTurnContextBlock()`) injected into provider-facing prompts.
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
@@ -637,7 +637,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | Enforcement Point                  | Module                                                        | Effect                                                                                                                                                                                                      |
 | ---------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **1. Client skill list**           | `resolveSkillStates()` in `config/skill-state.ts`             | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
-| **2. Capability memory seeding**   | `seedCatalogSkillMemories()` in `skills/skill-memory.ts`      | Skills with flag OFF are excluded from capability memory seeding. The model cannot discover them via semantic recall.                                                                                        |
+| **2. Capability memory seeding**   | `seedSkillGraphNodes()` in `memory/graph/capability-seed.ts`  | Skills with flag OFF are excluded from capability memory seeding. The model cannot discover them via semantic recall.                                                                                        |
 | **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`                | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/conversation-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`                | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
@@ -653,7 +653,7 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader                                                               |
 | `src/config/skill-state.ts`                     | `skillFlagKey(skill)` — returns canonical flag key for skills with a `featureFlag` frontmatter field, `undefined` otherwise; `resolveSkillStates()` — enforcement point 1 |
-| `src/skills/skill-memory.ts`                    | `seedCatalogSkillMemories()` — enforcement point 2                                                                                                                        |
+| `src/memory/graph/capability-seed.ts`           | `seedSkillGraphNodes()` — enforcement point 2                                                                                                                             |
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
 | `src/daemon/conversation-skill-tools.ts`        | `projectSkillTools()` — enforcement point 4                                                                                                                               |
 | `src/config/schema.ts`                          | `AssistantConfig` Zod schema definition (feature flag values are no longer stored here)                                                                                   |
@@ -872,7 +872,7 @@ The reducer (`context-overflow-reducer.ts`) applies four monotonically more aggr
 | ------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | 1. Forced compaction      | Emergency `maybeCompact()` with `force: true`, `minKeepRecentUserTurns: 0` | Summarizes older history more aggressively than normal compaction                            |
 | 2. Tool-result truncation | `truncateToolResultsAcrossHistory()` at 4,000 chars per result             | Shrinks verbose tool outputs (shell, file reads) across all retained messages                |
-| 3. Media/file stubbing    | `stripMediaPayloadsForRetry()`                                             | Replaces image and file content blocks with lightweight text stubs                           |
+| 3. Media/file stubbing    | `stripMediaPayloadsForRetry()`                                             | Replaces image and file content blocks with lightweight text stubs; media in the latest user message is retained based on available token budget rather than a fixed count |
 | 4. Injection downgrade    | Sets `injectionMode` to `"minimal"`                                        | Drops runtime injections (workspace listing, temporal context, memory recall) to minimal set |
 
 After each tier, the reducer re-estimates tokens. If the estimate is within budget, the loop breaks and the provider call proceeds. The loop is bounded by `maxAttempts` (default 3).

@@ -47,12 +47,8 @@ final class SidebarInteractionState {
         if let saved = defaults.stringArray(forKey: "sidebar.expandedSections") {
             initial = Set(saved)
         } else {
-            // First-launch defaults: all system groups expanded.
-            initial = [
-                ConversationGroup.pinned.id,
-                ConversationGroup.scheduled.id,
-                ConversationGroup.background.id,
-            ]
+            // First-launch defaults: all groups collapsed.
+            initial = []
         }
 
         // Clean up old keys (one-time migration).
@@ -92,6 +88,8 @@ final class SidebarInteractionState {
     var showAllChannelConversations: [String: Bool] = [:]
     /// Set of schedule sub-group keys (scheduleJobId values) that are currently expanded.
     var expandedScheduleGroups: Set<String> = []
+    /// Set of background sub-group keys (source values) that are currently expanded.
+    var expandedBackgroundGroups: Set<String> = []
     var showAllApps: Bool = false
 
     /// Toggles the expand/collapse state of a section.

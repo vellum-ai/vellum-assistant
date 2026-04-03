@@ -221,4 +221,58 @@ describe("gateway managed credential bootstrap retry", () => {
 
     expect(status).toBe(401);
   }, 20_000);
+
+  test("detects new Slack credentials when metadata is written after startup with no initial channel services", async () => {
+    // Start with NO channel service metadata — only non-channel credentials
+    // (simulates a fresh assistant that has platform credentials but no channels).
+    mkdirSync(testDir, { recursive: true });
+    writeCredentialMetadata([
+      metadataRecord("api-key-1", "vellum", "assistant_api_key"),
+    ]);
+
+    startFakeCes({
+      credentials: {
+        "credential/vellum/assistant_api_key": "fake-api-key",
+        "credential/slack_channel/bot_token": "xoxb-fake-bot-token",
+        "credential/slack_channel/app_token": "xapp-fake-app-token",
+      },
+    });
+
+    await startGateway();
+
+    // Slack deliver should be 503 since no Slack credentials are configured.
+    const base = `http://localhost:${gatewayPort}`;
+    const before = await fetch(`${base}/deliver/slack`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    });
+    expect(before.status).toBe(503);
+
+    // Now write Slack channel metadata (simulating the daemon storing
+    // credentials after the user completes the Slack setup flow).
+    writeCredentialMetadata([
+      metadataRecord("api-key-1", "vellum", "assistant_api_key"),
+      metadataRecord("bt-1", "slack_channel", "bot_token"),
+      metadataRecord("at-1", "slack_channel", "app_token"),
+    ]);
+
+    // The managed bootstrap retry should still be polling (since no channel
+    // services were configured at startup), so the new metadata should be
+    // detected within a few seconds even without fs.watch() working.
+    const deadline = Date.now() + 5_000;
+    let status = before.status;
+    while (Date.now() < deadline) {
+      const resp = await fetch(`${base}/deliver/slack`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      });
+      status = resp.status;
+      // 401 means Slack is configured but the deliver auth check failed
+      // (which is expected since we didn't provide a valid bearer token).
+      if (status === 401) break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    expect(status).toBe(401);
+  }, 20_000);
 });

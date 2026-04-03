@@ -1,7 +1,7 @@
 /**
- * Platform callback route registration for containerized deployments.
+ * Platform callback route registration for platform-managed deployments.
  *
- * When the assistant daemon runs inside a container (IS_CONTAINERIZED=true)
+ * When the assistant daemon runs as a platform-managed instance (IS_PLATFORM=true)
  * with a configured VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID, external
  * service callbacks (Twilio webhooks, OAuth redirects, Telegram webhooks, etc.)
  * must route through the platform's gateway proxy instead of hitting the
@@ -9,7 +9,7 @@
  *
  * This module registers callback routes with the platform's internal
  * gateway endpoint so the platform knows how to forward inbound provider
- * webhooks to the correct containerized assistant instance.
+ * webhooks to the correct platform-managed assistant instance.
  *
  * The platform endpoint is:
  *   POST {VELLUM_PLATFORM_URL}/v1/internal/gateway/callback-routes/register/
@@ -23,7 +23,7 @@ import {
   getPlatformBaseUrl,
   getPlatformInternalApiKey,
 } from "../config/env.js";
-import { getIsContainerized } from "../config/env-registry.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
@@ -31,7 +31,7 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("platform-callback-registration");
 
 export interface PlatformCallbackRegistrationContext {
-  containerized: boolean;
+  isPlatform: boolean;
   platformBaseUrl: string;
   assistantId: string;
   hasInternalApiKey: boolean;
@@ -42,21 +42,21 @@ export interface PlatformCallbackRegistrationContext {
 
 /**
  * Whether the daemon should register callback routes with the platform.
- * True when IS_CONTAINERIZED, VELLUM_PLATFORM_URL, and PLATFORM_ASSISTANT_ID
+ * True when IS_PLATFORM, VELLUM_PLATFORM_URL, and PLATFORM_ASSISTANT_ID
  * are all set. Intentionally does **not** require the managed proxy API key
  * so that callback-only flows (OAuth transport, Telegram/Twilio callback
  * registration) work during partial bootstrap before the key is injected.
  */
 export function shouldUsePlatformCallbacks(): boolean {
   return (
-    getIsContainerized() &&
+    getIsPlatform() &&
     !!getPlatformBaseUrl() &&
     !!getPlatformAssistantId()
   );
 }
 
 export async function resolvePlatformCallbackRegistrationContext(): Promise<PlatformCallbackRegistrationContext> {
-  const containerized = getIsContainerized();
+  const platform = getIsPlatform();
   const [storedBaseUrlRaw, storedAssistantIdRaw, storedAssistantApiKeyRaw] =
     await Promise.all([
       getSecureKeyAsync(credentialKey("vellum", "platform_base_url")),
@@ -80,14 +80,14 @@ export async function resolvePlatformCallbackRegistrationContext(): Promise<Plat
       : null;
 
   return {
-    containerized,
+    isPlatform: platform,
     platformBaseUrl,
     assistantId,
     hasInternalApiKey: internalApiKey.length > 0,
     hasAssistantApiKey: assistantApiKey.length > 0,
     authHeader,
     enabled:
-      containerized &&
+      platform &&
       platformBaseUrl.length > 0 &&
       assistantId.length > 0 &&
       authHeader !== null,
@@ -119,7 +119,7 @@ export async function registerCallbackRoute(
   const context = await resolvePlatformCallbackRegistrationContext();
   if (!context.enabled || !context.authHeader) {
     throw new Error(
-      "Platform callbacks not available — missing containerized platform registration context",
+      "Platform callbacks not available — missing platform registration context",
     );
   }
 
@@ -166,7 +166,7 @@ export async function registerCallbackRoute(
 }
 
 /**
- * Resolve a callback URL, registering with the platform when containerized.
+ * Resolve a callback URL, registering with the platform when platform-managed.
  *
  * When platform callbacks are enabled, registers the route and returns the
  * platform's stable callback URL (optionally with query parameters appended).
@@ -176,7 +176,7 @@ export async function registerCallbackRoute(
  * string) rather than an eagerly-evaluated string. This is critical because
  * the direct URL builders (e.g. `getTwilioVoiceWebhookUrl`) call
  * `getPublicBaseUrl()` which throws when no public ingress URL is configured.
- * In containerized environments that rely solely on platform callbacks, the
+ * In platform-managed environments that rely solely on platform callbacks, the
  * direct URL is never needed — deferring evaluation avoids the throw.
  *
  * @param directUrl - Lazy supplier for the direct callback URL.
@@ -204,7 +204,7 @@ export async function resolveCallbackUrl(
     }
     return url;
   } catch (err) {
-    // In managed/containerized mode there is no local-ingress fallback and
+    // In platform-managed mode there is no local-ingress fallback and
     // ngrok is not applicable. Surface a clear error so callers (and the
     // user) understand this is a platform-side issue, not a tunnel problem.
     const detail = err instanceof Error ? err.message : String(err);

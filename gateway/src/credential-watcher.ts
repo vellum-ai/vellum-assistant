@@ -30,6 +30,7 @@ const log = getLogger("credential-watcher");
 const DEBOUNCE_MS = 500;
 const MANAGED_BOOTSTRAP_POLL_MS = 1_000;
 const MANAGED_BOOTSTRAP_TIMEOUT_MS = 1_000;
+const MANAGED_BOOTSTRAP_STEADY_POLL_MS = 30_000;
 
 export type CredentialChangeEvent = {
   /** Map from service name to resolved credentials (null if unavailable) */
@@ -45,6 +46,7 @@ export class CredentialWatcher {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private managedBootstrapTimer: ReturnType<typeof setInterval> | null = null;
   private managedBootstrapPollInFlight = false;
+  private managedBootstrapInSteadyState = false;
   private lastConfiguredServices = new Set<string>();
   private lastReadyServices = new Set<string>();
   private lastSerialized: Map<string, string> = new Map();
@@ -120,6 +122,7 @@ export class CredentialWatcher {
       this.managedBootstrapTimer = null;
     }
     this.managedBootstrapPollInFlight = false;
+    this.managedBootstrapInSteadyState = false;
     this.pendingPoll = false;
     for (const watcher of this.watchers) {
       watcher.close();
@@ -173,9 +176,33 @@ export class CredentialWatcher {
 
       await this.pollOnce();
 
-      if (this.allConfiguredServicesReady() && this.managedBootstrapTimer) {
-        clearInterval(this.managedBootstrapTimer);
-        this.managedBootstrapTimer = null;
+      const ready =
+        this.lastConfiguredServices.size > 0 &&
+        this.allConfiguredServicesReady();
+
+      if (ready && !this.managedBootstrapInSteadyState) {
+        // All configured channel services have their credentials loaded.
+        // Switch to a slower steady-state poll as a resilient fallback for
+        // environments where fs.watch() doesn't propagate across containers.
+        if (this.managedBootstrapTimer) {
+          clearInterval(this.managedBootstrapTimer);
+          this.managedBootstrapTimer = setInterval(() => {
+            void this.pollManagedBootstrap(baseUrl, serviceToken);
+          }, MANAGED_BOOTSTRAP_STEADY_POLL_MS);
+          this.managedBootstrapTimer.unref?.();
+        }
+        this.managedBootstrapInSteadyState = true;
+      } else if (!ready && this.managedBootstrapInSteadyState) {
+        // A configured service lost its credentials — revert to fast polling
+        // so we pick up restored credentials quickly.
+        if (this.managedBootstrapTimer) {
+          clearInterval(this.managedBootstrapTimer);
+          this.managedBootstrapTimer = setInterval(() => {
+            void this.pollManagedBootstrap(baseUrl, serviceToken);
+          }, MANAGED_BOOTSTRAP_POLL_MS);
+          this.managedBootstrapTimer.unref?.();
+        }
+        this.managedBootstrapInSteadyState = false;
       }
     } catch {
       // CES isn't reachable yet. Keep retrying until the sidecar is ready.

@@ -4,11 +4,8 @@ import { join } from "path";
 
 import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
-import {
-  FIREWALL_TAG,
-  GATEWAY_PORT,
-  PROVIDER_ENV_VAR_NAMES,
-} from "./constants";
+import { FIREWALL_TAG, GATEWAY_PORT } from "./constants";
+import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
 import { getPlatformUrl } from "./platform-client";

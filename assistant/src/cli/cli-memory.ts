@@ -1,10 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
-import { computeMemoryFingerprint } from "../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
-import { memoryItems } from "../memory/schema.js";
+import { memoryGraphNodes } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
 import { buildCliProgram } from "./program.js";
 
@@ -28,8 +27,17 @@ export function buildCliCapabilityStatement(
   return statement;
 }
 
+/** Default emotional charge for capability graph nodes. */
+const DEFAULT_EMOTIONAL_CHARGE = JSON.stringify({
+  valence: 0,
+  intensity: 0.1,
+  decayCurve: "linear",
+  decayRate: 0.05,
+  originalIntensity: 0.1,
+});
+
 /**
- * Upsert a capability memory item for a CLI command.
+ * Upsert a capability memory graph node for a CLI command.
  * Best-effort: errors are logged but never thrown.
  */
 export function upsertCliCapabilityMemory(
@@ -38,100 +46,95 @@ export function upsertCliCapabilityMemory(
 ): void {
   try {
     const db = getDb();
-    const subject = `cli:${commandName}`;
     const statement = buildCliCapabilityStatement(commandName, description);
-    const kind = "capability";
+    const content = `cli:${commandName}\n${statement}`;
     const scopeId = "default";
-    const confidence = 1.0;
-    const importance = 0.7;
-    const fingerprint = computeMemoryFingerprint(
-      scopeId,
-      kind,
-      subject,
-      statement,
-    );
     const now = Date.now();
 
     const existing = db
       .select()
-      .from(memoryItems)
+      .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryItems.kind, kind),
-          eq(memoryItems.subject, subject),
-          eq(memoryItems.scopeId, scopeId),
+          eq(memoryGraphNodes.type, "procedural"),
+          like(memoryGraphNodes.content, `cli:${commandName}\n%`),
+          eq(memoryGraphNodes.scopeId, scopeId),
         ),
       )
       .get();
 
     if (existing) {
       if (
-        existing.status === "active" &&
-        existing.fingerprint === fingerprint
+        existing.content === content &&
+        existing.fidelity !== "gone"
       ) {
-        // Same content — just touch lastSeenAt
-        db.update(memoryItems)
-          .set({ lastSeenAt: now })
-          .where(eq(memoryItems.id, existing.id))
+        // Same content — just touch lastAccessed
+        db.update(memoryGraphNodes)
+          .set({ lastAccessed: now })
+          .where(eq(memoryGraphNodes.id, existing.id))
           .run();
         return;
       }
 
-      if (existing.status === "active") {
-        // Content changed — update statement and fingerprint
-        db.update(memoryItems)
+      if (existing.fidelity !== "gone") {
+        // Content changed — update content
+        db.update(memoryGraphNodes)
           .set({
-            statement,
-            fingerprint,
-            lastSeenAt: now,
+            content,
+            lastAccessed: now,
           })
-          .where(eq(memoryItems.id, existing.id))
+          .where(eq(memoryGraphNodes.id, existing.id))
           .run();
-        enqueueMemoryJob("embed_item", { itemId: existing.id });
+        enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
         return;
       }
 
-      // status === "deleted" or other — reactivate
-      db.update(memoryItems)
+      // fidelity === "gone" — reactivate
+      db.update(memoryGraphNodes)
         .set({
-          status: "active",
-          statement,
-          fingerprint,
-          lastSeenAt: now,
-          firstSeenAt: now,
+          fidelity: "vivid",
+          content,
+          created: now,
+          lastAccessed: now,
         })
-        .where(eq(memoryItems.id, existing.id))
+        .where(eq(memoryGraphNodes.id, existing.id))
         .run();
-      enqueueMemoryJob("embed_item", { itemId: existing.id });
+      enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
       return;
     }
 
-    // No existing — insert new row
+    // No existing — insert new graph node
     const id = uuid();
-    db.insert(memoryItems)
+    db.insert(memoryGraphNodes)
       .values({
         id,
-        kind,
-        subject,
-        statement,
-        status: "active",
-        confidence,
-        importance,
-        fingerprint,
-        sourceType: "extraction",
+        content,
+        type: "procedural",
+        created: now,
+        lastAccessed: now,
+        lastConsolidated: now,
+        emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
+        fidelity: "vivid",
+        confidence: 1.0,
+        significance: 0.7,
+        stability: 14,
+        reinforcementCount: 0,
+        lastReinforced: now,
+        sourceConversations: JSON.stringify([]),
+        sourceType: "inferred",
+        narrativeRole: null,
+        partOfStory: null,
         scopeId,
-        firstSeenAt: now,
-        lastSeenAt: now,
       })
       .run();
-    enqueueMemoryJob("embed_item", { itemId: id });
+    enqueueMemoryJob("embed_graph_node", { nodeId: id });
   } catch (err) {
     log.warn({ err, commandName }, "Failed to upsert CLI capability memory");
   }
 }
 
 /**
- * Seed capability memory items for all CLI commands.
+ * Seed capability memory graph nodes for all CLI commands.
  * Prunes stale entries whose commands are no longer registered.
  * Best-effort: errors are logged but never thrown.
  */
@@ -149,24 +152,24 @@ export function seedCliCommandMemories(): void {
     const db = getDb();
     const allCapabilities = db
       .select()
-      .from(memoryItems)
+      .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryItems.kind, "capability"),
-          eq(memoryItems.scopeId, "default"),
-          eq(memoryItems.status, "active"),
+          eq(memoryGraphNodes.type, "procedural"),
+          eq(memoryGraphNodes.scopeId, "default"),
+          sql`${memoryGraphNodes.fidelity} != 'gone'`,
         ),
       )
       .all();
 
     const now = Date.now();
     for (const item of allCapabilities) {
-      if (!item.subject.startsWith("cli:")) continue;
-      const itemCommandName = item.subject.replace("cli:", "");
+      if (!item.content.startsWith("cli:")) continue;
+      const itemCommandName = item.content.split("\n")[0].replace("cli:", "");
       if (!commandNames.has(itemCommandName)) {
-        db.update(memoryItems)
-          .set({ status: "deleted", lastSeenAt: now })
-          .where(eq(memoryItems.id, item.id))
+        db.update(memoryGraphNodes)
+          .set({ fidelity: "gone", lastAccessed: now })
+          .where(eq(memoryGraphNodes.id, item.id))
           .run();
       }
     }

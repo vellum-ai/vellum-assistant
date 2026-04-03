@@ -264,8 +264,10 @@ export interface HistoryResponseToolCall {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
-  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). @deprecated Use imageDataList. */
   imageData?: string;
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
+  imageDataList?: string[];
   /** Unix ms when the tool started executing. */
   startedAt?: number;
   /** Unix ms when the tool completed. */
@@ -370,6 +372,7 @@ export interface ContextCompacted {
 export type ConversationErrorCode =
   | "PROVIDER_NETWORK"
   | "PROVIDER_RATE_LIMIT"
+  | "PROVIDER_OVERLOADED"
   | "PROVIDER_API"
   | "PROVIDER_BILLING"
   | "PROVIDER_ORDERING"

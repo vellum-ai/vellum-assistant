@@ -2,9 +2,10 @@
  * Action Playbook — a structured trigger→action rule that tells the
  * triage engine how to handle incoming messages matching a pattern.
  *
- * Playbooks are stored as memory items with kind='playbook'. The
- * structured fields below are serialized into the statement column as
- * JSON, while the subject column holds a human-readable label.
+ * Playbooks are stored as memory_graph_nodes with
+ * sourceConversations containing a "playbook:{nodeId}" entry. The
+ * content column holds "Playbook: <trigger>\n<json>" where the JSON
+ * encodes the structured fields below.
  */
 
 export interface Playbook {

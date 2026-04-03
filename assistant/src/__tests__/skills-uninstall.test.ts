@@ -60,7 +60,7 @@ describe("assistant skills uninstall", () => {
 
     // GIVEN a skill is installed locally
     installFakeSkill("weather");
-    writeSkillsIndex("- weather\n- google-oauth-app-setup\n");
+    writeSkillsIndex("- weather\n- vellum-self-knowledge\n");
 
     // WHEN we uninstall the skill
     uninstallSkillLocally("weather");
@@ -73,7 +73,7 @@ describe("assistant skills uninstall", () => {
     expect(index).not.toContain("weather");
 
     // AND other skills should remain in the index
-    expect(index).toContain("google-oauth-app-setup");
+    expect(index).toContain("vellum-self-knowledge");
   });
 
   test("errors when skill is not installed", () => {

@@ -241,9 +241,6 @@ final class ChatActionHandler {
         case .guardianActionsPendingResponse(let response):
             vm.handleGuardianActionsPendingResponse(response)
 
-        case .guardianActionDecisionResponse(let response):
-            vm.handleGuardianActionDecisionResponse(response)
-
         case .usageUpdate(let update):
             guard belongsToConversation(update.conversationId) else { return }
             if let tokens = update.contextWindowTokens {
@@ -346,6 +343,15 @@ final class ChatActionHandler {
 
     private func handleMessageComplete(_ complete: MessageCompleteMessage, vm: ChatViewModel) {
         guard belongsToConversation(complete.conversationId) else { return }
+        // Auxiliary message_complete events (watch notifiers, call notifications)
+        // that lack a messageId should not reset the main agent turn state.
+        // Filter when a main agent turn is actively streaming (currentAssistantMessageId
+        // is set) OR still in the thinking phase (isThinking is true but
+        // currentAssistantMessageId hasn't been set yet by the first streaming flush).
+        // This allows slash commands and other non-auxiliary completions to process normally.
+        if complete.messageId == nil && (vm.currentAssistantMessageId != nil || vm.isThinking) {
+            return
+        }
         // Flush any buffered streaming text before finalizing the message.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()

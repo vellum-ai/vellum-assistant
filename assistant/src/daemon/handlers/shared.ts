@@ -60,8 +60,10 @@ export interface HistoryToolCall {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
-  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). @deprecated Use imageDataList. */
   imageData?: string;
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
+  imageDataList?: string[];
   /** Unix ms when the tool started executing. */
   startedAt?: number;
   /** Unix ms when the tool completed. */
@@ -341,16 +343,19 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       const resultContent =
         typeof block.content === "string" ? block.content : "";
       const isError = block.is_error === true;
-      // Extract base64 image data from persisted contentBlocks (e.g. browser_screenshot)
-      let imageData: string | undefined;
+      // Extract base64 image data from persisted contentBlocks (e.g. browser_screenshot, image generation)
+      const imageDataList: string[] = [];
       if (Array.isArray(block.contentBlocks)) {
-        const imgBlock = block.contentBlocks.find(
-          (b: Record<string, unknown>) => isRecord(b) && b.type === "image",
-        );
-        if (imgBlock && isRecord(imgBlock) && isRecord(imgBlock.source)) {
-          const src = imgBlock.source as Record<string, unknown>;
-          if (typeof src.data === "string") {
-            imageData = src.data;
+        for (const cb of block.contentBlocks) {
+          if (
+            isRecord(cb) &&
+            cb.type === "image" &&
+            isRecord(cb.source) &&
+            typeof (cb.source as Record<string, unknown>).data === "string"
+          ) {
+            imageDataList.push(
+              (cb.source as Record<string, unknown>).data as string,
+            );
           }
         }
       }
@@ -358,14 +363,19 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       if (matched) {
         matched.result = resultContent;
         matched.isError = isError;
-        if (imageData) matched.imageData = imageData;
+        if (imageDataList.length > 0) {
+          matched.imageData = imageDataList[0];
+          matched.imageDataList = imageDataList;
+        }
       } else {
         toolCalls.push({
           name: "unknown",
           input: {},
           result: resultContent,
           isError,
-          ...(imageData ? { imageData } : {}),
+          ...(imageDataList.length > 0
+            ? { imageData: imageDataList[0], imageDataList }
+            : {}),
         });
       }
       continue;
@@ -487,13 +497,71 @@ export function ensureSkillEntry(
   return entries[name] as Record<string, unknown>;
 }
 
-/** Compare two semver strings. Returns negative if a < b, 0 if equal, positive if a > b. */
-export function compareSemver(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
+/**
+ * Parse a version string into its core numeric parts and optional pre-release tag.
+ * Handles optional `v`/`V` prefix (e.g. "v0.6.0-staging.5").
+ */
+function parseSemverParts(v: string): {
+  nums: [number, number, number];
+  pre: string | null;
+} {
+  const stripped = v.replace(/^[vV]/, "");
+  const [core, ...rest] = stripped.split("-");
+  const pre = rest.length > 0 ? rest.join("-") : null;
+  const segs = (core ?? "").split(".").map(Number);
+  return {
+    nums: [segs[0] || 0, segs[1] || 0, segs[2] || 0],
+    pre,
+  };
+}
+
+/**
+ * Compare two pre-release strings per semver §11:
+ *   - Dot-separated identifiers compared left to right.
+ *   - Both numeric → compare as integers.
+ *   - Both non-numeric → compare lexically.
+ *   - Numeric vs non-numeric → numeric sorts lower (§11.4.4).
+ *   - Fewer identifiers sorts earlier when all preceding are equal.
+ */
+function comparePreRelease(a: string, b: string): number {
+  const pa = a.split(".");
+  const pb = b.split(".");
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    if (i >= pa.length) return -1; // a has fewer fields → a < b
+    if (i >= pb.length) return 1;
+    const aIsNum = /^\d+$/.test(pa[i]);
+    const bIsNum = /^\d+$/.test(pb[i]);
+    if (aIsNum && bIsNum) {
+      const diff = Number(pa[i]) - Number(pb[i]);
+      if (diff !== 0) return diff;
+    } else if (aIsNum !== bIsNum) {
+      return aIsNum ? -1 : 1; // numeric < non-numeric per §11.4.4
+    } else {
+      const cmp = (pa[i] ?? "").localeCompare(pb[i] ?? "");
+      if (cmp !== 0) return cmp;
+    }
   }
   return 0;
+}
+
+/**
+ * Compare two semver strings. Returns negative if a < b, 0 if equal, positive if a > b.
+ *
+ * Handles pre-release suffixes per semver spec:
+ *   - `0.6.0-staging.1 < 0.6.0` (pre-release < release)
+ *   - `0.6.0-staging.1 < 0.6.0-staging.2` (numeric postfix comparison)
+ */
+export function compareSemver(a: string, b: string): number {
+  const pa = parseSemverParts(a);
+  const pb = parseSemverParts(b);
+  for (let i = 0; i < 3; i++) {
+    const diff = pa.nums[i] - pb.nums[i];
+    if (diff !== 0) return diff;
+  }
+  // Same major.minor.patch — compare pre-release
+  if (pa.pre === null && pb.pre === null) return 0;
+  if (pa.pre !== null && pb.pre === null) return -1; // pre-release < release
+  if (pa.pre === null && pb.pre !== null) return 1;
+  return comparePreRelease(pa.pre!, pb.pre!);
 }

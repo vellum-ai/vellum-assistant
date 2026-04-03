@@ -121,6 +121,7 @@ export function extractMediaBlockMeta(
   }
 }
 
+
 function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);

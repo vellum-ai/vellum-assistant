@@ -2,6 +2,19 @@
 import AppKit
 import SwiftUI
 
+/// NSTextView subclass that clears text selection when it resigns first
+/// responder. Prevents stale inactive-selection highlights (gray background)
+/// from lingering when the user interacts with a different text view.
+private final class SelectableNSTextView: NSTextView {
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        if result {
+            setSelectedRange(NSRange(location: 0, length: 0))
+        }
+        return result
+    }
+}
+
 /// A read-only, selectable text view that wraps `NSTextView` via `NSViewRepresentable`.
 ///
 /// Provides native macOS text selection (click-drag, Cmd+A, Shift+arrows) and
@@ -116,7 +129,7 @@ public struct VSelectableTextView: NSViewRepresentable {
         textContainer.lineFragmentPadding = 0
         layoutManager.addTextContainer(textContainer)
 
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        let textView = SelectableNSTextView(frame: .zero, textContainer: textContainer)
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = true

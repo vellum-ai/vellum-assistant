@@ -45,17 +45,24 @@ export function getIsContainerized(): boolean {
 }
 
 /**
- * Whether this assistant is running as a platform-managed remote instance.
+ * IS_PLATFORM — boolean, default: false
+ * When true, indicates the assistant is running as a platform-managed
+ * remote instance. Controls platform-specific behaviors like webhook
+ * callback registration and blocking `platform disconnect`.
  *
- * Currently this is determined solely by the IS_CONTAINERIZED env var, which
- * the platform sets when provisioning assistant containers. This is not ideal
- * because any Docker environment could set it. We plan to replace this with a
- * less spoof-able mechanism in the future — e.g. a signed platform token
- * verified via asymmetric cryptography or an authenticated attestation
- * endpoint on the platform.
+ * Separate from IS_CONTAINERIZED because local Docker assistants are
+ * containerized (need CES sidecar, gateway trust store, etc.) but are
+ * not platform-managed.
+ */
+export function getIsPlatform(): boolean {
+  return flag("IS_PLATFORM");
+}
+
+/**
+ * Whether this assistant is running as a platform-managed remote instance.
  */
 export function isPlatformRemote(): boolean {
-  return getIsContainerized();
+  return getIsPlatform();
 }
 
 /**

@@ -434,10 +434,10 @@ extension ChatViewModel {
             messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
             messages[msgIndex].toolCalls[tcIndex].isComplete = true
             messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
-            let decoded = ToolCallData.decodeImage(from: msg.imageData)
-            // Keep cachedImage for display, nil out raw base64 to save ~2.7MB per screenshot
-            messages[msgIndex].toolCalls[tcIndex].cachedImage = decoded
-            messages[msgIndex].toolCalls[tcIndex].imageData = decoded == nil ? msg.imageData : nil
+            let decoded = (msg.imageDataList ?? []).compactMap { ToolCallData.decodeImage(from: $0) }
+            // Keep cachedImages for display, nil out raw base64 to save memory
+            messages[msgIndex].toolCalls[tcIndex].cachedImages = decoded
+            messages[msgIndex].toolCalls[tcIndex].imageDataList = decoded.isEmpty ? msg.imageDataList : nil
             if let status = msg.status, !status.isEmpty {
                 messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
             }

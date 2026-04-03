@@ -100,8 +100,8 @@ struct SettingsGeneralTab: View {
                 // Data(contentsOf:) file I/O can block the main thread.
                 let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
                 lockfileAssistants = assistants
+                await fetchHealthz()
             }
-            Task { await fetchHealthz() }
         }
         .onReceive(updateInProgressPublisher) { inProgress in
             isServiceGroupUpdateInProgress = inProgress
@@ -171,7 +171,7 @@ struct SettingsGeneralTab: View {
         guard !selectedAssistantId.isEmpty else { return }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "health",
+                path: "assistants/{assistantId}/healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()

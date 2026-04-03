@@ -468,38 +468,6 @@ describe("AgentLoop", () => {
     ).toBe(false);
   });
 
-  // 8. Progress reminder injection every 5 tool-use turns
-  test("injects progress reminder after every 5 tool-use turns", async () => {
-    // Create 6 tool responses followed by a text response
-    const responses: ProviderResponse[] = [];
-    for (let i = 0; i < 6; i++) {
-      responses.push(
-        toolUseResponse(`t${i}`, "read_file", { path: `/file${i}.txt` }),
-      );
-    }
-    responses.push(textResponse("Finally done"));
-
-    const { provider, calls } = createMockProvider(responses);
-    const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
-
-    await loop.run([userMessage], () => {});
-
-    // After the 5th tool-use turn, the user message should contain a progress reminder
-    // calls[5] is the 6th provider call; its messages[-1] should have the reminder
-    const fifthTurnResultMsg = calls[5].messages[calls[5].messages.length - 1];
-    const reminderBlock = fifthTurnResultMsg.content.find(
-      (b): b is Extract<ContentBlock, { type: "text" }> =>
-        b.type === "text" && b.text.includes("making meaningful progress"),
-    );
-    expect(reminderBlock).toBeDefined();
-  });
 
   // 9. Tool executor error results are forwarded correctly
   test("forwards tool error results to provider", async () => {
