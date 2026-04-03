@@ -854,7 +854,7 @@ export class AnthropicProvider implements Provider {
         params.tools &&
         params.tools.length > 0
       ) {
-        delete (params.system[0] as Record<string, unknown>).cache_control;
+        delete (params.system[0] as unknown as Record<string, unknown>).cache_control;
       }
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
