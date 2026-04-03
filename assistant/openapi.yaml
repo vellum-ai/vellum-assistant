@@ -3370,6 +3370,81 @@ paths:
                     type: object
                     properties: {}
                     additionalProperties: {}
+                  profiler:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      mode:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      runId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      runDir:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      totalBytes:
+                        type: number
+                      artifactCount:
+                        type: number
+                      budget:
+                        anyOf:
+                          - type: object
+                            properties:
+                              maxBytes:
+                                type: number
+                              remainingBytes:
+                                type: number
+                              minFreeMb:
+                                type: number
+                              freeMb:
+                                type: number
+                              overBudget:
+                                type: boolean
+                            required:
+                              - maxBytes
+                              - remainingBytes
+                              - minFreeMb
+                              - freeMb
+                              - overBudget
+                            additionalProperties: false
+                          - type: "null"
+                      lastCompletedRun:
+                        anyOf:
+                          - type: object
+                            properties:
+                              runId:
+                                type: string
+                              totalBytes:
+                                type: number
+                              artifactCount:
+                                type: number
+                              hasSummaries:
+                                type: boolean
+                              completedAt:
+                                type: string
+                            required:
+                              - runId
+                              - totalBytes
+                              - artifactCount
+                              - hasSummaries
+                              - completedAt
+                            additionalProperties: false
+                          - type: "null"
+                    required:
+                      - enabled
+                      - mode
+                      - runId
+                      - runDir
+                      - totalBytes
+                      - artifactCount
+                      - budget
+                      - lastCompletedRun
+                    additionalProperties: false
                 required:
                   - status
                   - timestamp
@@ -3416,6 +3491,81 @@ paths:
                     type: object
                     properties: {}
                     additionalProperties: {}
+                  profiler:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      mode:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      runId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      runDir:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      totalBytes:
+                        type: number
+                      artifactCount:
+                        type: number
+                      budget:
+                        anyOf:
+                          - type: object
+                            properties:
+                              maxBytes:
+                                type: number
+                              remainingBytes:
+                                type: number
+                              minFreeMb:
+                                type: number
+                              freeMb:
+                                type: number
+                              overBudget:
+                                type: boolean
+                            required:
+                              - maxBytes
+                              - remainingBytes
+                              - minFreeMb
+                              - freeMb
+                              - overBudget
+                            additionalProperties: false
+                          - type: "null"
+                      lastCompletedRun:
+                        anyOf:
+                          - type: object
+                            properties:
+                              runId:
+                                type: string
+                              totalBytes:
+                                type: number
+                              artifactCount:
+                                type: number
+                              hasSummaries:
+                                type: boolean
+                              completedAt:
+                                type: string
+                            required:
+                              - runId
+                              - totalBytes
+                              - artifactCount
+                              - hasSummaries
+                              - completedAt
+                            additionalProperties: false
+                          - type: "null"
+                    required:
+                      - enabled
+                      - mode
+                      - runId
+                      - runDir
+                      - totalBytes
+                      - artifactCount
+                      - budget
+                      - lastCompletedRun
+                    additionalProperties: false
                 required:
                   - status
                   - timestamp
@@ -4944,6 +5094,176 @@ paths:
           schema:
             type: string
           description: Conversation ID
+  /v1/profiler/runs:
+    get:
+      operationId: profiler_runs_get
+      summary: List profiler runs
+      description: Enumerate all profiler run directories with manifest metadata, sorted newest-first.
+      tags:
+        - profiler
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        runId:
+                          type: string
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - completed
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                        totalBytes:
+                          type: number
+                      required:
+                        - runId
+                        - status
+                        - createdAt
+                        - updatedAt
+                        - totalBytes
+                      additionalProperties: false
+                  totalRuns:
+                    type: number
+                  activeRunId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - runs
+                  - totalRuns
+                  - activeRunId
+                additionalProperties: false
+  /v1/profiler/runs/{runId}:
+    delete:
+      operationId: profiler_runs_by_runId_delete
+      summary: Delete profiler run
+      description: Delete a completed profiler run and recalculate disk-budget state. Rejects deletion of the currently active run.
+      tags:
+        - profiler
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  runId:
+                    type: string
+                  remainingRuns:
+                    type: number
+                  activeRunOverBudget:
+                    type: boolean
+                required:
+                  - deleted
+                  - runId
+                  - remainingRuns
+                  - activeRunOverBudget
+                additionalProperties: false
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+    get:
+      operationId: profiler_runs_by_runId_get
+      summary: Get profiler run detail
+      description: Return manifest metadata, Bun-generated markdown summary, and current retention state for a single profiler run.
+      tags:
+        - profiler
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - active
+                      - completed
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                  totalBytes:
+                    type: number
+                  summary:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  isActive:
+                    type: boolean
+                  budget:
+                    type: object
+                    properties:
+                      maxBytes:
+                        type: number
+                      totalBytesAllRuns:
+                        type: number
+                      remainingBytes:
+                        type: number
+                      overBudget:
+                        type: boolean
+                    required:
+                      - maxBytes
+                      - totalBytesAllRuns
+                      - remainingBytes
+                      - overBudget
+                    additionalProperties: false
+                required:
+                  - runId
+                  - status
+                  - createdAt
+                  - updatedAt
+                  - totalBytes
+                  - summary
+                  - isActive
+                  - budget
+                additionalProperties: false
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/profiler/runs/{runId}/export:
+    post:
+      operationId: profiler_runs_by_runId_export_post
+      summary: Export profiler run
+      description:
+        Package a single profiler run directory as a tar.gz bundle, subject to the same archive size limits used by
+        runtime log exports.
+      tags:
+        - profiler
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/recordings/pause:
     post:
       operationId: recordings_pause_post
