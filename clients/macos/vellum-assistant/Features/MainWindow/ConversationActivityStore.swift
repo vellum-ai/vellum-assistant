@@ -64,6 +64,29 @@ final class ConversationActivityStore {
     /// ConversationManager uses this to drain pending notification catch-ups.
     @ObservationIgnored var onBusyToIdle: ((UUID) -> Void)?
 
+    // MARK: - Assistant activity observation
+
+    /// Snapshot of the latest assistant message's structural properties,
+    /// used to detect meaningful changes (new messages, tool completions,
+    /// streaming state transitions) without deep-diffing the full message list.
+    struct AssistantActivitySnapshot: Equatable {
+        let messageId: UUID
+        let toolCallCount: Int
+        let completedToolCallCount: Int
+        let surfaceCount: Int
+        let isStreaming: Bool
+    }
+
+    /// Generation counters for invalidating assistant-activity observation loops.
+    @ObservationIgnored private var activityGenerations: [UUID: Int] = []
+
+    /// Last observed assistant activity snapshot per conversation.
+    @ObservationIgnored private(set) var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = []
+
+    /// Callback invoked when assistant activity changes for a conversation.
+    /// Parameters: (conversationId, previousSnapshot, currentSnapshot).
+    @ObservationIgnored var onAssistantActivityChange: ((UUID, AssistantActivitySnapshot?, AssistantActivitySnapshot) -> Void)?
+
     // MARK: - Public API
 
     /// Whether the given conversation's ChatViewModel indicates active processing.
@@ -114,6 +137,25 @@ final class ConversationActivityStore {
         )
     }
 
+    /// Begin observing assistant activity on a ChatViewModel's message manager.
+    ///
+    /// Uses `withObservationTracking` to read `messages` directly from the
+    /// `@Observable` ChatMessageManager, deriving an `AssistantActivitySnapshot`
+    /// and comparing with the previous snapshot. On change, invokes
+    /// `onAssistantActivityChange` so ConversationManager can update unseen state.
+    func observeAssistantActivity(for conversationId: UUID, messageManager: ChatMessageManager) {
+        let generation = (activityGenerations[conversationId] ?? 0) + 1
+        activityGenerations[conversationId] = generation
+        // Seed with the initial snapshot.
+        let initialSnapshot = Self.assistantActivitySnapshot(from: messageManager.messages)
+        if let initialSnapshot {
+            latestAssistantActivitySnapshots[conversationId] = initialSnapshot
+        } else {
+            latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
+        }
+        observeAssistantActivityLoop(conversationId: conversationId, messageManager: messageManager, generation: generation)
+    }
+
     /// Begin observing the active conversation's message count.
     ///
     /// Called when the active conversation changes. Invalidates any prior
@@ -138,7 +180,9 @@ final class ConversationActivityStore {
     func unsubscribeFromBusyState(for conversationId: UUID) {
         invalidateBusyGeneration(for: conversationId)
         invalidateInteractionGeneration(for: conversationId)
+        invalidateActivityGeneration(for: conversationId)
         busyConversationIds.remove(conversationId)
+        latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
     }
 
     /// Cancel all observation and remove cached state for a conversation that
@@ -146,10 +190,12 @@ final class ConversationActivityStore {
     func unsubscribeAll(for conversationId: UUID) {
         invalidateBusyGeneration(for: conversationId)
         invalidateInteractionGeneration(for: conversationId)
+        invalidateActivityGeneration(for: conversationId)
         busyConversationIds.remove(conversationId)
         conversationInteractionStates.removeValue(forKey: conversationId)
         previousInteractionStates.removeValue(forKey: conversationId)
         hasInitialInteractionState.removeValue(forKey: conversationId)
+        latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
     }
 
     // MARK: - Busy state observation loop
@@ -250,6 +296,51 @@ final class ConversationActivityStore {
         }
     }
 
+    // MARK: - Assistant activity observation loop
+
+    private func observeAssistantActivityLoop(
+        conversationId: UUID,
+        messageManager: ChatMessageManager,
+        generation: Int
+    ) {
+        guard activityGenerations[conversationId] == generation else { return }
+
+        var snapshot: AssistantActivitySnapshot?
+        withObservationTracking {
+            snapshot = Self.assistantActivitySnapshot(from: messageManager.messages)
+        } onChange: { [weak self, weak messageManager] in
+            Task { @MainActor [weak self, weak messageManager] in
+                guard let self, let messageManager else { return }
+                self.observeAssistantActivityLoop(
+                    conversationId: conversationId,
+                    messageManager: messageManager,
+                    generation: generation
+                )
+            }
+        }
+
+        let previousSnapshot = latestAssistantActivitySnapshots[conversationId]
+        if let snapshot {
+            latestAssistantActivitySnapshots[conversationId] = snapshot
+        } else {
+            latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
+        }
+        guard previousSnapshot != snapshot, let snapshot else { return }
+        onAssistantActivityChange?(conversationId, previousSnapshot, snapshot)
+    }
+
+    /// Derive a structural snapshot from the latest assistant message in the list.
+    private static func assistantActivitySnapshot(from messages: [ChatMessage]) -> AssistantActivitySnapshot? {
+        guard let message = messages.reversed().first(where: { $0.role == .assistant }) else { return nil }
+        return AssistantActivitySnapshot(
+            messageId: message.id,
+            toolCallCount: message.toolCalls.count,
+            completedToolCallCount: message.toolCalls.filter(\.isComplete).count,
+            surfaceCount: message.inlineSurfaces.count,
+            isStreaming: message.isStreaming
+        )
+    }
+
     // MARK: - Active message count observation loop
 
     private func observeActiveMessageCountLoop(
@@ -287,6 +378,12 @@ final class ConversationActivityStore {
     private func invalidateInteractionGeneration(for conversationId: UUID) {
         if let gen = interactionGenerations[conversationId] {
             interactionGenerations[conversationId] = gen + 1
+        }
+    }
+
+    private func invalidateActivityGeneration(for conversationId: UUID) {
+        if let gen = activityGenerations[conversationId] {
+            activityGenerations[conversationId] = gen + 1
         }
     }
 }

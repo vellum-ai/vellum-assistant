@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import Combine
+import Observation
 import SwiftUI
 import VellumAssistantShared
 
@@ -178,15 +179,17 @@ class IOSConversationStore: ObservableObject {
     private static let connectedCacheKey = "ios_connected_conversations_cache_v1"
     private static let legacyPersistenceKey = "ios_threads_v1"
     private static let legacyConnectedCacheKey = "ios_connected_threads_cache_v1"
-    private var cancellables: Set<AnyCancellable> = []
     /// Task running the SSE subscribe loop for daemon messages.
     private var subscribeTask: Task<Void, Never>?
     /// Maps daemon conversation IDs to local conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
-    /// Tracks conversation IDs that already have an activity-tracking observer to avoid duplicates.
-    private var observedActivityConversationIds: Set<UUID> = []
-    /// Tracks conversation IDs that already have an exact `/fork` availability observer.
-    private var observedForkAvailabilityConversationIds: Set<UUID> = []
+    /// Generation counters for per-conversation observation loops. Incremented when
+    /// a conversation is deleted, which invalidates any in-flight re-arm closures.
+    private var observationGenerations: [UUID: Int] = [:]
+    /// Last observed fork-availability tip ID per conversation, for change detection.
+    private var lastObservedForkTipIds: [UUID: String?] = [:]
+    /// Last observed message count per conversation, for activity-tracking change detection.
+    private var lastObservedMessageCounts: [UUID: Int] = [:]
     /// Number of conversations per page when listing conversations from the daemon.
     private static let conversationPageSize = 50
     private static let attentionSignalType = "ios_conversation_opened"
@@ -553,10 +556,11 @@ class IOSConversationStore: ObservableObject {
     /// `@StateObject` is initialised once by SwiftUI and never replaced when `ContentView`
     /// re-initialises, so when the connection is rebuilt (QR pairing, settings change) the
     /// store would otherwise keep sending messages to the old, disconnected client.  This
-    /// method swaps the client reference, cancels Combine subscriptions that captured the old
-    /// client, drops stale ChatViewModels (they reference the old client via `ChatViewModel`'s
-    /// own stored reference), resets pagination, and re-registers daemon callbacks on the new
-    /// client so the conversation list is refreshed from the new connection.
+    /// method swaps the client reference, cancels subscriptions that captured the old
+    /// client, invalidates observation loops, drops stale ChatViewModels (they reference
+    /// the old client via `ChatViewModel`'s own stored reference), resets pagination, and
+    /// re-registers daemon callbacks on the new client so the conversation list is refreshed
+    /// from the new connection.
     func rebindGatewayConnectionManager(_ newClient: GatewayConnectionManager, eventStreamClient newEventStreamClient: EventStreamClient) {
         // Drop Combine subscriptions tied to the old GatewayConnectionManager so the reconnect
         // publisher from setupDaemonCallbacks doesn't fire against the wrong daemon.
@@ -573,8 +577,9 @@ class IOSConversationStore: ObservableObject {
         // Existing ViewModels hold a reference to the old, disconnected client inside
         // ChatViewModel.  Discard them so new ones are created with the new client.
         viewModels.removeAll()
-        observedActivityConversationIds.removeAll()
-        observedForkAvailabilityConversationIds.removeAll()
+        invalidateAllObservationGenerations()
+        lastObservedForkTipIds.removeAll()
+        lastObservedMessageCounts.removeAll()
         pendingHistoryByConversationId.removeAll()
         pendingAttentionOverrides.removeAll()
         selectionRequest = nil
@@ -940,19 +945,35 @@ class IOSConversationStore: ObservableObject {
     }
 
     private func observeForForkAvailability(vm: ChatViewModel, conversationLocalId: UUID) {
-        guard !observedForkAvailabilityConversationIds.contains(conversationLocalId) else { return }
-        observedForkAvailabilityConversationIds.insert(conversationLocalId)
+        let generation = nextObservationGeneration(for: conversationLocalId)
+        let initialTipId = Self.latestTipDaemonMessageId(from: vm.messageManager.messages)
+        lastObservedForkTipIds[conversationLocalId] = initialTipId
+        updateForkCommandHandler(vm: vm, conversationLocalId: conversationLocalId, knownTipId: initialTipId)
+        observeForkAvailabilityLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
+    }
 
-        vm.messageManager.messagesPublisher
-            .map { messages in
-                messages.last(where: { $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden })?.daemonMessageId
+    private func observeForkAvailabilityLoop(vm: ChatViewModel, conversationLocalId: UUID, generation: Int) {
+        guard observationGenerations[conversationLocalId] == generation else { return }
+        let messageManager = vm.messageManager
+        withObservationTracking {
+            _ = messageManager.messages
+        } onChange: { [weak self, weak vm] in
+            Task { @MainActor [weak self, weak vm] in
+                guard let self, let vm,
+                      self.observationGenerations[conversationLocalId] == generation else { return }
+                let tipId = Self.latestTipDaemonMessageId(from: vm.messageManager.messages)
+                let previous = self.lastObservedForkTipIds[conversationLocalId] ?? nil
+                if tipId != previous {
+                    self.lastObservedForkTipIds[conversationLocalId] = tipId
+                    self.updateForkCommandHandler(vm: vm, conversationLocalId: conversationLocalId, knownTipId: tipId)
+                }
+                self.observeForkAvailabilityLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
             }
-            .removeDuplicates()
-            .sink { [weak self, weak vm] latestTipId in
-                guard let self, let vm else { return }
-                self.updateForkCommandHandler(vm: vm, conversationLocalId: conversationLocalId, knownTipId: latestTipId)
-            }
-            .store(in: &cancellables)
+        }
+    }
+
+    private static func latestTipDaemonMessageId(from messages: [ChatMessage]) -> String? {
+        messages.last(where: { $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden })?.daemonMessageId
     }
 
     private func updateForkCommandHandler(vm: ChatViewModel, conversationLocalId: UUID, knownTipId: String? = nil) {
@@ -996,22 +1017,29 @@ class IOSConversationStore: ObservableObject {
     private func observeForTitleGeneration(vm: ChatViewModel, conversationLocalId: UUID) {
         // Find the conversation's default title; skip if already customized.
         guard conversations.first(where: { $0.id == conversationLocalId })?.title == "New Chat" else { return }
+        let generation = observationGenerations[conversationLocalId] ?? 0
+        observeTitleGenerationLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
+    }
 
-        vm.messageManager.messagesPublisher
-            .dropFirst()
-            .compactMap { messages -> String? in
-                // Trigger once we have at least one user message and the first assistant
-                // reply has finished streaming (isStreaming == false).
+    private func observeTitleGenerationLoop(vm: ChatViewModel, conversationLocalId: UUID, generation: Int) {
+        guard observationGenerations[conversationLocalId] == generation else { return }
+        let messageManager = vm.messageManager
+        withObservationTracking {
+            _ = messageManager.messages
+        } onChange: { [weak self, weak vm] in
+            Task { @MainActor [weak self, weak vm] in
+                guard let self, let vm,
+                      self.observationGenerations[conversationLocalId] == generation else { return }
+                let messages = vm.messageManager.messages
                 guard let firstUser = messages.first(where: { $0.role == .user }),
                       !firstUser.text.isEmpty,
                       messages.contains(where: { $0.role == .assistant && !$0.isStreaming }) else {
-                    return nil
+                    // Not ready yet — re-arm.
+                    self.observeTitleGenerationLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
+                    return
                 }
-                return firstUser.text
-            }
-            .first()
-            .sink { [weak self] firstUserMessage in
-                guard let self else { return }
+                // One-shot: do not re-arm after triggering.
+                let firstUserMessage = firstUser.text
                 Task {
                     if let title = await TitleGenerator.shared.generateTitle(
                         for: conversationLocalId,
@@ -1023,25 +1051,54 @@ class IOSConversationStore: ObservableObject {
                     }
                 }
             }
-            .store(in: &cancellables)
+        }
     }
 
     /// Update lastActivityAt whenever the message count changes (not on every streaming delta).
     /// Skips updates while the VM is loading history so that hydrating old messages
     /// doesn't stamp the conversation as recently active.
     private func observeForActivityTracking(vm: ChatViewModel, conversationLocalId: UUID) {
-        guard !observedActivityConversationIds.contains(conversationLocalId) else { return }
-        observedActivityConversationIds.insert(conversationLocalId)
+        let generation = observationGenerations[conversationLocalId] ?? 0
+        lastObservedMessageCounts[conversationLocalId] = vm.messageManager.messages.count
+        observeActivityTrackingLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
+    }
 
-        vm.messageManager.messagesPublisher
-            .dropFirst()
-            .map(\.count)
-            .removeDuplicates()
-            .sink { [weak self, weak vm] _ in
-                guard let vm, !vm.isLoadingHistory else { return }
-                self?.touchLastActivity(for: conversationLocalId)
+    private func observeActivityTrackingLoop(vm: ChatViewModel, conversationLocalId: UUID, generation: Int) {
+        guard observationGenerations[conversationLocalId] == generation else { return }
+        let messageManager = vm.messageManager
+        withObservationTracking {
+            _ = messageManager.messages
+        } onChange: { [weak self, weak vm] in
+            Task { @MainActor [weak self, weak vm] in
+                guard let self, let vm,
+                      self.observationGenerations[conversationLocalId] == generation else { return }
+                let newCount = vm.messageManager.messages.count
+                let previousCount = self.lastObservedMessageCounts[conversationLocalId] ?? 0
+                if newCount != previousCount {
+                    self.lastObservedMessageCounts[conversationLocalId] = newCount
+                    if !vm.isLoadingHistory {
+                        self.touchLastActivity(for: conversationLocalId)
+                    }
+                }
+                self.observeActivityTrackingLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
             }
-            .store(in: &cancellables)
+        }
+    }
+
+    // MARK: - Observation Generation Helpers
+
+    private func nextObservationGeneration(for conversationLocalId: UUID) -> Int {
+        let next = (observationGenerations[conversationLocalId] ?? 0) + 1
+        observationGenerations[conversationLocalId] = next
+        return next
+    }
+
+    private func invalidateObservationGeneration(for conversationLocalId: UUID) {
+        observationGenerations.removeValue(forKey: conversationLocalId)
+    }
+
+    private func invalidateAllObservationGenerations() {
+        observationGenerations.removeAll()
     }
 
     /// Private conversations are excluded from the conversation list response filter, so they
@@ -1075,6 +1132,9 @@ class IOSConversationStore: ObservableObject {
 
     func deleteConversation(_ conversation: IOSConversation) {
         viewModels.removeValue(forKey: conversation.id)
+        invalidateObservationGeneration(for: conversation.id)
+        lastObservedForkTipIds.removeValue(forKey: conversation.id)
+        lastObservedMessageCounts.removeValue(forKey: conversation.id)
         if let sid = conversation.conversationId {
             locallyEditedConversationIds.remove(sid)
             locallyEditedPinConversationIds.remove(sid)

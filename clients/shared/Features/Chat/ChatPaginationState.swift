@@ -1,5 +1,5 @@
-import Combine
 import Foundation
+import Observation
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatPaginationState")
@@ -28,9 +28,9 @@ public final class ChatPaginationState {
 
     /// All visible messages (excludes subagent notifications, hidden messages,
     /// and messages without renderable content). Cached as a stored property
-    /// and updated reactively via Combine when `messageManager.messages`
-    /// changes, so views read an O(1) cached value instead of recomputing
-    /// the O(n) filter on every body evaluation.
+    /// and updated reactively via `withObservationTracking` when
+    /// `messageManager.messages` changes, so views read an O(1) cached value
+    /// instead of recomputing the O(n) filter on every body evaluation.
     ///
     /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     public private(set) var displayedMessages: [ChatMessage] = []
@@ -63,8 +63,6 @@ public final class ChatPaginationState {
 
     // MARK: - Visible Messages Cache
 
-    @ObservationIgnored private var visibleMessagesCacheSub: AnyCancellable?
-
     // MARK: - Timeout
 
     /// Timeout task that logs a warning at 30s if the daemon is slow, then
@@ -79,7 +77,6 @@ public final class ChatPaginationState {
 
     deinit {
         loadMoreTimeoutTask?.cancel()
-        visibleMessagesCacheSub?.cancel()
     }
 
     // MARK: - Dependencies
@@ -107,23 +104,32 @@ public final class ChatPaginationState {
         // Seed the cache synchronously so the first view read sees correct data.
         recomputeVisibleMessages(from: messageManager.messages)
 
-        // Reactively update the cache when messages change. Uses the existing
-        // Combine bridge (`messagesPublisher`) which fires on every mutation
-        // to `messageManager.messages`. This is the same pattern used by
-        // `ChatMessageManager.activePendingRequestId`.
-        visibleMessagesCacheSub = messageManager.messagesPublisher
-            .sink { [weak self] messages in
-                self?.recomputeVisibleMessages(from: messages)
+        // Reactively update the cache when messages change via
+        // `withObservationTracking`, reading `messageManager.messages`
+        // directly from the @Observable ChatMessageManager.
+        observeMessages()
+    }
+
+    // MARK: - Message observation loop
+
+    private func observeMessages() {
+        withObservationTracking {
+            _ = self.messageManager.messages
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.recomputeVisibleMessages(from: self.messageManager.messages)
+                self.observeMessages()
             }
+        }
     }
 
     // MARK: - Cache Recomputation
 
     /// Recomputes `displayedMessages` and `paginatedVisibleMessages` from a
-    /// snapshot of the raw message array. Called by the Combine subscription
-    /// when messages change, and by mutation sites that alter both `messages`
-    /// and `displayedMessageCount` in the same synchronous block (where the
-    /// async Combine bridge hasn't delivered the new messages yet).
+    /// snapshot of the raw message array. Called by the observation loop when
+    /// messages change, and by mutation sites that alter both `messages` and
+    /// `displayedMessageCount` in the same synchronous block.
     func recomputeVisibleMessages(from messages: [ChatMessage]) {
         displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: messages)
         recomputePaginatedSuffix()
