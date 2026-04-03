@@ -17,10 +17,18 @@ extension MessageListView {
         scrollState.scrollContainerHeight = newState.containerHeight
         scrollState.lastContentOffsetY = newState.contentOffsetY
 
-        // Only detach on direct user gesture (interacting), not momentum.
+        // Detach on user gesture (interacting) AND user-initiated momentum
+        // (decelerating). A fast trackpad flick has a very brief .interacting
+        // phase — sometimes only 1-2 geometry updates fire before the phase
+        // transitions to .decelerating. If the first update hasn't registered
+        // a position change yet, handleUserScrollUp() never fires and the CTA
+        // never appears. .decelerating is exclusively user-initiated momentum
+        // (programmatic scrolls use .animating), so it's safe to detect here.
         // Only detach when content is scrollable (prevents false detaches
         // on short conversations).
-        if scrollState.scrollPhase == .interacting && isScrollingUp && isScrollable {
+        let isUserScrollPhase = scrollState.scrollPhase == .interacting
+            || scrollState.scrollPhase == .decelerating
+        if isUserScrollPhase && isScrollingUp && isScrollable {
             scrollState.scrollRestoreTask?.cancel()
             scrollState.scrollRestoreTask = nil
             scrollState.handleUserScrollUp()
