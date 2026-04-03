@@ -74,7 +74,16 @@ const HOST_TOOLS = new Set([
   "host_file_write",
   "host_file_edit",
   "host_bash",
+  "computer_use_run_applescript",
 ]);
+
+/**
+ * Check whether a tool name is a host-level tool that requires the
+ * `hostAccess` permission to execute.
+ */
+export function isHostTool(toolName: string): boolean {
+  return HOST_TOOLS.has(toolName);
+}
 
 /** Safe local-only tools that are always workspace-scoped. */
 const ALWAYS_SCOPED_TOOLS = new Set([

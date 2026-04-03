@@ -1,3 +1,4 @@
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { getHookManager } from "../hooks/manager.js";
 import {
@@ -6,9 +7,11 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../permissions/checker.js";
+import { getMode } from "../permissions/permission-mode-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
 import { RiskLevel } from "../permissions/types.js";
+import { isHostTool } from "../permissions/workspace-policy.js";
 import {
   getEffectiveMode,
   setConversationMode,
@@ -65,6 +68,29 @@ export class PermissionChecker {
         }
       | undefined,
   ): Promise<PermissionDecision> {
+    // ── permission-controls-v2 early gate ──────────────────────────────
+    // When the v2 flag is enabled, replace the entire risk-classification
+    // path with a simple binary check: is it a host tool + is host access
+    // enabled?
+    const cfg = getConfig();
+    if (isAssistantFeatureFlagEnabled("permission-controls-v2", cfg)) {
+      if (isHostTool(name)) {
+        const mode = getMode();
+        if (mode.hostAccess) {
+          return { allowed: true, decision: "allow", riskLevel: "none" };
+        }
+        // Host tool with hostAccess disabled — deterministic prompt
+        return {
+          allowed: false,
+          decision: "prompt",
+          riskLevel: "none",
+          content: "host_access_disabled",
+        };
+      }
+      // Non-host tools are auto-allowed when v2 is on
+      return { allowed: true, decision: "allow", riskLevel: "none" };
+    }
+
     const risk = await classifyRisk(
       name,
       input,
