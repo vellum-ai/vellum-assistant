@@ -113,6 +113,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "fish-audio",
+      "name": "fish-audio",
+      "description": "Generate expressive audio clips using Fish Audio S2 TTS with bracket emotion tags. Record voice memos, narration, audio messages, or any spoken content.",
+      "metadata": {
+        "emoji": "🎙️",
+        "vellum": {
+          "display-name": "Fish Audio TTS"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "frontend-design",
       "name": "frontend-design",
       "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
@@ -203,7 +215,9 @@
         "emoji": "💍",
         "vellum": {
           "display-name": "Oura Ring",
-          "includes": ["oura-setup"]
+          "includes": [
+            "oura-setup"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -449,15 +463,13 @@
     },
     {
       "id": "watch-together",
-      "name": "watch-together",
-      "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis",
+      "name": "Watch Together",
+      "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis.",
       "metadata": {
-        "emoji": "📺",
         "vellum": {
-          "display-name": "Watch Together"
+          "emoji": "📺"
         }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
+      }
     },
     {
       "id": "weather",
