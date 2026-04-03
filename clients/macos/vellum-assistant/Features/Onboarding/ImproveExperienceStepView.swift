@@ -114,7 +114,6 @@ struct ImproveExperienceStepView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .animation(VAnimation.fast, value: tosAccepted)
         .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
         .accessibilityValue(tosAccepted ? "Checked" : "Unchecked")
         .accessibilityAddTraits(.isToggle)
