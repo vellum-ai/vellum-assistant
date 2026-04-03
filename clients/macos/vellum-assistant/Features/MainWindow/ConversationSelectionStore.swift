@@ -145,7 +145,7 @@ final class ConversationSelectionStore {
 
     /// Factory closure for creating new ChatViewModels.
     /// Wired by ConversationManager since VM creation requires app-layer callbacks.
-    @ObservationIgnored var viewModelFactory: (() -> ChatViewModel)?
+    @ObservationIgnored var viewModelFactory: (() -> ChatViewModel?)?
 
     /// Called after a new VM is registered in the cache (created or set externally).
     /// Wired by ConversationManager to set up activity and assistant-activity subscriptions.

@@ -225,9 +225,9 @@ final class ConversationManager: ConversationRestorerDelegate {
             self?.activityStore.observeActiveViewModel(messageManager)
         }
 
-        // Selection store → this facade: VM factory using app-layer callbacks
+        // Selection store → this facade: VM factory using app-layer dependencies
         selectionStore.viewModelFactory = { [weak self] in
-            self?.makeViewModel() ?? ChatViewModel(connectionManager: GatewayConnectionManager.shared, eventStreamClient: EventStreamClient.shared)
+            self?.makeViewModel()
         }
 
         // Selection store → this facade: set up subscriptions on new VMs
@@ -1036,7 +1036,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func updateConfirmationStateAcrossConversations(requestId: String, decision: String) {
         for (_, vm) in selectionStore.chatViewModels {
-            vm.resolveConfirmation(requestId: requestId, decision: decision)
+            vm.updateConfirmationState(requestId: requestId, decision: decision)
         }
     }
 
@@ -1135,8 +1135,37 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     // MARK: - Conversation ID Resolution
 
-    private func resolveConversationId(from localId: UUID, to serverId: String) {
-        backfillConversationId(serverId, for: localId)
+    private func resolveConversationId(from syntheticId: String, to serverId: String) {
+        guard let index = listStore.conversations.firstIndex(where: { $0.conversationId == syntheticId }) else {
+            log.warning("resolveConversationId: no conversation found with synthetic ID \(syntheticId, privacy: .public)")
+            return
+        }
+        listStore.conversations[index].conversationId = serverId
+
+        if let vm = selectionStore.chatViewModels.values.first(where: { $0.conversationId == syntheticId }) {
+            vm.conversationId = serverId
+        }
+
+        // Migrate keyed state from the synthetic ID to the real server ID.
+        if let override = listStore.pendingAttentionOverrides.removeValue(forKey: syntheticId) {
+            listStore.pendingAttentionOverrides[serverId] = override
+        }
+        if listStore.archivedConversationIds.contains(syntheticId) {
+            var archived = listStore.archivedConversationIds
+            archived.remove(syntheticId)
+            archived.insert(serverId)
+            listStore.archivedConversationIds = archived
+        }
+        if let idx = listStore.pendingSeenConversationIds.firstIndex(of: syntheticId) {
+            listStore.pendingSeenConversationIds[idx] = serverId
+        }
+
+        listStore.sendReorderConversations()
+
+        let uuidKey = listStore.conversations[index].id
+        if let pendingTitle = listStore.pendingRenames.removeValue(forKey: uuidKey) {
+            Task { await listStore.conversationListClient.renameConversation(conversationId: serverId, name: pendingTitle) }
+        }
     }
 
     private func backfillConversationId(_ conversationId: String, for viewModel: ChatViewModel) {
