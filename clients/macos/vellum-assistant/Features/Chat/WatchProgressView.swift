@@ -82,7 +82,7 @@ struct WatchProgressView: View {
                 }
             }
         }
-        .textSelection(.enabled)
+        .textSelectionIfAvailable()
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)

@@ -435,7 +435,7 @@ struct MessageInspectorMemoryTab: View {
                 .foregroundStyle(VColor.contentDefault)
                 .multilineTextAlignment(.trailing)
                 .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+                .textSelectionIfAvailable()
         }
     }
 }

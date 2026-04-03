@@ -480,7 +480,7 @@ struct ChatView: View {
                     Text(btwText)
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentDefault)
-                        .textSelection(.enabled)
+                        .textSelectionIfAvailable()
                 }
 
                 if !viewModel.btwLoading {
@@ -671,7 +671,7 @@ private struct ChatBootstrapTimeoutView: View {
                     .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
             }
 
             if let onSendLogs {

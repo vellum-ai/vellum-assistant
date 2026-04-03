@@ -81,7 +81,7 @@ struct MessageInspectorResponseTab: View {
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentDefault)
                         .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                        .textSelectionIfAvailable()
                 } else {
                     Text("No assistant text was captured for this section.")
                         .font(VFont.bodyMediumLighter)
@@ -114,7 +114,7 @@ struct MessageInspectorResponseTab: View {
                             .font(VFont.bodySmallDefault)
                             .foregroundStyle(VColor.contentDefault)
                             .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
+                            .textSelectionIfAvailable()
                     }
                 } else {
                     Text("No structured arguments preview is available for this tool call.")
@@ -144,7 +144,7 @@ struct MessageInspectorResponseTab: View {
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                        .textSelectionIfAvailable()
                 } else {
                     Text("This normalized section does not currently map to a dedicated response card.")
                         .font(VFont.bodyMediumLighter)

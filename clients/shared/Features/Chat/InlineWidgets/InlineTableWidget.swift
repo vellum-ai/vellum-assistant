@@ -292,7 +292,7 @@ public struct InlineTableWidget: View {
                         Text(column.label)
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
-                            .textSelection(.enabled)
+                            .textSelectionIfAvailable()
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -364,7 +364,7 @@ public struct InlineTableWidget: View {
                 .lineLimit(nil)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+                .textSelectionIfAvailable()
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.trailing, VSpacing.xs)

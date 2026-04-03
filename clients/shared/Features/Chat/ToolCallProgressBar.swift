@@ -176,7 +176,7 @@ public struct ToolCallProgressBar: View {
                     Text(toolCall.inputSummary)
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                        .textSelection(.enabled)
+                        .textSelectionIfAvailable()
                 }
             }
 
@@ -231,7 +231,7 @@ public struct ToolCallProgressBar: View {
                                 Text(extraOutput)
                                     .font(VFont.bodySmallDefault)
                                     .foregroundStyle(VColor.contentSecondary)
-                                    .textSelection(.enabled)
+                                    .textSelectionIfAvailable()
                             }
                         }
                     } else if result == "<command_completed />" {
@@ -248,7 +248,7 @@ public struct ToolCallProgressBar: View {
                                 .font(VFont.bodySmallDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
+                                .textSelectionIfAvailable()
                         }
                         .frame(maxHeight: 200)
                     }
