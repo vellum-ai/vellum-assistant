@@ -41,4 +41,10 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
       }
     }
   });
+
+  test('every role pre-activates the "subagent" skill', () => {
+    for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
+      expect(config.skillIds).toContain("subagent");
+    }
+  });
 });
