@@ -762,7 +762,12 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === otherTools.length - 1
-              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
+              ? {
+                  cache_control: {
+                    type: "ephemeral" as const,
+                    ttl: "1h" as const,
+                  },
+                }
               : {}),
           }));
           const webSearchTool: Anthropic.WebSearchTool20250305 = {
@@ -777,7 +782,12 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === tools.length - 1
-              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
+              ? {
+                  cache_control: {
+                    type: "ephemeral" as const,
+                    ttl: "1h" as const,
+                  },
+                }
               : {}),
           }));
         }
@@ -841,8 +851,7 @@ export class AnthropicProvider implements Provider {
       }
 
       // Fast mode: use the beta endpoint with speed: "fast" for Opus 4.6
-      const useFastMode =
-        speed === "fast" && effectiveModel.includes("opus");
+      const useFastMode = speed === "fast" && effectiveModel.includes("opus");
 
       // Collect required betas: extended cache TTL for 1h system prompt caching,
       // 1M context window, and fast-mode when applicable.
@@ -1029,6 +1038,14 @@ export class AnthropicProvider implements Provider {
             "Anthropic 400: tool_use/tool_result pairing error — dumping message structure",
           );
         }
+        log.error(
+          {
+            status: error.status,
+            message: error.message,
+            headers: Object.fromEntries(error.headers?.entries() ?? []),
+          },
+          `Anthropic API error (${error.status})`,
+        );
         const retryAfterMs = extractRetryAfterMs(error.headers);
         throw new ProviderError(
           `Anthropic API error (${error.status}): ${error.message}`,
