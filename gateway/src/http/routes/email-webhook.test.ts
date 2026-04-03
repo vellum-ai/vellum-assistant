@@ -23,14 +23,12 @@ mock.module("../../runtime/client.js", () => ({
   CircuitBreakerOpenError: class extends Error {},
 }));
 
-mock.module("../../email/verify.js", () => ({
-  verifyEmailWebhookSignature: () => true,
-}));
-
 // Import after mocks are registered
 const { createEmailWebhookHandler } = await import("./email-webhook.js");
 
 // --- Helpers ---------------------------------------------------------------
+
+const TEST_WEBHOOK_SECRET = "test-email-webhook-secret-abc123";
 
 const baseConfig: GatewayConfig = {
   assistantRuntimeBaseUrl: "http://localhost:7821",
@@ -57,59 +55,52 @@ const baseConfig: GatewayConfig = {
   trustProxy: false,
 };
 
-function makeMessageReceivedPayload(overrides?: {
-  eventId?: string;
-  messageId?: string;
+function makeEmailPayload(overrides?: {
   from?: string;
-  to?: string[];
+  fromName?: string;
+  to?: string;
   subject?: string;
-  text?: string;
-  threadId?: string;
+  strippedText?: string;
+  bodyText?: string;
+  messageId?: string;
+  inReplyTo?: string;
+  references?: string;
+  conversationId?: string;
+  timestamp?: string;
 }) {
   return JSON.stringify({
-    type: "event",
-    eventType: "message.received",
-    eventId: overrides?.eventId ?? "evt-123",
-    message: {
-      inboxId: "inbox-1",
-      threadId: overrides?.threadId ?? "thread-abc",
-      messageId: overrides?.messageId ?? "msg-456",
-      from: overrides?.from ?? "sender@example.com",
-      to: overrides?.to ?? ["assistant@mail.vellum.ai"],
-      subject: overrides?.subject ?? "Hello",
-      text: overrides?.text ?? "Hi, how are you?",
-      timestamp: "2026-04-03T01:00:00.000Z",
-      createdAt: "2026-04-03T01:00:00.000Z",
-    },
-    thread: {
-      inboxId: "inbox-1",
-      threadId: overrides?.threadId ?? "thread-abc",
-      subject: overrides?.subject ?? "Hello",
-      senders: [overrides?.from ?? "sender@example.com"],
-      recipients: overrides?.to ?? ["assistant@mail.vellum.ai"],
-      messageCount: 1,
-    },
+    from: overrides?.from ?? "sender@example.com",
+    fromName: overrides?.fromName,
+    to: overrides?.to ?? "assistant@vellum.me",
+    subject: overrides?.subject ?? "Hello",
+    strippedText: overrides?.strippedText ?? "Hi, how are you?",
+    bodyText:
+      overrides?.bodyText ??
+      "On Mon, someone wrote:\n> old\n\nHi, how are you?",
+    messageId: overrides?.messageId ?? "<msg-456@example.com>",
+    inReplyTo: overrides?.inReplyTo,
+    references: overrides?.references,
+    conversationId: overrides?.conversationId ?? "conv-abc",
+    timestamp: overrides?.timestamp ?? "2026-04-03T01:00:00.000Z",
   });
 }
 
-function postRequest(body: string): Request {
+function postRequest(body: string, secret?: string): Request {
   return new Request("http://localhost:7830/webhooks/email/inbound", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "svix-id": "msg_test123",
-      "svix-timestamp": String(Math.floor(Date.now() / 1000)),
-      "svix-signature": "v1,dGVzdA==",
+      "x-vellum-webhook-secret": secret ?? TEST_WEBHOOK_SECRET,
     },
     body,
   });
 }
 
-function makeCaches() {
+function makeCaches(secret?: string) {
   const credentials = {
     get: async (key: string) => {
       if (key === credentialKey("email", "webhook_secret"))
-        return "whsec_dGVzdHNlY3JldA==";
+        return secret ?? TEST_WEBHOOK_SECRET;
       return undefined;
     },
     invalidate: () => {},
@@ -134,9 +125,9 @@ describe("email-webhook", () => {
     expect(res.status).toBe(405);
   });
 
-  it("forwards a valid message.received event to runtime", async () => {
+  it("forwards a valid email event to runtime", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
-    const body = makeMessageReceivedPayload();
+    const body = makeEmailPayload();
     const res = await handler(postRequest(body));
     expect(res.status).toBe(200);
 
@@ -148,30 +139,31 @@ describe("email-webhook", () => {
     const callArgs = handleInboundMock.mock.calls[0];
     const event = callArgs[1] as {
       sourceChannel: string;
-      message: { content: string; conversationExternalId: string };
-      actor: { actorExternalId: string };
+      message: {
+        content: string;
+        conversationExternalId: string;
+        externalMessageId: string;
+      };
+      actor: { actorExternalId: string; displayName: string };
     };
     expect(event.sourceChannel).toBe("email");
     expect(event.message.content).toBe("Hi, how are you?");
-    expect(event.message.conversationExternalId).toBe("thread-abc");
+    expect(event.message.conversationExternalId).toBe("conv-abc");
+    expect(event.message.externalMessageId).toBe("<msg-456@example.com>");
     expect(event.actor.actorExternalId).toBe("sender@example.com");
   });
 
-  it("acknowledges non-message events silently", async () => {
+  it("acknowledges payloads missing required fields", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
-    const body = JSON.stringify({
-      type: "event",
-      eventType: "message.delivered",
-      eventId: "evt-delivery-1",
-    });
+    const body = JSON.stringify({ someOtherEvent: true });
     const res = await handler(postRequest(body));
     expect(res.status).toBe(200);
     expect(handleInboundMock).not.toHaveBeenCalled();
   });
 
-  it("deduplicates events by event ID", async () => {
+  it("deduplicates events by message ID", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
-    const body = makeMessageReceivedPayload({ eventId: "evt-dedup-test" });
+    const body = makeEmailPayload({ messageId: "<dedup-test@example.com>" });
 
     const res1 = await handler(postRequest(body));
     expect(res1.status).toBe(200);
@@ -186,7 +178,7 @@ describe("email-webhook", () => {
   it("rejects payloads exceeding size limit", async () => {
     const config = { ...baseConfig, maxWebhookPayloadBytes: 10 };
     const { handler } = createEmailWebhookHandler(config, makeCaches());
-    const body = makeMessageReceivedPayload();
+    const body = makeEmailPayload();
     const res = await handler(postRequest(body));
     expect(res.status).toBe(413);
   });
@@ -197,9 +189,7 @@ describe("email-webhook", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "svix-id": "msg_test123",
-        "svix-timestamp": String(Math.floor(Date.now() / 1000)),
-        "svix-signature": "v1,dGVzdA==",
+        "x-vellum-webhook-secret": TEST_WEBHOOK_SECRET,
       },
       body: "not json",
     });
@@ -207,11 +197,12 @@ describe("email-webhook", () => {
     expect(res.status).toBe(400);
   });
 
-  it("parses display name from 'Name <email>' format", async () => {
+  it("uses fromName as displayName when provided", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
-    const body = makeMessageReceivedPayload({
-      from: "Alice Smith <alice@example.com>",
-      eventId: "evt-display-name",
+    const body = makeEmailPayload({
+      from: "alice@example.com",
+      fromName: "Alice Smith",
+      messageId: "<display-name@example.com>",
     });
     const res = await handler(postRequest(body));
     expect(res.status).toBe(200);
@@ -224,23 +215,28 @@ describe("email-webhook", () => {
     expect(event.actor.displayName).toBe("Alice Smith");
   });
 
-  it("uses extractedText when available over full text", async () => {
+  it("falls back to email as displayName when fromName is absent", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
-    const body = JSON.stringify({
-      type: "event",
-      eventType: "message.received",
-      eventId: "evt-extracted",
-      message: {
-        inboxId: "inbox-1",
-        threadId: "thread-ext",
-        messageId: "msg-ext",
-        from: "test@example.com",
-        to: ["bot@vellum.ai"],
-        text: "On Monday, someone wrote:\n> old content\n\nNew reply here",
-        extractedText: "New reply here",
-        timestamp: "2026-04-03T01:00:00.000Z",
-        createdAt: "2026-04-03T01:00:00.000Z",
-      },
+    const body = makeEmailPayload({
+      from: "bob@example.com",
+      messageId: "<no-name@example.com>",
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+
+    const callArgs = handleInboundMock.mock.calls[0];
+    const event = callArgs[1] as {
+      actor: { displayName: string };
+    };
+    expect(event.actor.displayName).toBe("bob@example.com");
+  });
+
+  it("prefers strippedText over bodyText", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      strippedText: "New reply here",
+      bodyText: "On Monday, someone wrote:\n> old content\n\nNew reply here",
+      messageId: "<stripped@example.com>",
     });
     const res = await handler(postRequest(body));
     expect(res.status).toBe(200);
@@ -248,6 +244,23 @@ describe("email-webhook", () => {
     const callArgs = handleInboundMock.mock.calls[0];
     const event = callArgs[1] as { message: { content: string } };
     expect(event.message.content).toBe("New reply here");
+  });
+
+  it("falls back to bodyText when strippedText is absent", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = JSON.stringify({
+      from: "test@example.com",
+      to: "bot@vellum.me",
+      messageId: "<fallback@example.com>",
+      conversationId: "conv-fallback",
+      bodyText: "Full body content here",
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+
+    const callArgs = handleInboundMock.mock.calls[0];
+    const event = callArgs[1] as { message: { content: string } };
+    expect(event.message.content).toBe("Full body content here");
   });
 
   it("returns 500 when webhook secret is not configured", async () => {
@@ -258,8 +271,73 @@ describe("email-webhook", () => {
       } as unknown as CredentialCache,
     };
     const { handler } = createEmailWebhookHandler(baseConfig, emptyCaches);
-    const body = makeMessageReceivedPayload({ eventId: "evt-no-secret" });
+    const body = makeEmailPayload({ messageId: "<no-secret@example.com>" });
     const res = await handler(postRequest(body));
     expect(res.status).toBe(500);
+  });
+
+  it("rejects requests with wrong webhook secret", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({ messageId: "<wrong-secret@example.com>" });
+    const res = await handler(postRequest(body, "wrong-secret"));
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects requests with missing webhook secret header", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      messageId: "<missing-header@example.com>",
+    });
+    const req = new Request("http://localhost:7830/webhooks/email/inbound", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(403);
+  });
+
+  it("passes email subject and threading headers in sourceMetadata", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      subject: "Re: Project Update",
+      inReplyTo: "<parent@example.com>",
+      references: "<root@example.com> <parent@example.com>",
+      messageId: "<metadata@example.com>",
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+
+    const callArgs = handleInboundMock.mock.calls[0];
+    const options = callArgs[2] as {
+      sourceMetadata: {
+        emailSubject: string;
+        emailRecipient: string;
+        emailInReplyTo: string;
+        emailReferences: string;
+      };
+    };
+    expect(options.sourceMetadata.emailSubject).toBe("Re: Project Update");
+    expect(options.sourceMetadata.emailRecipient).toBe("assistant@vellum.me");
+    expect(options.sourceMetadata.emailInReplyTo).toBe("<parent@example.com>");
+    expect(options.sourceMetadata.emailReferences).toBe(
+      "<root@example.com> <parent@example.com>",
+    );
+  });
+
+  it("uses messageId as dedup key for event ID", async () => {
+    const { handler, dedupCache } = createEmailWebhookHandler(
+      baseConfig,
+      makeCaches(),
+    );
+    const body = makeEmailPayload({
+      messageId: "<unique-dedup-id@example.com>",
+    });
+    await handler(postRequest(body));
+
+    // The dedup cache should have reserved this message ID
+    const status = dedupCache.reserve("<unique-dedup-id@example.com>");
+    // Should return false because it's already reserved/marked
+    expect(status).toBe(false);
   });
 });

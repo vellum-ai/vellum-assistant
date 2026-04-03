@@ -1,80 +1,70 @@
 import type { GatewayInboundEvent } from "../types.js";
 
 /**
- * Shape of the AgentMail `message.received` webhook event.
+ * Shape of a normalized inbound email event as sent by the Vellum
+ * platform (or any upstream caller).
  *
- * AgentMail sends a Svix-wrapped payload. The top-level fields are the
- * Svix envelope; the event-specific data is nested under the payload.
- * We only care about `message.received` events for inbound routing.
+ * The platform is responsible for provider-specific parsing (e.g.
+ * Mailgun multipart → JSON). By the time the payload reaches the
+ * gateway it should already be in this canonical shape.
  */
-interface AgentMailMessage {
-  inboxId: string;
-  threadId: string;
-  messageId: string;
+export interface VellumEmailPayload {
+  /** Sender email address (e.g. "user@gmail.com"). */
   from: string;
-  to: string[];
-  cc?: string[];
+  /** Sender display name (e.g. "Alice Smith"). Optional. */
+  fromName?: string;
+  /** Recipient email address (the assistant's address). */
+  to: string;
+  /** Email subject line. */
   subject?: string;
-  text?: string;
-  html?: string;
-  extractedText?: string;
-  extractedHtml?: string;
+  /** Plain-text body content (latest reply only, quoted text stripped). */
+  strippedText?: string;
+  /** Full plain-text body (fallback when strippedText is unavailable). */
+  bodyText?: string;
+  /** RFC 5322 Message-ID header value. */
+  messageId: string;
+  /** Message-ID of the parent message (In-Reply-To header). */
+  inReplyTo?: string;
+  /** Space-separated chain of ancestor Message-IDs (References header). */
+  references?: string;
+  /** Stable conversation/thread identifier derived by the platform. */
+  conversationId: string;
+  /** ISO 8601 timestamp of the original email. */
   timestamp?: string;
-  createdAt?: string;
-  attachments?: Array<{
-    attachmentId: string;
-    filename?: string;
-    contentType?: string;
-    size?: number;
-  }>;
 }
 
 export interface NormalizedEmailEvent {
   event: GatewayInboundEvent;
-  /** AgentMail event ID for dedup. */
+  /** Unique event/message ID for dedup. */
   eventId: string;
   /** Original recipient address for routing. */
   recipientAddress: string;
 }
 
 /**
- * Normalize an AgentMail webhook payload into a GatewayInboundEvent.
+ * Normalize a Vellum email webhook payload into a GatewayInboundEvent.
  *
- * Returns null if the event is not a `message.received` event or if
- * required fields are missing.
+ * Returns null if required fields are missing.
  */
 export function normalizeEmailWebhook(
   payload: Record<string, unknown>,
 ): NormalizedEmailEvent | null {
-  const eventType = payload.eventType as string | undefined;
-  if (eventType !== "message.received") {
+  const from = payload.from as string | undefined;
+  const to = payload.to as string | undefined;
+  const messageId = payload.messageId as string | undefined;
+  const conversationId = payload.conversationId as string | undefined;
+
+  if (!from || !to || !messageId || !conversationId) {
     return null;
   }
 
-  const message = payload.message as AgentMailMessage | undefined;
-  if (!message) return null;
+  // Prefer strippedText (latest reply only) over full body
+  const content =
+    (payload.strippedText as string | undefined) ??
+    (payload.bodyText as string | undefined) ??
+    "";
 
-  const eventId = (payload.eventId as string) ?? message.messageId;
-  if (!eventId || !message.messageId) return null;
-
-  const from = message.from;
-  if (!from) return null;
-
-  // Use extractedText (new content only, excluding quoted replies) when
-  // available, falling back to full text, then HTML-stripped text.
-  const content = message.extractedText ?? message.text ?? "";
-
-  // The first recipient in the "to" field is the primary recipient.
-  // This is the inbox address used for routing to the correct assistant.
-  const recipientAddress = message.to?.[0] ?? "";
-
-  // Extract sender identity from the "from" field.
-  // AgentMail sends "Display Name <email@example.com>" or just "email@example.com"
-  const senderParsed = parseEmailAddress(from);
-
-  // Use thread ID as conversation ID for thread continuity
-  const conversationExternalId = message.threadId;
-  const actorExternalId = senderParsed.email;
+  const fromName = payload.fromName as string | undefined;
 
   const event: GatewayInboundEvent = {
     version: "v1",
@@ -82,42 +72,23 @@ export function normalizeEmailWebhook(
     receivedAt: new Date().toISOString(),
     message: {
       content,
-      conversationExternalId,
-      externalMessageId: message.messageId,
-      // Attachments are deferred to PR 5 — not included here
+      conversationExternalId: conversationId,
+      externalMessageId: messageId,
     },
     actor: {
-      actorExternalId,
-      displayName: senderParsed.displayName || senderParsed.email,
-      username: senderParsed.email,
+      actorExternalId: from,
+      displayName: fromName || from,
+      username: from,
     },
     source: {
-      updateId: eventId,
+      updateId: messageId,
     },
     raw: payload,
   };
 
   return {
     event,
-    eventId,
-    recipientAddress,
+    eventId: messageId,
+    recipientAddress: to,
   };
-}
-
-/**
- * Parse an email address string that may include a display name.
- * Handles "Display Name <email@example.com>" and "email@example.com".
- */
-function parseEmailAddress(raw: string): {
-  email: string;
-  displayName?: string;
-} {
-  const angleMatch = raw.match(/^(.+?)\s*<([^>]+)>$/);
-  if (angleMatch) {
-    return {
-      displayName: angleMatch[1].replace(/^["']|["']$/g, "").trim(),
-      email: angleMatch[2].trim(),
-    };
-  }
-  return { email: raw.trim() };
 }

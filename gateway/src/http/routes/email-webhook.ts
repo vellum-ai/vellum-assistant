@@ -23,7 +23,7 @@ export function createEmailWebhookHandler(
   config: GatewayConfig,
   caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
-  // 24-hour TTL — AgentMail event IDs are globally unique
+  // 24-hour TTL — Message-IDs are globally unique per RFC 5322
   const dedupCache = new StringDedupCache(24 * 60 * 60_000);
 
   const handler = async (req: Request): Promise<Response> => {
@@ -114,11 +114,8 @@ export function createEmailWebhookHandler(
     // Normalize the webhook payload
     const normalized = normalizeEmailWebhook(payload);
     if (!normalized) {
-      // Non-message events (delivery receipts, bounces, etc.) — acknowledge
-      tlog.debug(
-        { eventType: payload.eventType },
-        "Non-inbound email event, acknowledging",
-      );
+      // Missing required fields — log and acknowledge
+      tlog.debug("Email webhook missing required fields, acknowledging");
       return Response.json({ ok: true });
     }
 
@@ -172,10 +169,12 @@ export function createEmailWebhookHandler(
         traceId,
         routingOverride: routing,
         sourceMetadata: {
-          emailSubject:
-            (payload.message as Record<string, unknown> | undefined)?.subject ??
-            undefined,
+          emailSubject: (payload.subject as string | undefined) ?? undefined,
           emailRecipient: recipientAddress,
+          ...(payload.inReplyTo ? { emailInReplyTo: payload.inReplyTo } : {}),
+          ...(payload.references
+            ? { emailReferences: payload.references }
+            : {}),
         },
       });
 
