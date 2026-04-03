@@ -121,6 +121,7 @@ EXPOSE 3001
 
 ENV RUNTIME_HTTP_PORT=3001
 ENV IS_CONTAINERIZED=true
+ENV BUN_SMOL=1
 
 # Copy from builder
 COPY --from=builder /app /app
