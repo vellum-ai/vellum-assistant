@@ -18,6 +18,9 @@ let mockConfig = {
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
 }));
 
 // Mock conversation store
@@ -73,9 +76,8 @@ mock.module("../memory/conversation-title-service.js", () => ({
 }));
 
 // Import after mocks are set up
-const { HeartbeatService, isShallowProfile } = await import(
-  "../heartbeat/heartbeat-service.js"
-);
+const { HeartbeatService, isShallowProfile } =
+  await import("../heartbeat/heartbeat-service.js");
 
 // Read the bundled template files so we can write them into the test workspace
 const templatesDir = join(import.meta.dirname!, "..", "prompts", "templates");
@@ -496,7 +498,8 @@ describe("HeartbeatService", () => {
       writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
 
       const service = createService();
-      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } =
+        service.buildPrompt("- Check things");
 
       expect(prompt).toContain("<relationship-depth>");
       expect(prompt).toContain("profile is still sparse");
@@ -511,7 +514,8 @@ describe("HeartbeatService", () => {
       writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
 
       const service = createService();
-      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } =
+        service.buildPrompt("- Check things");
 
       expect(prompt).not.toContain("<relationship-depth>");
       expect(includedReengagement).toBe(false);
@@ -527,7 +531,8 @@ describe("HeartbeatService", () => {
       );
 
       const service = createService();
-      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } =
+        service.buildPrompt("- Check things");
 
       expect(prompt).not.toContain("<relationship-depth>");
       expect(includedReengagement).toBe(false);
@@ -544,7 +549,8 @@ describe("HeartbeatService", () => {
       );
 
       const service = createService();
-      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } =
+        service.buildPrompt("- Check things");
 
       expect(prompt).toContain("<relationship-depth>");
       expect(includedReengagement).toBe(true);
