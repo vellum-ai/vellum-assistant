@@ -52,4 +52,3 @@ public struct VShortcutTag: View {
         }
     }
 }
-
