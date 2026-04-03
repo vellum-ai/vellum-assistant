@@ -13,6 +13,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { getConfig } from "../config/loader.js";
+import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { resolveGuardianPersona } from "../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
@@ -73,6 +74,7 @@ function buildSystemPrompt(
   preferenceContext?: string,
   candidateContext?: string,
   identityContext?: string,
+  recipientNotes?: string,
 ): string {
   const sections: string[] = [
     `You are a notification routing engine. Given a signal describing an event, decide whether the user should be notified, on which channel(s), and compose the notification copy.`,
@@ -86,6 +88,16 @@ function buildSystemPrompt(
       `<user-preferences>`,
       preferenceContext,
       `</user-preferences>`,
+    );
+  }
+
+  if (recipientNotes) {
+    sections.push(
+      ``,
+      `<recipient-context>`,
+      `The following are notes about the notification recipient. Use this context to tailor notification tone, formality, and content to the recipient's preferences.`,
+      recipientNotes,
+      `</recipient-context>`,
     );
   }
 
@@ -807,11 +819,36 @@ async function classifyWithLLM(
   const identityContext = rawIdentityContext
     ? truncate(rawIdentityContext, MAX_IDENTITY_CONTEXT_CHARS, "\n…[truncated]")
     : undefined;
+
+  // Resolve guardian contact notes for recipient context. Try each available
+  // channel in order and use the first guardian that has non-empty notes.
+  let recipientNotes: string | undefined;
+  try {
+    for (const ch of availableChannels) {
+      const guardianResult = findGuardianForChannel(ch);
+      if (guardianResult?.contact.notes) {
+        recipientNotes = truncate(
+          guardianResult.contact.notes,
+          MAX_IDENTITY_CONTEXT_CHARS,
+          "\n…[truncated]",
+        );
+        break;
+      }
+    }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { err: errMsg },
+      "Failed to resolve guardian contact notes, proceeding without recipient context",
+    );
+  }
+
   const systemPrompt = buildSystemPrompt(
     availableChannels,
     preferenceContext,
     candidateContext,
     identityContext,
+    recipientNotes,
   );
   const prompt = buildUserPrompt(signal);
   const tool = buildDecisionTool(availableChannels);
