@@ -302,7 +302,7 @@ enum LogExporter {
                let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
                 await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
             } else {
-                let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
+                let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global, cutoffDate: cutoffDate)
                 if !success {
                     daemonUnreachable = true
                 }
@@ -617,7 +617,7 @@ enum LogExporter {
     /// Routes through ``GatewayHTTPClient`` so auth and connection resolution
     /// are handled consistently for both local and managed assistants.
     @discardableResult
-    private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope) async -> Bool {
+    private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope, cutoffDate: Date? = nil) async -> Bool {
         var body: [String: Any] = ["auditLimit": 1000]
         if case .conversation(let conversationId, _, let startTime, let endTime) = scope {
             body["conversationId"] = conversationId
@@ -627,6 +627,8 @@ enum LogExporter {
             if let endTime {
                 body["endTime"] = Int(endTime.timeIntervalSince1970 * 1000)
             }
+        } else if let cutoffDate {
+            body["startTime"] = Int(cutoffDate.timeIntervalSince1970 * 1000)
         }
 
         do {
