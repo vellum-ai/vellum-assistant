@@ -132,7 +132,7 @@ private enum FigmaRawColor {
     static let borderDarkHover = Color(hex: 0x2D3339)
     static let borderLightActive = Color(hex: 0x2D3339)
     static let borderDarkActive = Color(hex: 0xF6F5F4)
-    static let borderLightElement = Color(hex: 0xD3CCC5)
+    static let borderLightElement = Color(hex: 0xCFCCC9)
     static let borderDarkElement = Color(hex: 0x5A6672)
 
     // Content
@@ -144,7 +144,7 @@ private enum FigmaRawColor {
     static let contentDarkSecondary = Color(hex: 0xA9B2BB)
     static let contentLightTertiary = Color(hex: 0x71808E)
     static let contentDarkTertiary = Color(hex: 0x8D99A5)
-    static let contentLightDisabled = Color(hex: 0xA9B2BB)
+    static let contentLightDisabled = Color(hex: 0xCFCCC9)
     static let contentDarkDisabled = Color(hex: 0x5A6672)
     static let contentLightBackground = Color(hex: 0xF2F0EE)
     static let contentDarkBackground = Color(hex: 0x2D3339)
@@ -186,13 +186,13 @@ public enum VColor {
         .borderBase: .init(lightHex: "#F2F0EE", darkHex: "#24292E"),
         .borderHover: .init(lightHex: "#F6F5F4", darkHex: "#2D3339"),
         .borderActive: .init(lightHex: "#2D3339", darkHex: "#F6F5F4"),
-        .borderElement: .init(lightHex: "#D3CCC5", darkHex: "#5A6672"),
+        .borderElement: .init(lightHex: "#CFCCC9", darkHex: "#5A6672"),
 
         .contentEmphasized: .init(lightHex: "#161616", darkHex: "#FDFDFC"),
         .contentDefault: .init(lightHex: "#24292E", darkHex: "#F6F5F4"),
         .contentSecondary: .init(lightHex: "#5A6672", darkHex: "#A9B2BB"),
         .contentTertiary: .init(lightHex: "#71808E", darkHex: "#8D99A5"),
-        .contentDisabled: .init(lightHex: "#A9B2BB", darkHex: "#5A6672"),
+        .contentDisabled: .init(lightHex: "#CFCCC9", darkHex: "#5A6672"),
         .contentBackground: .init(lightHex: "#F2F0EE", darkHex: "#2D3339"),
         .contentInset: .init(lightHex: "#FDFDFC", darkHex: "#17191C"),
 
