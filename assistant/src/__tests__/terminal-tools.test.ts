@@ -1,4 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ShellOutputResult } from "../tools/shared/shell-output.js";
@@ -470,7 +478,6 @@ describe("buildSanitizedEnv", () => {
       "SSH_AGENT_PID",
       "GPG_TTY",
       "GNUPGHOME",
-      "BUN_CONFIG_FILE",
       "VELLUM_DEV",
       "INTERNAL_GATEWAY_BASE_URL",
       "VELLUM_DATA_DIR",
@@ -478,6 +485,38 @@ describe("buildSanitizedEnv", () => {
     ];
     for (const key of keys) {
       expect(safeKeys).toContain(key);
+    }
+  });
+
+  test("forwards BUN_CONFIG_FILE when no project bunfig exists", () => {
+    const cwd = mkdtempSync(join(testTmpDir, "bun-no-config-"));
+    process.env.BUN_CONFIG_FILE = "/tmp/assistant-bunfig.toml";
+
+    try {
+      const env = buildSanitizedEnv({ cwd });
+      expect(env.BUN_CONFIG_FILE).toBe("/tmp/assistant-bunfig.toml");
+    } finally {
+      delete process.env.BUN_CONFIG_FILE;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("omits BUN_CONFIG_FILE when the cwd inherits a project bunfig", () => {
+    const projectDir = mkdtempSync(join(testTmpDir, "bun-project-"));
+    const nestedDir = join(projectDir, "packages", "app");
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(
+      join(projectDir, "bunfig.toml"),
+      "install = { exact = true }\n",
+    );
+    process.env.BUN_CONFIG_FILE = "/tmp/assistant-bunfig.toml";
+
+    try {
+      const env = buildSanitizedEnv({ cwd: nestedDir });
+      expect(env.BUN_CONFIG_FILE).toBeUndefined();
+    } finally {
+      delete process.env.BUN_CONFIG_FILE;
+      rmSync(projectDir, { recursive: true, force: true });
     }
   });
 });

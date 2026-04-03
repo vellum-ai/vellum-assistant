@@ -31,8 +31,8 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("host-shell-tool");
 
-function buildHostShellEnv(): Record<string, string> {
-  const env = buildSanitizedEnv();
+function buildHostShellEnv(workingDir: string): Record<string, string> {
+  const env = buildSanitizedEnv({ cwd: workingDir });
   // Ensure ~/.local/bin and ~/.bun/bin are in PATH so `vellum` and `bun` are
   // always reachable, even when the daemon is launched from a macOS app
   // bundle that inherits a minimal PATH.
@@ -193,7 +193,7 @@ class HostShellTool implements Tool {
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
-      const hostEnv = buildHostShellEnv();
+      const hostEnv = buildHostShellEnv(workingDir);
       // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands self-deny
       // raw-token/secret reveal flows when invoked from an untrusted shell.
       if (hostLockdownActive) {
