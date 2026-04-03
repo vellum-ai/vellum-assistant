@@ -1,4 +1,4 @@
-import { rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -43,6 +43,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     totalEstimatedCost: 0,
     title: null,
   }),
+  getMessageById: () => null,
   provenanceFromTrustContext: () => ({
     source: "user",
     trustContext: undefined,
@@ -72,7 +73,17 @@ mock.module("../memory/conversation-title-service.js", () => ({
 }));
 
 // Import after mocks are set up
-const { HeartbeatService } = await import("../heartbeat/heartbeat-service.js");
+const { HeartbeatService, isShallowProfile } = await import(
+  "../heartbeat/heartbeat-service.js"
+);
+
+// Read the bundled template files so we can write them into the test workspace
+const templatesDir = join(import.meta.dirname!, "..", "prompts", "templates");
+const IDENTITY_TEMPLATE = readFileSync(
+  join(templatesDir, "IDENTITY.md"),
+  "utf-8",
+);
+const USER_TEMPLATE = readFileSync(join(templatesDir, "USER.md"), "utf-8");
 
 describe("HeartbeatService", () => {
   let processMessageCalls: Array<{
@@ -83,8 +94,11 @@ describe("HeartbeatService", () => {
   let alerterCalls: Array<{ type: string; title: string; body: string }>;
 
   afterEach(() => {
-    // Clean up HEARTBEAT.md between tests so file-existence tests don't leak
+    // Clean up workspace files between tests so file-existence tests don't leak
     rmSync(join(testWorkspaceDir, "HEARTBEAT.md"), { force: true });
+    rmSync(join(testWorkspaceDir, "IDENTITY.md"), { force: true });
+    rmSync(join(testWorkspaceDir, "USER.md"), { force: true });
+    rmSync(join(testWorkspaceDir, ".reengagement-ts"), { force: true });
   });
 
   beforeEach(() => {
@@ -441,5 +455,95 @@ describe("HeartbeatService", () => {
 
     expect(processMessageCalls).toHaveLength(1);
     expect(processMessageCalls[0].options?.speed).toBe("fast");
+  });
+
+  describe("isShallowProfile", () => {
+    test("returns true when both IDENTITY.md and USER.md are unmodified templates", () => {
+      writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
+      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+
+      expect(isShallowProfile()).toBe(true);
+    });
+
+    test("returns false when IDENTITY.md has been customized", () => {
+      writeFileSync(
+        join(testWorkspaceDir, "IDENTITY.md"),
+        "# IDENTITY.md\n\n- **Name:** Jarvis\n",
+      );
+      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+
+      expect(isShallowProfile()).toBe(false);
+    });
+
+    test("returns false when USER.md has been customized", () => {
+      writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
+      writeFileSync(
+        join(testWorkspaceDir, "USER.md"),
+        "# USER.md\n\n- Preferred name/reference: Alice\n",
+      );
+
+      expect(isShallowProfile()).toBe(false);
+    });
+
+    test("returns false when neither file exists", () => {
+      expect(isShallowProfile()).toBe(false);
+    });
+  });
+
+  describe("relationship-depth prompt injection", () => {
+    test("includes <relationship-depth> when profile is shallow", () => {
+      writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
+      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+
+      const service = createService();
+      const prompt = service.buildPrompt("- Check things");
+
+      expect(prompt).toContain("<relationship-depth>");
+      expect(prompt).toContain("profile is still sparse");
+    });
+
+    test("omits <relationship-depth> when profile is not shallow", () => {
+      writeFileSync(
+        join(testWorkspaceDir, "IDENTITY.md"),
+        "# IDENTITY.md\n\n- **Name:** Jarvis\n",
+      );
+      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+
+      const service = createService();
+      const prompt = service.buildPrompt("- Check things");
+
+      expect(prompt).not.toContain("<relationship-depth>");
+    });
+
+    test("omits <relationship-depth> when cooldown has not elapsed", () => {
+      writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
+      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      // Write a recent timestamp to simulate cooldown not elapsed
+      writeFileSync(
+        join(testWorkspaceDir, ".reengagement-ts"),
+        Date.now().toString(),
+      );
+
+      const service = createService();
+      const prompt = service.buildPrompt("- Check things");
+
+      expect(prompt).not.toContain("<relationship-depth>");
+    });
+
+    test("includes <relationship-depth> when cooldown has elapsed", () => {
+      writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
+      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+      // Write a timestamp from 19 hours ago
+      const nineteenHoursAgo = Date.now() - 19 * 60 * 60 * 1000;
+      writeFileSync(
+        join(testWorkspaceDir, ".reengagement-ts"),
+        nineteenHoursAgo.toString(),
+      );
+
+      const service = createService();
+      const prompt = service.buildPrompt("- Check things");
+
+      expect(prompt).toContain("<relationship-depth>");
+    });
   });
 });
