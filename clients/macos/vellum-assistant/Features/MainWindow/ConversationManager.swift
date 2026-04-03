@@ -183,7 +183,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         enterDraftMode()
         conversationRestorer.delegate = self
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
-        if isFirstLaunch && listStore.groups.isEmpty {
+        if listStore.groups.isEmpty {
             listStore.groups = [.pinned, .scheduled, .background]
         }
         Task { @MainActor [weak self] in
