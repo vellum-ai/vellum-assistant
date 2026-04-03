@@ -2408,17 +2408,26 @@ final class ConversationManager: ConversationRestorerDelegate {
             let newer = Set(UserDefaults.standard.stringArray(forKey: archivedConversationsNewKey) ?? [])
             let merged = scoped.union(legacy).union(newer)
             // Consolidate everything into the scoped key and clean up unscoped keys.
-            if !legacy.isEmpty || !newer.isEmpty {
+            // Only remove unscoped keys when scope is non-empty, otherwise the
+            // scoped key IS the unscoped key and we'd delete our own data.
+            let hasScope = !currentAssistantScope().isEmpty
+            if hasScope, !legacy.isEmpty || !newer.isEmpty {
                 UserDefaults.standard.set(Array(merged), forKey: key)
                 UserDefaults.standard.removeObject(forKey: archivedConversationsKey)
+                UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
+            } else if !newer.isEmpty {
+                // Unscoped: still consolidate newer → legacy key (pre-existing migration).
+                UserDefaults.standard.set(Array(merged), forKey: key)
                 UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
             }
             return merged
         }
         set {
             UserDefaults.standard.set(Array(newValue), forKey: scopedKey(archivedConversationsKey))
-            // Clean up unscoped keys if they exist.
-            UserDefaults.standard.removeObject(forKey: archivedConversationsKey)
+            // Clean up unscoped keys only when a scope exists.
+            if !currentAssistantScope().isEmpty {
+                UserDefaults.standard.removeObject(forKey: archivedConversationsKey)
+            }
             UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
         }
     }
