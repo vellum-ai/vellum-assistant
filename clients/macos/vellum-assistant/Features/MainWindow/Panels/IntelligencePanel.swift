@@ -11,6 +11,7 @@ struct IntelligencePanel: View {
     let eventStreamClient: EventStreamClient?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
+    var authManager: AuthManager?
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var initialTab: String? = nil
     @Binding var pendingMemoryId: String?
@@ -24,7 +25,7 @@ struct IntelligencePanel: View {
     private static let emailFeatureFlagKey = "email-channel"
     private static let integrationsFeatureFlagKey = "intelligence-integrations"
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
@@ -32,6 +33,7 @@ struct IntelligencePanel: View {
         self.eventStreamClient = eventStreamClient
         self.store = store
         self.conversationManager = conversationManager
+        self.authManager = authManager
         self.showToast = showToast
         self.initialTab = initialTab
         _pendingMemoryId = pendingMemoryId
@@ -140,9 +142,13 @@ struct IntelligencePanel: View {
             .clipped()
 
         case .integrations:
-            VEmptyState(title: "Integrations", subtitle: "Coming soon", icon: VIcon.puzzle.rawValue)
-                .padding(.top, VSpacing.sm)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            IntegrationsPanelContent(
+                store: store!,
+                authManager: authManager!,
+                showToast: showToast ?? { _, _ in }
+            )
+            .padding(.top, VSpacing.sm)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .installedSkills:
             AgentPanelContent(
