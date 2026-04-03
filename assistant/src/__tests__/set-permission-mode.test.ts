@@ -245,7 +245,8 @@ describe("set_permission_mode tool", () => {
 
     test("definition includes both properties", () => {
       const def = setPermissionModeTool.getDefinition();
-      const props = def.input_schema.properties as Record<string, unknown>;
+      const schema = def.input_schema as { properties?: Record<string, unknown> };
+      const props = schema.properties as Record<string, unknown>;
       expect(props).toHaveProperty("askBeforeActing");
       expect(props).toHaveProperty("hostAccess");
     });
