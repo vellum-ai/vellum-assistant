@@ -9,7 +9,7 @@ public struct VShortcutTag: View {
     @State private var isHovered = false
 
     private let tagColor = VColor.contentSecondary
-    private let borderColor = VColor.borderBase
+    private let borderColor = VColor.borderElement
 
     public init(_ text: String, icon: String? = nil, action: (() -> Void)? = nil) {
         self.text = text
@@ -18,12 +18,12 @@ public struct VShortcutTag: View {
     }
 
     private var tagContent: some View {
-        HStack(spacing: VSpacing.xs) {
+        HStack(spacing: VSpacing.xxs) {
             if let icon {
-                VIconView(.resolve(icon), size: 11)
+                VIconView(.resolve(icon), size: 12)
             }
             Text(text)
-                .font(VFont.labelDefault)
+                .font(VFont.bodySmallDefault)
         }
         .foregroundStyle(tagColor)
         .padding(.horizontal, VSpacing.sm)
@@ -52,4 +52,3 @@ public struct VShortcutTag: View {
         }
     }
 }
-

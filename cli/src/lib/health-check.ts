@@ -25,10 +25,10 @@ export async function checkManagedHealth(
     };
   }
 
-  let orgId: string;
+  let headers: Record<string, string>;
   try {
-    const { fetchOrganizationId } = await import("./platform-client.js");
-    orgId = await fetchOrganizationId(token, runtimeUrl);
+    const { authHeaders } = await import("./platform-client.js");
+    headers = await authHeaders(token, runtimeUrl);
   } catch (err) {
     return {
       status: "error (auth)",
@@ -43,11 +43,6 @@ export async function checkManagedHealth(
       () => controller.abort(),
       HEALTH_CHECK_TIMEOUT_MS,
     );
-
-    const headers: Record<string, string> = {
-      "X-Session-Token": token,
-      "Vellum-Organization-Id": orgId,
-    };
 
     const response = await fetch(url, {
       signal: controller.signal,

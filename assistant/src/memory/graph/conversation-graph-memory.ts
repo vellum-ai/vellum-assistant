@@ -21,9 +21,14 @@ import { getDb } from "../db.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
 import {
+  loadGraphMemoryState,
+  saveGraphMemoryState,
+} from "./graph-memory-state-store.js";
+import {
   assembleContextBlock,
   assembleInjectionBlock,
   InContextTracker,
+  type InContextTrackerSnapshot,
   MAX_CONTEXT_LOAD_IMAGES,
   MAX_PER_TURN_IMAGES,
   type ResolvedImage,
@@ -57,6 +62,57 @@ export class ConversationGraphMemory {
   constructor(scopeId: string, conversationId: string) {
     this.scopeId = scopeId;
     this.conversationId = conversationId;
+  }
+
+  /**
+   * Persist tracker state to the database so it survives eviction.
+   * Called during conversation disposal.
+   */
+  persistState(): void {
+    if (!this.initialized) return;
+    try {
+      const snapshot: InContextTrackerSnapshot & { initialized: boolean } = {
+        initialized: this.initialized,
+        ...this.tracker.toJSON(),
+      };
+      saveGraphMemoryState(this.conversationId, JSON.stringify(snapshot));
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to persist graph memory state (non-fatal)",
+      );
+    }
+  }
+
+  /**
+   * Restore tracker state from the database after eviction + recreation.
+   * On failure or missing row, silently falls back to full context-load.
+   */
+  restoreState(): void {
+    try {
+      const json = loadGraphMemoryState(this.conversationId);
+      if (!json) return;
+
+      const snapshot = JSON.parse(json) as InContextTrackerSnapshot & {
+        initialized: boolean;
+      };
+      this.initialized = snapshot.initialized;
+      this.tracker.restoreFrom(snapshot);
+
+      log.info(
+        {
+          conversationId: this.conversationId,
+          turn: snapshot.currentTurn,
+          inContextCount: snapshot.inContext.length,
+        },
+        "Restored graph memory state after eviction",
+      );
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to restore graph memory state — will do full context load",
+      );
+    }
   }
 
   /**
@@ -520,9 +576,7 @@ function injectMemoryBlock(
   const userTail = cleaned[cleaned.length - 1];
   if (!userTail || userTail.role !== "user") return messages;
 
-  const blocks: ContentBlock[] = [
-    { type: "text" as const, text: `<memory __injected>\n${text}\n</memory>` },
-  ];
+  const blocks: ContentBlock[] = [];
 
   for (const [_nodeId, img] of images) {
     blocks.push({
@@ -538,6 +592,11 @@ function injectMemoryBlock(
       },
     } as ImageContent);
   }
+
+  blocks.push({
+    type: "text" as const,
+    text: `<memory __injected>\n${text}\n</memory>`,
+  });
 
   return [
     ...cleaned.slice(0, -1),

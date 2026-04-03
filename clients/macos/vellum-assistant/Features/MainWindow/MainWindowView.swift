@@ -8,7 +8,7 @@ extension Notification.Name {
 }
 
 struct MainWindowView: View {
-    @ObservedObject var conversationManager: ConversationManager
+    @Bindable var conversationManager: ConversationManager
     let appListManager: AppListManager
     let zoomManager: ZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe

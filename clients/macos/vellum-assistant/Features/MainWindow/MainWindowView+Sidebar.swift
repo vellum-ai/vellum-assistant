@@ -52,10 +52,11 @@ extension MainWindowView {
     }
 
     /// Unread count in the Scheduled section, used to trigger auto-expand.
+    /// Filters `conversations` directly instead of calling `visibleConversations` to avoid
+    /// an unnecessary O(N log N) sort — only the count is needed.
     private var scheduledUnreadCount: Int {
-        conversationManager.visibleConversations
-            .filter { $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
-            .count
+        conversationManager.conversations
+            .count { !$0.isArchived && $0.kind != .private && $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
     }
 
     var displayedApps: [AppListManager.AppItem] {
@@ -119,6 +120,7 @@ extension MainWindowView {
     /// Builds a `SidebarSectionView` for a group. Extracted from the ForEach body
     /// to reduce type-checker pressure (the init has many parameters).
     private func makeSectionView(group: ConversationGroup, conversations: [ConversationModel]) -> SidebarSectionView {
+        let isPinned = group.id == ConversationGroup.pinned.id
         let isScheduled = group.id == ConversationGroup.scheduled.id
         let isBackground = group.id == ConversationGroup.background.id
         let countMode: SidebarSectionView.CountMode = isScheduled
@@ -139,7 +141,7 @@ extension MainWindowView {
             conversations: conversations,
             isExpanded: sidebar.expandedSections.contains(group.id),
             showAll: sidebar.showAllInSection.contains(group.id),
-            maxCollapsed: 5,
+            maxCollapsed: isPinned ? .max : 5,
             isDropTarget: sidebar.dropTargetSectionId == group.id,
             countMode: countMode,
             isRenaming: sidebar.renamingGroupId == group.id,

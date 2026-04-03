@@ -22,6 +22,7 @@ import { getDb, initializeDb } from "../memory/db.js";
 import {
   backfillMemoryRecallLogMessageId,
   getMemoryRecallLogByMessageIds,
+  normalizeTopCandidates,
   recordMemoryRecallLog,
 } from "../memory/memory-recall-log-store.js";
 import { memoryRecallLogs } from "../memory/schema.js";
@@ -147,5 +148,107 @@ describe("memory-recall-log-store", () => {
     const secondLog = getMemoryRecallLogByMessageIds(["msg-b"]);
     expect(secondLog).not.toBeNull();
     expect(secondLog!.degraded).toBe(true);
+  });
+
+  test("normalizes SSE-event format candidates to inspector format on read", () => {
+    const conversationId = "conv-normalize-sse";
+    const messageId = "msg-normalize-sse";
+
+    // Store candidates in SSE-event format (key/finalScore/semantic/recency/kind)
+    recordMemoryRecallLog({
+      conversationId,
+      enabled: true,
+      degraded: false,
+      semanticHits: 2,
+      mergedCount: 1,
+      selectedCount: 1,
+      tier1Count: 1,
+      tier2Count: 0,
+      hybridSearchLatencyMs: 100,
+      sparseVectorUsed: false,
+      injectedTokens: 200,
+      latencyMs: 120,
+      topCandidatesJson: [
+        {
+          key: "node-abc",
+          finalScore: 0.85,
+          semantic: 0.9,
+          recency: 0.1,
+          kind: "episode",
+          type: "episodic",
+        },
+      ],
+    });
+
+    backfillMemoryRecallLogMessageId(conversationId, messageId);
+
+    const result = getMemoryRecallLogByMessageIds([messageId]);
+    expect(result).not.toBeNull();
+    const candidates = result!.topCandidates as Array<Record<string, unknown>>;
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toEqual({
+      nodeId: "node-abc",
+      score: 0.85,
+      semanticSimilarity: 0.9,
+      recencyBoost: 0.1,
+      type: "episodic",
+    });
+    // kind should be stripped
+    expect(candidates[0]).not.toHaveProperty("kind");
+    // Old field names should not be present
+    expect(candidates[0]).not.toHaveProperty("key");
+    expect(candidates[0]).not.toHaveProperty("finalScore");
+    expect(candidates[0]).not.toHaveProperty("semantic");
+    expect(candidates[0]).not.toHaveProperty("recency");
+  });
+
+  test("passes through candidates already in inspector format unchanged", () => {
+    const conversationId = "conv-normalize-inspector";
+    const messageId = "msg-normalize-inspector";
+
+    // Store candidates already in inspector format (nodeId/score/semanticSimilarity/recencyBoost)
+    recordMemoryRecallLog({
+      conversationId,
+      enabled: true,
+      degraded: false,
+      semanticHits: 1,
+      mergedCount: 1,
+      selectedCount: 1,
+      tier1Count: 1,
+      tier2Count: 0,
+      hybridSearchLatencyMs: 80,
+      sparseVectorUsed: false,
+      injectedTokens: 100,
+      latencyMs: 90,
+      topCandidatesJson: [
+        {
+          nodeId: "node-xyz",
+          score: 0.92,
+          semanticSimilarity: 0.88,
+          recencyBoost: 0.05,
+          type: "semantic",
+        },
+      ],
+    });
+
+    backfillMemoryRecallLogMessageId(conversationId, messageId);
+
+    const result = getMemoryRecallLogByMessageIds([messageId]);
+    expect(result).not.toBeNull();
+    const candidates = result!.topCandidates as Array<Record<string, unknown>>;
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toEqual({
+      nodeId: "node-xyz",
+      score: 0.92,
+      semanticSimilarity: 0.88,
+      recencyBoost: 0.05,
+      type: "semantic",
+    });
+  });
+
+  test("normalizeTopCandidates handles non-array input", () => {
+    expect(normalizeTopCandidates(null)).toBeNull();
+    expect(normalizeTopCandidates("not-an-array")).toBe("not-an-array");
+    expect(normalizeTopCandidates(42)).toBe(42);
   });
 });

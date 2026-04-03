@@ -3473,6 +3473,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let title: String
     public let createdAt: Int?
     public let updatedAt: Int
+    public let lastMessageAt: Int?
     public let conversationType: String?
     public let source: String?
     public let scheduleJobId: String?
@@ -3487,11 +3488,12 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let groupId: String?
     public let forkParent: ConversationForkParent?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.lastMessageAt = lastMessageAt
         self.conversationType = conversationType
         self.source = source
         self.scheduleJobId = scheduleJobId

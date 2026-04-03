@@ -8,7 +8,6 @@ import {
 } from "../lib/guardian-token.js";
 import {
   readPlatformToken,
-  fetchOrganizationId,
   rollbackPlatformAssistant,
   platformImportPreflight,
   platformImportBundle,
@@ -177,18 +176,6 @@ async function restorePlatform(
     process.exit(1);
   }
 
-  let orgId: string;
-  try {
-    orgId = await fetchOrganizationId(token, entry.runtimeUrl);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("401") || msg.includes("403")) {
-      console.error("Authentication failed. Run 'vellum login' to refresh.");
-      process.exit(1);
-    }
-    throw err;
-  }
-
   // Step 2 — Dry-run path
   if (opts.dryRun) {
     if (opts.version) {
@@ -205,7 +192,6 @@ async function restorePlatform(
       preflightResult = await platformImportPreflight(
         new Uint8Array(bundleData),
         token,
-        orgId,
         entry.runtimeUrl,
       );
     } catch (err) {
@@ -316,12 +302,7 @@ async function restorePlatform(
     );
 
     try {
-      await rollbackPlatformAssistant(
-        token,
-        orgId,
-        opts.version,
-        entry.runtimeUrl,
-      );
+      await rollbackPlatformAssistant(token, opts.version, entry.runtimeUrl);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("401") || msg.includes("403")) {
@@ -345,7 +326,6 @@ async function restorePlatform(
     importResult = await platformImportBundle(
       new Uint8Array(bundleData),
       token,
-      orgId,
       entry.runtimeUrl,
     );
   } catch (err) {

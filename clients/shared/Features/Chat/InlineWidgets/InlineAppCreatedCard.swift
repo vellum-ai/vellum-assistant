@@ -33,7 +33,7 @@ struct InlineAppCreatedCard: View {
                 }
 
                 Text(preview.title)
-                    .font(VFont.bodyMediumEmphasised)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
             }

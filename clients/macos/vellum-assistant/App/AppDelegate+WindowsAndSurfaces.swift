@@ -544,44 +544,46 @@ extension AppDelegate {
     }
 
     func observeAssistantStatus() {
-        // Subscribe to active ChatViewModel's isThinking and errorText so the
-        // menu bar icon updates when the assistant status changes.
-        //
-        // ChatViewModel is @Observable, so we use the sub-manager's Combine
-        // isThinkingPublisher and a withObservationTracking loop for errorText
-        // (ChatErrorManager has no Combine publisher).
-        //
-        // Use the emitted UUID directly (not activeViewModel) because $activeConversationId
-        // fires during willSet — at that point activeConversationId still holds the old value,
-        // so activeViewModel would resolve to the previous conversation's view model.
-        statusIconCancellable = mainWindow?.conversationManager.$activeConversationId
-            .compactMap { [weak mainWindow] (id: UUID?) -> ChatViewModel? in
-                guard let id else { return nil }
-                return mainWindow?.conversationManager.chatViewModel(for: id)
-            }
-            .handleEvents(receiveOutput: { [weak self] _ in
-                // Update immediately when switching conversations
-                self?.updateMenuBarIcon()
-                // Re-arm the errorText observation for the new active view model
-                self?.observeActiveViewModelErrorText()
-            })
-            .map { $0.messageManager.isThinkingPublisher }
-            .switchToLatest()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.updateMenuBarIcon()
-            }
-
-        // Also observe errorText changes on the active ChatViewModel using
-        // withObservationTracking, since ChatErrorManager doesn't expose a
-        // Combine publisher. Re-arms on each change and on conversation switch.
+        observeActiveConversationForMenuBar()
         observeActiveViewModelErrorText()
     }
 
-    /// Recursive withObservationTracking loop that watches the active
-    /// ChatViewModel's errorText and updates the menu bar icon on change.
-    /// Re-resolves the active VM on each re-arm so stale VMs are never
-    /// retained, and exits silently if the VM has been deallocated.
+    /// Watches `activeConversationId` via withObservationTracking. When the
+    /// active conversation changes, updates the menu bar icon and re-arms
+    /// the thinking and error text observations for the new VM.
+    private func observeActiveConversationForMenuBar() {
+        guard let conversationManager = mainWindow?.conversationManager else { return }
+        withObservationTracking {
+            _ = conversationManager.activeConversationId
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.updateMenuBarIcon()
+                self.observeActiveViewModelErrorText()
+                self.observeActiveConversationForMenuBar()
+            }
+        }
+        observeActiveViewModelThinking()
+    }
+
+    /// Watches the active ChatViewModel's `isThinking` property and
+    /// updates the menu bar icon on change. Re-arms while the VM is active.
+    private func observeActiveViewModelThinking() {
+        guard let vm = mainWindow?.conversationManager.activeViewModel else { return }
+        withObservationTracking {
+            _ = vm.messageManager.isThinking
+        } onChange: { [weak self, weak vm] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.updateMenuBarIcon()
+                guard let vm, vm === self.mainWindow?.conversationManager.activeViewModel else { return }
+                self.observeActiveViewModelThinking()
+            }
+        }
+    }
+
+    /// Watches the active ChatViewModel's errorText via withObservationTracking.
+    /// Re-arms on each change; exits when the VM is no longer active.
     private func observeActiveViewModelErrorText() {
         guard let vm = mainWindow?.conversationManager.activeViewModel else { return }
         withObservationTracking {
@@ -591,8 +593,8 @@ extension AppDelegate {
                 guard let self else { return }
                 self.updateMenuBarIcon()
                 // Re-arm only if the same VM is still active.
-                // If the conversation switched, observeAssistantStatus's
-                // handleEvents will call us again with the new VM.
+                // On conversation switch, observeActiveConversationForMenuBar
+                // re-arms this observation with the new VM.
                 guard let vm, vm === self.mainWindow?.conversationManager.activeViewModel else { return }
                 self.observeActiveViewModelErrorText()
             }
@@ -600,16 +602,22 @@ extension AppDelegate {
     }
 
     func observeConversationBadge(_ conversationManager: ConversationManager) {
-        conversationBadgeCancellable?.cancel()
-
         applyDockConversationBadge(count: conversationManager.unseenVisibleConversationCount)
+        observeUnseenConversationCount(conversationManager)
+    }
 
-        conversationBadgeCancellable = conversationManager.$conversations
-            .map { conversations in conversations.filter { !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage }.count }
-            .removeDuplicates()
-            .sink { [weak self] count in
-                self?.applyDockConversationBadge(count: count)
+    /// Watches `unseenVisibleConversationCount` via withObservationTracking
+    /// and updates the dock badge when the count changes.
+    private func observeUnseenConversationCount(_ conversationManager: ConversationManager) {
+        withObservationTracking {
+            _ = conversationManager.unseenVisibleConversationCount
+        } onChange: { [weak self, weak conversationManager] in
+            Task { @MainActor [weak self] in
+                guard let self, let conversationManager else { return }
+                self.applyDockConversationBadge(count: conversationManager.unseenVisibleConversationCount)
+                self.observeUnseenConversationCount(conversationManager)
             }
+        }
     }
 
     /// Format the unseen conversation count for the dock badge.

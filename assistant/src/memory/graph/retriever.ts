@@ -397,17 +397,18 @@ export async function loadContextMemory(
   const semanticCandidateIds = new Map<string, number>(); // nodeId → score
   let hybridSearchLatencyMs = 0;
   if (queryVector) {
+    const searchStart = Date.now();
     try {
-      const searchStart = Date.now();
       const results = await searchGraphNodes(queryVector, maxNodes * 3, [
         opts.scopeId,
       ]);
-      hybridSearchLatencyMs = Date.now() - searchStart;
       for (const r of results) {
         semanticCandidateIds.set(r.nodeId, r.score);
       }
     } catch (err) {
       log.warn({ err }, "Qdrant search failed for context load");
+    } finally {
+      hybridSearchLatencyMs = Date.now() - searchStart;
     }
   }
   const pureSemanticHits = semanticCandidateIds.size;
@@ -888,7 +889,15 @@ export async function retrieveForTurn(
   }
 
   if (queryText.trim().length === 0 && allCandidateIds.size === 0) {
-    return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start, metrics: ZERO_METRICS };
+    return {
+      nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start,
+      metrics: {
+        ...ZERO_METRICS,
+        hybridSearchLatencyMs: imageBlocks.length > 0 ? Date.now() - searchStart : 0,
+        embeddingProvider,
+        embeddingModel,
+      },
+    };
   }
 
   // Chunk if too large (8k token ≈ 32k chars conservative estimate)
@@ -948,7 +957,15 @@ export async function retrieveForTurn(
     } catch (err) {
       log.warn({ err }, "Embedding/search failed for turn retrieval");
       if (allCandidateIds.size === 0) {
-        return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start, metrics: ZERO_METRICS };
+        return {
+          nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start,
+          metrics: {
+            ...ZERO_METRICS,
+            hybridSearchLatencyMs: Date.now() - searchStart,
+            embeddingProvider,
+            embeddingModel,
+          },
+        };
       }
     }
   }
@@ -1052,7 +1069,23 @@ export async function retrieveForTurn(
     (node) => !opts.tracker.isInContext(node.id),
   );
 
-  const rankedProcedural = proceduralCandidates
+  // Dedup capability nodes by capability ID before ranking so that the same
+  // skill/CLI command doesn't consume multiple procedural reserve slots.
+  const seenProcCapIds = new Set<string>();
+  const dedupedProcedural = proceduralCandidates.filter((node) => {
+    if (!isCapabilityNode(node)) return true; // organic procedural — keep
+    const match = node.content.match(
+      /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+    );
+    const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+    if (capId) {
+      if (seenProcCapIds.has(capId)) return false;
+      seenProcCapIds.add(capId);
+    }
+    return true;
+  });
+
+  const rankedProcedural = dedupedProcedural
     .map((node) => ({ node, sim: allCandidateIds.get(node.id) ?? 0 }))
     .sort((a, b) => b.sim - a.sim)
     .slice(0, PROCEDURAL_RESERVE);
@@ -1096,6 +1129,20 @@ export async function retrieveForTurn(
 
   // Remove procedural-reserved nodes from general set to avoid double-counting
   const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
+
+  // Backfill vacated general slots from the remaining pool so we always
+  // return up to MAX_INJECTED general memories when eligible candidates exist.
+  if (generalInjected.length < MAX_INJECTED) {
+    const usedIds = new Set([
+      ...generalInjected.map((s) => s.node.id),
+      ...proceduralIds,
+    ]);
+    const backfillCandidates = pool.filter((s) => !usedIds.has(s.node.id));
+    const needed = MAX_INJECTED - generalInjected.length;
+    for (let i = 0; i < Math.min(needed, backfillCandidates.length); i++) {
+      generalInjected.push(backfillCandidates[i]);
+    }
+  }
 
   const allDeterministic = [...generalInjected, ...proceduralInjected];
   const deterministicIds = new Set(allDeterministic.map((n) => n.node.id));

@@ -49,9 +49,13 @@ const SCRIPT_INTERPRETERS = new Set([
   "deno",
   "bun",
 ]);
-// Flags that make an interpreter execute code from an inline argument or stdin
-// rather than from a file (e.g. `python -c 'code'`, `node -e 'code'`).
-const STDIN_EXEC_FLAGS = new Set(["-c", "-e", "-"]);
+// Flags that make an interpreter read code from stdin rather than from a file.
+const STDIN_EXEC_FLAGS = new Set(["-"]);
+// Flags that provide code inline as an argument (e.g. `python -c 'code'`,
+// `node -e 'code'`). When these are present the interpreter is NOT reading
+// code from stdin — stdin is just data, so piping into the interpreter is
+// no more dangerous than piping into grep or jq.
+const INLINE_CODE_FLAGS = new Set(["-c", "-e"]);
 // Per-interpreter flags that consume the next argument as a value (not a filename).
 // Mapped by interpreter name since flags differ across interpreters
 // (e.g. -I is standalone in Python but takes a value in Ruby).
@@ -365,6 +369,9 @@ function isStdinExecMode(interpreter: string, args: string[]): boolean {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (STDIN_EXEC_FLAGS.has(arg)) return true;
+    // Inline code flags (-c, -e) mean the code is provided as an argument,
+    // not read from stdin. The interpreter is NOT in stdin-exec mode.
+    if (INLINE_CODE_FLAGS.has(arg)) return false;
     // First non-flag argument is a filename/module → file mode
     if (!arg.startsWith("-")) return false;
     // Flags like -W, -X consume the next token as their value - skip it

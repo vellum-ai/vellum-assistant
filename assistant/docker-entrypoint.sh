@@ -37,4 +37,4 @@ if [ -n "${VELLUM_PROFILER_RUN_ID:-}" ] && [ -n "${VELLUM_PROFILER_MODE:-}" ]; t
 fi
 
 # shellcheck disable=SC2086
-exec bun ${BUN_OPTIONS} run src/daemon/main.ts
+exec bun --smol ${BUN_OPTIONS} run src/daemon/main.ts

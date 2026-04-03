@@ -115,19 +115,16 @@ export function seedSkillGraphNodes(): void {
     // Protect uninstalled catalog skills from pruning — they are seeded
     // asynchronously by seedUninstalledCatalogSkillMemories() and should
     // not be marked as "gone" just because they aren't locally installed.
-    // This mirrors the old seedCatalogSkillMemories() behavior.
+    // Only include catalog entries whose feature-flag is enabled, matching
+    // the filter in seedUninstalledCatalogSkillMemories().
     const cachedCatalog = getCachedCatalogSync();
-    if (cachedCatalog.length === 0) {
-      // Cold start: catalog cache is empty (async fetch hasn't completed).
-      // We can't distinguish stale nodes from valid uninstalled catalog
-      // skill nodes, so skip pruning entirely to avoid churn.
-      log.info("Skipping skill capability pruning — catalog cache is empty");
-    } else {
-      for (const entry of cachedCatalog) {
-        seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
-      }
-      pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
+    for (const entry of cachedCatalog) {
+      const flagKey = entry.metadata?.vellum?.["feature-flag"];
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
+      seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
     }
+
+    pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
 
     // Clean up old-format nodes created by the legacy skill-memory.ts system.
     // Those nodes have content like "skill:{id}\n..." instead of the current

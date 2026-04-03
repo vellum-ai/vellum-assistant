@@ -543,3 +543,9 @@ registerPolicy("profiler/runs/export", {
   requiredScopes: ["internal.write"],
   allowedPrincipalTypes: ["svc_gateway"],
 });
+
+// User-defined routes under /x/*
+registerPolicy("x", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+});

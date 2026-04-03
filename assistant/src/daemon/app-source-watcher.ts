@@ -35,8 +35,11 @@ function resolveAppIdFromRelPath(relPath: string): string | null {
   const dirName = relPath.slice(0, slashIdx);
   const innerPath = relPath.slice(slashIdx + 1);
 
-  // Skip non-source directories
-  if (innerPath.startsWith("records/") || innerPath.startsWith("dist/")) {
+  // Skip non-source directories (include bare directory names for fs.watch events)
+  if (
+    innerPath === "records" || innerPath.startsWith("records/") ||
+    innerPath === "dist" || innerPath.startsWith("dist/")
+  ) {
     return null;
   }
 

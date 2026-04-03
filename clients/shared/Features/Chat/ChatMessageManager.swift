@@ -1,5 +1,5 @@
-import Combine
 import Foundation
+import Observation
 import os
 #if os(macOS)
 import AppKit
@@ -22,96 +22,104 @@ public final class ChatMessageManager {
     public var messages: [ChatMessage] = []
 
     /// Active pending confirmation request ID, derived from `messages` via a
-    /// Combine pipeline. Views read this O(1) cached value instead of scanning
-    /// the message array each render cycle.
+    /// `withObservationTracking` loop. Views read this O(1) cached value instead
+    /// of scanning the message array each render cycle.
     ///
     /// - SeeAlso: [Improving your app's performance (Apple Developer)](https://developer.apple.com/documentation/swiftui/improving-your-app-s-performance)
     /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     public private(set) var activePendingRequestId: String?
 
+    /// Whether any message has a pending confirmation (including system
+    /// permission requests). Unlike `activePendingRequestId` — which excludes
+    /// `request_system_permission` for keyboard-focus purposes — this covers
+    /// all pending confirmation types so callers like
+    /// `ConversationActivityStore` can detect the `.waitingForInput` state
+    /// without an O(n) message scan.
+    public private(set) var hasPendingConfirmation: Bool = false
+
     /// Whether any message contains non-empty text. Cached O(1) value derived
-    /// from `messages` via a Combine pipeline so view bodies avoid O(n) scans.
+    /// from `messages` via a `withObservationTracking` loop so view bodies
+    /// avoid O(n) scans.
     public private(set) var hasNonEmptyMessage: Bool = false
 
     /// The daemon message ID of the last persisted, non-streaming, non-hidden
-    /// message. Cached O(1) value derived from `messages` via a Combine pipeline
-    /// so view bodies avoid O(n) scans.
+    /// message. Cached O(1) value derived from `messages` via a
+    /// `withObservationTracking` loop so view bodies avoid O(n) scans.
     public private(set) var latestPersistedTipDaemonMessageId: String?
 
-    @ObservationIgnored private var activePendingRequestIdSub: AnyCancellable?
-    @ObservationIgnored private var hasNonEmptyMessageSub: AnyCancellable?
-    @ObservationIgnored private var latestPersistedTipDaemonMessageIdSub: AnyCancellable?
-
-    // MARK: - Combine bridges (CurrentValueSubject)
-
-    /// Combine bridge for `messages`, backed by a CurrentValueSubject for
-    /// immediate-value semantics on subscription.
-    @ObservationIgnored private let _messagesSubject = CurrentValueSubject<[ChatMessage], Never>([])
-    public var messagesPublisher: AnyPublisher<[ChatMessage], Never> { _messagesSubject.eraseToAnyPublisher() }
-
-    /// Combine bridge for `isThinking`.
-    @ObservationIgnored private let _isThinkingSubject = CurrentValueSubject<Bool, Never>(false)
-    public var isThinkingPublisher: AnyPublisher<Bool, Never> { _isThinkingSubject.eraseToAnyPublisher() }
-
     init() {
-        // Start the withObservationTracking sync loops that keep the
-        // CurrentValueSubjects in sync with the @Observable properties.
-        syncMessagesPublisher()
-        syncIsThinkingPublisher()
-
-        // Uses visibleMessages (all non-hidden) rather than paginatedMessages
-        // because pending confirmations are always near the end of the list,
-        // within the initial pagination window. The broader scope ensures the
-        // model always knows the true pending state regardless of pagination.
-        activePendingRequestIdSub = messagesPublisher
-            .map { messages in
-                PendingConfirmationFocusSelector.activeRequestId(
-                    from: ChatVisibleMessageFilter.visibleMessages(from: messages)
-                )
-            }
-            .removeDuplicates()
-            .sink { [weak self] newValue in
-                self?.activePendingRequestId = newValue
-            }
-
-        hasNonEmptyMessageSub = messagesPublisher
-            .map { messages in
-                messages.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            }
-            .removeDuplicates()
-            .sink { [weak self] newValue in
-                self?.hasNonEmptyMessage = newValue
-            }
-
-        latestPersistedTipDaemonMessageIdSub = messagesPublisher
-            .map { messages in
-                messages.last { $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden }?.daemonMessageId
-            }
-            .removeDuplicates()
-            .sink { [weak self] newValue in
-                self?.latestPersistedTipDaemonMessageId = newValue
-            }
+        // Start observation loops that derive cached values from `messages`.
+        // Each loop uses `withObservationTracking` to read `messages` directly
+        // from this @Observable class, re-arms on change, and updates the stored
+        // property only when the derived value actually differs (equivalent to
+        // Combine's `.removeDuplicates()`).
+        observeActivePendingRequestId()
+        observeHasPendingConfirmation()
+        observeHasNonEmptyMessage()
+        observeLatestPersistedTipDaemonMessageId()
     }
 
-    // MARK: - Sync loops
+    // MARK: - Derived-value observation loops
 
-    private func syncMessagesPublisher() {
+    /// Uses visibleMessages (all non-hidden) rather than paginatedMessages
+    /// because pending confirmations are always near the end of the list,
+    /// within the initial pagination window. The broader scope ensures the
+    /// model always knows the true pending state regardless of pagination.
+    private func observeActivePendingRequestId() {
+        var newValue: String?
         withObservationTracking {
-            _messagesSubject.send(self.messages)
+            newValue = PendingConfirmationFocusSelector.activeRequestId(
+                from: ChatVisibleMessageFilter.visibleMessages(from: self.messages)
+            )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                self?.syncMessagesPublisher()
+                self?.observeActivePendingRequestId()
             }
+        }
+        if newValue != activePendingRequestId {
+            activePendingRequestId = newValue
         }
     }
 
-    private func syncIsThinkingPublisher() {
+    private func observeHasPendingConfirmation() {
+        var newValue = false
         withObservationTracking {
-            _isThinkingSubject.send(self.isThinking)
+            newValue = self.messages.contains { $0.confirmation?.state == .pending }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                self?.syncIsThinkingPublisher()
+                self?.observeHasPendingConfirmation()
             }
+        }
+        if newValue != hasPendingConfirmation {
+            hasPendingConfirmation = newValue
+        }
+    }
+
+    private func observeHasNonEmptyMessage() {
+        var newValue = false
+        withObservationTracking {
+            newValue = self.messages.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observeHasNonEmptyMessage()
+            }
+        }
+        if newValue != hasNonEmptyMessage {
+            hasNonEmptyMessage = newValue
+        }
+    }
+
+    private func observeLatestPersistedTipDaemonMessageId() {
+        var newValue: String?
+        withObservationTracking {
+            newValue = self.messages.last { $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden }?.daemonMessageId
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observeLatestPersistedTipDaemonMessageId()
+            }
+        }
+        if newValue != latestPersistedTipDaemonMessageId {
+            latestPersistedTipDaemonMessageId = newValue
         }
     }
 

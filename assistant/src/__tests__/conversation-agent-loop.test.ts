@@ -195,7 +195,9 @@ mock.module("../daemon/conversation-memory.js", () => ({
 
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: (msgs: Message[]) => msgs,
-  stripInjectedContext: (msgs: Message[]) => msgs,
+  stripInjectionsForCompaction: (msgs: Message[]) => msgs,
+  findLastInjectedNowContent: () => null,
+  readNowScratchpad: () => null,
 }));
 
 mock.module("../daemon/date-context.js", () => ({
@@ -213,11 +215,6 @@ mock.module("../daemon/history-repair.js", () => ({
     },
   }),
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
-}));
-
-const consolidateAssistantMessagesMock = mock(() => false);
-mock.module("../daemon/conversation-history.js", () => ({
-  consolidateAssistantMessages: consolidateAssistantMessagesMock,
 }));
 
 const recordUsageMock = mock(() => {});
@@ -471,8 +468,6 @@ beforeEach(() => {
   recordRequestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
-  consolidateAssistantMessagesMock.mockReset();
-  consolidateAssistantMessagesMock.mockImplementation(() => false);
 });
 
 describe("session-agent-loop", () => {
@@ -1944,48 +1939,6 @@ describe("session-agent-loop", () => {
       expect(drainReason).toBe("loop_complete");
     });
 
-    test("rebuilds disk view after consolidation mutates persisted history", async () => {
-      consolidateAssistantMessagesMock.mockReturnValue(true);
-
-      const ctx = makeCtx({
-        agentLoopRun: async (
-          messages: Message[],
-          onEvent: (event: AgentEvent) => void,
-        ) => {
-          onEvent({
-            type: "message_complete",
-            message: {
-              role: "assistant",
-              content: [{ type: "text", text: "done" }],
-            },
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 10,
-            outputTokens: 5,
-            model: "test",
-            providerDurationMs: 50,
-          });
-          return [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [{ type: "text", text: "done" }] as ContentBlock[],
-            },
-          ];
-        },
-      });
-
-      await runAgentLoopImpl(ctx, "hi", "msg-consolidate", () => {});
-
-      expect(consolidateAssistantMessagesMock).toHaveBeenCalledWith(
-        "test-conv",
-        "msg-consolidate",
-      );
-      expect(rebuildConversationDiskViewFromDbStateMock).toHaveBeenCalledWith(
-        "test-conv",
-      );
-    });
   });
 
   describe("stale pending surface cleanup", () => {

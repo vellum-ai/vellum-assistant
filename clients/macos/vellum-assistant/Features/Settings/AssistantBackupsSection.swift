@@ -75,7 +75,7 @@ struct AssistantBackupsSection: View {
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
+        .vCard()
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
             if assistant.isManaged || (assistant.isRemote && !assistant.isDocker) {

@@ -264,7 +264,7 @@ struct GeneratedPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: VSpacing.xs) {
                     Text(item.name)
-                        .font(VFont.bodyMediumEmphasised)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
 

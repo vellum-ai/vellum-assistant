@@ -570,6 +570,20 @@ function anthropicMessageSections(
   const role = asString(message.role) ?? "unknown";
   const content = message.content;
   const sections: LlmContextSection[] = [];
+
+  // Collect reasoning sections first so they appear before the message text.
+  for (const block of asRecordArray(content) ?? []) {
+    const type = asString(block.type);
+    if (type === "thinking" || type === "redacted_thinking") {
+      sections.push({
+        kind: "reasoning",
+        label: `${label} reasoning`,
+        role,
+        text: collectAnthropicReasoningText(block),
+      });
+    }
+  }
+
   const text = collectAnthropicMessageText(content);
   if (text) {
     sections.push({
@@ -582,16 +596,6 @@ function anthropicMessageSections(
 
   for (const block of asRecordArray(content) ?? []) {
     const type = asString(block.type);
-    if (type === "thinking" || type === "redacted_thinking") {
-      sections.push({
-        kind: "reasoning",
-        label: `${label} reasoning`,
-        role,
-        text: collectAnthropicReasoningText(block),
-      });
-      continue;
-    }
-
     if (isAnthropicToolUseType(type)) {
       sections.push({
         kind: "tool_use",

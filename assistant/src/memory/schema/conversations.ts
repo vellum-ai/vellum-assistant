@@ -30,9 +30,11 @@ export const conversations = sqliteTable(
     forkParentMessageId: text("fork_parent_message_id"),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
+    lastMessageAt: integer("last_message_at"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),
+    index("idx_conversations_last_message_at").on(table.lastMessageAt),
     index("idx_conversations_conversation_type").on(table.conversationType),
     index("idx_conversations_fork_parent_conversation_id").on(
       table.forkParentConversationId,
@@ -108,6 +110,18 @@ export const messageAttachments = sqliteTable("message_attachments", {
   position: integer("position").notNull().default(0),
   createdAt: integer("created_at").notNull(),
 });
+
+export const conversationGraphMemoryState = sqliteTable(
+  "conversation_graph_memory_state",
+  {
+    conversationId: text("conversation_id")
+      .primaryKey()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    stateJson: text("state_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+);
 
 export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   id: text("id").primaryKey(),
