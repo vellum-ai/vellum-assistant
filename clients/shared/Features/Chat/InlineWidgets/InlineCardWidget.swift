@@ -43,7 +43,7 @@ public struct InlineCardWidget: View {
                 Text(markdownBody)
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentDefault)
-                    .textSelection(.enabled)
+                    .textSelectionIfAvailable()
             }
 
             // Metadata grid

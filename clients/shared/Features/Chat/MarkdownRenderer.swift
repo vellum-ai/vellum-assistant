@@ -43,7 +43,7 @@ private struct CodeBlockView: View {
                 .foregroundStyle(VColor.contentDefault)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+                .textSelectionIfAvailable()
         }
         .background(VColor.surfaceActive)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -258,7 +258,7 @@ public struct MarkdownRenderer: View {
                 .foregroundStyle(VColor.contentDefault)
                 .tint(VColor.primaryBase)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+                .textSelectionIfAvailable()
 
         case .codeBlock(let lang, let code):
             CodeBlockView(lang: lang, code: code)
@@ -276,7 +276,7 @@ public struct MarkdownRenderer: View {
                             .foregroundStyle(VColor.contentDefault)
                             .tint(VColor.primaryBase)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
+                            .textSelectionIfAvailable()
                     }
                 }
             }

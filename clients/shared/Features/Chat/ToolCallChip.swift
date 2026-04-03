@@ -143,7 +143,7 @@ public struct ToolCallChip: View {
                                 Text(resolvedInputFull)
                                     .font(VFont.bodySmallDefault)
                                     .foregroundStyle(VColor.contentSecondary)
-                                    .textSelection(.enabled)
+                                    .textSelectionIfAvailable()
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
@@ -215,7 +215,7 @@ public struct ToolCallChip: View {
                                         Text(extraOutput)
                                             .font(VFont.bodySmallDefault)
                                             .foregroundStyle(VColor.contentSecondary)
-                                            .textSelection(.enabled)
+                                            .textSelectionIfAvailable()
                                     }
                                 }
                             } else if result == "<command_completed />" {
@@ -236,7 +236,7 @@ public struct ToolCallChip: View {
                                             .font(VFont.bodySmallDefault)
                                             .foregroundStyle(VColor.contentSecondary)
                                             .frame(maxWidth: .infinity, alignment: .leading)
-                                            .textSelection(.enabled)
+                                            .textSelectionIfAvailable()
                                     }
                                     .frame(maxHeight: 400)
                                 } else {
@@ -244,7 +244,7 @@ public struct ToolCallChip: View {
                                         .font(VFont.bodySmallDefault)
                                         .foregroundStyle(VColor.contentSecondary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
+                                        .textSelectionIfAvailable()
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
