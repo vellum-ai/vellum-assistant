@@ -54,6 +54,9 @@ final class VoiceModeManager: ObservableObject {
     var pendingPermissionIds: [String] = []
     /// Generation counter controlling the lifetime of the voice-service observation loop.
     private var voiceObservationGeneration: Int = 0
+    /// Last observed value from the isThinking observation loop, used to
+    /// deduplicate redundant same-value writes and only act on actual transitions.
+    private var lastObservedIsThinking: Bool = false
 
     init(voiceService: any VoiceServiceProtocol = OpenAIVoiceService()) {
         self.voiceService = voiceService
@@ -605,6 +608,8 @@ final class VoiceModeManager: ObservableObject {
 
     private func observeIsThinking(generation: Int, messageManager: ChatMessageManager) {
         guard generation == voiceObservationGeneration else { return }
+        // Seed deduplication state so we only act on actual transitions.
+        lastObservedIsThinking = messageManager.isThinking
         withObservationTracking {
             _ = messageManager.isThinking
         } onChange: { [weak self, weak messageManager] in
@@ -612,6 +617,13 @@ final class VoiceModeManager: ObservableObject {
                 guard let self, let messageManager,
                       generation == self.voiceObservationGeneration else { return }
                 let thinking = messageManager.isThinking
+                // Deduplicate redundant same-value writes (equivalent to
+                // the removed Combine .removeDuplicates()).
+                guard thinking != self.lastObservedIsThinking else {
+                    self.observeIsThinking(generation: generation, messageManager: messageManager)
+                    return
+                }
+                self.lastObservedIsThinking = thinking
                 guard self.state == .idle else {
                     self.observeIsThinking(generation: generation, messageManager: messageManager)
                     return
