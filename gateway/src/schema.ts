@@ -617,17 +617,16 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Email inbound webhook",
           description:
-            "Receives inbound email webhook events from AgentMail (via Svix), verifies the signature, normalizes the message, and forwards it to the assistant runtime. Only processes message.received events; all other event types are acknowledged silently.",
+            "Receives inbound email webhook events from the Vellum platform, verifies the HMAC signature, normalizes the message, and forwards it to the assistant runtime.",
           operationId: "emailInboundWebhook",
-          security: [{ SvixSignature: [] }],
+          security: [{ VellumSignature: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
                 schema: {
                   type: "object",
-                  description:
-                    "AgentMail webhook event payload (Svix-wrapped).",
+                  description: "Vellum email webhook payload.",
                 },
               },
             },
@@ -676,8 +675,16 @@ export function buildSchema(): Record<string, unknown> {
                 },
               },
             },
+            "409": {
+              description: "Webhook secret not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
             "500": {
-              description: "Internal error or webhook secret not configured",
+              description: "Internal error",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -3490,6 +3497,13 @@ export function buildSchema(): Record<string, unknown> {
           name: "X-Twilio-Signature",
           description:
             "HMAC-SHA1 signature computed by Twilio over the request URL and form parameters.",
+        },
+        VellumSignature: {
+          type: "apiKey",
+          in: "header",
+          name: "Vellum-Signature",
+          description:
+            "HMAC-SHA256 signature computed by the Vellum platform over the raw request body using the webhook secret. Format: sha256=<hex-digest>.",
         },
         WhatsAppHubSignature: {
           type: "apiKey",
