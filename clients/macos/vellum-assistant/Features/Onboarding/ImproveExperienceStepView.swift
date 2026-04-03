@@ -60,10 +60,10 @@ struct ImproveExperienceStepView: View {
 
                 // ToS consent checkbox
                 VCard {
-                    Toggle(isOn: $tosAccepted) {
+                    HStack(spacing: VSpacing.md) {
+                        tosCheckbox
                         tosConsentText
                     }
-                    .toggleStyle(CheckboxToggleStyle())
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
@@ -88,6 +88,36 @@ struct ImproveExperienceStepView: View {
                 showContent = true
             }
         }
+    }
+
+    // MARK: - ToS Consent Checkbox
+
+    private var tosCheckbox: some View {
+        Button {
+            withAnimation(VAnimation.fast) {
+                tosAccepted.toggle()
+            }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(tosAccepted ? VColor.primaryBase : Color.clear)
+
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .strokeBorder(tosAccepted ? Color.clear : VColor.borderBase, lineWidth: 1.5)
+
+                if tosAccepted {
+                    VIconView(.check, size: 12)
+                        .foregroundStyle(VColor.auxWhite)
+                }
+            }
+            .frame(width: 20, height: 20)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(VAnimation.fast, value: tosAccepted)
+        .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
+        .accessibilityValue(tosAccepted ? "Checked" : "Unchecked")
+        .accessibilityAddTraits(.isToggle)
     }
 
     // MARK: - ToS Consent Text
@@ -142,50 +172,5 @@ struct ImproveExperienceStepView: View {
             // Users who skipped step 2 (API key) go back to step 1
             state.currentStep -= skippedAPIKeyEntry ? 2 : 1
         }
-    }
-}
-
-// MARK: - Checkbox Toggle Style
-
-/// A ToggleStyle that renders as a checkbox matching the design system aesthetic:
-/// primary-filled with white checkmark when on, outlined rounded square when off.
-private struct CheckboxToggleStyle: ToggleStyle {
-    private let size: CGFloat = 20
-    private let cornerRadius: CGFloat = VRadius.sm
-
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: VSpacing.md) {
-            Button {
-                withAnimation(VAnimation.fast) {
-                    configuration.isOn.toggle()
-                }
-            } label: {
-                checkboxIndicator(isOn: configuration.isOn)
-            }
-            .buttonStyle(.plain)
-
-            configuration.label
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
-        .accessibilityValue(configuration.isOn ? "Checked" : "Unchecked")
-        .accessibilityAddTraits(.isToggle)
-    }
-
-    private func checkboxIndicator(isOn: Bool) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(isOn ? VColor.primaryBase : Color.clear)
-
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .strokeBorder(isOn ? Color.clear : VColor.borderBase, lineWidth: 1.5)
-
-            if isOn {
-                VIconView(.check, size: 12)
-                    .foregroundStyle(VColor.auxWhite)
-            }
-        }
-        .frame(width: size, height: size)
-        .animation(VAnimation.fast, value: isOn)
     }
 }
