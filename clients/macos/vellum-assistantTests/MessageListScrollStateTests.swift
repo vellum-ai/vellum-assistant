@@ -280,6 +280,13 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertFalse(state.showScrollToLatest)
     }
 
+    func testResetClearsBottomAnchorAppeared() {
+        state.bottomAnchorAppeared = true
+        state.reset(for: UUID())
+        XCTAssertFalse(state.bottomAnchorAppeared,
+                       "Should reset bottomAnchorAppeared so recovery fires for new conversation")
+    }
+
     func testResetClearsLayoutCache() {
         state.messageListVersion = 5
         state.lastKnownRawMessageCount = 10

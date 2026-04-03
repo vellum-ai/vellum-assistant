@@ -216,6 +216,14 @@ final class MessageListScrollState {
     /// normal `!isAtBottom` check.
     @ObservationIgnored var recoveryDeadline: Date?
 
+    /// Whether the "scroll-bottom-anchor" view has appeared in the view
+    /// hierarchy since the last `reset()`. Until this is true, `isAtBottom`
+    /// is unreliable because it's based on LazyVStack's estimated content
+    /// height — the viewport may be at the *estimated* bottom (blank space)
+    /// where `distanceFromBottom ≈ 0`. The persistent recovery fires
+    /// unconditionally until this flag is set by the anchor's `onAppear`.
+    @ObservationIgnored var bottomAnchorAppeared: Bool = false
+
     // MARK: - Layout Cache Fields
 
     @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey?
@@ -237,6 +245,12 @@ final class MessageListScrollState {
 
     /// Closure that scrolls to a given edge (e.g. `.bottom`).
     @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
+
+    /// Pending ID-based scroll Task from `executeScrollToBottom`.
+    /// Tracked so it can be cancelled on mode changes (user scroll-up),
+    /// conversation switches (`reset`), and view teardown (`cancelAll`).
+    /// Prevents accumulation of stale Tasks across rapid switches.
+    @ObservationIgnored private var pendingIdScrollTask: Task<Void, Never>?
 
     // MARK: - Circuit Breaker
 
@@ -462,9 +476,15 @@ final class MessageListScrollState {
             scrollToEdge?(.bottom)
         }
         // Transaction 2: ID-based (next run-loop pass)
-        // Captures the closure to avoid retaining `self` in the Task.
+        // Cancel any previously pending ID scroll to prevent accumulation
+        // across rapid conversation switches or recovery-window calls.
+        pendingIdScrollTask?.cancel()
         let idScroll = scrollTo
-        Task { @MainActor in
+        pendingIdScrollTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            // If the user scrolled up (freeBrowsing) between creation
+            // and execution, this scroll is stale — skip it.
+            guard self.mode.allowsAutoScroll else { return }
             if animated {
                 withAnimation(VAnimation.fast) {
                     idScroll?("scroll-bottom-anchor", .bottom)
@@ -472,6 +492,7 @@ final class MessageListScrollState {
             } else {
                 idScroll?("scroll-bottom-anchor", .bottom)
             }
+            self.pendingIdScrollTask = nil
         }
     }
 
@@ -484,6 +505,9 @@ final class MessageListScrollState {
 
     /// Handles user scrolling up — transitions to freeBrowsing if appropriate.
     func handleUserScrollUp() {
+        // Cancel any pending ID-based scroll — user intent takes priority.
+        pendingIdScrollTask?.cancel()
+        pendingIdScrollTask = nil
         switch mode {
         case .initialLoad, .followingBottom:
             transition(to: .freeBrowsing)
@@ -558,9 +582,15 @@ final class MessageListScrollState {
         lastContentOffsetY = 0
         scrollContentHeight = 0
         scrollContainerHeight = 0
-        // Allow 500ms of unconditional bottom-pinning while LazyVStack
-        // materializes views and converges its height estimates.
-        recoveryDeadline = Date().addingTimeInterval(0.5)
+        // Reset anchor-appeared flag — the new conversation's bottom anchor
+        // hasn't materialized yet. Until it does, isAtBottom is unreliable.
+        bottomAnchorAppeared = false
+        // Hard time limit for unconditional recovery. The primary signal
+        // is bottomAnchorAppeared, but this prevents infinite recovery
+        // in edge cases where the anchor never materializes.
+        recoveryDeadline = Date().addingTimeInterval(2.0)
+        pendingIdScrollTask?.cancel()
+        pendingIdScrollTask = nil
         throttleRecoveryTask?.cancel()
         throttleRecoveryTask = nil
         isThrottled = false
@@ -580,6 +610,8 @@ final class MessageListScrollState {
     /// Cancel all tasks and reset mode. Called from `onDisappear`.
     func cancelAll() {
         cancelStabilizationTasks()
+        pendingIdScrollTask?.cancel()
+        pendingIdScrollTask = nil
         uiSyncTask?.cancel()
         uiSyncTask = nil
         scrollRestoreTask?.cancel()

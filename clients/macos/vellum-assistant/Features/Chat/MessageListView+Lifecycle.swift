@@ -31,7 +31,7 @@ extension MessageListView {
             // height estimates are unreliable until views materialize.
             // (For conversation switches, reset() inside handleConversationSwitched
             // already sets recoveryDeadline.)
-            scrollState.recoveryDeadline = Date().addingTimeInterval(0.5)
+            scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
         }
         // Seed the confirmation marker so a conversation already paused in
         // awaiting_confirmation at launch or reconnect is correctly tracked.

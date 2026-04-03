@@ -108,14 +108,17 @@ struct MessageListView: View {
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
-            // Apply to all anchor roles (initialOffset + sizeChanges + alignment).
-            // With .sizeChanges, SwiftUI natively keeps the bottom in view when
-            // content grows (streaming, new messages) — but only while the scroll
-            // position is at the bottom. If the user scrolls up, the anchor does
-            // not force them back down.
-            // https://www.hackingwithswift.com/quick-start/swiftui/how-to-make-a-scrollview-start-at-the-bottom
-            // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:)
-            .defaultScrollAnchor(.bottom)
+            // Apply only to .initialOffset — where the scroll view starts
+            // when first displayed (including .id() recreation on switch).
+            // Deliberately NOT using the all-roles overload (.sizeChanges)
+            // because it fights user scroll-up during streaming: SwiftUI's
+            // definition of "at bottom" for anchor purposes can differ from
+            // our hysteresis-based isAtBottom, causing the viewport to snap
+            // back to bottom on every content-height change even after the
+            // user has entered freeBrowsing. Our explicit content-height
+            // auto-follow handles streaming growth with proper mode checks.
+            // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 scrollState.endStabilization()

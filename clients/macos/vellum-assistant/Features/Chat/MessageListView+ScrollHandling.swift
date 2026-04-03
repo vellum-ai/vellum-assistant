@@ -87,12 +87,20 @@ extension MessageListView {
         //   • "False at-bottom" — viewport at the estimated bottom but
         //     actual content is above (LazyVStack blank space)
         //
-        // During the recovery window (500ms after reset/appear),
-        // pins unconditionally because isAtBottom is unreliable while
-        // LazyVStack height estimates are still converging. After the
-        // window, falls back to the normal !isAtBottom check.
+        // Recovery fires unconditionally until the bottom anchor view
+        // has appeared (meaning LazyVStack materialized to the actual
+        // bottom and isAtBottom is reliable). A 2-second hard limit
+        // prevents infinite recovery if the anchor never materializes.
         // Only fires in initialLoad/followingBottom.
-        let isInRecoveryWindow = scrollState.recoveryDeadline.map { Date() < $0 } ?? false
+        let isInRecoveryWindow: Bool
+        if scrollState.bottomAnchorAppeared {
+            // Anchor materialized — isAtBottom is reliable now.
+            isInRecoveryWindow = false
+        } else if let deadline = scrollState.recoveryDeadline {
+            isInRecoveryWindow = Date() < deadline
+        } else {
+            isInRecoveryWindow = false
+        }
         if scrollState.mode.allowsAutoScroll,
            effectiveContentHeight > newState.visibleRectHeight,
            (!nowAtBottom || isInRecoveryWindow) {
