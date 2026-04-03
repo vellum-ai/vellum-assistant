@@ -1571,7 +1571,7 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.status == rhs.status
         && lhs.isError == rhs.isError
         && lhs.conversationError == rhs.conversationError
-        && lhs.toolCalls == rhs.toolCalls
+        && lhs.toolCallsRevision == rhs.toolCallsRevision
         && lhs.attachments.count == rhs.attachments.count
         && lhs.attachmentWarnings == rhs.attachmentWarnings
         && lhs.inlineSurfaces == rhs.inlineSurfaces
@@ -1599,7 +1599,28 @@ public struct ChatMessage: Identifiable, Equatable {
     public var commandList: CommandListData?
     public var attachments: [ChatAttachment]
     public var attachmentWarnings: [String]
-    public var toolCalls: [ToolCallData]
+    public var toolCalls: [ToolCallData] {
+        didSet { toolCallsRevision &+= 1 }
+    }
+    /// Lightweight revision counter so that `ChatMessage.==` can detect
+    /// tool-call mutations in O(1) instead of O(n) element-wise array comparison.
+    /// Seeded from a content fingerprint at init time and incremented by
+    /// `toolCalls.didSet` on every subsequent mutation.
+    public private(set) var toolCallsRevision: Int = 0
+
+    /// O(n) fingerprint computed once at init so that independently constructed
+    /// messages with different tool-call arrays start with different revisions.
+    /// Mixes count, stable UUIDs, and lightweight completion/length sentinels.
+    private static func toolCallsFingerprint(_ calls: [ToolCallData]) -> Int {
+        guard !calls.isEmpty else { return 0 }
+        var h = calls.count
+        for tc in calls {
+            h = h &* 31 &+ tc.id.hashValue
+            h = h &* 31 &+ (tc.isComplete ? 1 : 0)
+            h = h &* 31 &+ tc.resultLength
+        }
+        return h
+    }
     public var inlineSurfaces: [InlineSurfaceData]
     /// Streaming code preview from tool input generation (e.g. app_create HTML).
     public var streamingCodePreview: String?
@@ -1671,6 +1692,7 @@ public struct ChatMessage: Identifiable, Equatable {
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.toolCalls = toolCalls
+        self.toolCallsRevision = Self.toolCallsFingerprint(toolCalls)
         self.inlineSurfaces = inlineSurfaces
         self.isError = isError
         self.conversationError = conversationError
