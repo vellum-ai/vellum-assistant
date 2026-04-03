@@ -46,7 +46,12 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       const authHeader = req.headers.get("authorization");
       if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
         log.warn(
-          { method: req.method, path: url.pathname },
+          {
+            method: req.method,
+            path: url.pathname,
+            hasAuthHeader: !!authHeader,
+            authHeaderPrefix: authHeader ? authHeader.slice(0, 20) + "…" : null,
+          },
           "Runtime proxy auth rejected: missing or malformed Authorization header",
         );
         return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -54,8 +59,49 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       const edgeJwt = authHeader.slice(7);
       const result = validateEdgeToken(edgeJwt);
       if (!result.ok) {
+        // Decode JWT claims (without verifying) to diagnose auth failures.
+        let tokenDiag: Record<string, unknown> = {};
+        try {
+          const parts = edgeJwt.split(".");
+          if (parts.length === 3) {
+            const claims = JSON.parse(
+              Buffer.from(parts[1], "base64url").toString("utf-8"),
+            ) as Record<string, unknown>;
+            tokenDiag = {
+              aud: claims.aud,
+              sub:
+                typeof claims.sub === "string"
+                  ? claims.sub.slice(0, 40)
+                  : claims.sub,
+              iss: claims.iss,
+              exp: claims.exp,
+              iat: claims.iat,
+              scope_profile: claims.scope_profile,
+              policy_epoch: claims.policy_epoch,
+              isExpired:
+                typeof claims.exp === "number"
+                  ? claims.exp <= Math.floor(Date.now() / 1000)
+                  : "unknown",
+            };
+          } else {
+            tokenDiag = {
+              parts: parts.length,
+              tokenPrefix: edgeJwt.slice(0, 20) + "…",
+            };
+          }
+        } catch {
+          tokenDiag = {
+            decodeFailed: true,
+            tokenPrefix: edgeJwt.slice(0, 20) + "…",
+          };
+        }
         log.warn(
-          { method: req.method, path: url.pathname, reason: result.reason },
+          {
+            method: req.method,
+            path: url.pathname,
+            reason: result.reason,
+            tokenDiag,
+          },
           "Runtime proxy auth rejected: edge token validation failed",
         );
         return Response.json({ error: "Unauthorized" }, { status: 401 });
