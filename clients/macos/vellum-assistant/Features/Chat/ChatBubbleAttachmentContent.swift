@@ -12,9 +12,37 @@ extension Notification.Name {
 
 // MARK: - Display-Resolution Image Downsampling
 
-/// Downsample an `NSImage` to the target display size using ImageIO's streaming
-/// decoder (`CGImageSourceCreateThumbnailAtIndex`). This decodes only the pixels
-/// needed for the target size, avoiding a full-resolution bitmap allocation.
+/// Downsample raw image data to the target display size using ImageIO's streaming
+/// decoder (`CGImageSourceCreateThumbnailAtIndex`). This is the preferred path —
+/// it feeds compressed bytes directly to ImageIO, avoiding a full-resolution
+/// bitmap allocation entirely.
+///
+/// - Parameters:
+///   - data: Raw image file data (JPEG, PNG, HEIC, etc.).
+///   - targetSize: The maximum display-point dimensions for rendering.
+///   - scale: The display scale factor (e.g., 2.0 for Retina).
+/// - Returns: A downsampled `NSImage` sized for display, or `nil` if decoding fails.
+///
+/// Reference: [WWDC18 — Images and Graphics Best Practices](https://developer.apple.com/videos/play/wwdc2018/219/)
+private func downsampleForDisplay(data: Data, targetSize: CGSize, scale: CGFloat) -> NSImage? {
+    let maxPixelDimension = max(targetSize.width, targetSize.height) * scale
+    guard maxPixelDimension > 0 else { return nil }
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelDimension)
+    ]
+    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return nil
+    }
+    return NSImage(cgImage: cgImage, size: .zero)
+}
+
+/// Downsample an already-decoded `NSImage` to the target display size.
+/// Falls back to TIFF → ImageIO when raw file bytes are unavailable (e.g. images
+/// arriving from cache or tool calls as decoded `NSImage` objects).
 ///
 /// - Parameters:
 ///   - image: The source image (may be arbitrarily large).
@@ -22,8 +50,6 @@ extension Notification.Name {
 ///   - scale: The display scale factor (e.g., 2.0 for Retina).
 /// - Returns: A downsampled `NSImage` sized for display, or the original if
 ///   downsampling fails or the image is already small enough.
-///
-/// Reference: [WWDC18 — Images and Graphics Best Practices](https://developer.apple.com/videos/play/wwdc2018/219/)
 private func downsampleForDisplay(_ image: NSImage, targetSize: CGSize, scale: CGFloat) -> NSImage {
     let maxPixelDimension = max(targetSize.width, targetSize.height) * scale
     guard maxPixelDimension > 0 else { return image }
@@ -37,19 +63,9 @@ private func downsampleForDisplay(_ image: NSImage, targetSize: CGSize, scale: C
         }
     }
 
-    // Extract raw image data via TIFF representation for ImageIO decoding.
+    // Fall back to TIFF round-trip when raw file bytes are unavailable.
     guard let tiffData = image.tiffRepresentation else { return image }
-    guard let source = CGImageSourceCreateWithData(tiffData as CFData, nil) else { return image }
-
-    let options: [CFString: Any] = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-        kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelDimension)
-    ]
-    guard let downsampledCG = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-        return image
-    }
-    return NSImage(cgImage: downsampledCG, size: .zero)
+    return downsampleForDisplay(data: tiffData, targetSize: targetSize, scale: scale) ?? image
 }
 
 // MARK: - Inline Tool Call Image
@@ -266,11 +282,18 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         // sizing (which uses native pixel dimensions) is accurate.
                         // Thumbnails are 800px max — using them gives ~400pt on
                         // Retina, adequate for most previews.
-                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
-                           let img = NSImage(data: fullData) {
+                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
-                            return
+                            // Prefer direct data → ImageIO path (no full-res bitmap allocation).
+                            if let downsampled = downsampleForDisplay(data: fullData, targetSize: targetSize, scale: scale) {
+                                loadedImages[attachment.id] = downsampled
+                                return
+                            }
+                            // Fall back to NSImage decode if ImageIO can't handle the format.
+                            if let img = NSImage(data: fullData) {
+                                loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
+                                return
+                            }
                         }
 
                         guard !Task.isCancelled else { return }
@@ -283,11 +306,16 @@ private struct AttachmentImageGrid<Fallback: View>: View {
 
                         guard !Task.isCancelled else { return }
 
-                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
-                           let img = NSImage(data: thumbnailData) {
+                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
-                            return
+                            if let downsampled = downsampleForDisplay(data: thumbnailData, targetSize: targetSize, scale: scale) {
+                                loadedImages[attachment.id] = downsampled
+                                return
+                            }
+                            if let img = NSImage(data: thumbnailData) {
+                                loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
+                                return
+                            }
                         }
                     } else {
                         let gridTargetSize = CGSize(width: 160, height: 120)
@@ -299,20 +327,30 @@ private struct AttachmentImageGrid<Fallback: View>: View {
 
                         guard !Task.isCancelled else { return }
 
-                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
-                           let img = NSImage(data: thumbnailData) {
+                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
-                            return
+                            if let downsampled = downsampleForDisplay(data: thumbnailData, targetSize: gridTargetSize, scale: scale) {
+                                loadedImages[attachment.id] = downsampled
+                                return
+                            }
+                            if let img = NSImage(data: thumbnailData) {
+                                loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
+                                return
+                            }
                         }
 
                         guard !Task.isCancelled else { return }
 
-                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
-                           let img = NSImage(data: fullData) {
+                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
-                            return
+                            if let downsampled = downsampleForDisplay(data: fullData, targetSize: gridTargetSize, scale: scale) {
+                                loadedImages[attachment.id] = downsampled
+                                return
+                            }
+                            if let img = NSImage(data: fullData) {
+                                loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
+                                return
+                            }
                         }
                     }
 
