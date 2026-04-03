@@ -2,29 +2,6 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - TailSpacerView
-
-/// Isolated child view for the push-to-top tail spacer. Creates its own
-/// observation boundary so changes to `showTailSpacer` only invalidate this
-/// view — not the parent `LazyVStack` or `ForEach`.
-///
-/// Reference: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
-struct TailSpacerView: View {
-    let scrollState: MessageListScrollState
-
-    var body: some View {
-        if scrollState.showTailSpacer {
-            Color.clear
-                .frame(height: scrollState.tailSpacerHeight)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-                .onAppear {
-                    scrollState.consumePendingPushToTop()
-                }
-        }
-    }
-}
-
 // MARK: - ScrollToLatestOverlayView
 
 /// Isolated child view for the "Scroll to latest" CTA. Creates its own
@@ -37,7 +14,14 @@ struct ScrollToLatestOverlayView: View {
         if scrollState.showScrollToLatest {
             Button(action: {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
-                scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                // Spring animation drives both the CTA exit transition
+                // and the scroll-to-bottom. syncUIImmediately() inside
+                // requestPinToBottom captures showScrollToLatest = false
+                // within this animation transaction, so the .move/.opacity
+                // transition runs in sync with the scroll.
+                _ = withAnimation(VAnimation.spring) {
+                    scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                }
             }) {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.arrowDown, size: 10)
