@@ -1049,6 +1049,7 @@ export class RuntimeHttpServer {
           const attentionStates =
             getAttentionStateByConversationIds(conversationIds);
           const parentCache = new Map<string, ConversationRow | null>();
+          const nextOffset = offset + limit;
           const response: Record<string, unknown> = {
             conversations: rows.map((conversation) =>
               this.serializeConversationSummary({
@@ -1059,7 +1060,8 @@ export class RuntimeHttpServer {
                 parentCache,
               }),
             ),
-            hasMore: offset + rows.length < totalCount,
+            nextOffset,
+            hasMore: nextOffset < totalCount,
           };
           // Include groups array on first page only
           if (offset === 0) {

@@ -3457,13 +3457,17 @@ public struct ConversationListResponse: Codable, Sendable {
     public let conversations: [ConversationListResponseItem]
     /// Whether more conversations exist beyond the returned page.
     public let hasMore: Bool?
+    /// The offset to use for the next page request. Based on DB-level
+    /// pagination so injected pinned conversations don't inflate the value.
+    public let nextOffset: Int?
     /// Available conversation groups. Sent with the first page only.
     public let groups: [ConversationGroupResponse]?
 
-    public init(type: String, conversations: [ConversationListResponseItem], hasMore: Bool? = nil, groups: [ConversationGroupResponse]? = nil) {
+    public init(type: String, conversations: [ConversationListResponseItem], hasMore: Bool? = nil, nextOffset: Int? = nil, groups: [ConversationGroupResponse]? = nil) {
         self.type = type
         self.conversations = conversations
         self.hasMore = hasMore
+        self.nextOffset = nextOffset
         self.groups = groups
     }
 }

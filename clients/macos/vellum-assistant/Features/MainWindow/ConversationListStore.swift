@@ -594,9 +594,13 @@ final class ConversationListStore {
 
     /// Handle appended conversations from a "load more" response.
     func appendConversations(from response: ConversationListResponseMessage) {
-        // Increment offset by the unfiltered count so pagination stays aligned
-        // with the daemon's row numbering regardless of client-side filtering.
-        serverOffset += response.conversations.count
+        // Use the server-provided nextOffset (DB-level pagination) so injected
+        // pinned conversations don't inflate the offset and skip rows.
+        if let nextOffset = response.nextOffset {
+            serverOffset = nextOffset
+        } else {
+            serverOffset += response.conversations.count
+        }
 
         // Merge groups if provided (first page only from server).
         if let responseGroups = response.groups, !responseGroups.isEmpty {
