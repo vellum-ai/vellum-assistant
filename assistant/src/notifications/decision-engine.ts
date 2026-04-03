@@ -13,7 +13,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { getConfig } from "../config/loader.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { listGuardianChannels } from "../contacts/contact-store.js";
 import { resolveGuardianPersona } from "../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
@@ -820,20 +820,18 @@ async function classifyWithLLM(
     ? truncate(rawIdentityContext, MAX_IDENTITY_CONTEXT_CHARS, "\n…[truncated]")
     : undefined;
 
-  // Resolve guardian contact notes for recipient context. Try each available
-  // channel in order and use the first guardian that has non-empty notes.
+  // Resolve guardian contact notes for recipient context. Use the channel-
+  // agnostic guardian lookup so notes are available even when the only
+  // deliverable channel is "vellum" (which has no contact channel type).
   let recipientNotes: string | undefined;
   try {
-    for (const ch of availableChannels) {
-      const guardianResult = findGuardianForChannel(ch);
-      if (guardianResult?.contact.notes) {
-        recipientNotes = truncate(
-          guardianResult.contact.notes,
-          MAX_IDENTITY_CONTEXT_CHARS,
-          "\n…[truncated]",
-        );
-        break;
-      }
+    const guardianResult = listGuardianChannels();
+    if (guardianResult?.contact.notes) {
+      recipientNotes = truncate(
+        guardianResult.contact.notes,
+        MAX_IDENTITY_CONTEXT_CHARS,
+        "\n…[truncated]",
+      );
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
