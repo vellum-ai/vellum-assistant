@@ -4,7 +4,7 @@ import {
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
-  fetchOrganizationId,
+  authHeaders,
   getPlatformUrl,
   readPlatformToken,
 } from "../lib/platform-client";
@@ -93,16 +93,11 @@ async function retireVellum(
     process.exit(1);
   }
 
-  const orgId = await fetchOrganizationId(token, runtimeUrl);
-
   const platformUrl = runtimeUrl || getPlatformUrl();
   const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
   const response = await fetch(url, {
     method: "DELETE",
-    headers: {
-      "X-Session-Token": token,
-      "Vellum-Organization-Id": orgId,
-    },
+    headers: await authHeaders(token, runtimeUrl),
   });
 
   if (!response.ok) {
