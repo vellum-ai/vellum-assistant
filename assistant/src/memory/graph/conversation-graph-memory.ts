@@ -53,6 +53,7 @@ export class ConversationGraphMemory {
   readonly tracker = new InContextTracker();
   private initialized = false;
   private needsReload = false;
+  private stateRestored = false;
   private scopeId: string;
   private conversationId: string;
   private lastInjectedBlock: string | null = null;
@@ -71,8 +72,12 @@ export class ConversationGraphMemory {
   persistState(): void {
     if (!this.initialized) return;
     try {
-      const snapshot: InContextTrackerSnapshot & { initialized: boolean } = {
+      const snapshot: InContextTrackerSnapshot & {
+        initialized: boolean;
+        needsReload: boolean;
+      } = {
         initialized: this.initialized,
+        needsReload: this.needsReload,
         ...this.tracker.toJSON(),
       };
       saveGraphMemoryState(this.conversationId, JSON.stringify(snapshot));
@@ -89,15 +94,19 @@ export class ConversationGraphMemory {
    * On failure or missing row, silently falls back to full context-load.
    */
   restoreState(): void {
+    if (this.stateRestored) return;
     try {
       const json = loadGraphMemoryState(this.conversationId);
       if (!json) return;
 
       const snapshot = JSON.parse(json) as InContextTrackerSnapshot & {
         initialized: boolean;
+        needsReload?: boolean;
       };
       this.initialized = snapshot.initialized;
+      this.needsReload = snapshot.needsReload ?? false;
       this.tracker.restoreFrom(snapshot);
+      this.stateRestored = true;
 
       log.info(
         {
