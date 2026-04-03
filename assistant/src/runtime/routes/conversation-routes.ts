@@ -1713,7 +1713,7 @@ export function conversationRouteDefinitions(deps: {
         "Send a user message to a conversation and trigger the assistant response.",
       tags: ["messages"],
       requestBody: z.object({
-        conversationKey: z.string(),
+        conversationKey: z.string().optional(),
         content: z.string().describe("Message text content"),
         attachments: z
           .array(z.unknown())
