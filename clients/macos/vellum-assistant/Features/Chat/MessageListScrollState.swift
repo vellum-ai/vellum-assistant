@@ -202,6 +202,14 @@ final class MessageListScrollState {
     /// auto-focus handoff.
     @ObservationIgnored var lastAutoFocusedRequestId: String?
 
+    /// The ID of the last message in the current conversation's ForEach.
+    /// Used as the primary scroll-to-bottom target because ForEach items
+    /// are always indexable by `ScrollPosition.scrollTo(id:)` even when
+    /// not materialized — SwiftUI can locate them in the data source and
+    /// compute their position. The standalone `"scroll-bottom-anchor"`
+    /// view (outside ForEach) is only locatable when materialized.
+    @ObservationIgnored var lastMessageId: UUID?
+
     /// Content height from scroll geometry.
     @ObservationIgnored var scrollContentHeight: CGFloat = 0
 
@@ -480,6 +488,12 @@ final class MessageListScrollState {
         // across rapid conversation switches or recovery-window calls.
         pendingIdScrollTask?.cancel()
         let idScroll = scrollTo
+        // Prefer the last ForEach message ID — ForEach items are always
+        // indexable by ScrollPosition even when not materialized, because
+        // SwiftUI can locate them in the data source and compute their
+        // estimated position. The standalone "scroll-bottom-anchor" view
+        // (outside ForEach) is only locatable when already materialized.
+        let primaryTarget: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
         pendingIdScrollTask = Task { @MainActor [weak self] in
             guard let self, !Task.isCancelled else { return }
             // If the user scrolled up (freeBrowsing) between creation
@@ -487,10 +501,10 @@ final class MessageListScrollState {
             guard self.mode.allowsAutoScroll else { return }
             if animated {
                 withAnimation(VAnimation.fast) {
-                    idScroll?("scroll-bottom-anchor", .bottom)
+                    idScroll?(primaryTarget, .bottom)
                 }
             } else {
-                idScroll?("scroll-bottom-anchor", .bottom)
+                idScroll?(primaryTarget, .bottom)
             }
             self.pendingIdScrollTask = nil
         }
@@ -575,6 +589,7 @@ final class MessageListScrollState {
         lastKnownIncompleteToolCallCount = 0
         lastKnownVisibleIdFingerprint = 0
         currentConversationId = newConversationId
+        lastMessageId = nil
         mode = .initialLoad
         activeStabilizationCount = 0
         // False: scroll geometry hasn't updated for the new content yet.

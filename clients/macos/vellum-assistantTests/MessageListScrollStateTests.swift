@@ -6,14 +6,19 @@ import XCTest
 final class MessageListScrollStateTests: XCTestCase {
     private var state: MessageListScrollState!
     private var scrollToCalls: [(id: AnyHashable, anchor: UnitPoint?)] = []
+    private var scrollToEdgeCalls: [Edge] = []
 
     override func setUp() {
         super.setUp()
         state = MessageListScrollState()
         scrollToCalls = []
+        scrollToEdgeCalls = []
 
         state.scrollTo = { [weak self] id, anchor in
             self?.scrollToCalls.append((id: id as! AnyHashable, anchor: anchor))
+        }
+        state.scrollToEdge = { [weak self] edge in
+            self?.scrollToEdgeCalls.append(edge)
         }
     }
 
@@ -124,22 +129,24 @@ final class MessageListScrollStateTests: XCTestCase {
         let result = state.requestPinToBottom()
 
         XCTAssertTrue(result, "requestPinToBottom should return true when following bottom")
-        XCTAssertFalse(scrollToCalls.isEmpty,
-                       "scrollTo should have been called")
-        XCTAssertEqual(scrollToCalls.first?.id, "scroll-bottom-anchor" as AnyHashable)
+        // Edge-based scroll fires synchronously (Transaction 1).
+        // ID-based scroll fires asynchronously via Task (Transaction 2).
+        XCTAssertFalse(scrollToEdgeCalls.isEmpty,
+                       "scrollToEdge should have been called synchronously")
+        XCTAssertEqual(scrollToEdgeCalls.first, .bottom)
     }
 
     func testPinAllowedAfterTransitionToFollowingBottom() {
         state.transition(to: .freeBrowsing)
         let suppressed = state.requestPinToBottom()
         XCTAssertFalse(suppressed)
-        XCTAssertTrue(scrollToCalls.isEmpty)
+        XCTAssertTrue(scrollToEdgeCalls.isEmpty)
 
         state.transition(to: .followingBottom)
         let allowed = state.requestPinToBottom()
         XCTAssertTrue(allowed)
-        XCTAssertFalse(scrollToCalls.isEmpty,
-                       "Pin requests should proceed after transitioning to followingBottom")
+        XCTAssertFalse(scrollToEdgeCalls.isEmpty,
+                       "Edge-based scroll should proceed after transitioning to followingBottom")
     }
 
     func testUserInitiatedBypassesGuards() {
@@ -150,7 +157,7 @@ final class MessageListScrollStateTests: XCTestCase {
 
         XCTAssertTrue(result,
                       "User-initiated requests should always return true")
-        XCTAssertFalse(scrollToCalls.isEmpty,
+        XCTAssertFalse(scrollToEdgeCalls.isEmpty,
                        "User-initiated requests should bypass mode checks")
     }
 
@@ -285,6 +292,13 @@ final class MessageListScrollStateTests: XCTestCase {
         state.reset(for: UUID())
         XCTAssertFalse(state.bottomAnchorAppeared,
                        "Should reset bottomAnchorAppeared so recovery fires for new conversation")
+    }
+
+    func testResetClearsLastMessageId() {
+        state.lastMessageId = UUID()
+        state.reset(for: UUID())
+        XCTAssertNil(state.lastMessageId,
+                     "Should clear lastMessageId so it gets re-seeded for the new conversation")
     }
 
     func testResetClearsLayoutCache() {

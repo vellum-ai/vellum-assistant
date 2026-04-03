@@ -161,6 +161,10 @@ extension MessageListView {
             }
         }
         // --- Bottom-pin on new messages ---
+        // Keep lastMessageId current so executeScrollToBottom targets ForEach items.
+        if let lastId = paginatedVisibleMessages.last?.id {
+            scrollState.lastMessageId = lastId
+        }
         if anchorMessageId == nil {
             scrollState.requestPinToBottom(animated: true)
         }
@@ -211,17 +215,22 @@ extension MessageListView {
         // Don't override with .programmaticScroll — that would block
         // handleMessagesCountChanged and content-growth auto-follow during
         // the critical window while LazyVStack materializes new content.
+        //
+        // Seed lastMessageId so executeScrollToBottom can target it.
+        scrollState.lastMessageId = paginatedVisibleMessages.last?.id
         // Declarative position reset — processed in the same layout pass as new content.
-        // Uses ID-based positioning instead of edge-based because
-        // ScrollPosition(edge: .bottom) targets the estimated content height,
-        // which is unreliable with LazyVStack. ScrollPosition(id:anchor:)
-        // targets the actual "scroll-bottom-anchor" view — SwiftUI locates it
-        // in the ForEach data and materializes views around it, bypassing the
-        // height estimation issue entirely.
+        // Prefer the last ForEach message ID over the standalone anchor because
+        // ForEach items are always indexable by ScrollPosition even when not
+        // materialized — SwiftUI locates them in the data source. The standalone
+        // "scroll-bottom-anchor" (outside ForEach) is only locatable when materialized.
         // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            scrollPosition = ScrollPosition(id: "scroll-bottom-anchor", anchor: .bottom)
+            if let lastId = paginatedVisibleMessages.last?.id {
+                scrollPosition = ScrollPosition(id: lastId, anchor: .bottom)
+            } else {
+                scrollPosition = ScrollPosition(id: "scroll-bottom-anchor", anchor: .bottom)
+            }
         }
         restoreScrollToBottom()
     }

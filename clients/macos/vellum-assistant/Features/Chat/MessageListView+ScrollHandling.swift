@@ -75,7 +75,8 @@ extension MessageListView {
         // feedback loops because pinning changes contentOffsetY, not
         // contentHeight.
         if abs(effectiveContentHeight - previousContentHeight) > 0.5,
-           scrollState.mode.allowsAutoScroll {
+           scrollState.mode.allowsAutoScroll,
+           scrollState.scrollPhase != .interacting {
             scrollState.requestPinToBottom()
         }
         // --- Persistent bottom-recovery ---
@@ -102,6 +103,7 @@ extension MessageListView {
             isInRecoveryWindow = false
         }
         if scrollState.mode.allowsAutoScroll,
+           scrollState.scrollPhase != .interacting,
            effectiveContentHeight > newState.visibleRectHeight,
            (!nowAtBottom || isInRecoveryWindow) {
             scrollState.requestPinToBottom()
