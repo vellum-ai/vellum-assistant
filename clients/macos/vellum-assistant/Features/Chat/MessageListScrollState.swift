@@ -484,12 +484,15 @@ final class MessageListScrollState {
     /// spring completes. Animation is provided by the caller's
     /// `withAnimation` wrapper (spring for smooth CTA scroll).
     ///
-    /// **Auto-follow / recovery:** Dual scroll strategy — edge-based
-    /// fires immediately (fast for near-bottom adjustments), ID-based
-    /// fires on the next run-loop pass via Task (corrects edge overshoot).
-    /// The two MUST run in separate transactions — within a single
-    /// synchronous block, the second ScrollPosition mutation overwrites
-    /// the first.
+    /// **Auto-follow / recovery:** ID-based scroll only (synchronous).
+    /// `scrollTo(id: lastMessageId, .bottom)` targets real ForEach content.
+    /// Falls back to `scrollToEdge(.bottom)` only when `lastMessageId` is
+    /// nil (empty conversations). The previous dual-scroll strategy (edge
+    /// synchronous + ID Task) caused blank screens on initial load and
+    /// conversation switch: during the recovery window, geometry updates
+    /// fire at ~60fps, each cancelling the previous ID Task before it
+    /// executes — only edge scrolls (estimated bottom = blank space)
+    /// actually landed.
     ///
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
@@ -517,39 +520,36 @@ final class MessageListScrollState {
             return
         }
 
-        // Auto-follow / recovery: dual scroll strategy.
-        // Transaction 1: edge-based (immediate)
-        if animated {
-            withAnimation(VAnimation.fast) {
-                scrollToEdge?(.bottom)
-            }
-        } else {
-            scrollToEdge?(.bottom)
-        }
-        // Transaction 2: ID-based (next run-loop pass)
-        // Cancel any previously pending ID scroll to prevent accumulation
-        // across rapid conversation switches or recovery-window calls.
+        // Auto-follow / recovery: ID-based primary (synchronous).
+        // Cancel any pending Task from a previous call.
         pendingIdScrollTask?.cancel()
-        let idScroll = scrollTo
-        // Prefer the last ForEach message ID — ForEach items are always
-        // indexable by ScrollPosition even when not materialized, because
-        // SwiftUI can locate them in the data source and compute their
-        // estimated position. The standalone "scroll-bottom-anchor" view
-        // (outside ForEach) is only locatable when already materialized.
-        let primaryTarget: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
-        pendingIdScrollTask = Task { @MainActor [weak self] in
-            guard let self, !Task.isCancelled else { return }
-            // If the user scrolled up (freeBrowsing) between creation
-            // and execution, this scroll is stale — skip it.
-            guard self.mode.allowsAutoScroll else { return }
+        pendingIdScrollTask = nil
+        if let target = lastMessageId {
+            // ID-based: targets a real ForEach item that SwiftUI can
+            // always locate (even when not materialized). Synchronous —
+            // no deferred Task that could be cancelled by the next
+            // recovery call before it executes. During the recovery
+            // window, geometry updates fire at ~60fps; a Task-based
+            // scroll would be cancelled by the next recovery call
+            // within ~16ms, leaving only edge scrolls (estimated
+            // bottom = blank space) actually landing.
             if animated {
                 withAnimation(VAnimation.fast) {
-                    idScroll?(primaryTarget, .bottom)
+                    scrollTo?(target, .bottom)
                 }
             } else {
-                idScroll?(primaryTarget, .bottom)
+                scrollTo?(target, .bottom)
             }
-            self.pendingIdScrollTask = nil
+        } else {
+            // No ForEach items to target (empty conversation).
+            // Fall back to edge-based scroll.
+            if animated {
+                withAnimation(VAnimation.fast) {
+                    scrollToEdge?(.bottom)
+                }
+            } else {
+                scrollToEdge?(.bottom)
+            }
         }
     }
 

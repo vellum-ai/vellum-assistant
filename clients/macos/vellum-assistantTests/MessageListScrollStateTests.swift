@@ -126,27 +126,30 @@ final class MessageListScrollStateTests: XCTestCase {
 
     func testPinAllowedWhenFollowingBottom() {
         state.transition(to: .followingBottom)
+        // Seed lastMessageId so the ID-based path fires (not edge fallback).
+        state.lastMessageId = UUID()
         let result = state.requestPinToBottom()
 
         XCTAssertTrue(result, "requestPinToBottom should return true when following bottom")
-        // Edge-based scroll fires synchronously (Transaction 1).
-        // ID-based scroll fires asynchronously via Task (Transaction 2).
-        XCTAssertFalse(scrollToEdgeCalls.isEmpty,
-                       "scrollToEdge should have been called synchronously")
-        XCTAssertEqual(scrollToEdgeCalls.first, .bottom)
+        // ID-based scroll fires synchronously (targets real ForEach content).
+        // Edge-based is only used as fallback when lastMessageId is nil.
+        XCTAssertFalse(scrollToCalls.isEmpty,
+                       "scrollTo should have been called synchronously")
     }
 
     func testPinAllowedAfterTransitionToFollowingBottom() {
         state.transition(to: .freeBrowsing)
         let suppressed = state.requestPinToBottom()
         XCTAssertFalse(suppressed)
-        XCTAssertTrue(scrollToEdgeCalls.isEmpty)
+        XCTAssertTrue(scrollToCalls.isEmpty)
 
         state.transition(to: .followingBottom)
+        // Seed lastMessageId so the ID-based path fires (not edge fallback).
+        state.lastMessageId = UUID()
         let allowed = state.requestPinToBottom()
         XCTAssertTrue(allowed)
-        XCTAssertFalse(scrollToEdgeCalls.isEmpty,
-                       "Edge-based scroll should proceed after transitioning to followingBottom")
+        XCTAssertFalse(scrollToCalls.isEmpty,
+                       "ID-based scroll should proceed after transitioning to followingBottom")
     }
 
     func testUserInitiatedBypassesGuards() {
