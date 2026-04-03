@@ -27,8 +27,8 @@ export async function checkManagedHealth(
 
   let headers: Record<string, string>;
   try {
-    const { platformAuthHeaders } = await import("./platform-client.js");
-    headers = await platformAuthHeaders(token, runtimeUrl);
+    const { authHeaders } = await import("./platform-client.js");
+    headers = await authHeaders(token, runtimeUrl);
   } catch (err) {
     return {
       status: "error (auth)",

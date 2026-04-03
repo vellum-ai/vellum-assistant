@@ -4,8 +4,8 @@ import {
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
+  authHeaders,
   getPlatformUrl,
-  platformAuthHeaders,
   readPlatformToken,
 } from "../lib/platform-client";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
@@ -97,7 +97,7 @@ async function retireVellum(
   const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
   const response = await fetch(url, {
     method: "DELETE",
-    headers: await platformAuthHeaders(token, runtimeUrl),
+    headers: await authHeaders(token, runtimeUrl),
   });
 
   if (!response.ok) {
