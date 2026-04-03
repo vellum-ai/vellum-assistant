@@ -44,7 +44,7 @@ struct ImageGenerationServiceCard: View {
     var body: some View {
         ServiceModeCard(
             title: "Image Generation",
-            subtitle: "Configure which provider and model to use for AI image generation",
+            subtitle: "Configure which model your assistant uses to generate images",
             draftMode: $draftMode,
             managedContent: {
                 if isLoggedIn {
