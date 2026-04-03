@@ -1191,6 +1191,54 @@ describe("Label-based subagent lookup", () => {
   });
 });
 
+// ── Label collision & dispose guard ─────────────────────────────────
+
+describe("Label collision and dispose guard", () => {
+  test("disposing second subagent with same label keeps first reachable by label", () => {
+    const manager = getSubagentManager();
+    const parentConversation = "label-collision-sess";
+    const firstId = "collision-sub-1";
+    const secondId = "collision-sub-2";
+    const sharedLabel = "Shared Worker";
+
+    // Inject two subagents with the same label — second overwrites label index.
+    injectSubagent(manager, firstId, parentConversation, "running", {
+      config: {
+        id: firstId,
+        parentConversationId: parentConversation,
+        label: sharedLabel,
+        objective: "first task",
+      },
+    });
+    injectSubagent(manager, secondId, parentConversation, "completed", {
+      config: {
+        id: secondId,
+        parentConversationId: parentConversation,
+        label: sharedLabel,
+        objective: "second task",
+      },
+    });
+
+    // Label should currently resolve to the second subagent.
+    expect(manager.getByLabel(sharedLabel, parentConversation)?.config.id).toBe(
+      secondId,
+    );
+
+    // Dispose the FIRST subagent — its label was already overwritten,
+    // so the label index entry (pointing to second) must survive.
+    manager.dispose(firstId);
+
+    const afterDispose = manager.getByLabel(sharedLabel, parentConversation);
+    expect(afterDispose).toBeDefined();
+    expect(afterDispose!.config.id).toBe(secondId);
+
+    // The second subagent should still be directly accessible too.
+    expect(manager.getState(secondId)).toBeDefined();
+    // And the first should be gone.
+    expect(manager.getState(firstId)).toBeUndefined();
+  });
+});
+
 // ── Role-based spawn ──────────────────────────────────────────────
 
 describe("Subagent role-based spawn", () => {

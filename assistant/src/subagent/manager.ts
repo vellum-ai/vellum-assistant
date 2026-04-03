@@ -223,10 +223,19 @@ export class SubagentManager {
 
     managed.conversation = conversation;
     this.subagents.set(subagentId, managed);
-    this.labelIndex.set(
-      `${config.parentConversationId}:${config.label.toLowerCase().trim()}`,
-      subagentId,
-    );
+    const labelKey = `${config.parentConversationId}:${config.label.toLowerCase().trim()}`;
+    if (this.labelIndex.has(labelKey)) {
+      log.warn(
+        {
+          label: config.label,
+          parentConversationId: config.parentConversationId,
+          existingSubagentId: this.labelIndex.get(labelKey),
+          newSubagentId: subagentId,
+        },
+        "Label collision: new subagent overwrites label index entry (previous subagent still accessible by UUID)",
+      );
+    }
+    this.labelIndex.set(labelKey, subagentId);
 
     // Track parent → child relationship.
     if (!this.parentToChildren.has(config.parentConversationId)) {
@@ -518,12 +527,14 @@ export class SubagentManager {
     managed.conversation.dispose();
     this.subagents.delete(subagentId);
 
-    // Remove from label index.
+    // Remove from label index only if it still maps to this subagent
+    // (guards against stale delete when a newer subagent reused the label).
     const label = managed.state.config.label;
     const parentConvId = managed.state.config.parentConversationId;
-    this.labelIndex.delete(
-      `${parentConvId}:${label.toLowerCase().trim()}`,
-    );
+    const labelKey = `${parentConvId}:${label.toLowerCase().trim()}`;
+    if (this.labelIndex.get(labelKey) === subagentId) {
+      this.labelIndex.delete(labelKey);
+    }
 
     // Remove from parent tracking.
     const parentId = managed.state.config.parentConversationId;
