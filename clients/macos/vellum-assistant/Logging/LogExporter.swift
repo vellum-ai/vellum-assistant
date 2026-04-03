@@ -292,7 +292,7 @@ enum LogExporter {
             // 1-2. Client artifacts — session logs, debug-state, hang-context, hang-sample files
             if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
                 let appSupportDir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
-                collectClientArtifacts(from: appSupportDir, into: tempDir, fileManager: fileManager)
+                collectClientArtifacts(from: appSupportDir, into: tempDir, cutoffDate: cutoffDate, fileManager: fileManager)
             }
 
             // 3. Assistant logs — platform API for managed, local gateway for self-hosted
@@ -481,15 +481,46 @@ enum LogExporter {
     nonisolated static func collectClientArtifacts(
         from sourceDir: URL,
         into destDir: URL,
+        cutoffDate: Date? = nil,
         fileManager: FileManager = .default
     ) {
-        // Session logs
+        // Session logs — filter by modification date when cutoffDate is set
         let sessionLogDir = sourceDir.appendingPathComponent("logs", isDirectory: true)
-        copyDirectoryContents(
-            from: sessionLogDir,
-            to: destDir.appendingPathComponent("session-logs", isDirectory: true),
-            fileManager: fileManager
-        )
+        if let cutoffDate {
+            // Enumerate files and include only those modified at or after the cutoff
+            if fileManager.fileExists(atPath: sessionLogDir.path),
+               let files = try? fileManager.contentsOfDirectory(
+                   at: sessionLogDir,
+                   includingPropertiesForKeys: [.contentModificationDateKey],
+                   options: [.skipsHiddenFiles]
+               ) {
+                let filtered = files.filter { url in
+                    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                          let modDate = values.contentModificationDate else {
+                        return false
+                    }
+                    return modDate >= cutoffDate
+                }
+
+                if !filtered.isEmpty {
+                    let sessionLogDest = destDir.appendingPathComponent("session-logs", isDirectory: true)
+                    try? fileManager.createDirectory(at: sessionLogDest, withIntermediateDirectories: true)
+                    for file in filtered {
+                        try? fileManager.copyItem(
+                            at: file,
+                            to: sessionLogDest.appendingPathComponent(file.lastPathComponent)
+                        )
+                    }
+                }
+            }
+        } else {
+            // No cutoff — copy all session logs (existing behavior)
+            copyDirectoryContents(
+                from: sessionLogDir,
+                to: destDir.appendingPathComponent("session-logs", isDirectory: true),
+                fileManager: fileManager
+            )
+        }
 
         // Debug state snapshot
         let debugState = sourceDir.appendingPathComponent("debug-state.json")
