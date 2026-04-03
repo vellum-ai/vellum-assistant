@@ -1,6 +1,24 @@
 #if os(macOS)
 import Foundation
 
+/// Thread-safe mutable state for the `LockfileAssistant` file watcher.
+/// Stored as a separate class because Swift structs cannot hold static
+/// stored properties in extensions.
+private final class LockfileWatcherState: @unchecked Sendable {
+    static let shared = LockfileWatcherState()
+
+    private let lock = NSLock()
+    var source: DispatchSourceFileSystemObject?
+    var fileDescriptor: Int32 = -1
+    var lastKnownActiveId: String?
+
+    func withLock<T>(_ body: (LockfileWatcherState) -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(self)
+    }
+}
+
 public struct ContainerInfo {
     public let assistantImage: String?
     public let gatewayImage: String?
@@ -213,6 +231,124 @@ public struct LockfileAssistant {
         guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return nil }
         return loadByName(id)?.instanceDir
     }
+
+    // MARK: - Active Assistant State
+
+    /// Posted when the active assistant changes, either from a programmatic
+    /// `setActiveAssistantId()` call or when the lockfile watcher detects an
+    /// external modification (e.g. CLI ran `vellum use`).
+    public static let activeAssistantDidChange = Notification.Name("LockfileAssistant.activeAssistantDidChange")
+
+    /// Writes the `activeAssistant` field in the lockfile. Passing `nil`
+    /// removes the field. Posts `activeAssistantDidChange` when the stored
+    /// value actually changes.
+    ///
+    /// - Parameters:
+    ///   - id: The assistant ID to designate as active, or `nil` to clear.
+    ///   - lockfilePath: Override for tests; defaults to `LockfilePaths.primaryPath`.
+    /// - Returns: `true` if the write succeeded (or was a no-op).
+    @discardableResult
+    public static func setActiveAssistantId(_ id: String?, lockfilePath: String? = nil) -> Bool {
+        let path = lockfilePath ?? LockfilePaths.primaryPath
+        let fileURL = URL(fileURLWithPath: path)
+
+        var lockfile: [String: Any]
+        if let data = try? Data(contentsOf: fileURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            lockfile = json
+        } else if lockfilePath == nil, let legacy = LockfilePaths.read() {
+            lockfile = legacy
+        } else {
+            lockfile = [:]
+        }
+
+        let previousId = lockfile["activeAssistant"] as? String
+        if previousId == id { return true }
+
+        if let id {
+            lockfile["activeAssistant"] = id
+        } else {
+            lockfile.removeValue(forKey: "activeAssistant")
+        }
+
+        do {
+            let data = try JSONSerialization.data(
+                withJSONObject: lockfile,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            let directory = fileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            try data.write(to: fileURL, options: .atomic)
+
+            LockfileWatcherState.shared.withLock { $0.lastKnownActiveId = id }
+            NotificationCenter.default.post(name: activeAssistantDidChange, object: nil)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Begins monitoring the lockfile's parent directory for changes.
+    /// When the `activeAssistant` field differs from the last known value,
+    /// posts `activeAssistantDidChange` on the main thread.
+    ///
+    /// Uses directory-level monitoring so that atomic writes (write-to-temp
+    /// + rename) are detected correctly. Call once at app startup.
+    public static func startWatching() {
+        stopWatching()
+
+        let state = LockfileWatcherState.shared
+        state.withLock { $0.lastKnownActiveId = loadActiveAssistantId() }
+
+        let dirPath = (LockfilePaths.primaryPath as NSString).deletingLastPathComponent
+        let fd = open(dirPath, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: .write,
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler {
+            let currentId = loadActiveAssistantId()
+            let changed: Bool = state.withLock { s in
+                if currentId != s.lastKnownActiveId {
+                    s.lastKnownActiveId = currentId
+                    return true
+                }
+                return false
+            }
+            if changed {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: activeAssistantDidChange, object: nil)
+                }
+            }
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+
+        state.withLock { s in
+            s.source = source
+            s.fileDescriptor = fd
+        }
+    }
+
+    /// Stops the lockfile watcher started by `startWatching()`.
+    public static func stopWatching() {
+        let state = LockfileWatcherState.shared
+        state.withLock { s in
+            s.source?.cancel()
+            s.source = nil
+            s.fileDescriptor = -1
+        }
+    }
+
+    // MARK: - Managed Entry
 
     /// Creates or refreshes a managed entry for the given `assistantId`.
     /// Existing entries keep their original `hatchedAt` value but have the
