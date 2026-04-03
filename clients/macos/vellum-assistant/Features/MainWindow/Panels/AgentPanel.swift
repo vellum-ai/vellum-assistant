@@ -329,8 +329,7 @@ struct SkillItemRow: View {
                 VButton(
                     label: "Remove",
                     leftIcon: VIcon.trash.rawValue,
-                    style: .dangerGhost,
-                    size: .compact,
+                    style: .outlined,
                     action: onDelete
                 )
                 .disabled(!isRemovable)
@@ -384,8 +383,7 @@ struct AvailableSkillItemRow: View {
                     VButton(
                         label: "Install",
                         leftIcon: VIcon.arrowDownToLine.rawValue,
-                        style: .ghost,
-                        size: .compact,
+                        style: .primary,
                         action: onInstall
                     )
                 }

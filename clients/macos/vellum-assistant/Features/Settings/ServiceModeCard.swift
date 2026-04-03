@@ -55,7 +55,7 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                         (label: "Managed", tag: "managed"),
                         (label: "Your Own", tag: "your-own"),
                     ],
-                    selection: $draftMode,
+                    selection: $draftMode
                 )
                 .frame(width: 220)
             }
