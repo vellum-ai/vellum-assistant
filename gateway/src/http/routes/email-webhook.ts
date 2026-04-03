@@ -64,9 +64,37 @@ export function createEmailWebhookHandler(
       ? await caches.credentials.get(credentialKey("email", "webhook_secret"))
       : undefined;
 
-    let signatureValid = webhookSecret
-      ? verifyEmailWebhookSignature(req.headers, rawBody, webhookSecret)
-      : false;
+    // If the initial cache read returned undefined but a credential cache is available,
+    // attempt one forced refresh before fail-closing — the credential may have been
+    // written after the TTL cache was last populated.
+    let effectiveSecret = webhookSecret;
+    if (!effectiveSecret && caches?.credentials) {
+      effectiveSecret = await caches.credentials.get(
+        credentialKey("email", "webhook_secret"),
+        { force: true },
+      );
+      if (effectiveSecret) {
+        tlog.info(
+          "Email webhook secret resolved after forced credential refresh",
+        );
+      }
+    }
+
+    // Signature validation is required — reject when no secret is configured
+    // rather than silently accepting unauthenticated payloads (fail-closed).
+    if (!effectiveSecret) {
+      tlog.warn("Email webhook secret is not configured — rejecting request");
+      return Response.json(
+        { error: "Webhook signature validation not configured" },
+        { status: 500 },
+      );
+    }
+
+    let signatureValid = verifyEmailWebhookSignature(
+      req.headers,
+      rawBody,
+      effectiveSecret,
+    );
 
     // One-shot force retry: if verification failed and caches are available,
     // force-refresh the webhook secret and retry once.
@@ -87,16 +115,6 @@ export function createEmailWebhookHandler(
           );
         }
       }
-    }
-
-    // Signature validation is required — reject when no secret is configured
-    // rather than silently accepting unauthenticated payloads (fail-closed).
-    if (!webhookSecret && !signatureValid) {
-      tlog.warn("Email webhook secret is not configured — rejecting request");
-      return Response.json(
-        { error: "Webhook signature validation not configured" },
-        { status: 500 },
-      );
     }
 
     if (!signatureValid) {

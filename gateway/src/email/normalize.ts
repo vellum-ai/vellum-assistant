@@ -9,7 +9,7 @@ import type { GatewayInboundEvent } from "../types.js";
  * gateway it should already be in this canonical shape.
  */
 export interface VellumEmailPayload {
-  /** Sender email address (e.g. "user@gmail.com"). */
+  /** Sender email address (e.g. "user@vellum.me"). */
   from: string;
   /** Sender display name (e.g. "Alice Smith"). Optional. */
   fromName?: string;

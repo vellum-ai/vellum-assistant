@@ -617,17 +617,15 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Email inbound webhook",
           description:
-            "Receives inbound email webhook events from AgentMail (via Svix), verifies the signature, normalizes the message, and forwards it to the assistant runtime. Only processes message.received events; all other event types are acknowledged silently.",
+            "Receives inbound email webhook events from the Vellum platform, verifies the HMAC signature, normalizes the message, and forwards it to the assistant runtime.",
           operationId: "emailInboundWebhook",
-          security: [{ SvixSignature: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
                 schema: {
                   type: "object",
-                  description:
-                    "AgentMail webhook event payload (Svix-wrapped).",
+                  description: "Vellum email webhook payload.",
                 },
               },
             },

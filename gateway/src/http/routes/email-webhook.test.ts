@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
@@ -28,7 +29,13 @@ const { createEmailWebhookHandler } = await import("./email-webhook.js");
 
 // --- Helpers ---------------------------------------------------------------
 
-const TEST_WEBHOOK_SECRET = "test-email-webhook-secret-abc123";
+const TEST_WEBHOOK_SECRET = "test-webhook-secret-1234";
+
+function computeSignature(body: string, secret: string): string {
+  return (
+    "sha256=" + createHmac("sha256", secret).update(body, "utf8").digest("hex")
+  );
+}
 
 const baseConfig: GatewayConfig = {
   assistantRuntimeBaseUrl: "http://localhost:7821",
@@ -86,11 +93,12 @@ function makeEmailPayload(overrides?: {
 }
 
 function postRequest(body: string, secret?: string): Request {
+  const sigSecret = secret ?? TEST_WEBHOOK_SECRET;
   return new Request("http://localhost:7830/webhooks/email/inbound", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-vellum-webhook-secret": secret ?? TEST_WEBHOOK_SECRET,
+      "vellum-signature": computeSignature(body, sigSecret),
     },
     body,
   });
@@ -185,13 +193,14 @@ describe("email-webhook", () => {
 
   it("rejects invalid JSON with 400", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = "not json";
     const req = new Request("http://localhost:7830/webhooks/email/inbound", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-vellum-webhook-secret": TEST_WEBHOOK_SECRET,
+        "vellum-signature": computeSignature(body, TEST_WEBHOOK_SECRET),
       },
-      body: "not json",
+      body,
     });
     const res = await handler(req);
     expect(res.status).toBe(400);
@@ -276,14 +285,23 @@ describe("email-webhook", () => {
     expect(res.status).toBe(500);
   });
 
-  it("rejects requests with wrong webhook secret", async () => {
+  it("rejects requests with wrong webhook secret (HMAC mismatch)", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
     const body = makeEmailPayload({ messageId: "<wrong-secret@example.com>" });
-    const res = await handler(postRequest(body, "wrong-secret"));
+    // Sign with a different secret than what the cache returns
+    const req = new Request("http://localhost:7830/webhooks/email/inbound", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "vellum-signature": computeSignature(body, "wrong-secret"),
+      },
+      body,
+    });
+    const res = await handler(req);
     expect(res.status).toBe(403);
   });
 
-  it("rejects requests with missing webhook secret header", async () => {
+  it("rejects requests with missing signature header", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
     const body = makeEmailPayload({
       messageId: "<missing-header@example.com>",
@@ -339,5 +357,37 @@ describe("email-webhook", () => {
     const status = dedupCache.reserve("<unique-dedup-id@example.com>");
     // Should return false because it's already reserved/marked
     expect(status).toBe(false);
+  });
+
+  it("returns 403 (not 500) when cache miss resolves on force-refresh but signature is invalid", async () => {
+    // Simulate: initial cache miss, force-refresh returns real secret,
+    // but signature doesn't match. Should be 403 (not 500 "not configured").
+    const caches = {
+      credentials: {
+        get: async (_key: string, opts?: { force?: boolean }) => {
+          // First call: cache miss
+          if (!opts?.force) return undefined;
+          // Force-refresh: return real secret
+          return TEST_WEBHOOK_SECRET;
+        },
+        invalidate: () => {},
+      } as unknown as CredentialCache,
+    };
+    const { handler } = createEmailWebhookHandler(baseConfig, caches);
+    const body = makeEmailPayload({
+      messageId: "<stale-var-fix@example.com>",
+    });
+    // Sign with wrong secret
+    const req = new Request("http://localhost:7830/webhooks/email/inbound", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "vellum-signature": computeSignature(body, "wrong-secret"),
+      },
+      body,
+    });
+    const res = await handler(req);
+    // This was the stale variable bug — it used to return 500 here
+    expect(res.status).toBe(403);
   });
 });
