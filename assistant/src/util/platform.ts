@@ -315,6 +315,11 @@ export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
 
+/** Returns ~/.vellum/workspace/routes — user-defined HTTP route handlers. */
+export function getWorkspaceRoutesDir(): string {
+  return join(getWorkspaceDir(), "routes");
+}
+
 /** Returns ~/.vellum/workspace/deprecated — transitional files slated for removal. */
 export function getDeprecatedDir(): string {
   return join(getWorkspaceDir(), "deprecated");
@@ -342,6 +347,7 @@ export function ensureDataDir(): void {
     join(workspace, "signals"),
     join(workspace, "hooks"),
     join(workspace, "skills"),
+    join(workspace, "routes"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),
     join(workspace, "logs"),

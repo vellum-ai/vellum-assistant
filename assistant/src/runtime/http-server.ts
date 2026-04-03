@@ -185,6 +185,7 @@ import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { ttsRouteDefinitions } from "./routes/tts-routes.js";
 import { upgradeBroadcastRouteDefinitions } from "./routes/upgrade-broadcast-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { userRouteDefinitions } from "./routes/user-routes.js";
 import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
@@ -1304,6 +1305,10 @@ export class RuntimeHttpServer {
       ...eventsRouteDefinitions(),
       ...traceEventRouteDefinitions(),
       ...migrationRouteDefinitions(),
+
+      // User-defined routes under /x/* — must be LAST so built-in routes
+      // always take priority.
+      ...userRouteDefinitions(),
 
       // Internal OAuth callback (gateway -> runtime)
       {
