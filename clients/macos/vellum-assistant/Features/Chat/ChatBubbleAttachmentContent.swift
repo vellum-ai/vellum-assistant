@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
@@ -9,6 +10,48 @@ extension Notification.Name {
     static let internalImageDragStarted = Notification.Name("com.vellum.internalImageDragStarted")
 }
 
+// MARK: - Display-Resolution Image Downsampling
+
+/// Downsample an `NSImage` to the target display size using ImageIO's streaming
+/// decoder (`CGImageSourceCreateThumbnailAtIndex`). This decodes only the pixels
+/// needed for the target size, avoiding a full-resolution bitmap allocation.
+///
+/// - Parameters:
+///   - image: The source image (may be arbitrarily large).
+///   - targetSize: The maximum display-point dimensions for rendering.
+///   - scale: The display scale factor (e.g., 2.0 for Retina).
+/// - Returns: A downsampled `NSImage` sized for display, or the original if
+///   downsampling fails or the image is already small enough.
+///
+/// Reference: [WWDC18 — Images and Graphics Best Practices](https://developer.apple.com/videos/play/wwdc2018/219/)
+private func downsampleForDisplay(_ image: NSImage, targetSize: CGSize, scale: CGFloat) -> NSImage {
+    let maxPixelDimension = max(targetSize.width, targetSize.height) * scale
+    guard maxPixelDimension > 0 else { return image }
+
+    // Check if the image is already small enough — skip downsampling to avoid
+    // unnecessary re-encoding and potential quality loss.
+    if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        let sourceMaxDim = max(CGFloat(cgImage.width), CGFloat(cgImage.height))
+        if sourceMaxDim <= maxPixelDimension * 1.1 {
+            return image
+        }
+    }
+
+    // Extract raw image data via TIFF representation for ImageIO decoding.
+    guard let tiffData = image.tiffRepresentation else { return image }
+    guard let source = CGImageSourceCreateWithData(tiffData as CFData, nil) else { return image }
+
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelDimension)
+    ]
+    guard let downsampledCG = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return image
+    }
+    return NSImage(cgImage: downsampledCG, size: .zero)
+}
+
 // MARK: - Inline Tool Call Image
 
 /// Renders a single tool-call-generated image at full width in the message flow.
@@ -17,11 +60,13 @@ private struct InlineToolCallImageView: View {
     let image: NSImage
     @Environment(\.displayScale) private var displayScale
     @State private var sharingServices: [NSSharingService] = []
+    @State private var displayImage: NSImage?
 
     @available(macOS, deprecated: 13.0)
     var body: some View {
         imageContent
             .onTapGesture {
+                // Open lightbox with the original full-resolution image.
                 AppDelegate.shared?.mainWindow?.windowState.showImageLightbox(
                     image: image, filename: "image.png"
                 )
@@ -35,6 +80,13 @@ private struct InlineToolCallImageView: View {
             }
             .task {
                 sharingServices = await ImageActions.loadSharingServices(for: "image.png")
+            }
+            .task(id: displayScale) {
+                let maxDim = VSpacing.chatBubbleMaxWidth
+                let targetSize = CGSize(width: maxDim, height: maxDim)
+                let scale = displayScale
+                let source = image
+                displayImage = downsampleForDisplay(source, targetSize: targetSize, scale: scale)
             }
             .onDrag {
                 NotificationCenter.default.post(name: .internalImageDragStarted, object: nil)
@@ -55,7 +107,8 @@ private struct InlineToolCallImageView: View {
 
     @ViewBuilder
     private var imageContent: some View {
-        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        let renderImage = displayImage ?? image
+        if let cgImage = renderImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
             let nativeWidth = CGFloat(cgImage.width) / displayScale
             let nativeHeight = CGFloat(cgImage.height) / displayScale
             let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
@@ -69,7 +122,7 @@ private struct InlineToolCallImageView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         } else {
-            Image(nsImage: image)
+            Image(nsImage: renderImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
@@ -206,7 +259,9 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 // Wrapping in Task(priority:){}.value creates an unstructured task that is NOT
                 // cancelled by the .task modifier, causing off-screen decodes to run to completion.
                 .task(id: attachment.id) {
+                    let scale = displayScale
                     if isSingleImage {
+                        let targetSize = CGSize(width: VSpacing.chatBubbleMaxWidth, height: VSpacing.chatBubbleMaxWidth)
                         // Single images: prefer full-resolution data so the frame
                         // sizing (which uses native pixel dimensions) is accurate.
                         // Thumbnails are 800px max — using them gives ~400pt on
@@ -214,7 +269,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
                            let img = NSImage(data: fullData) {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = img
+                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
                             return
                         }
 
@@ -222,7 +277,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
 
                         // Full data unavailable (lazy-load or cleared) — fall back to thumbnail.
                         if let img = attachment.thumbnailImage {
-                            loadedImages[attachment.id] = img
+                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
                             return
                         }
 
@@ -231,13 +286,14 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
                            let img = NSImage(data: thumbnailData) {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = img
+                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: targetSize, scale: scale)
                             return
                         }
                     } else {
+                        let gridTargetSize = CGSize(width: 160, height: 120)
                         // Grid mode: prefer thumbnails for fast loading of many images.
                         if let img = attachment.thumbnailImage {
-                            loadedImages[attachment.id] = img
+                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
                             return
                         }
 
@@ -246,7 +302,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
                            let img = NSImage(data: thumbnailData) {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = img
+                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
                             return
                         }
 
@@ -255,7 +311,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
                            let img = NSImage(data: fullData) {
                             guard !Task.isCancelled else { return }
-                            loadedImages[attachment.id] = img
+                            loadedImages[attachment.id] = downsampleForDisplay(img, targetSize: gridTargetSize, scale: scale)
                             return
                         }
                     }
