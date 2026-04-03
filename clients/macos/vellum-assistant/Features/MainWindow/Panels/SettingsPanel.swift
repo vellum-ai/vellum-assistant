@@ -501,10 +501,6 @@ struct SettingsPanel: View {
             // OAUTH PROVIDERS (dynamic from API)
             if !isIntegrationsGridEnabled {
                 ForEach(store.managedOAuthProviders, id: \.provider_key) { provider in
-                    Divider()
-                        .background(VColor.borderBase)
-                        .padding(.vertical, VSpacing.sm)
-
                     OAuthProviderServiceCard(
                         store: store,
                         authManager: authManager,
@@ -513,10 +509,6 @@ struct SettingsPanel: View {
                     )
                 }
             } else {
-                Divider()
-                    .background(VColor.borderBase)
-                    .padding(.vertical, VSpacing.sm)
-
                 IntegrationsGridView(
                     store: store,
                     authManager: authManager,
