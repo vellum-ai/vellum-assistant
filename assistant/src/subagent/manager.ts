@@ -132,6 +132,9 @@ export class SubagentManager {
 
     // ── Resolve role ─────────────────────────────────────────────────
     const role: SubagentRole = (config.role as SubagentRole) ?? "general";
+    if (!SUBAGENT_ROLE_REGISTRY[role]) {
+      throw new Error(`Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`);
+    }
     const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
 
     // ── Create conversation ─────────────────────────────────────────
