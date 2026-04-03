@@ -297,7 +297,7 @@ struct SkillItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        VSkillTypePill(origin: skill.origin, status: skill.status)
+                        VSkillTypePill(origin: skill.origin)
 
                         Spacer()
                     }
@@ -352,7 +352,7 @@ struct AvailableSkillItemRow: View {
                             .foregroundStyle(VColor.contentEmphasized)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                        VSkillTypePill(origin: skill.origin, status: skill.status)
+                        VSkillTypePill(origin: skill.origin)
                         Spacer()
                     }
                     Text(skill.description)
