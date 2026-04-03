@@ -271,6 +271,10 @@ public struct LockfileAssistant {
             lockfile.removeValue(forKey: "activeAssistant")
         }
 
+        // Track whether we modified the watcher state so we can revert on failure.
+        var didUpdateWatcherState = false
+        var previousKnown: String?
+
         do {
             let data = try JSONSerialization.data(
                 withJSONObject: lockfile,
@@ -283,11 +287,12 @@ public struct LockfileAssistant {
             )
             // Update lastKnownActiveId BEFORE writing to prevent the
             // file watcher from racing and posting a duplicate notification.
-            let previousKnown = LockfileWatcherState.shared.withLock { s -> String? in
+            previousKnown = LockfileWatcherState.shared.withLock { s -> String? in
                 let old = s.lastKnownActiveId
                 s.lastKnownActiveId = id
                 return old
             }
+            didUpdateWatcherState = true
 
             try data.write(to: fileURL, options: .atomic)
 
@@ -298,7 +303,9 @@ public struct LockfileAssistant {
         } catch {
             // Revert lastKnownActiveId on write failure so the watcher
             // can still detect the change on a future successful write.
-            LockfileWatcherState.shared.withLock { $0.lastKnownActiveId = previousId }
+            if didUpdateWatcherState {
+                LockfileWatcherState.shared.withLock { $0.lastKnownActiveId = previousKnown }
+            }
             return false
         }
     }
