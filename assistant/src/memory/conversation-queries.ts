@@ -62,6 +62,23 @@ export function listConversations(
   return query.all().map(parseConversation);
 }
 
+export function listPinnedConversations(): ConversationRow[] {
+  ensureDisplayOrderMigration();
+  ensureGroupMigration();
+  const db = getDb();
+  const query = db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+        sql`is_pinned = 1`,
+      ),
+    )
+    .orderBy(desc(conversations.updatedAt));
+  return query.all().map(parseConversation);
+}
+
 export function countConversations(backgroundOnly = false): number {
   const db = getDb();
   const where = backgroundOnly

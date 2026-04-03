@@ -52,6 +52,7 @@ import { resolveConversationId } from "../memory/conversation-key-store.js";
 import {
   countConversations,
   listConversations,
+  listPinnedConversations,
 } from "../memory/conversation-queries.js";
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
@@ -1026,8 +1027,18 @@ export class RuntimeHttpServer {
           const offset = Number(url.searchParams.get("offset") ?? 0);
           const backgroundOnly =
             url.searchParams.get("conversationType") === "background";
-          const rows = listConversations(limit, backgroundOnly, offset);
+          let rows = listConversations(limit, backgroundOnly, offset);
           const totalCount = countConversations(backgroundOnly);
+          // On the first page, ensure all pinned conversations are included
+          // even if they fall outside the paginated window.
+          if (offset === 0 && !backgroundOnly) {
+            const pinned = listPinnedConversations();
+            const seen = new Set(rows.map((c) => c.id));
+            const missing = pinned.filter((c) => !seen.has(c.id));
+            if (missing.length > 0) {
+              rows = [...rows, ...missing];
+            }
+          }
           const conversationIds = rows.map((c) => c.id);
           const displayMeta = getDisplayMetaForConversations(conversationIds);
           const bindings =
