@@ -78,10 +78,10 @@ final class ConversationActivityStore {
     }
 
     /// Generation counters for invalidating assistant-activity observation loops.
-    @ObservationIgnored private var activityGenerations: [UUID: Int] = []
+    @ObservationIgnored private var activityGenerations: [UUID: Int] = [:]
 
     /// Last observed assistant activity snapshot per conversation.
-    @ObservationIgnored private(set) var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = []
+    @ObservationIgnored private(set) var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = [:]
 
     /// Callback invoked when assistant activity changes for a conversation.
     /// Parameters: (conversationId, previousSnapshot, currentSnapshot).

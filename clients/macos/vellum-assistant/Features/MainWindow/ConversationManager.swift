@@ -2441,7 +2441,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     /// or when streaming completes (isStreaming goes from true to false). This
     /// avoids O(n) HTTP calls per streaming response (one per text delta) while
     /// still advancing the server-side seen cursor.
-    private func handleAssistantMessageArrival(conversationId: UUID, previousSnapshot: AssistantActivitySnapshot?, currentSnapshot: AssistantActivitySnapshot) {
+    private func handleAssistantMessageArrival(conversationId: UUID, previousSnapshot: ConversationActivityStore.AssistantActivitySnapshot?, currentSnapshot: ConversationActivityStore.AssistantActivitySnapshot) {
         // Skip during conversation restoration or history re-hydration —
         // observation fires when messages are populated from history, but
         // those are historical messages, not fresh assistant replies.
