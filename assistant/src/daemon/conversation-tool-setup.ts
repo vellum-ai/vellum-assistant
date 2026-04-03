@@ -375,8 +375,7 @@ export function createProxyApprovalCallback(
 
     // Persist trust rule if the user chose "always allow" or "always deny"
     if (
-      (response.decision === "always_allow" ||
-        response.decision === "always_allow_high_risk") &&
+      response.decision === "always_allow" &&
       response.selectedPattern &&
       response.selectedScope
     ) {
@@ -385,7 +384,6 @@ export function createProxyApprovalCallback(
           toolName,
           pattern: response.selectedPattern,
           scope: response.selectedScope,
-          highRisk: response.decision === "always_allow_high_risk",
         },
         "Persisting always-allow trust rule (proxy)",
       );
@@ -395,9 +393,6 @@ export function createProxyApprovalCallback(
         response.selectedScope,
         "allow",
         100,
-        response.decision === "always_allow_high_risk"
-          ? { allowHighRisk: true }
-          : undefined,
       );
     }
     if (
