@@ -29,9 +29,15 @@ export interface ResolvedImage {
 // InContextTracker — tracks which node IDs are visible to the LLM
 // ---------------------------------------------------------------------------
 
-interface InjectionLogEntry {
+export interface InjectionLogEntry {
   nodeId: string;
   turn: number;
+}
+
+export interface InContextTrackerSnapshot {
+  inContext: string[];
+  log: InjectionLogEntry[];
+  currentTurn: number;
 }
 
 /**
@@ -105,6 +111,22 @@ export class InContextTracker {
   /** Current turn number. */
   getTurn(): number {
     return this.currentTurn;
+  }
+
+  /** Serialize tracker state for persistence across eviction. */
+  toJSON(): InContextTrackerSnapshot {
+    return {
+      inContext: [...this.inContext],
+      log: [...this.log],
+      currentTurn: this.currentTurn,
+    };
+  }
+
+  /** Restore tracker state from a persisted snapshot. Replaces current state. */
+  restoreFrom(snapshot: InContextTrackerSnapshot): void {
+    this.inContext = new Set(snapshot.inContext);
+    this.log = [...snapshot.log];
+    this.currentTurn = snapshot.currentTurn;
   }
 }
 

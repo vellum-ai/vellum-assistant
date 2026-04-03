@@ -58,6 +58,7 @@ import {
   migrateContactsUserFileColumn,
   migrateConversationForkLineage,
   migrateConversationsThreadTypeIndex,
+  migrateCreateConversationGraphMemoryState,
   migrateCreateMemoryGraphNodeEdits,
   migrateCreateMemoryGraphTables,
   migrateCreateMemoryRecallLogs,
@@ -585,6 +586,9 @@ export function initializeDb(): void {
 
   // 105. Remove image attachments containing HTML error pages instead of image data
   migrateScrubCorruptedImageAttachments(database);
+
+  // 106. Persist graph memory tracker state across conversation eviction
+  migrateCreateConversationGraphMemoryState(database);
 
   validateMigrationState(database);
 
