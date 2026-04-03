@@ -19,7 +19,7 @@ ARGUMENTS:
     <message>      Message content to send
 
 OPTIONS:
-    --conversation-key <key>  Conversation key (default: new conversation)
+    --conversation-key <key>  Conversation key (default: stable key per channel/interface)
     --json                    Output raw JSON response
 
 EXAMPLES:
