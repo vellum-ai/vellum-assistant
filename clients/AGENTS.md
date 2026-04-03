@@ -28,7 +28,7 @@ When updating any client documentation (README, AGENTS.md, ARCHITECTURE.md), con
 - Keep UI work on the main actor; use async/await and structured concurrency when possible.
 - Avoid deprecated APIs; use availability checks for multi-platform code. See the [Deprecated API Watchlist](#deprecated-api-watchlist) below for specific APIs to avoid.
 - Respect HIG defaults for layout, typography, and controls; only customize when user value is clear.
-- Accessibility is required: labels for icon-only controls, Dynamic Type support, VoiceOver-friendly order.
+- Accessibility is required: see [Accessibility](#accessibility) below for detailed rules derived from past fixes.
 - Localize user-facing strings; format dates/units with locale-aware formatters.
 - Privacy: request the minimum permissions; never log sensitive user content.
 
@@ -39,6 +39,49 @@ APIs that still compile without warning but are deprecated by Apple. Do not intr
 | Deprecated | Replacement | Since | Status | Why |
 |---|---|---|---|---|
 | `.foregroundColor()` | `.foregroundStyle()` | macOS 12 / iOS 15 | **Fully migrated** — do not use `.foregroundColor()` anywhere | `.foregroundStyle()` accepts any `ShapeStyle` (gradients, materials, hierarchical styles), not just `Color`. Drop-in replacement for `Color` values. |
+
+### Accessibility
+
+Every interactive element must be usable via VoiceOver and keyboard navigation. These rules come from real bugs fixed in the codebase — treat them as a checklist when building or modifying components.
+
+**References:**
+- [Apple — Accessibility for SwiftUI](https://developer.apple.com/documentation/swiftui/accessibility)
+- [WWDC24 — Catch up on accessibility in SwiftUI](https://developer.apple.com/videos/play/wwdc2024/10073/)
+- [Apple — Supporting VoiceOver in your app](https://developer.apple.com/documentation/accessibility/supporting-voiceover-in-your-app)
+- [Apple HIG — Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
+
+#### Labels
+
+- **Every interactive element needs an accessibility label.** Icon-only buttons, icon-only menu triggers, and close/dismiss buttons must have `.accessibilityLabel()`. Text buttons get their label from the `Text` content automatically — do not override it with an empty string.
+  - Bad: `.accessibilityLabel(iconOnly != nil ? label : "")` — this blanks the label for text buttons.
+  - Good: `.accessibilityLabel(label)` — always expose the label regardless of visual variant.
+- **Descriptive labels for contextual actions.** Use labels that include the context: `"Remove \(label) filter"`, `"Delete memory"`, `"More options"` — not just `"Close"` or `"Delete"`.
+- **Accessibility labels must match the visual content.** If a value is clamped for display (e.g., a progress ring), the accessibility label must use the same clamped value so VoiceOver reports what the user sees.
+
+#### Hidden & Conditional Elements
+
+- **Opacity-hidden elements need `.allowsHitTesting(false)`.** When using `.opacity(isHovered ? 1 : 0)` to show/hide controls, also add `.allowsHitTesting(isHovered)` to prevent invisible elements from intercepting taps.
+- **Opacity-hidden elements need `.accessibilityHidden()`.** Add `.accessibilityHidden(!isVisible)` so VoiceOver does not announce elements the user cannot see. Without this, VoiceOver users encounter "phantom" buttons.
+- **Decorative dividers and separators must be hidden.** Add `.accessibilityHidden(true)` to visual-only elements like `VMenuDivider`, section separators, and decorative rules.
+
+#### Custom Interactive Elements
+
+- **Custom tap targets need `.accessibilityAddTraits(.isButton)` and `.accessibilityAction`.** When using `.onTapGesture` instead of `Button`, VoiceOver cannot activate the element. Add:
+  ```swift
+  .accessibilityElement(children: .combine)
+  .accessibilityLabel(label)
+  .accessibilityAddTraits(.isButton)
+  .accessibilityAction { action() }
+  ```
+- **Disabled items must guard their accessibility actions.** If a menu item or button is disabled, the `.accessibilityAction` closure must check `isEnabled` before executing: `guard isEnabled else { return }`.
+- **Stateful controls need `.accessibilityValue()` and traits.** Toggle-like or selectable items should expose state: `.accessibilityAddTraits(isActive ? [.isSelected] : [])` and `.accessibilityValue(valueText)`.
+- **Section headers need `.accessibilityAddTraits(.isHeader)`.** Mark section titles in menus and lists with the header trait so VoiceOver users can navigate by section.
+
+#### Custom Panels and Popovers (AppKit)
+
+- **NSPanel-based menus must post VoiceOver notifications.** When presenting a custom `NSPanel` (e.g., `VMenuPanel`), post `NSAccessibility.post(element: panel, notification: .created)` and move VoiceOver focus to the first child element.
+- **Do not wrap `NSHostingView` in intermediate container views.** Use `NSHostingView` directly as `contentView` to preserve the natural `NSPanel → NSHostingView → SwiftUI` accessibility hierarchy. Wrapper views (e.g., `FirstMouseView`) break VoiceOver navigation.
+- **Use `.setAccessibilityRoleDescription("menu")` instead of `.setAccessibilityRole(.menu)` for custom panels.** The `.menu` role expects native `NSMenu`-style children that SwiftUI cannot provide; a role *description* preserves the announcement without breaking navigation.
 
 ### State Management: @Observable vs ObservableObject
 
