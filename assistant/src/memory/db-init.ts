@@ -587,7 +587,6 @@ export function initializeDb(): void {
   // 104. Memory graph node edit history
   migrateCreateMemoryGraphNodeEdits(database);
 
-<<<<<<< HEAD
   // 105. Remove image attachments containing HTML error pages instead of image data
   migrateScrubCorruptedImageAttachments(database);
 
