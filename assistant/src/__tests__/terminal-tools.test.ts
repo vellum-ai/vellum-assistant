@@ -65,9 +65,9 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
-import type { SandboxConfig } from "../config/schema.js";
 import { parse } from "../tools/terminal/parser.js";
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
+import type { SandboxConfig } from "../tools/terminal/sandbox.js";
 import { wrapCommand } from "../tools/terminal/sandbox.js";
 import { ToolError } from "../util/errors.js";
 

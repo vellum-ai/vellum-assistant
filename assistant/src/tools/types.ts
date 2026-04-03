@@ -34,7 +34,6 @@ export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
   diff?: DiffInfo;
-  sandboxed?: boolean;
   persistentDecisionsAllowed?: boolean;
 }
 
@@ -110,8 +109,6 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
-  /** Per-conversation sandbox override. When set, takes precedence over the global config. */
-  sandboxOverride?: boolean;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */

@@ -22,7 +22,6 @@
 
 import { spawn } from "node:child_process";
 
-import { getConfig } from "../config/loader.js";
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import { wrapCommand } from "../tools/terminal/sandbox.js";
 import { getLogger } from "../util/logger.js";
@@ -105,10 +104,10 @@ export async function runInlineCommand(
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxChars = options?.maxOutputChars ?? MAX_OUTPUT_CHARS;
 
-  // Build sandbox-wrapped command. Always use the sandbox config with
-  // network forced off — inline commands never need network access.
-  const config = getConfig();
-  const sandboxConfig = { ...config.sandbox, enabled: true };
+  // Build sandbox-wrapped command with network forced off — inline
+  // commands never need network access. Sandbox is disabled; the
+  // assistant runs in Docker or platform-managed environments.
+  const sandboxConfig = { enabled: false } as const;
 
   const wrapped = wrapCommand(command, workingDir, sandboxConfig, {
     networkMode: "off",

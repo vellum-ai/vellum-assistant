@@ -156,7 +156,6 @@ export class Conversation {
   /** @internal */ sendToClient: (msg: ServerMessage) => void;
   /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
-  /** @internal */ sandboxOverride?: boolean;
   /** @internal */ allowedToolNames?: Set<string>;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
@@ -534,10 +533,6 @@ export class Conversation {
       this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
     }
-  }
-
-  setSandboxOverride(enabled: boolean | undefined): void {
-    this.sandboxOverride = enabled;
   }
 
   isProcessing(): boolean {

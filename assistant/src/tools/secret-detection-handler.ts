@@ -331,7 +331,6 @@ export class SecretDetectionHandler {
       [], // no allowlist options
       [], // no scope options
       undefined, // no diff
-      undefined, // not sandboxed
       context.conversationId,
       executionTarget,
       false, // no persistent decisions

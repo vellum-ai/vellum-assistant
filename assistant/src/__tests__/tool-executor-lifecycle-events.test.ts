@@ -15,17 +15,6 @@ const mockConfig = {
     shellMaxTimeoutSec: 600,
     permissionTimeoutSec: 300,
   },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
@@ -256,7 +245,6 @@ describe("ToolExecutor lifecycle events", () => {
     expect(promptEvent.executionTarget).toBe("sandbox");
     expect(promptEvent.riskLevel).toBe("medium");
     expect(promptEvent.reason).toBe("medium risk: requires approval");
-    expect(promptEvent.sandboxed).toBe(true);
     expect(promptEvent.allowlistOptions).toEqual([
       { label: "exact", description: "exact", pattern: "exact" },
     ]);
@@ -602,7 +590,6 @@ describe("ToolExecutor lifecycle events", () => {
     expect(promptEvent.reason).toBe(
       "Private conversation: side-effect tools require explicit approval",
     );
-    expect(promptEvent.sandboxed).toBe(true);
   });
 
   test("no permission_prompt event for read-only tool even with forcePromptSideEffects", async () => {

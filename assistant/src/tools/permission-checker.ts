@@ -1,4 +1,3 @@
-import { getConfig } from "../config/loader.js";
 import { getHookManager } from "../hooks/manager.js";
 import {
   check,
@@ -17,7 +16,6 @@ import {
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
-import { wrapCommand } from "./terminal/sandbox.js";
 import type { ExecutionTarget } from "./types.js";
 import type { Tool, ToolContext, ToolLifecycleEvent } from "./types.js";
 
@@ -232,21 +230,6 @@ export class PermissionChecker {
         const scopeOptions = generateScopeOptions(context.workingDir, name);
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
 
-        let sandboxed: boolean | undefined;
-        if (name === "bash" && typeof input.command === "string") {
-          const cfg = getConfig();
-          const sandboxConfig =
-            context.sandboxOverride != null
-              ? { ...cfg.sandbox, enabled: context.sandboxOverride }
-              : cfg.sandbox;
-          const wrapped = wrapCommand(
-            input.command,
-            context.workingDir,
-            sandboxConfig,
-          );
-          sandboxed = wrapped.sandboxed;
-        }
-
         const persistentDecisionsAllowed = !context.requireFreshApproval;
 
         // Offer temporary approval options to guardians. Suppressed when
@@ -272,7 +255,6 @@ export class PermissionChecker {
           allowlistOptions,
           scopeOptions,
           diff: previewDiff,
-          sandboxed,
           persistentDecisionsAllowed,
         });
 
@@ -290,7 +272,6 @@ export class PermissionChecker {
           allowlistOptions,
           scopeOptions,
           previewDiff,
-          sandboxed,
           context.conversationId,
           executionTarget,
           persistentDecisionsAllowed,
