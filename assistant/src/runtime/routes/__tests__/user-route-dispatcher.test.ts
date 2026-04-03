@@ -1,19 +1,4 @@
-/**
- * Unit tests for UserRouteDispatcher.
- *
- * Covers:
- * - Path traversal rejection
- * - 404 for missing handler files
- * - 405 for unsupported HTTP methods (with Allow header)
- * - Successful dispatch to GET/POST handlers
- * - Handler timeout → 504
- * - Handler error → 500
- * - Mtime-based cache invalidation
- * - Index file convention (routes/<dir>/index.ts)
- */
-
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -28,12 +13,7 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
-let testRoutesDir: string;
-
-mock.module("../../../util/platform.js", () => ({
-  getWorkspaceRoutesDir: () => testRoutesDir,
-}));
-
+import { getWorkspaceRoutesDir } from "../../../util/platform.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 
 // ---------------------------------------------------------------------------
@@ -48,7 +28,8 @@ function makeRequest(
 }
 
 function writeHandler(relativePath: string, content: string): string {
-  const fullPath = join(testRoutesDir, relativePath);
+  const routesDir = getWorkspaceRoutesDir();
+  const fullPath = join(routesDir, relativePath);
   const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
   mkdirSync(dir, { recursive: true });
   writeFileSync(fullPath, content);
@@ -66,15 +47,11 @@ async function readErrorBody(
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  testRoutesDir = join(
-    tmpdir(),
-    `user-routes-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(testRoutesDir, { recursive: true });
+  mkdirSync(getWorkspaceRoutesDir(), { recursive: true });
 });
 
 afterEach(() => {
-  rmSync(testRoutesDir, { recursive: true, force: true });
+  rmSync(getWorkspaceRoutesDir(), { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
