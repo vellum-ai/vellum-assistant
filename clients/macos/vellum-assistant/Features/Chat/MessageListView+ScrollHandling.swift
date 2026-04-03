@@ -74,9 +74,20 @@ extension MessageListView {
         // The 0.5pt threshold filters sub-pixel layout noise. Safe from
         // feedback loops because pinning changes contentOffsetY, not
         // contentHeight.
+        //
+        // Phase guard: only fire when scroll is at rest (.idle) or during
+        // our own programmatic animation (.animating). Block during ALL
+        // user-initiated phases: .tracking (finger down, no movement),
+        // .interacting (actively dragging), .decelerating (momentum after
+        // release). Apple's ScrollPhase.isScrolling is `phase != .idle`,
+        // so we use `!isScrolling || == .animating` to carve out the
+        // programmatic exception. Without this, auto-follow fires during
+        // deceleration and fights user scroll momentum (snap-back flicker).
+        let phaseAllowsAutoFollow = !scrollState.scrollPhase.isScrolling
+            || scrollState.scrollPhase == .animating
         if abs(effectiveContentHeight - previousContentHeight) > 0.5,
            scrollState.mode.allowsAutoScroll,
-           scrollState.scrollPhase != .interacting {
+           phaseAllowsAutoFollow {
             scrollState.requestPinToBottom()
         }
         // --- Persistent bottom-recovery ---
@@ -103,7 +114,7 @@ extension MessageListView {
             isInRecoveryWindow = false
         }
         if scrollState.mode.allowsAutoScroll,
-           scrollState.scrollPhase != .interacting,
+           phaseAllowsAutoFollow,
            effectiveContentHeight > newState.visibleRectHeight,
            (!nowAtBottom || isInRecoveryWindow) {
             scrollState.requestPinToBottom()
