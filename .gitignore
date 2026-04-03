@@ -65,6 +65,11 @@ CLAUDE.md
 # IDE
 .idea/
 
+# personal docs/notes
+docs/
+.vellum.db
+assets/demo.gif
+
 # debug
 npm-debug.log*
 yarn-debug.log*
