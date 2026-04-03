@@ -157,8 +157,11 @@ final class MessageListScrollStateTests: XCTestCase {
 
         XCTAssertTrue(result,
                       "User-initiated requests should always return true")
-        XCTAssertFalse(scrollToEdgeCalls.isEmpty,
-                       "User-initiated requests should bypass mode checks")
+        // User-initiated uses ID-based scroll (scrollTo), not edge-based
+        // (scrollToEdge). ID-based targets actual ForEach content and
+        // avoids LazyVStack overshoot into blank estimated space.
+        XCTAssertFalse(scrollToCalls.isEmpty,
+                       "User-initiated requests should bypass mode checks and scroll via ID")
     }
 
     // MARK: - Stabilization
