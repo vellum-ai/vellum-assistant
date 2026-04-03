@@ -18,16 +18,16 @@ public struct VShortcutTag: View {
     }
 
     private var tagContent: some View {
-        HStack(spacing: 1) {
+        HStack(spacing: VSpacing.xxs) {
             if let icon {
                 VIconView(.resolve(icon), size: 12)
             }
             Text(text)
-                .font(VFont.bodyMediumDefault)
+                .font(VFont.bodySmallDefault)
         }
         .foregroundStyle(tagColor)
-        .padding(.horizontal, 6)
-        .padding(.vertical, VSpacing.xxs)
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
         .background(
             Capsule()
                 .strokeBorder(isHovered ? tagColor.opacity(0.5) : borderColor, lineWidth: 1)
@@ -52,4 +52,3 @@ public struct VShortcutTag: View {
         }
     }
 }
-

@@ -607,20 +607,6 @@ enum MessageInspectorDetailTab: String, CaseIterable {
         }
     }
 
-    var icon: VIcon {
-        switch self {
-        case .overview:
-            return .layoutGrid
-        case .memory:
-            return .brain
-        case .prompt:
-            return .scrollText
-        case .response:
-            return .messageSquare
-        case .raw:
-            return .fileCode
-        }
-    }
 }
 
 struct MessageInspectorViewState {
