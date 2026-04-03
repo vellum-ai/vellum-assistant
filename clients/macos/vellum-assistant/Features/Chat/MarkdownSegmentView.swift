@@ -584,6 +584,7 @@ private struct CodeBlockView: View, Equatable {
                 Text(code)
                     .font(.custom("DMMono-Regular", size: 13))
                     .foregroundStyle(textColor)
+                    .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(VSpacing.sm)
             }
