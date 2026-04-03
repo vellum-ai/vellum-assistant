@@ -584,11 +584,17 @@ function walkDirectoryForMetadata(
 
 /**
  * Compute SHA-256 hex digest of a file by streaming — never buffers the
- * entire file in memory.
+ * entire file in memory. When `size` is provided, only hashes the first
+ * `size` bytes to match what will be archived in the tar entry.
  */
-async function computeFileSha256(filePath: string): Promise<string> {
+async function computeFileSha256(
+  filePath: string,
+  size?: number,
+): Promise<string> {
   const hash = createHash("sha256");
-  const stream = createReadStream(filePath);
+  const streamOpts =
+    size !== undefined ? { start: 0, end: size - 1 } : undefined;
+  const stream = createReadStream(filePath, streamOpts);
   for await (const chunk of stream) {
     hash.update(chunk);
   }
@@ -692,23 +698,26 @@ async function* generateTarStream(
   for (const file of files) {
     yield createPaxAndHeaderBlocks(file.archivePath, file.size);
 
-    // Stream file data from disk, tracking bytes to detect size changes
-    // that would corrupt the tar structure. Content-only changes between
-    // passes are tolerated — the manifest checksums reflect the pass-1
-    // snapshot, which is acceptable for backup purposes. The WAL checkpoint
-    // before export is the primary consistency mechanism.
+    // Stream exactly file.size bytes from disk. Capping the read at the
+    // declared size keeps the tar structure valid even if the file grows
+    // between passes (common for log files on active assistants). If the
+    // file shrinks below the declared size, zero-pad to maintain block
+    // alignment. The WAL checkpoint before export is the primary
+    // consistency mechanism for the database.
     let bytesWritten = 0;
-    const stream = createReadStream(file.diskPath);
+    const stream = createReadStream(file.diskPath, {
+      start: 0,
+      end: file.size - 1,
+    });
     for await (const chunk of stream) {
       const data = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
       bytesWritten += data.length;
       yield data;
     }
 
-    if (bytesWritten !== file.size) {
-      throw new Error(
-        `File size changed during export: ${file.archivePath} (expected ${file.size}, got ${bytesWritten})`,
-      );
+    // If the file shrank, pad with zeros to reach the declared size
+    if (bytesWritten < file.size) {
+      yield new Uint8Array(file.size - bytesWritten);
     }
 
     yield tarPaddingBytes(file.size);
@@ -790,7 +799,7 @@ export async function streamExportVBundle(
 
   const fileEntries: ManifestFileEntryType[] = [];
   for (const file of allFileMetadata) {
-    const sha256 = await computeFileSha256(file.diskPath);
+    const sha256 = await computeFileSha256(file.diskPath, file.size);
     fileEntries.push({
       path: file.archivePath,
       sha256,
