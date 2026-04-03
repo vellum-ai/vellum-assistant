@@ -828,6 +828,7 @@ export class RuntimeHttpServer {
       title: conversation.title ?? "Untitled",
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      lastMessageAt: conversation.lastMessageAt,
       conversationType: conversation.conversationType ?? "standard",
       source: conversation.source ?? "user",
       ...(conversation.scheduleJobId

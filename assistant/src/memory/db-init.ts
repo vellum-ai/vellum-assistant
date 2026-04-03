@@ -58,6 +58,7 @@ import {
   migrateContactsUserFileColumn,
   migrateConversationForkLineage,
   migrateConversationsThreadTypeIndex,
+  migrateConversationsLastMessageAt,
   migrateCreateConversationGraphMemoryState,
   migrateCreateMemoryGraphNodeEdits,
   migrateCreateMemoryGraphTables,
@@ -589,6 +590,9 @@ export function initializeDb(): void {
 
   // 106. Persist graph memory tracker state across conversation eviction
   migrateCreateConversationGraphMemoryState(database);
+
+  // 107. Add last_message_at denormalized column for message-based sorting
+  migrateConversationsLastMessageAt(database);
 
   validateMigrationState(database);
 
