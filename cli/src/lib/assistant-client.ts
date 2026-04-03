@@ -74,10 +74,11 @@ export class AssistantClient {
       );
     }
 
-    this.runtimeUrl = (entry.runtimeUrl ?? FALLBACK_RUNTIME_URL).replace(
-      /\/+$/,
-      "",
-    );
+    this.runtimeUrl = (
+      entry.localUrl ||
+      entry.runtimeUrl ||
+      FALLBACK_RUNTIME_URL
+    ).replace(/\/+$/, "");
     this._assistantId = entry.assistantId;
     this.token =
       loadGuardianToken(this._assistantId)?.accessToken ?? entry.bearerToken;
