@@ -1,6 +1,7 @@
 import type { CredentialCache } from "./credential-cache.js";
 import { credentialKey } from "./credential-key.js";
 import { fetchImpl } from "./fetch.js";
+import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { getLogger } from "./logger.js";
 
@@ -153,12 +154,23 @@ export class RemoteFeatureFlagSync {
       return null;
     }
 
-    // Filter to boolean values only (defensive)
+    // Filter to boolean values only (defensive), and prevent the platform
+    // from disabling flags that are already GA (defaultEnabled: true in the
+    // registry). The platform uses a blanket-deny posture, sending false for
+    // every flag it knows about. Without this filter, shipped features get
+    // silently turned off for all users.
+    const registry = loadFeatureFlagDefaults();
     const result: Record<string, boolean> = {};
     for (const [key, value] of Object.entries(body.flags)) {
-      if (typeof value === "boolean") {
-        result[key] = value;
+      if (typeof value !== "boolean") continue;
+      if (!value && registry[key]?.defaultEnabled) {
+        log.debug(
+          { key },
+          "Ignoring remote false for GA flag (defaultEnabled: true)",
+        );
+        continue;
       }
+      result[key] = value;
     }
 
     return result;
