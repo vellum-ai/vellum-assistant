@@ -275,6 +275,8 @@ public final class GatewayConnectionManager: ObservableObject {
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
+        latestModelInfo = nil
+        permissionMode = nil
     }
 
     /// Clears the last update outcome after the UI has consumed it.
