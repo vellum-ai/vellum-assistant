@@ -27,16 +27,26 @@ extension MessageListView {
         }
 
         // --- Phase guard (shared by bottom detection, auto-follow, recovery) ---
-        // Only allow automatic scroll actions when scroll is at rest (.idle)
-        // or during our own programmatic animation (.animating). Block during
-        // ALL user-initiated phases: .tracking (finger down, no movement),
-        // .interacting (actively dragging), .decelerating (momentum after
-        // release). Apple's ScrollPhase.isScrolling is `phase != .idle`,
-        // so we use `!isScrolling || == .animating` to carve out the
-        // programmatic exception. Without this, auto-follow fires during
-        // deceleration and fights user scroll momentum (snap-back flicker).
+        // Only allow automatic scroll actions when scroll is fully at rest
+        // (.idle). Block during ALL non-idle phases including .animating.
+        //
+        // Why no .animating exception: recovery calls non-animated
+        // scrollToEdge(.bottom) which interrupts any in-flight spring
+        // animation (e.g. the CTA's smooth scroll). The user sees the
+        // spring start, then a jarring jump to bottom. By restricting
+        // to .idle only, recovery waits until the animation completes,
+        // then fires cleanly.
+        //
+        // This is safe for streaming auto-follow because the auto-follow
+        // path uses non-animated scrollToEdge(.bottom) which doesn't
+        // trigger .animating — the scroll position changes instantly and
+        // scrollPhase stays .idle.
+        //
+        // Animated pins (handleSendingChanged, handleMessagesCountChanged)
+        // briefly trigger .animating (~150ms with VAnimation.fast), during
+        // which auto-follow is paused. After the animation completes and
+        // phase returns to .idle, auto-follow resumes immediately.
         let phaseAllowsAutoFollow = !scrollState.scrollPhase.isScrolling
-            || scrollState.scrollPhase == .animating
 
         // --- Viewport height update ---
         // Filter non-finite viewport heights and sub-pixel jitter.

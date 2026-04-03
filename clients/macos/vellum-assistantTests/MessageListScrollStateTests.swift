@@ -456,8 +456,16 @@ final class MessageListScrollStateTests: XCTestCase {
     }
 
     func testProgrammaticScrollToFollowingBottomViaReachedBottom() {
-        state.transition(to: .programmaticScroll(reason: .scrollRestore))
+        state.transition(to: .programmaticScroll(reason: .deepLinkAnchor(id: UUID())))
         state.handleReachedBottom()
         XCTAssertTrue(state.isFollowingBottom)
+    }
+
+    // MARK: - scrollPhase Reset
+
+    func testResetClearsScrollPhase() {
+        state.scrollPhase = .interacting
+        state.reset(for: UUID())
+        XCTAssertEqual(state.scrollPhase, .idle)
     }
 }

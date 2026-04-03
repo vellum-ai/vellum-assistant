@@ -72,12 +72,10 @@ enum ScrollMode: Equatable, CustomStringConvertible {
 
 enum ProgrammaticScrollReason: Equatable, CustomStringConvertible {
     case deepLinkAnchor(id: UUID)
-    case scrollRestore
 
     var description: String {
         switch self {
         case .deepLinkAnchor(let id): "deepLinkAnchor(\(id))"
-        case .scrollRestore: "scrollRestore"
         }
     }
 }
@@ -175,6 +173,10 @@ final class MessageListScrollState {
     // MARK: - Geometry State (never trigger re-evaluation)
 
     /// Current scroll phase from `onScrollPhaseChange`.
+    /// Reset to `.idle` in `reset()` to prevent stale phases from a
+    /// previous conversation (e.g. `.interacting`, `.decelerating`)
+    /// blocking `phaseAllowsAutoFollow` during the new conversation's
+    /// critical materialization window.
     @ObservationIgnored var scrollPhase: ScrollPhase = .idle
 
     /// Last content offset Y observed by onScrollGeometryChange.
@@ -467,15 +469,15 @@ final class MessageListScrollState {
     ///
     /// Two strategies depending on context:
     ///
-    /// **User-initiated (CTA tap):** ID-based scroll only, synchronous.
-    /// Targets `lastMessageId` (a ForEach item) which SwiftUI can always
-    /// locate in the data source — even when not materialized. This avoids
-    /// `scrollToEdge(.bottom)` which targets the *estimated* content
-    /// bottom and can overshoot into blank LazyVStack space. If the user
-    /// scrolls up immediately after tapping, they start from actual
-    /// content rather than blank space. Animation is provided by the
-    /// caller's `withAnimation` wrapper (spring for smooth CTA scroll).
-    /// The recovery window (set in `requestPinToBottom`) handles failures.
+    /// **User-initiated (CTA tap):** Edge-based scroll primary, with
+    /// ID-based correction. `scrollToEdge(.bottom)` fires synchronously
+    /// (reaches the actual content bottom, not just the last message —
+    /// there's padding/anchor below). An ID-based scroll to
+    /// `lastMessageId` fires on the next run-loop pass to correct any
+    /// overshoot into blank LazyVStack estimated space. Animation is
+    /// provided by the caller's `withAnimation` wrapper (spring for
+    /// smooth CTA scroll). The recovery window (set in
+    /// `requestPinToBottom`) handles failures.
     ///
     /// **Auto-follow / recovery:** Dual scroll strategy — edge-based
     /// fires immediately (fast for near-bottom adjustments), ID-based
@@ -634,6 +636,13 @@ final class MessageListScrollState {
         lastContentOffsetY = 0
         scrollContentHeight = 0
         scrollContainerHeight = 0
+        // Reset scroll phase — a stale .interacting/.decelerating from
+        // the previous conversation would block phaseAllowsAutoFollow,
+        // preventing all recovery and auto-follow during the new
+        // conversation's critical materialization window.
+        // onScrollPhaseChange may not fire for the new ScrollView's
+        // initial .idle state (only fires on *changes*).
+        scrollPhase = .idle
         // Reset anchor-appeared flag — the new conversation's bottom anchor
         // hasn't materialized yet. Until it does, isAtBottom is unreliable.
         bottomAnchorAppeared = false
