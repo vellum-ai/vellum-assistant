@@ -279,12 +279,6 @@ describe("normalizeLlmContextPayloads", () => {
         text: "Find the latest changelog.",
       },
       {
-        kind: "message",
-        label: "Assistant message 2",
-        role: "assistant",
-        text: "Checking sources.",
-      },
-      {
         kind: "reasoning",
         label: "Assistant message 2 reasoning",
         role: "assistant",
@@ -295,6 +289,12 @@ describe("normalizeLlmContextPayloads", () => {
         label: "Assistant message 2 reasoning",
         role: "assistant",
         text: "[redacted thinking]",
+      },
+      {
+        kind: "message",
+        label: "Assistant message 2",
+        role: "assistant",
+        text: "Checking sources.",
       },
       {
         kind: "tool_use",
@@ -332,12 +332,6 @@ describe("normalizeLlmContextPayloads", () => {
     ]);
     expect(normalized.responseSections).toEqual([
       {
-        kind: "message",
-        label: "Assistant response",
-        role: "assistant",
-        text: "I found the changelog.",
-      },
-      {
         kind: "reasoning",
         label: "Assistant response reasoning",
         role: "assistant",
@@ -348,6 +342,12 @@ describe("normalizeLlmContextPayloads", () => {
         label: "Assistant response reasoning",
         role: "assistant",
         text: "[redacted thinking]",
+      },
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "I found the changelog.",
       },
       {
         kind: "tool_use",
@@ -413,12 +413,6 @@ describe("normalizeLlmContextPayloads", () => {
     });
     expect(normalized.responseSections).toEqual([
       {
-        kind: "message",
-        label: "Assistant response",
-        role: "assistant",
-        text: "The answer is 42.",
-      },
-      {
         kind: "reasoning",
         label: "Assistant response reasoning",
         role: "assistant",
@@ -429,6 +423,12 @@ describe("normalizeLlmContextPayloads", () => {
         label: "Assistant response reasoning",
         role: "assistant",
         text: "[redacted thinking]",
+      },
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "The answer is 42.",
       },
     ]);
   });
