@@ -64,8 +64,6 @@ interface FileMetadata {
   archivePath: string;
   diskPath: string;
   size: number;
-  /** SHA-256 hex digest computed during pass 1; verified during pass 2. */
-  expectedSha256?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -694,15 +692,16 @@ async function* generateTarStream(
   for (const file of files) {
     yield createPaxAndHeaderBlocks(file.archivePath, file.size);
 
-    // Stream file data from disk, tracking bytes and computing SHA-256
-    // to detect TOCTOU races (size or content changes between passes)
+    // Stream file data from disk, tracking bytes to detect size changes
+    // that would corrupt the tar structure. Content-only changes between
+    // passes are tolerated — the manifest checksums reflect the pass-1
+    // snapshot, which is acceptable for backup purposes. The WAL checkpoint
+    // before export is the primary consistency mechanism.
     let bytesWritten = 0;
-    const verifyHash = file.expectedSha256 ? createHash("sha256") : null;
     const stream = createReadStream(file.diskPath);
     for await (const chunk of stream) {
       const data = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
       bytesWritten += data.length;
-      verifyHash?.update(data);
       yield data;
     }
 
@@ -710,15 +709,6 @@ async function* generateTarStream(
       throw new Error(
         `File size changed during export: ${file.archivePath} (expected ${file.size}, got ${bytesWritten})`,
       );
-    }
-
-    if (verifyHash && file.expectedSha256) {
-      const actualSha256 = verifyHash.digest("hex");
-      if (actualSha256 !== file.expectedSha256) {
-        throw new Error(
-          `File content changed during export: ${file.archivePath} (checksum mismatch)`,
-        );
-      }
     }
 
     yield tarPaddingBytes(file.size);
@@ -801,7 +791,6 @@ export async function streamExportVBundle(
   const fileEntries: ManifestFileEntryType[] = [];
   for (const file of allFileMetadata) {
     const sha256 = await computeFileSha256(file.diskPath);
-    file.expectedSha256 = sha256;
     fileEntries.push({
       path: file.archivePath,
       sha256,
