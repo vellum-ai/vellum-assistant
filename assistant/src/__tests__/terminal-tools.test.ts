@@ -470,6 +470,7 @@ describe("buildSanitizedEnv", () => {
       "SSH_AGENT_PID",
       "GPG_TTY",
       "GNUPGHOME",
+      "BUN_CONFIG_FILE",
       "VELLUM_DEV",
       "INTERNAL_GATEWAY_BASE_URL",
       "VELLUM_DATA_DIR",

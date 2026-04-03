@@ -18,6 +18,7 @@ import { stopProcessByPidFile } from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
+const ASSISTANT_BUN_CONFIG_CONTENT = "smol = true\n";
 
 function isAssistantSourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
@@ -142,6 +143,23 @@ function resolveAssistantBunConfigPath(
     "smol-bunfig.toml",
   );
   return existsSync(configPath) ? configPath : undefined;
+}
+
+function ensureManagedAssistantBunConfig(
+  resources?: LocalInstanceResources,
+): string {
+  const workspaceDir =
+    process.env.VELLUM_WORKSPACE_DIR?.trim() ||
+    join(resources?.instanceDir ?? homedir(), ".vellum", "workspace");
+  const configPath = join(workspaceDir, "assistant-bunfig.toml");
+  mkdirSync(dirname(configPath), { recursive: true });
+  const existing = existsSync(configPath)
+    ? readFileSync(configPath, "utf-8")
+    : undefined;
+  if (existing !== ASSISTANT_BUN_CONFIG_CONTENT) {
+    writeFileSync(configPath, ASSISTANT_BUN_CONFIG_CONTENT);
+  }
+  return configPath;
 }
 
 function ensureBunInstalled(): void {
@@ -914,6 +932,7 @@ export async function startLocalDaemon(
       if (options?.signingKey) {
         daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
       }
+      daemonEnv.BUN_CONFIG_FILE = ensureManagedAssistantBunConfig(resources);
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check

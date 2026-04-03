@@ -2149,6 +2149,7 @@ describe("buildSanitizedEnv — baseline: credential exclusion", () => {
       "SSH_AGENT_PID",
       "GPG_TTY",
       "GNUPGHOME",
+      "BUN_CONFIG_FILE",
       "INTERNAL_GATEWAY_BASE_URL",
       "VELLUM_DATA_DIR",
       "VELLUM_WORKSPACE_DIR",
