@@ -39,6 +39,17 @@ public final class ChatMessageManager {
     }
     @ObservationIgnored private var _messagesStorage: [ChatMessage] = []
 
+    /// Apply multiple mutations to the message array in a single batch,
+    /// emitting only one Observation notification and one Combine publish
+    /// at the end. Use for loops that modify many elements (trim, status
+    /// resets) to avoid O(n) synchronous pipeline evaluations.
+    public func batchUpdateMessages(_ body: (inout [ChatMessage]) -> Void) {
+        withMutation(keyPath: \.messages) {
+            body(&_messagesStorage)
+        }
+        _messagesSubject.send(_messagesStorage)
+    }
+
     /// Active pending confirmation request ID, derived from `messages` via a
     /// Combine pipeline. Views read this O(1) cached value instead of scanning
     /// the message array each render cycle.
