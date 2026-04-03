@@ -651,17 +651,11 @@ export async function startCli(): Promise<void> {
           if (msg.messages.length === 0) {
             process.stdout.write("\n  No messages to copy.\n\n");
           } else {
-            try {
-              const formatted = formatConversationForExport(msg.messages);
-              copyToClipboard(formatted);
-              process.stdout.write(
-                `\n  Copied conversation (${msg.messages.length} messages) to clipboard.\n\n`,
-              );
-            } catch (err) {
-              process.stdout.write(
-                `\n  Clipboard error: ${(err as Error).message}\n\n`,
-              );
-            }
+            const formatted = formatConversationForExport(msg.messages);
+            copyToClipboard(formatted);
+            process.stdout.write(
+              `\n  Copied conversation (${msg.messages.length} messages) to clipboard.\n\n`,
+            );
           }
           prompt();
           break;
@@ -758,12 +752,8 @@ export async function startCli(): Promise<void> {
       if (!lastResponse) {
         process.stdout.write("No response to copy.\n");
       } else {
-        try {
-          copyToClipboard(lastResponse);
-          process.stdout.write("Copied to clipboard.\n");
-        } catch (err) {
-          process.stdout.write(`Clipboard error: ${(err as Error).message}\n`);
-        }
+        copyToClipboard(lastResponse);
+        process.stdout.write("Copied to clipboard.\n");
       }
       prompt();
       return;
@@ -792,12 +782,8 @@ export async function startCli(): Promise<void> {
       if (code == null) {
         process.stdout.write("No code block found.\n");
       } else {
-        try {
-          copyToClipboard(code);
-          process.stdout.write("Copied code block to clipboard.\n");
-        } catch (err) {
-          process.stdout.write(`Clipboard error: ${(err as Error).message}\n`);
-        }
+        copyToClipboard(code);
+        process.stdout.write("Copied code block to clipboard.\n");
       }
       prompt();
       return;
@@ -827,17 +813,11 @@ export async function startCli(): Promise<void> {
               text: renderHistoryContent(parsedContent).text,
             };
           });
-          try {
-            const formatted = formatConversationForExport(rendered);
-            copyToClipboard(formatted);
-            process.stdout.write(
-              `\n  Copied conversation (${rawMessages.length} messages) to clipboard.\n\n`,
-            );
-          } catch (err) {
-            process.stdout.write(
-              `\n  Clipboard error: ${(err as Error).message}\n\n`,
-            );
-          }
+          const formatted = formatConversationForExport(rendered);
+          copyToClipboard(formatted);
+          process.stdout.write(
+            `\n  Copied conversation (${rawMessages.length} messages) to clipboard.\n\n`,
+          );
         }
       } catch {
         process.stdout.write("[Failed to fetch history]\n");
