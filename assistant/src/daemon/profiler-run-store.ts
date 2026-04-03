@@ -14,6 +14,7 @@
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -61,7 +62,7 @@ const MANIFEST_FILENAME = "manifest.json";
 
 // ── Default budgets ─────────────────────────────────────────────────────
 
-/** Default max total bytes across all completed runs: 500 MB */
+/** Default max total bytes across all runs (including active): 500 MB */
 const DEFAULT_MAX_BYTES = 500 * 1024 * 1024;
 
 /** Default max number of completed runs retained: 10 */
@@ -87,6 +88,8 @@ export interface ProfilerSweepResult {
 
 /**
  * Recursively compute the total byte size of all files in a directory.
+ * Uses lstatSync to avoid following symlinks (prevents infinite loops
+ * from symlink cycles and avoids counting out-of-tree data).
  */
 function computeDirBytes(dirPath: string): number {
   let total = 0;
@@ -96,7 +99,8 @@ function computeDirBytes(dirPath: string): number {
   for (const name of names) {
     const entryPath = join(dirPath, name);
     try {
-      const stat = statSync(entryPath);
+      const stat = lstatSync(entryPath);
+      if (stat.isSymbolicLink()) continue;
       if (stat.isDirectory()) {
         total += computeDirBytes(entryPath);
       } else if (stat.isFile()) {

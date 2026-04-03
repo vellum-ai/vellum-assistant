@@ -106,7 +106,7 @@ export function getProfilerMode(): string | undefined {
 
 /**
  * VELLUM_PROFILER_MAX_BYTES — integer, default: undefined
- * Maximum total bytes retained across all completed profiler runs.
+ * Maximum total bytes retained across all profiler runs (including active).
  * The startup sweep prunes oldest completed runs to stay within budget.
  */
 export function getProfilerMaxBytes(): number | undefined {

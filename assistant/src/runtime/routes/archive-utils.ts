@@ -1,8 +1,6 @@
 /**
- * Shared tar.gz archive creation and size-cap enforcement utilities.
- *
- * Extracted from log-export-routes so that profiler exports can reuse the
- * same archive safeguards without duplicating tar logic.
+ * Shared tar.gz archive creation and size-cap enforcement utilities used by
+ * log export and profiler export routes.
  */
 
 import { spawnSync } from "node:child_process";

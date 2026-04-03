@@ -2048,11 +2048,11 @@ Each profiler run lives in its own sub-directory under `<workspace>/data/profile
 
 **Retention budgets:** On daemon startup and after explicit cleanup operations, the profiler sweep enforces three budgets:
 
-| Budget                                    | Env var                       | Default |
-| ----------------------------------------- | ----------------------------- | ------- |
-| Max total bytes across all completed runs | `VELLUM_PROFILER_MAX_BYTES`   | 500 MB  |
-| Max number of completed runs retained     | `VELLUM_PROFILER_MAX_RUNS`    | 10      |
-| Minimum free disk space                   | `VELLUM_PROFILER_MIN_FREE_MB` | 200 MB  |
+| Budget                                | Env var                       | Default |
+| ------------------------------------- | ----------------------------- | ------- |
+| Max total bytes across all runs       | `VELLUM_PROFILER_MAX_BYTES`   | 500 MB  |
+| Max number of completed runs retained | `VELLUM_PROFILER_MAX_RUNS`    | 10      |
+| Minimum free disk space               | `VELLUM_PROFILER_MIN_FREE_MB` | 200 MB  |
 
 Completed runs are pruned oldest-first until all budgets are satisfied. The active run is never deleted, even if it alone exceeds the byte budget.
 
