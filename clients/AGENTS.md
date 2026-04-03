@@ -73,7 +73,7 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 
 The following classes have been migrated from `ObservableObject` to `@Observable`:
 
-**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState, ConversationManager
+**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState, ConversationManager, ConversationListStore, ConversationSelectionStore, ConversationActivityStore
 
 **Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager, ChatViewModel
 
@@ -130,6 +130,20 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 **Migration:** Existing `ObservableObject` types should be migrated opportunistically. Use Combine (`@Published`, `sink`, `onReceive`) only for reactive stream processing (SSE event streams, debounce pipelines, `UserDefaults.publisher`) — not for simple state management.
 
 **Previews:** Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface. If you encounter existing `#Preview` blocks, remove them.
+
+#### ConversationManager 3-Store Architecture
+
+`ConversationManager` is decomposed into three focused `@Observable` stores, each owning a distinct domain of state. This follows Apple's recommendation to use small, focused model objects for property-level tracking ([Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app), [WWDC21 — Demystify SwiftUI](https://developer.apple.com/videos/play/wwdc2021/10022/)).
+
+| Store | Responsibility | Key State |
+|---|---|---|
+| `ConversationListStore` | Conversation and group arrays, sidebar-derived computed properties, pagination, grouping, pinning, ordering, seen/unseen state | `conversations`, `groups`, `visibleConversations`, `groupedConversations`, `unseenVisibleConversationCount` |
+| `ConversationSelectionStore` | Active conversation selection, draft mode, ChatViewModel LRU cache, pop-out window pinning, restoration | `activeConversationId`, `draftViewModel`, `chatViewModels`, `vmAccessOrder`, `pinnedViewModelIds` |
+| `ConversationActivityStore` | Per-conversation busy flags, interaction states, active message count | `busyConversationIds`, `conversationInteractionStates`, `activeMessageCount` |
+
+`ConversationManager` acts as a thin facade wiring the three stores together with app-layer dependencies (daemon connection, fork/detail clients, conversation restorer). Views continue to inject `ConversationManager` via `@Environment` — the facade forwards all public properties and methods to the appropriate store. Cross-cutting operations that touch multiple stores (fork, archive, background-conversation creation) live on the facade.
+
+**Why this matters:** With `@Observable`, property-level tracking means a sidebar view reading `conversations` is not invalidated when `activeConversationId` changes (owned by a different store). This eliminates the broad invalidation cascade that previously caused 100+ sidebar row rebuilds on every conversation switch.
 
 ---
 
