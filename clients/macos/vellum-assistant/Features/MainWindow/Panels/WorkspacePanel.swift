@@ -412,11 +412,11 @@ private struct WorkspaceTreeSidebar: View {
             handleDrop(providers: providers, targetDir: "", state: state, workspaceClient: workspaceClient)
             return true
         }
-        .background(VColor.surfaceOverlay)
+        .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .strokeBorder(VColor.borderDisabled, lineWidth: 2)
+                .strokeBorder(VColor.borderHover, lineWidth: 1)
                 .allowsHitTesting(false)
         )
         .alert("New File", isPresented: $state.showingNewFileAlert) {
