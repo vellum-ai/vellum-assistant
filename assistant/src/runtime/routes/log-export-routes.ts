@@ -31,7 +31,7 @@ import {
   messages,
   toolInvocations,
 } from "../../memory/schema.js";
-import { getLogger } from "../../util/logger.js";
+import { getLogger, LOG_FILE_PATTERN } from "../../util/logger.js";
 import {
   getDaemonStderrLogPath,
   getDataDir,
@@ -167,9 +167,19 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
 
     const logsDir = join(getDataDir(), "logs");
     const collectedLogFiles: string[] = [];
+    const startDate = startTime ? new Date(startTime) : undefined;
+    const endDate = endTime ? new Date(endTime) : undefined;
     if (existsSync(logsDir)) {
       const entries = readdirSync(logsDir);
       for (const entry of entries) {
+        // Filter dated log files by time range
+        const dateMatch = entry.match(LOG_FILE_PATTERN);
+        if (dateMatch && (startDate || endDate)) {
+          const fileDate = new Date(dateMatch[1] + "T23:59:59.999Z"); // end of day
+          const fileDateStart = new Date(dateMatch[1] + "T00:00:00.000Z");
+          if (startDate && fileDate < startDate) continue; // entire day is before range
+          if (endDate && fileDateStart > endDate) continue; // entire day is after range
+        }
         const filePath = join(logsDir, entry);
         try {
           const stat = statSync(filePath);
