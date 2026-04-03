@@ -49,11 +49,11 @@ mock.module("../prompts/system-prompt.js", () => ({
 
 let mockGuardianResult: {
   contact: { notes: string | null };
-  channel: Record<string, unknown>;
+  channels: Record<string, unknown>[];
 } | null = null;
 
 mock.module("../contacts/contact-store.js", () => ({
-  findGuardianForChannel: () => mockGuardianResult,
+  listGuardianChannels: () => mockGuardianResult,
 }));
 
 // ── Provider mock with system prompt capture ──────────────────────────
@@ -153,7 +153,7 @@ describe("recipient context in notification decision engine", () => {
   test("guardian contact notes appear in system prompt as <recipient-context>", async () => {
     mockGuardianResult = {
       contact: { notes: "Prefers formal tone. Address as Dr. Smith." },
-      channel: { type: "vellum" },
+      channels: [{ type: "vellum" }],
     };
     setupLLMProvider();
 
@@ -183,7 +183,7 @@ describe("recipient context in notification decision engine", () => {
   test("recipient-context is omitted when guardian notes are null", async () => {
     mockGuardianResult = {
       contact: { notes: null },
-      channel: { type: "vellum" },
+      channels: [{ type: "vellum" }],
     };
     setupLLMProvider();
 
@@ -198,7 +198,7 @@ describe("recipient context in notification decision engine", () => {
   test("recipient-context is omitted when guardian notes are empty string", async () => {
     mockGuardianResult = {
       contact: { notes: "" },
-      channel: { type: "vellum" },
+      channels: [{ type: "vellum" }],
     };
     setupLLMProvider();
 
@@ -213,7 +213,7 @@ describe("recipient context in notification decision engine", () => {
   test("large guardian notes are truncated to prevent oversized prompts", async () => {
     mockGuardianResult = {
       contact: { notes: "N".repeat(3000) },
-      channel: { type: "vellum" },
+      channels: [{ type: "vellum" }],
     };
     setupLLMProvider();
 
@@ -240,7 +240,7 @@ describe("recipient context in notification decision engine", () => {
   test("fallback path works correctly without recipient context", async () => {
     mockGuardianResult = {
       contact: { notes: "Prefers formal tone." },
-      channel: { type: "vellum" },
+      channels: [{ type: "vellum" }],
     };
     // null provider forces fallback path
     configuredProvider = null;
@@ -261,7 +261,7 @@ describe("recipient context in notification decision engine", () => {
   test("recipient-context appears after user-preferences in prompt", async () => {
     mockGuardianResult = {
       contact: { notes: "Prefers brief updates." },
-      channel: { type: "vellum" },
+      channels: [{ type: "vellum" }],
     };
     setupLLMProvider();
 
