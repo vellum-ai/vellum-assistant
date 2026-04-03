@@ -315,7 +315,7 @@ export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
 
-/** Returns ~/.vellum/workspace/routes — user-defined HTTP route handlers. */
+/** Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers. */
 export function getWorkspaceRoutesDir(): string {
   return join(getWorkspaceDir(), "routes");
 }
