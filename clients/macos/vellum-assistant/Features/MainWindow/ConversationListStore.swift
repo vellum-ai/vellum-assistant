@@ -705,28 +705,31 @@ final class ConversationListStore {
         var markedIds: [UUID] = []
         var conversationIds: [String] = []
         var priorStates: [UUID: MarkAllSeenPriorState] = [:]
-        for idx in conversations.indices {
-            guard !conversations[idx].isArchived,
-                  conversations[idx].kind != .private,
-                  conversations[idx].hasUnseenLatestAssistantMessage else { continue }
-            let localId = conversations[idx].id
-            let conversationId = conversations[idx].conversationId
-            // Capture prior state before overwriting
+        // Mutate a local copy to avoid N × didSet → recomputeDerivedProperties
+        // calls when marking many conversations at once.
+        var snapshot = conversations
+        for idx in snapshot.indices {
+            guard !snapshot[idx].isArchived,
+                  snapshot[idx].kind != .private,
+                  snapshot[idx].hasUnseenLatestAssistantMessage else { continue }
+            let localId = snapshot[idx].id
+            let conversationId = snapshot[idx].conversationId
             priorStates[localId] = MarkAllSeenPriorState(
-                lastSeenAssistantMessageAt: conversations[idx].lastSeenAssistantMessageAt,
+                lastSeenAssistantMessageAt: snapshot[idx].lastSeenAssistantMessageAt,
                 conversationId: conversationId,
                 override: conversationId.flatMap { pendingAttentionOverrides[$0] }
             )
-            conversations[idx].hasUnseenLatestAssistantMessage = false
+            snapshot[idx].hasUnseenLatestAssistantMessage = false
             markedIds.append(localId)
             if let conversationId {
                 conversationIds.append(conversationId)
                 pendingAttentionOverrides[conversationId] = .seen(
-                    latestAssistantMessageAt: conversations[idx].latestAssistantMessageAt
+                    latestAssistantMessageAt: snapshot[idx].latestAssistantMessageAt
                 )
-                conversations[idx].lastSeenAssistantMessageAt = conversations[idx].latestAssistantMessageAt
+                snapshot[idx].lastSeenAssistantMessageAt = snapshot[idx].latestAssistantMessageAt
             }
         }
+        conversations = snapshot
         markAllSeenPriorStates = priorStates
         if !conversationIds.isEmpty {
             pendingSeenConversationIds = conversationIds
@@ -779,11 +782,13 @@ final class ConversationListStore {
         cancelPendingSeenSignals()
         let priorStates = markAllSeenPriorStates
         markAllSeenPriorStates = [:]
+        // Mutate a local copy to avoid N × didSet → recomputeDerivedProperties.
+        var snapshot = conversations
         for id in conversationIds {
-            if let idx = conversations.firstIndex(where: { $0.id == id }) {
-                conversations[idx].hasUnseenLatestAssistantMessage = true
+            if let idx = snapshot.firstIndex(where: { $0.id == id }) {
+                snapshot[idx].hasUnseenLatestAssistantMessage = true
                 if let prior = priorStates[id] {
-                    conversations[idx].lastSeenAssistantMessageAt = prior.lastSeenAssistantMessageAt
+                    snapshot[idx].lastSeenAssistantMessageAt = prior.lastSeenAssistantMessageAt
                     if let conversationId = prior.conversationId {
                         // Only restore the override if the current override is
                         // still the .seen that markAllConversationsSeen() installed.
@@ -801,13 +806,14 @@ final class ConversationListStore {
                 } else {
                     // Fallback: no prior state captured (shouldn't happen in
                     // normal flow), clear conservatively.
-                    conversations[idx].lastSeenAssistantMessageAt = nil
-                    if let conversationId = conversations[idx].conversationId {
+                    snapshot[idx].lastSeenAssistantMessageAt = nil
+                    if let conversationId = snapshot[idx].conversationId {
                         pendingAttentionOverrides.removeValue(forKey: conversationId)
                     }
                 }
             }
         }
+        conversations = snapshot
     }
 
     // MARK: - Attention Merge
@@ -816,66 +822,65 @@ final class ConversationListStore {
         from item: ConversationListResponseItem,
         intoConversationAt index: Int
     ) {
-        conversations[index].hasUnseenLatestAssistantMessage =
+        // Copy-modify-writeback: mutate a local copy and write back once to
+        // trigger a single conversations.didSet (and one recomputeDerivedProperties)
+        // instead of one per field assignment.
+        var conversation = conversations[index]
+        conversation.hasUnseenLatestAssistantMessage =
             item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
-        conversations[index].latestAssistantMessageAt =
+        conversation.latestAssistantMessageAt =
             item.assistantAttention?.latestAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             }
-        conversations[index].lastSeenAssistantMessageAt =
+        conversation.lastSeenAssistantMessageAt =
             item.assistantAttention?.lastSeenAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             }
 
-        guard let conversationId = conversations[index].conversationId,
-              let override = pendingAttentionOverrides[conversationId] else { return }
+        if let conversationId = conversation.conversationId,
+           let override = pendingAttentionOverrides[conversationId] {
 
-        switch override {
-        case .seen(let targetLatestAssistantMessageAt):
-            if !conversations[index].hasUnseenLatestAssistantMessage {
-                pendingAttentionOverrides.removeValue(forKey: conversationId)
-                return
-            }
-            // When target is nil (e.g. notification-created conversation before history loads),
-            // drop the override if the server reports unseen — the server has newer info.
-            if targetLatestAssistantMessageAt == nil {
-                pendingAttentionOverrides.removeValue(forKey: conversationId)
-                return
-            }
-            if let targetLatestAssistantMessageAt,
-               let serverLatestAssistantMessageAt = conversations[index].latestAssistantMessageAt,
-               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
-                pendingAttentionOverrides.removeValue(forKey: conversationId)
-                return
-            }
+            switch override {
+            case .seen(let targetLatestAssistantMessageAt):
+                if !conversation.hasUnseenLatestAssistantMessage {
+                    pendingAttentionOverrides.removeValue(forKey: conversationId)
+                } else if targetLatestAssistantMessageAt == nil {
+                    // When target is nil (e.g. notification-created conversation before history loads),
+                    // drop the override if the server reports unseen — the server has newer info.
+                    pendingAttentionOverrides.removeValue(forKey: conversationId)
+                } else if let targetLatestAssistantMessageAt,
+                          let serverLatestAssistantMessageAt = conversation.latestAssistantMessageAt,
+                          serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                    pendingAttentionOverrides.removeValue(forKey: conversationId)
+                } else {
+                    if let targetLatestAssistantMessageAt,
+                       conversation.latestAssistantMessageAt == nil {
+                        conversation.latestAssistantMessageAt = targetLatestAssistantMessageAt
+                    }
+                    conversation.hasUnseenLatestAssistantMessage = false
+                    conversation.lastSeenAssistantMessageAt =
+                        conversation.latestAssistantMessageAt
+                }
 
-            if let targetLatestAssistantMessageAt,
-               conversations[index].latestAssistantMessageAt == nil {
-                conversations[index].latestAssistantMessageAt = targetLatestAssistantMessageAt
+            case .unread(let targetLatestAssistantMessageAt):
+                if conversation.hasUnseenLatestAssistantMessage {
+                    pendingAttentionOverrides.removeValue(forKey: conversationId)
+                } else if let targetLatestAssistantMessageAt,
+                          let serverLatestAssistantMessageAt = conversation.latestAssistantMessageAt,
+                          serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                    pendingAttentionOverrides.removeValue(forKey: conversationId)
+                } else {
+                    if let targetLatestAssistantMessageAt,
+                       conversation.latestAssistantMessageAt == nil {
+                        conversation.latestAssistantMessageAt = targetLatestAssistantMessageAt
+                    }
+                    conversation.hasUnseenLatestAssistantMessage = true
+                    conversation.lastSeenAssistantMessageAt = nil
+                }
             }
-            conversations[index].hasUnseenLatestAssistantMessage = false
-            conversations[index].lastSeenAssistantMessageAt =
-                conversations[index].latestAssistantMessageAt
-
-        case .unread(let targetLatestAssistantMessageAt):
-            if conversations[index].hasUnseenLatestAssistantMessage {
-                pendingAttentionOverrides.removeValue(forKey: conversationId)
-                return
-            }
-            if let targetLatestAssistantMessageAt,
-               let serverLatestAssistantMessageAt = conversations[index].latestAssistantMessageAt,
-               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
-                pendingAttentionOverrides.removeValue(forKey: conversationId)
-                return
-            }
-
-            if let targetLatestAssistantMessageAt,
-               conversations[index].latestAssistantMessageAt == nil {
-                conversations[index].latestAssistantMessageAt = targetLatestAssistantMessageAt
-            }
-            conversations[index].hasUnseenLatestAssistantMessage = true
-            conversations[index].lastSeenAssistantMessageAt = nil
         }
+
+        conversations[index] = conversation
     }
 
     // MARK: - Signal Emission
@@ -928,8 +933,11 @@ final class ConversationListStore {
         } else {
             pendingAttentionOverrides.removeValue(forKey: daemonConversationId)
         }
-        conversations[idx].hasUnseenLatestAssistantMessage = false
-        conversations[idx].lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
+        // Copy-modify-writeback to trigger a single didSet.
+        var conversation = conversations[idx]
+        conversation.hasUnseenLatestAssistantMessage = false
+        conversation.lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
+        conversations[idx] = conversation
 
         if wasPendingSeen && !pendingSeenConversationIds.contains(daemonConversationId) {
             pendingSeenConversationIds.append(daemonConversationId)
