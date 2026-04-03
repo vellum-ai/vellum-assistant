@@ -33,7 +33,7 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(radius: VRadius.xl, background: VColor.surfaceOverlay)
+        .vCard(radius: VRadius.xl)
     }
 
     // MARK: - Header
