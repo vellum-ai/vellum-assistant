@@ -59,7 +59,7 @@ interface ManagedSubagent {
 export interface SubagentNotificationInfo {
   subagentId: string;
   label: string;
-  status: "completed" | "failed" | "aborted";
+  status: "running" | "completed" | "failed" | "aborted";
   error?: string;
   conversationId?: string;
 }
@@ -267,7 +267,7 @@ export class SubagentManager {
         log.info({ subagentId }, "Subagent completed");
 
         // Notify the parent conversation so the LLM can call subagent_read.
-        this.notifyParent(managed, "completed", getSender());
+        this.notifyParentTerminal(managed, "completed", getSender());
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -278,7 +278,7 @@ export class SubagentManager {
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         this.setStatus(subagentId, "failed", getSender(), errorMsg);
-        this.notifyParent(managed, "failed", getSender());
+        this.notifyParentTerminal(managed, "failed", getSender());
       }
 
       log.error({ subagentId, err }, "Subagent failed");
@@ -529,11 +529,82 @@ export class SubagentManager {
     } as ServerMessage);
   }
 
+  // ── Child → Parent notification ────────────────────────────────────
+
+  /**
+   * Look up the parent info for a child conversation.
+   * Returns undefined if the conversationId doesn't belong to a subagent.
+   */
+  getParentInfo(childConversationId: string):
+    | {
+        parentConversationId: string;
+        subagentId: string;
+        label: string;
+        parentSendToClient: (msg: ServerMessage) => void;
+      }
+    | undefined {
+    for (const [subagentId, managed] of this.subagents) {
+      if (managed.state.conversationId === childConversationId) {
+        return {
+          parentConversationId: managed.state.config.parentConversationId,
+          subagentId,
+          label: managed.state.config.label,
+          parentSendToClient: managed.parentSendToClient,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Send a notification from a running subagent to its parent conversation.
+   * Returns true if the notification was sent, false if the child is not a
+   * subagent, is in a terminal state, or the parent callback is not wired.
+   */
+  notifyParent(
+    childConversationId: string,
+    message: string,
+    urgency: string,
+  ): boolean {
+    const info = this.getParentInfo(childConversationId);
+    if (!info) return false;
+
+    const managed = this.subagents.get(info.subagentId);
+    if (!managed || TERMINAL_STATUSES.has(managed.state.status)) return false;
+    if (!this.onSubagentFinished) return false;
+
+    let notificationString = `[Subagent "${info.label}" — ${urgency}] ${message}`;
+    if (urgency === "blocked") {
+      notificationString +=
+        "\nUse subagent_message to send guidance to this subagent.";
+    }
+
+    try {
+      this.onSubagentFinished(
+        info.parentConversationId,
+        notificationString,
+        info.parentSendToClient,
+        {
+          subagentId: info.subagentId,
+          label: info.label,
+          status: "running",
+        },
+      );
+      return true;
+    } catch (err) {
+      log.error(
+        { subagentId: info.subagentId, err },
+        "Failed to notify parent from subagent",
+      );
+      return false;
+    }
+  }
+
   /**
    * Inject a completion/failure notification into the parent conversation
    * so the LLM automatically informs the user.
    */
-  private notifyParent(
+  private notifyParentTerminal(
     managed: ManagedSubagent,
     outcome: "completed" | "failed",
     parentSendToClient: (msg: ServerMessage) => void,
