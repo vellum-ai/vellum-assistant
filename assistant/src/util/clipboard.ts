@@ -1,35 +1,22 @@
-import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "./logger.js";
-import { getClipboardCommand, getSignalsDir } from "./platform.js";
+import { getSignalsDir } from "./platform.js";
 
 const log = getLogger("clipboard");
 
 /**
  * Copy text to the user's clipboard.
  *
- * On bare-metal macOS/Linux where `pbcopy`/`xclip` is available, copies
- * directly via the local command. When the local command is missing or
- * fails (e.g. headless Docker), writes a `copy_to_clipboard` event to
- * `signals/emit-event` so the daemon forwards it to a connected native
- * client (the Swift macOS app) which performs the actual paste-board write.
+ * Writes a `copy_to_clipboard` event to `signals/emit-event` so the
+ * daemon forwards it to connected native clients (e.g. the Swift macOS
+ * app) which perform the pasteboard write on the user's host machine.
+ *
+ * The assistant always runs on a separate machine from the user's host,
+ * so local clipboard commands (pbcopy/xclip) are never appropriate.
  */
 export function copyToClipboard(text: string): void {
-  const cmd = getClipboardCommand();
-  if (cmd) {
-    try {
-      execSync(cmd, { input: text, stdio: ["pipe", "ignore", "ignore"] });
-      return;
-    } catch {
-      // Local clipboard command failed (e.g. xclip not installed in Docker).
-      // Fall through to signal-based routing.
-    }
-  }
-
-  // Route through the signal file so the native client can copy on the
-  // user's host machine.
   try {
     const signalsDir = getSignalsDir();
     mkdirSync(signalsDir, { recursive: true });
