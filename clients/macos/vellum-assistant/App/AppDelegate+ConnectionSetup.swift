@@ -208,11 +208,6 @@ extension AppDelegate {
                             NSWorkspace.shared.open(url)
                         }
                     }
-                case .copyToClipboard(let msg):
-                    log.info("[copy_to_clipboard] Received copy_to_clipboard event: textLength=\(msg.text.count)")
-                    let pasteboard = NSPasteboard.general
-                    pasteboard.clearContents()
-                    pasteboard.setString(msg.text, forType: .string)
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
                 case .showPlatformLogin:

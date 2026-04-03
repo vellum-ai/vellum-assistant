@@ -2945,16 +2945,6 @@ public struct OpenUrl: Codable, Sendable {
     }
 }
 
-public struct CopyToClipboard: Codable, Sendable {
-    public let type: String
-    public let text: String
-
-    public init(type: String, text: String) {
-        self.type = type
-        self.text = text
-    }
-}
-
 public struct PairingApprovalRequest: Codable, Sendable {
     public let type: String
     public let pairingRequestId: String
