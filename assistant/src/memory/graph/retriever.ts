@@ -1069,25 +1069,27 @@ export async function retrieveForTurn(
     (node) => !opts.tracker.isInContext(node.id),
   );
 
-  // Dedup capability nodes by capability ID before ranking so that the same
-  // skill/CLI command doesn't consume multiple procedural reserve slots.
-  const seenProcCapIds = new Set<string>();
-  const dedupedProcedural = proceduralCandidates.filter((node) => {
-    if (!isCapabilityNode(node)) return true; // organic procedural — keep
-    const match = node.content.match(
-      /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
-    );
-    const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
-    if (capId) {
-      if (seenProcCapIds.has(capId)) return false;
-      seenProcCapIds.add(capId);
-    }
-    return true;
-  });
-
-  const rankedProcedural = dedupedProcedural
+  // Rank by similarity first, then dedup capability nodes by capability ID
+  // so we keep the highest-similarity node per capId rather than an arbitrary
+  // first-seen node that might fail PROCEDURAL_SIM_FLOOR.
+  const rankedProceduralAll = proceduralCandidates
     .map((node) => ({ node, sim: allCandidateIds.get(node.id) ?? 0 }))
-    .sort((a, b) => b.sim - a.sim)
+    .sort((a, b) => b.sim - a.sim);
+
+  const seenProcCapIds = new Set<string>();
+  const rankedProcedural = rankedProceduralAll
+    .filter(({ node }) => {
+      if (!isCapabilityNode(node)) return true; // organic procedural — keep
+      const match = node.content.match(
+        /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+      );
+      const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+      if (capId) {
+        if (seenProcCapIds.has(capId)) return false;
+        seenProcCapIds.add(capId);
+      }
+      return true;
+    })
     .slice(0, PROCEDURAL_RESERVE);
 
   const proceduralScored: ScoredNode[] = rankedProcedural.map(({ node, sim }) =>
@@ -1132,7 +1134,9 @@ export async function retrieveForTurn(
 
   // Backfill vacated general slots from the remaining pool so we always
   // return up to MAX_INJECTED general memories when eligible candidates exist.
-  if (generalInjected.length < MAX_INJECTED) {
+  // Only backfill when LLM dedup was NOT applied — otherwise the pool contains
+  // items that dedupForTurn intentionally rejected as duplicates/irrelevant.
+  if (generalInjected.length < MAX_INJECTED && pool.length <= MAX_INJECTED) {
     const usedIds = new Set([
       ...generalInjected.map((s) => s.node.id),
       ...proceduralIds,
