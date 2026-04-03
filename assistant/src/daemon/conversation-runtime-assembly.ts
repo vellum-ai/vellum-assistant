@@ -831,7 +831,7 @@ export function buildUnifiedTurnContextBlock(
  * the message itself is dropped.
  *
  * This is the shared primitive behind the individual strip* functions and
- * the `stripInjectedContext` pipeline.
+ * the `stripInjectionsForCompaction` pipeline.
  */
 export function stripUserTextBlocksByPrefix(
   messages: Message[],
@@ -945,13 +945,35 @@ const RUNTIME_INJECTION_PREFIXES = [
 /**
  * Strip all runtime-injected context from message history in a single pass.
  *
- * All injections (memory context, channel capabilities, workspace top-level,
- * temporal context, active surface context, etc.) are text blocks prepended
- * to user messages with known XML tag prefixes. A single prefix-based pass
- * removes them all.
+ * Used only during compaction and overflow recovery — not on normal turns.
+ * Runtime injections persist in history to keep the conversation prefix
+ * stable for Anthropic's prefix caching. Stripping is only needed when
+ * compaction rewrites the message array (cache miss is expected anyway).
  */
-export function stripInjectedContext(messages: Message[]): Message[] {
+export function stripInjectionsForCompaction(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, RUNTIME_INJECTION_PREFIXES);
+}
+
+/**
+ * Extract the most recently injected NOW.md content from the message history.
+ * Returns null if no NOW.md injection is found.
+ */
+export function findLastInjectedNowContent(
+  messages: Message[],
+): string | null {
+  const prefix = "<NOW.md Always keep this up to date>\n";
+  const suffix = "\n</NOW.md>";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "user") continue;
+    for (const block of msg.content) {
+      if (block.type === "text" && block.text.startsWith(prefix)) {
+        const end = block.text.lastIndexOf(suffix);
+        if (end > prefix.length) return block.text.slice(prefix.length, end);
+      }
+    }
+  }
+  return null;
 }
 
 /**

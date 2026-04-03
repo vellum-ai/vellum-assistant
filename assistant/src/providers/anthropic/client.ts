@@ -206,143 +206,6 @@ function hasOrderedToolResultPrefix(
  * regular content — they are self-paired within the assistant message and must
  * not be separated by the cross-message pairing logic.
  */
-
-/**
- * Expand collapsed multi-turn assistant messages. During agentic tool use, the
- * daemon stores multiple thinking→tool_use→tool_result cycles in a single
- * assistant message. The Anthropic API rejects thinking blocks between
- * tool_use blocks ("tool_use without tool_result immediately after") and
- * requires thinking blocks in the latest assistant message to remain exactly
- * as generated.
- *
- * This function splits collapsed messages at each "thinking/redacted_thinking
- * after tool_use" boundary, recreating the original multi-turn structure.
- * It also distributes tool_result blocks from the following user message to
- * match each segment's tool_use blocks, creating proper assistant→user pairs.
- */
-function expandCollapsedAssistantTurns(
-  messages: Anthropic.MessageParam[],
-): Anthropic.MessageParam[] {
-  const result: Anthropic.MessageParam[] = [];
-
-  for (let mi = 0; mi < messages.length; mi++) {
-    const msg = messages[mi];
-    if (msg.role !== "assistant") {
-      result.push(msg);
-      continue;
-    }
-
-    const content = Array.isArray(msg.content) ? msg.content : [];
-
-    // Check if this message has thinking blocks between tool_use blocks
-    let hasThinkingAfterToolUse = false;
-    let seenToolUse = false;
-    for (const block of content) {
-      if (isToolUseBlock(block)) {
-        seenToolUse = true;
-      } else if (seenToolUse) {
-        const type = (block as { type: string }).type;
-        if (type === "thinking" || type === "redacted_thinking") {
-          hasThinkingAfterToolUse = true;
-          break;
-        }
-      }
-    }
-
-    if (!hasThinkingAfterToolUse) {
-      result.push(msg);
-      continue;
-    }
-
-    // Split at each "thinking after tool_use" boundary into separate segments
-    const segments: Anthropic.ContentBlockParam[][] = [];
-    let current: Anthropic.ContentBlockParam[] = [];
-    let segmentHasToolUse = false;
-
-    for (const block of content) {
-      const type = (block as { type: string }).type;
-      const isThinking = type === "thinking" || type === "redacted_thinking";
-
-      if (isThinking && segmentHasToolUse) {
-        segments.push(current);
-        current = [block];
-        segmentHasToolUse = false;
-      } else {
-        current.push(block);
-        if (isToolUseBlock(block)) {
-          segmentHasToolUse = true;
-        }
-      }
-    }
-    if (current.length > 0) {
-      segments.push(current);
-    }
-
-    // Build a map of tool_results from the following user message (if any)
-    const nextMsg = messages[mi + 1];
-    const nextIsUser = nextMsg && nextMsg.role === "user";
-    const nextContent =
-      nextIsUser && Array.isArray(nextMsg.content) ? nextMsg.content : [];
-    const toolResultMap = new Map<string, Anthropic.ContentBlockParam>();
-    const nonToolResultContent: Anthropic.ContentBlockParam[] = [];
-    for (const block of nextContent) {
-      if (isToolResultBlock(block)) {
-        toolResultMap.set(block.tool_use_id, block);
-      } else {
-        nonToolResultContent.push(block);
-      }
-    }
-
-    // Emit each segment as assistant→user pairs, distributing tool_results
-    for (let si = 0; si < segments.length; si++) {
-      const segment = segments[si];
-      const segToolUseIds = getOrderedToolUseIds(segment);
-      const isLastSegment = si === segments.length - 1;
-
-      result.push({ role: "assistant" as const, content: segment });
-
-      if (segToolUseIds.length > 0 && !isLastSegment) {
-        // Intermediate segment: pair with matching tool_results
-        const segResults = segToolUseIds.map(
-          (id) => toolResultMap.get(id) ?? buildSyntheticToolResult(id),
-        );
-        // Remove matched results from the map
-        for (const id of segToolUseIds) toolResultMap.delete(id);
-        result.push({ role: "user" as const, content: segResults });
-      }
-    }
-
-    // For the last segment, let ensureToolPairing handle pairing with the
-    // (now reduced) user message. Rebuild the user message without the
-    // tool_results that were already distributed to intermediate segments.
-    if (nextIsUser) {
-      const remainingResults = Array.from(toolResultMap.values());
-      const rebuiltUserContent = [...remainingResults, ...nonToolResultContent];
-      // Replace the original user message with the rebuilt one. When all
-      // tool_results were distributed to intermediate segments (empty rebuilt
-      // content), skip the synthetic placeholder if the next message is already
-      // a user turn — ensureToolPairing will pair the last assistant segment
-      // with that next user message naturally.
-      if (rebuiltUserContent.length > 0) {
-        result.push({ role: "user" as const, content: rebuiltUserContent });
-      } else {
-        const nextAfterUser = messages[mi + 2];
-        if (!nextAfterUser || nextAfterUser.role !== "user") {
-          result.push({
-            role: "user" as const,
-            content: [
-              { type: "text" as const, text: SYNTHETIC_CONTINUATION_TEXT },
-            ],
-          });
-        }
-      }
-      mi++; // skip the original user message
-    }
-  }
-
-  return result;
-}
-
 function splitAssistantForToolPairing(content: Anthropic.ContentBlockParam[]): {
   pairedContent: Anthropic.ContentBlockParam[];
   carryoverContent: Anthropic.ContentBlockParam[];
@@ -819,57 +682,12 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Strip thinking/redacted_thinking blocks from historical assistant
-      // messages. These blocks carry cryptographic signatures tied to their
-      // original API response. Consolidated messages (from multi-step tool use)
-      // combine thinking blocks from different responses, making signature
-      // validation fail with "thinking blocks cannot be modified". Stripping is
-      // safe: the API allows it for all historical messages, and new responses
-      // generate fresh thinking blocks.
-      //
-      // The latest assistant turn is preserved: the API requires the most recent
-      // assistant message's thinking blocks to be passed back unmodified when
-      // sending tool results during in-progress tool-use loops.
-      let lastAssistantIdx = -1;
-      for (let i = formatted.length - 1; i >= 0; i--) {
-        if (formatted[i].role === "assistant") {
-          lastAssistantIdx = i;
-          break;
-        }
-      }
-      for (let i = 0; i < formatted.length; i++) {
-        const msg = formatted[i];
-        if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
-        if (i === lastAssistantIdx) continue;
-        const stripped = msg.content.filter(
-          (b) =>
-            (b as { type: string }).type !== "thinking" &&
-            (b as { type: string }).type !== "redacted_thinking",
-        );
-        if (stripped.length < msg.content.length) {
-          // Ensure the message isn't empty after stripping
-          msg.content =
-            stripped.length > 0
-              ? stripped
-              : [
-                  {
-                    type: "text" as const,
-                    text: PLACEHOLDER_BLOCKS_OMITTED,
-                  },
-                ];
-        }
-      }
+      // Thinking blocks are stripped at persistence time (consolidation and
+      // DB migration 208) so historical messages are clean when loaded.
+      // Within a turn, assistant messages have original thinking with valid
+      // signatures — the API accepts them. No provider-side stripping needed.
 
-      // Expand collapsed multi-turn assistant messages. When agentic tool use
-      // produces multiple thinking→tool_use cycles in a single stored message,
-      // the API rejects thinking blocks between tool_use blocks. Split such
-      // messages at each "thinking after tool_use" boundary to recreate the
-      // original multi-turn structure. With thinking blocks stripped above, the
-      // expansion is typically a no-op, but is kept as a safety net for edge
-      // cases where stripping is incomplete.
-      const expanded = expandCollapsedAssistantTurns(formatted);
-
-      sentMessages = ensureToolPairing(repairOrphanedServerToolUse(expanded));
+      sentMessages = ensureToolPairing(repairOrphanedServerToolUse(formatted));
       const { effort, speed, output_config, ...restConfig } = (config ??
         {}) as Record<string, unknown> & {
         effort?: Anthropic.OutputConfig["effort"];
@@ -965,34 +783,13 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Place a cache breakpoint on the second-to-last user turn so the
-      // conversation prefix is cached between agent-loop iterations.
-      //
-      // Why second-to-last, not last?  The last user message is always new
-      // (either the initial message with fresh temporal context, or a tool
-      // result appended by the agent loop) so its breakpoint never produces
-      // a cache hit.  The second-to-last user turn is stable between
-      // iterations and caching up to it saves re-processing the full
-      // conversation prefix.
-      //
-      // We use only 1 user-turn breakpoint to stay within the Anthropic
-      // API limit of 4 cache_control blocks total:
-      //   system-static (1) + system-dynamic (2) + last-tool (3) + user (4)
-      const userIndices: number[] = [];
-      for (let i = 0; i < params.messages.length; i++) {
-        if (params.messages[i].role === "user") userIndices.push(i);
-      }
-      // slice(-2, -1) gives the second-to-last; empty array if < 2 user turns.
-      for (const idx of userIndices.slice(-2, -1)) {
-        const content = params.messages[idx].content;
-        if (Array.isArray(content) && content.length > 0) {
-          (
-            content[content.length - 1] as unknown as {
-              cache_control?: { type: string; ttl?: string };
-            }
-          ).cache_control = { type: "ephemeral", ttl: "1h" };
-        }
-      }
+      // Automatic caching: the API places a cache breakpoint on the last
+      // cacheable block and advances it as the conversation grows. With
+      // append-only history, the prefix is stable across turns and tool-use
+      // iterations, so the automatic breakpoint achieves near-optimal cache
+      // hit rates. Combined with manual breakpoints (2 system + 1 tools = 3),
+      // this uses all 4 available cache slots.
+      params.cache_control = { type: "ephemeral" as const, ttl: "1h" as const };
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);

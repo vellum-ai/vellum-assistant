@@ -57,8 +57,8 @@ import {
   migrateContactsRolePrincipal,
   migrateContactsUserFileColumn,
   migrateConversationForkLineage,
-  migrateConversationsThreadTypeIndex,
   migrateConversationsLastMessageAt,
+  migrateConversationsThreadTypeIndex,
   migrateCreateConversationGraphMemoryState,
   migrateCreateMemoryGraphNodeEdits,
   migrateCreateMemoryGraphTables,
@@ -133,6 +133,7 @@ import {
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
   migrateStripIntegrationPrefixFromProviderKeys,
+  migrateStripThinkingFromConsolidated,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
@@ -593,6 +594,11 @@ export function initializeDb(): void {
 
   // 107. Add last_message_at denormalized column for message-based sorting
   migrateConversationsLastMessageAt(database);
+
+  // 108. Strip thinking/redacted_thinking from consolidated assistant messages
+  // so the Anthropic provider no longer needs to mutate historical messages,
+  // enabling append-only conversation history for prefix caching.
+  migrateStripThinkingFromConsolidated(database);
 
   validateMigrationState(database);
 
