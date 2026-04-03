@@ -81,4 +81,16 @@ describe("verifyEmailWebhookSignature", () => {
     });
     expect(verifyEmailWebhookSignature(headers, body, SECRET)).toBe(false);
   });
+
+  it("rejects non-ASCII hex values without throwing (Buffer byte length divergence)", () => {
+    // 64 non-ASCII characters whose UTF-16 .length === 64 (same as a valid
+    // hex digest) but whose Buffer byte length > 64, which would cause
+    // timingSafeEqual to throw if we only compared string lengths.
+    const nonAsciiHex = "\u00e9".repeat(64); // é is 2 bytes in UTF-8
+    const headers = new Headers({
+      "vellum-signature": `sha256=${nonAsciiHex}`,
+    });
+    // Must return false cleanly — not throw
+    expect(verifyEmailWebhookSignature(headers, body, SECRET)).toBe(false);
+  });
 });

@@ -619,6 +619,7 @@ export function buildSchema(): Record<string, unknown> {
           description:
             "Receives inbound email webhook events from the Vellum platform, verifies the HMAC signature, normalizes the message, and forwards it to the assistant runtime.",
           operationId: "emailInboundWebhook",
+          security: [{ VellumEmailSignature: [] }],
           requestBody: {
             required: true,
             content: {
@@ -674,8 +675,16 @@ export function buildSchema(): Record<string, unknown> {
                 },
               },
             },
+            "409": {
+              description: "Webhook secret not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
             "500": {
-              description: "Internal error or webhook secret not configured",
+              description: "Internal error",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -3488,6 +3497,13 @@ export function buildSchema(): Record<string, unknown> {
           name: "X-Twilio-Signature",
           description:
             "HMAC-SHA1 signature computed by Twilio over the request URL and form parameters.",
+        },
+        VellumEmailSignature: {
+          type: "apiKey",
+          in: "header",
+          name: "Vellum-Signature",
+          description:
+            "HMAC-SHA256 signature computed by the Vellum platform over the raw request body using the webhook secret. Format: sha256=<hex-digest>.",
         },
         WhatsAppHubSignature: {
           type: "apiKey",

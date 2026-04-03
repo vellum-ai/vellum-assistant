@@ -272,7 +272,7 @@ describe("email-webhook", () => {
     expect(event.message.content).toBe("Full body content here");
   });
 
-  it("returns 500 when webhook secret is not configured", async () => {
+  it("returns 409 when webhook secret is not configured", async () => {
     const emptyCaches = {
       credentials: {
         get: async () => undefined,
@@ -282,7 +282,7 @@ describe("email-webhook", () => {
     const { handler } = createEmailWebhookHandler(baseConfig, emptyCaches);
     const body = makeEmailPayload({ messageId: "<no-secret@example.com>" });
     const res = await handler(postRequest(body));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(409);
   });
 
   it("rejects requests with wrong webhook secret (HMAC mismatch)", async () => {
@@ -359,9 +359,9 @@ describe("email-webhook", () => {
     expect(status).toBe(false);
   });
 
-  it("returns 403 (not 500) when cache miss resolves on force-refresh but signature is invalid", async () => {
+  it("returns 403 (not 409) when cache miss resolves on force-refresh but signature is invalid", async () => {
     // Simulate: initial cache miss, force-refresh returns real secret,
-    // but signature doesn't match. Should be 403 (not 500 "not configured").
+    // but signature doesn't match. Should be 403 (not 409 "not configured").
     const caches = {
       credentials: {
         get: async (_key: string, opts?: { force?: boolean }) => {
@@ -387,7 +387,7 @@ describe("email-webhook", () => {
       body,
     });
     const res = await handler(req);
-    // This was the stale variable bug — it used to return 500 here
+    // This was the stale variable bug — it used to return 409 here
     expect(res.status).toBe(403);
   });
 });

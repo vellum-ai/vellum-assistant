@@ -85,8 +85,8 @@ export function createEmailWebhookHandler(
     if (!effectiveSecret) {
       tlog.warn("Email webhook secret is not configured — rejecting request");
       return Response.json(
-        { error: "Webhook signature validation not configured" },
-        { status: 500 },
+        { error: "Webhook secret not configured" },
+        { status: 409 },
       );
     }
 

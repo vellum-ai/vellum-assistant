@@ -30,8 +30,12 @@ export function verifyEmailWebhookSignature(
     .update(rawBody, "utf8")
     .digest("hex");
 
-  // Lengths must match before timingSafeEqual to avoid Buffer size mismatch error
-  if (providedHex.length !== expected.length) return false;
+  // Compare Buffer byte lengths — not string .length — to avoid
+  // timingSafeEqual throwing on non-ASCII input where UTF-16 code unit
+  // count matches but byte length diverges.
+  const providedBuf = Buffer.from(providedHex);
+  const expectedBuf = Buffer.from(expected);
+  if (providedBuf.length !== expectedBuf.length) return false;
 
-  return timingSafeEqual(Buffer.from(providedHex), Buffer.from(expected));
+  return timingSafeEqual(providedBuf, expectedBuf);
 }
