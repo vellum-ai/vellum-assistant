@@ -4417,17 +4417,24 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
   });
 
   test("proxied bash caps high-risk commands to medium", async () => {
-    // pipe-to-interpreter is normally High risk, but proxied mode caps at Medium
+    // pipe-to-interpreter (stdin exec) is normally High risk, but proxied mode caps at Medium
     const risk = await classifyRisk("bash", {
-      command: 'cat data.json | python3 -c "import sys; print(sys.stdin.read())"',
+      command: "cat exploit.py | python3",
       network_mode: "proxied",
     });
     expect(risk).toBe(RiskLevel.Medium);
   });
 
-  test("non-proxied bash keeps high-risk commands at high", async () => {
+  test("pipe to python3 -c is not high risk (inline code, not stdin exec)", async () => {
     const risk = await classifyRisk("bash", {
       command: 'cat data.json | python3 -c "import sys; print(sys.stdin.read())"',
+    });
+    expect(risk).toBe(RiskLevel.Low);
+  });
+
+  test("pipe to python3 without -c is high risk (stdin exec)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "cat exploit.py | python3",
     });
     expect(risk).toBe(RiskLevel.High);
   });
@@ -4436,7 +4443,7 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
     const result = await check(
       "bash",
       {
-        command: 'cat data.json | python3 -c "import sys; print(sys.stdin.read())"',
+        command: "cat exploit.py | python3",
         network_mode: "proxied",
       },
       "/tmp",
