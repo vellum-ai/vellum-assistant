@@ -92,6 +92,20 @@ struct IntegrationsPanelContent: View {
         .onChange(of: store.managedOAuthProviders.map(\.provider_key)) { _, _ in
             fetchAllConnections()
         }
+        .sheet(isPresented: Binding(
+            get: { selectedProviderKey != nil },
+            set: { if !$0 { selectedProviderKey = nil } }
+        )) {
+            if let providerKey = selectedProviderKey {
+                IntegrationDetailModal(
+                    store: store,
+                    authManager: authManager,
+                    showToast: showToast,
+                    providerKey: providerKey,
+                    onClose: { selectedProviderKey = nil }
+                )
+            }
+        }
     }
 
     // MARK: - Filter Bar
