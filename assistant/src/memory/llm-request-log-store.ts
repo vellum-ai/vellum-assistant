@@ -99,9 +99,7 @@ export function setMessageIdOnLogs(
   const db = getDb();
   db.update(llmRequestLogs)
     .set({ messageId })
-    .where(
-      and(inArray(llmRequestLogs.id, logIds), isNull(llmRequestLogs.messageId)),
-    )
+    .where(inArray(llmRequestLogs.id, logIds))
     .run();
 }
 
@@ -285,13 +283,24 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
         );
 
         // Opportunistically backfill recovered unlinked logs so future queries
-        // hit the fast indexed-by-messageId path.
+        // hit the fast indexed-by-messageId path.  Guard with isNull so this
+        // recovery path never overwrites a messageId already set by an
+        // authoritative caller (e.g. watch-notifier).
         if (unlinkedLogs.length > 0 && turnMessageIds.length > 0) {
           try {
-            setMessageIdOnLogs(
-              unlinkedLogs.map((l) => l.id),
-              turnMessageIds[turnMessageIds.length - 1]!,
-            );
+            const db = getDb();
+            const ids = unlinkedLogs.map((l) => l.id);
+            const targetMessageId =
+              turnMessageIds[turnMessageIds.length - 1]!;
+            db.update(llmRequestLogs)
+              .set({ messageId: targetMessageId })
+              .where(
+                and(
+                  inArray(llmRequestLogs.id, ids),
+                  isNull(llmRequestLogs.messageId),
+                ),
+              )
+              .run();
           } catch {
             // non-fatal — the recovery already returned the right data
           }
