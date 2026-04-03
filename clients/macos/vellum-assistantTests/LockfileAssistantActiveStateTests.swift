@@ -89,16 +89,18 @@ final class LockfileAssistantActiveStateTests: XCTestCase {
     }
 
     func testSetActiveAssistantIdDoesNotPostNotificationWhenValueUnchanged() {
-        // Set initial value.
+        // Set initial value and drain its async notification before testing the no-op path.
+        let setupExpectation = expectation(forNotification: LockfileAssistant.activeAssistantDidChange, object: nil)
+        LockfileAssistant.setActiveAssistantId("stable-id", lockfilePath: lockfilePath)
+        wait(for: [setupExpectation], timeout: 2.0)
+
+        // Now set up an inverted expectation: notification should NOT fire for the same value.
+        let noChangeExpectation = expectation(forNotification: LockfileAssistant.activeAssistantDidChange, object: nil)
+        noChangeExpectation.isInverted = true
+
         LockfileAssistant.setActiveAssistantId("stable-id", lockfilePath: lockfilePath)
 
-        // Set up an inverted expectation: notification should NOT fire.
-        let expectation = expectation(forNotification: LockfileAssistant.activeAssistantDidChange, object: nil)
-        expectation.isInverted = true
-
-        LockfileAssistant.setActiveAssistantId("stable-id", lockfilePath: lockfilePath)
-
-        wait(for: [expectation], timeout: 0.5)
+        wait(for: [noChangeExpectation], timeout: 0.5)
     }
 
     // MARK: - Notification name

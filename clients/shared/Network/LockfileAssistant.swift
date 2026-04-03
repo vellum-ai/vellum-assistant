@@ -312,26 +312,34 @@ public struct LockfileAssistant {
     }
 
     /// Watch the lockfile itself for `.write` events.
+    ///
+    /// The entire cancel → open → create → resume → store sequence runs
+    /// inside a single lock acquisition so that concurrent calls from the
+    /// directory watcher (on a concurrent global queue) cannot interleave
+    /// and leak a DispatchSource / file descriptor.
     private static func watchLockfile() {
         let state = LockfileWatcherState.shared
-        state.withLock { $0.fileSource?.cancel(); $0.fileSource = nil }
+        state.withLock { s in
+            s.fileSource?.cancel()
+            s.fileSource = nil
 
-        let fd = open(LockfilePaths.primaryPath, O_EVTONLY)
-        guard fd >= 0 else { return }
+            let fd = open(LockfilePaths.primaryPath, O_EVTONLY)
+            guard fd >= 0 else { return }
 
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename],
-            queue: .global(qos: .utility)
-        )
-        source.setEventHandler {
-            checkForActiveAssistantChange()
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .delete, .rename],
+                queue: .global(qos: .utility)
+            )
+            source.setEventHandler {
+                checkForActiveAssistantChange()
+            }
+            source.setCancelHandler {
+                close(fd)
+            }
+            source.resume()
+            s.fileSource = source
         }
-        source.setCancelHandler {
-            close(fd)
-        }
-        source.resume()
-        state.withLock { $0.fileSource = source }
     }
 
     /// Watch the lockfile's parent directory for file creation / rename.
