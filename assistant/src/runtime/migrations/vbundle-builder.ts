@@ -719,9 +719,13 @@ async function* generateTarStream(
       }
     }
 
-    // If the file shrank, pad with zeros to reach the declared size
-    if (bytesWritten < file.size) {
-      yield new Uint8Array(file.size - bytesWritten);
+    // If the file shrank, pad with zeros in bounded chunks to reach
+    // the declared size without a large single allocation
+    let remaining = file.size - bytesWritten;
+    while (remaining > 0) {
+      const chunkSize = Math.min(remaining, 65536);
+      yield new Uint8Array(chunkSize);
+      remaining -= chunkSize;
     }
 
     yield tarPaddingBytes(file.size);
