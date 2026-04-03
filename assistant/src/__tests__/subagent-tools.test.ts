@@ -75,6 +75,7 @@ function injectSubagent(
       }
     >;
     parentToChildren: Map<string, Set<string>>;
+    labelIndex: Map<string, string>;
   };
   const state: SubagentState = {
     config: {
@@ -108,6 +109,14 @@ function injectSubagent(
     internals.parentToChildren.set(parentConversationId, new Set());
   }
   internals.parentToChildren.get(parentConversationId)!.add(subagentId);
+
+  // Populate label index so label-based lookups work in tests.
+  const label = state.config.label;
+  internals.labelIndex.set(
+    `${parentConversationId}:${label.toLowerCase().trim()}`,
+    subagentId,
+  );
+
   return state;
 }
 
@@ -135,25 +144,29 @@ describe("Subagent tool definitions", () => {
   test("abort tool has correct definition", () => {
     const def = findTool("subagent_abort");
     expect(def).toBeDefined();
-    expect(def.input_schema.required).toEqual(["subagent_id"]);
+    expect(def.input_schema.required).toEqual([]);
+    expect(def.input_schema.properties.label).toBeDefined();
   });
 
   test("message tool has correct definition", () => {
     const def = findTool("subagent_message");
     expect(def).toBeDefined();
-    expect(def.input_schema.required).toEqual(["subagent_id", "content"]);
+    expect(def.input_schema.required).toEqual(["content"]);
+    expect(def.input_schema.properties.label).toBeDefined();
   });
 
   test("read tool has correct definition", () => {
     const def = findTool("subagent_read");
     expect(def).toBeDefined();
-    expect(def.input_schema.required).toEqual(["subagent_id"]);
+    expect(def.input_schema.required).toEqual([]);
+    expect(def.input_schema.properties.label).toBeDefined();
   });
 
   test("status tool has correct definition", () => {
     const def = findTool("subagent_status");
     expect(def).toBeDefined();
     expect(def.input_schema.required).toEqual([]);
+    expect(def.input_schema.properties.label).toBeDefined();
   });
 });
 
@@ -247,7 +260,7 @@ describe("Subagent tool execute validation", () => {
     expect(result.content).toContain("required");
   });
 
-  test("message returns error when missing subagent_id", async () => {
+  test("message returns error when missing subagent_id and label", async () => {
     const result = await executeSubagentMessage(
       { content: "hello" },
       makeContext("sess-1"),
@@ -972,5 +985,101 @@ describe("Subagent abort success responses", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Could not abort");
+  });
+});
+
+// ── Label-based subagent lookup ────────────────────────────────────
+
+describe("Label-based subagent lookup", () => {
+  const parentConversation = "label-test-sess";
+  const subagentId = "label-sub-1";
+
+  // Inject a subagent with a specific label for the test suite.
+  const manager = getSubagentManager();
+  injectSubagent(manager, subagentId, parentConversation, "running", {
+    config: {
+      id: subagentId,
+      parentConversationId: parentConversation,
+      label: "Research task",
+      objective: "research something",
+    },
+  });
+
+  test("subagent_status with label returns status", async () => {
+    const result = await executeSubagentStatus(
+      { label: "Research task" },
+      makeContext(parentConversation),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.subagentId).toBe(subagentId);
+    expect(parsed.label).toBe("Research task");
+    expect(parsed.status).toBe("running");
+  });
+
+  test("subagent_status with lowercase label (case-insensitive)", async () => {
+    const result = await executeSubagentStatus(
+      { label: "research task" },
+      makeContext(parentConversation),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.subagentId).toBe(subagentId);
+  });
+
+  test("subagent_status with nonexistent label returns error", async () => {
+    const result = await executeSubagentStatus(
+      { label: "nonexistent" },
+      makeContext(parentConversation),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No subagent found");
+  });
+
+  test("subagent_message with label succeeds", async () => {
+    const result = await executeSubagentMessage(
+      { label: "Research task", content: "hello" },
+      makeContext(parentConversation),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.subagentId).toBe(subagentId);
+    expect(parsed.message).toContain("Message sent");
+  });
+
+  test("subagent_read with label on completed subagent returns output", async () => {
+    // Inject a completed subagent for the read test.
+    const readSubId = "label-read-sub-1";
+    injectSubagent(manager, readSubId, parentConversation, "completed", {
+      config: {
+        id: readSubId,
+        parentConversationId: parentConversation,
+        label: "Read task",
+        objective: "read something",
+      },
+    });
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${readSubId}`) return null;
+      return [
+        {
+          role: "assistant",
+          content: JSON.stringify([
+            { type: "text", text: "Research findings here" },
+          ]),
+        },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { label: "Read task" },
+        makeContext(parentConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Research findings here");
+    } finally {
+      mockGetMessages = () => null;
+    }
   });
 });

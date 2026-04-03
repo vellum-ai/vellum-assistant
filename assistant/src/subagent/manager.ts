@@ -76,6 +76,8 @@ export class SubagentManager {
   private subagents = new Map<string, ManagedSubagent>();
   /** parentConversationId → Set<subagentId> */
   private parentToChildren = new Map<string, Set<string>>();
+  /** `${parentConversationId}:${normalizedLabel}` → subagentId */
+  private labelIndex = new Map<string, string>();
 
   /**
    * Optional callback to inject a completion/failure message into the parent
@@ -198,6 +200,10 @@ export class SubagentManager {
 
     managed.conversation = conversation;
     this.subagents.set(subagentId, managed);
+    this.labelIndex.set(
+      `${config.parentConversationId}:${config.label.toLowerCase().trim()}`,
+      subagentId,
+    );
 
     // Track parent → child relationship.
     if (!this.parentToChildren.has(config.parentConversationId)) {
@@ -429,6 +435,15 @@ export class SubagentManager {
     return this.subagents.get(subagentId)?.state;
   }
 
+  getByLabel(
+    label: string,
+    parentConversationId: string,
+  ): SubagentState | undefined {
+    const key = `${parentConversationId}:${label.toLowerCase().trim()}`;
+    const id = this.labelIndex.get(key);
+    return id ? this.getState(id) : undefined;
+  }
+
   getChildrenOf(parentConversationId: string): SubagentState[] {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) return [];
@@ -479,6 +494,13 @@ export class SubagentManager {
     }
     managed.conversation.dispose();
     this.subagents.delete(subagentId);
+
+    // Remove from label index.
+    const label = managed.state.config.label;
+    const parentConvId = managed.state.config.parentConversationId;
+    this.labelIndex.delete(
+      `${parentConvId}:${label.toLowerCase().trim()}`,
+    );
 
     // Remove from parent tracking.
     const parentId = managed.state.config.parentConversationId;

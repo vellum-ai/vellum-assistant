@@ -6,12 +6,7 @@ import {
 } from "../subagent/index.js";
 
 /** All roles defined in the SubagentRole union. */
-const ALL_ROLES: SubagentRole[] = [
-  "general",
-  "researcher",
-  "coder",
-  "planner",
-];
+const ALL_ROLES: SubagentRole[] = ["general", "researcher", "coder", "planner"];
 
 describe("SUBAGENT_ROLE_REGISTRY", () => {
   test("covers all values in the SubagentRole union", () => {

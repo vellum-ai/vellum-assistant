@@ -1,14 +1,18 @@
 import { getMessages } from "../../memory/conversation-crud.js";
 import { getSubagentManager, TERMINAL_STATUSES } from "../../subagent/index.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import { resolveSubagentId } from "./resolve.js";
 
 export async function executeSubagentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = input.subagent_id as string;
+  const subagentId = resolveSubagentId(input, context);
   if (!subagentId) {
-    return { content: '"subagent_id" is required.', isError: true };
+    return {
+      content: '"subagent_id" or "label" is required.',
+      isError: true,
+    };
   }
 
   const manager = getSubagentManager();

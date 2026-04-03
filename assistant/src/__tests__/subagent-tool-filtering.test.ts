@@ -17,12 +17,10 @@ import type { Message, ToolDefinition } from "../providers/types.js";
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-const mockProjectSkillTools = mock(
-  (_history: Message[], _opts: unknown) => ({
-    allowedToolNames: new Set<string>(),
-    toolDefinitions: [] as ToolDefinition[],
-  }),
-);
+const mockProjectSkillTools = mock((_history: Message[], _opts: unknown) => ({
+  allowedToolNames: new Set<string>(),
+  toolDefinitions: [] as ToolDefinition[],
+}));
 
 mock.module("../daemon/conversation-skill-tools.js", () => ({
   projectSkillTools: mockProjectSkillTools,
