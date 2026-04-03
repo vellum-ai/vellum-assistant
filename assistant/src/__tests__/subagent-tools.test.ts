@@ -1190,3 +1190,77 @@ describe("Label-based subagent lookup", () => {
     }
   });
 });
+
+// ── Role-based spawn ──────────────────────────────────────────────
+
+describe("Subagent role-based spawn", () => {
+  test("spawn with role 'researcher' passes role to manager", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "role-researcher-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Research task",
+          objective: "Find pricing data",
+          role: "researcher",
+        },
+        makeContext("sess-role-1", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.subagentId).toBe("role-researcher-id");
+      expect(capturedConfig).toBeDefined();
+      expect(capturedConfig!.role).toBe("researcher");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn without role defaults to general (backwards compat)", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "role-default-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "General task", objective: "Do something" },
+        makeContext("sess-role-2", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.subagentId).toBe("role-default-id");
+      expect(capturedConfig).toBeDefined();
+      // When role is not specified, it should not be present in config
+      expect(capturedConfig!.role).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn tool definition includes role property", () => {
+    const def = findTool("subagent_spawn");
+    expect(def).toBeDefined();
+    expect(def.input_schema.properties.role).toBeDefined();
+    expect(def.input_schema.properties.role.type).toBe("string");
+    expect(def.input_schema.properties.role.enum).toEqual([
+      "general",
+      "researcher",
+      "coder",
+      "planner",
+    ]);
+    // role is not required
+    expect(def.input_schema.required).not.toContain("role");
+  });
+});
