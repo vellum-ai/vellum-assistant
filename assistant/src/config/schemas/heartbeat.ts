@@ -12,7 +12,7 @@ export const HeartbeatConfigSchema = z
       .number({ error: "heartbeat.intervalMs must be a number" })
       .int("heartbeat.intervalMs must be an integer")
       .positive("heartbeat.intervalMs must be a positive integer")
-      .default(3_600_000)
+      .default(6 * 3_600_000)
       .describe("Time between heartbeat checks in milliseconds"),
     speed: SpeedSchema.default("standard").describe(
       "Inference speed mode for heartbeat conversations — defaults to standard to avoid inheriting the global fast mode multiplier",
@@ -22,37 +22,19 @@ export const HeartbeatConfigSchema = z
       .int("heartbeat.activeHoursStart must be an integer")
       .min(0, "heartbeat.activeHoursStart must be >= 0")
       .max(23, "heartbeat.activeHoursStart must be <= 23")
-      .optional()
-      .describe(
-        "Hour of the day (0-23) when heartbeat checks begin — must be set together with activeHoursEnd",
-      ),
+      .default(8)
+      .describe("Hour of the day (0-23) when heartbeat checks begin"),
     activeHoursEnd: z
       .number({ error: "heartbeat.activeHoursEnd must be a number" })
       .int("heartbeat.activeHoursEnd must be an integer")
       .min(0, "heartbeat.activeHoursEnd must be >= 0")
       .max(23, "heartbeat.activeHoursEnd must be <= 23")
-      .optional()
-      .describe(
-        "Hour of the day (0-23) when heartbeat checks stop — must be set together with activeHoursStart",
-      ),
+      .default(22)
+      .describe("Hour of the day (0-23) when heartbeat checks stop"),
   })
   .describe("Periodic heartbeat configuration for health monitoring")
   .superRefine((config, ctx) => {
-    const hasStart = config.activeHoursStart != null;
-    const hasEnd = config.activeHoursEnd != null;
-    if (hasStart !== hasEnd) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [hasStart ? "activeHoursEnd" : "activeHoursStart"],
-        message:
-          "heartbeat.activeHoursStart and heartbeat.activeHoursEnd must both be set or both be omitted",
-      });
-    }
-    if (
-      hasStart &&
-      hasEnd &&
-      config.activeHoursStart === config.activeHoursEnd
-    ) {
+    if (config.activeHoursStart === config.activeHoursEnd) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["activeHoursEnd"],
