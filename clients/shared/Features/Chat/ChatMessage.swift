@@ -1683,18 +1683,35 @@ public struct ChatMessage: Identifiable, Equatable {
         self.conversationError = conversationError
     }
 
-    /// Lightweight content fingerprint for seeding `toolCallsRevision` at init
-    /// time (where `didSet` does not fire). Mixes count, UUIDs, completion
-    /// state, and result size so independently constructed messages with
-    /// different tool-call content get different initial revisions.
+    /// Content fingerprint for seeding `toolCallsRevision` at init time
+    /// (where `didSet` does not fire). Hashes every field that
+    /// `ToolCallData.==` compares so independently constructed messages
+    /// (e.g. history reconstruction) with different tool-call content
+    /// always get different initial revisions.
+    /// `pendingConfirmation` is excluded because `ToolConfirmationData`
+    /// is not `Hashable` and is always `nil` at init (set later via streaming).
+    /// This is O(n) but paid once at init, not on every SwiftUI diff cycle.
     private static func toolCallsFingerprint(_ toolCalls: [ToolCallData]) -> Int {
         guard !toolCalls.isEmpty else { return 0 }
         var hasher = Hasher()
         hasher.combine(toolCalls.count)
         for tc in toolCalls {
             hasher.combine(tc.id)
-            hasher.combine(tc.isComplete)
+            hasher.combine(tc.toolName)
+            hasher.combine(tc.inputSummary)
             hasher.combine(tc.resultLength)
+            hasher.combine(tc.isError)
+            hasher.combine(tc.isComplete)
+            hasher.combine(tc.arrivedBeforeText)
+            hasher.combine(tc.inputFullLength)
+            hasher.combine(tc.inputRawValueLength)
+            hasher.combine(tc.partialOutputRevision)
+            hasher.combine(tc.buildingStatus)
+            hasher.combine(tc.reasonDescription)
+            hasher.combine(tc.startedAt)
+            hasher.combine(tc.completedAt)
+            hasher.combine(tc.confirmationDecision)
+            hasher.combine(tc.confirmationLabel)
         }
         return hasher.finalize()
     }
