@@ -762,7 +762,12 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === otherTools.length - 1
-              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
+              ? {
+                  cache_control: {
+                    type: "ephemeral" as const,
+                    ttl: "1h" as const,
+                  },
+                }
               : {}),
           }));
           const webSearchTool: Anthropic.WebSearchTool20250305 = {
@@ -777,7 +782,12 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === tools.length - 1
-              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
+              ? {
+                  cache_control: {
+                    type: "ephemeral" as const,
+                    ttl: "1h" as const,
+                  },
+                }
               : {}),
           }));
         }
@@ -806,14 +816,6 @@ export class AnthropicProvider implements Provider {
         break;
       }
 
-      // Automatic caching: the API places a cache breakpoint on the last
-      // cacheable block and advances it as the conversation grows. With a
-      // short TTL, intermediate prefixes (e.g. after each tool result)
-      // expire quickly. Combined with manual breakpoints (2 system +
-      // 1 tools + 1 turn-starting user = 4), the automatic breakpoint
-      // provides a 5th cheap, short-lived cache for the advancing tail.
-      params.cache_control = { type: "ephemeral" as const, ttl: "5m" as const };
-
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
 
@@ -830,8 +832,7 @@ export class AnthropicProvider implements Provider {
       }
 
       // Fast mode: use the beta endpoint with speed: "fast" for Opus 4.6
-      const useFastMode =
-        speed === "fast" && effectiveModel.includes("opus");
+      const useFastMode = speed === "fast" && effectiveModel.includes("opus");
 
       // Collect required betas: extended cache TTL for 1h system prompt caching,
       // 1M context window, and fast-mode when applicable.

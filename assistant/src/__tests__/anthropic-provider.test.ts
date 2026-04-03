@@ -225,14 +225,14 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Automatic caching — request-level cache_control
+  // Request-level cache_control is NOT set (Anthropic limits to 4 breakpoints)
   // -----------------------------------------------------------------------
-  test("request has top-level cache_control with 5m TTL", async () => {
+  test("no request-level cache_control (stays within 4-breakpoint limit)", async () => {
     await provider.sendMessage([userMsg("Hello")]);
 
     expect(
       (lastStreamParams as Record<string, unknown>).cache_control,
-    ).toEqual({ type: "ephemeral", ttl: "5m" });
+    ).toBeUndefined();
   });
 
   test("turn-starting user message gets 1h cache on last block", async () => {
@@ -318,7 +318,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
     const user = sent[0];
     expect(user.content[0].cache_control).toBeUndefined();
-    expect(user.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(user.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -362,7 +365,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Workspace block (first): no cache_control
     expect(user.content[0].cache_control).toBeUndefined();
     // User text (last): cache_control with 1h TTL
-    expect(user.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(user.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   test("workspace + multi-block single user message: cache on last block only", async () => {
@@ -396,7 +402,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Only last block gets cache_control
     expect(user.content[0].cache_control).toBeUndefined();
     expect(user.content[1].cache_control).toBeUndefined();
-    expect(user.content[2].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(user.content[2].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -1328,12 +1337,15 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Last user message (turn 3): 1h cache on last block only
     const lastUser = userMsgs[userMsgs.length - 1];
     expect(lastUser.content[0].cache_control).toBeUndefined();
-    expect(lastUser.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(lastUser.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
-    // Request-level automatic caching uses 5m TTL
+    // No request-level cache_control (stays within Anthropic's 4-breakpoint limit)
     expect(
       (lastStreamParams as Record<string, unknown>).cache_control,
-    ).toEqual({ type: "ephemeral", ttl: "5m" });
+    ).toBeUndefined();
   });
 
   test("tool loop: turn-starting user message gets 1h cache, tool_result messages do not", async () => {
@@ -1357,14 +1369,19 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // First message is the turn-starting user text — gets 1h cache
     expect(sent[0].role).toBe("user");
-    expect(sent[0].content[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(sent[0].content[0].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // Tool result messages (role: user) do NOT get cache_control
     const toolResultMsgs = sent.filter(
       (m) =>
         m.role === "user" &&
         Array.isArray(m.content) &&
-        m.content.every((b) => typeof b !== "string" && b.type === "tool_result"),
+        m.content.every(
+          (b) => typeof b !== "string" && b.type === "tool_result",
+        ),
     );
     expect(toolResultMsgs.length).toBeGreaterThan(0);
     for (const tr of toolResultMsgs) {
