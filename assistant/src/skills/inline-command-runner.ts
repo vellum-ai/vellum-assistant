@@ -4,9 +4,10 @@
  * Executes the literal command string without going through the general `bash`
  * tool's permission path. Security constraints:
  *
- * - Network mode forced off (no outbound connections)
  * - Sanitized environment variables only (no API keys, tokens, credentials)
  * - No credential proxy, no CES client, no host fallback
+ * - Runs in Docker/platform-managed environments (network/filesystem isolation
+ *   is provided by the container, not OS-level sandboxing)
  * - Uses the conversation working directory as `cwd` so repo-local commands
  *   remain interoperable with externally authored skills that expect project
  *   context.
@@ -104,14 +105,12 @@ export async function runInlineCommand(
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxChars = options?.maxOutputChars ?? MAX_OUTPUT_CHARS;
 
-  // Build sandbox-wrapped command with network forced off — inline
-  // commands never need network access. Sandbox is disabled; the
-  // assistant runs in Docker or platform-managed environments.
+  // Sandbox is disabled — the assistant runs in Docker or platform-managed
+  // environments where the container provides isolation. The networkMode
+  // option is a no-op when sandbox is disabled (wrapCommand returns a plain
+  // bash invocation); network isolation is handled at the container level.
   const sandboxConfig = { enabled: false } as const;
-
-  const wrapped = wrapCommand(command, workingDir, sandboxConfig, {
-    networkMode: "off",
-  });
+  const wrapped = wrapCommand(command, workingDir, sandboxConfig);
 
   // Build a minimal, sanitized environment. Explicitly exclude gateway URL,
   // workspace dir, and data dir since inline commands have no business calling
