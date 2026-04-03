@@ -619,7 +619,7 @@ export function buildSchema(): Record<string, unknown> {
           description:
             "Receives inbound email webhook events from the Vellum platform, verifies the HMAC signature, normalizes the message, and forwards it to the assistant runtime.",
           operationId: "emailInboundWebhook",
-          security: [{ VellumEmailSignature: [] }],
+          security: [{ VellumSignature: [] }],
           requestBody: {
             required: true,
             content: {
@@ -3498,7 +3498,7 @@ export function buildSchema(): Record<string, unknown> {
           description:
             "HMAC-SHA1 signature computed by Twilio over the request URL and form parameters.",
         },
-        VellumEmailSignature: {
+        VellumSignature: {
           type: "apiKey",
           in: "header",
           name: "Vellum-Signature",
