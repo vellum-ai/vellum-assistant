@@ -1,4 +1,4 @@
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -496,10 +496,11 @@ describe("HeartbeatService", () => {
       writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
 
       const service = createService();
-      const prompt = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
 
       expect(prompt).toContain("<relationship-depth>");
       expect(prompt).toContain("profile is still sparse");
+      expect(includedReengagement).toBe(true);
     });
 
     test("omits <relationship-depth> when profile is not shallow", () => {
@@ -510,9 +511,10 @@ describe("HeartbeatService", () => {
       writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
 
       const service = createService();
-      const prompt = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
 
       expect(prompt).not.toContain("<relationship-depth>");
+      expect(includedReengagement).toBe(false);
     });
 
     test("omits <relationship-depth> when cooldown has not elapsed", () => {
@@ -525,9 +527,10 @@ describe("HeartbeatService", () => {
       );
 
       const service = createService();
-      const prompt = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
 
       expect(prompt).not.toContain("<relationship-depth>");
+      expect(includedReengagement).toBe(false);
     });
 
     test("includes <relationship-depth> when cooldown has elapsed", () => {
@@ -541,9 +544,39 @@ describe("HeartbeatService", () => {
       );
 
       const service = createService();
-      const prompt = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
 
       expect(prompt).toContain("<relationship-depth>");
+      expect(includedReengagement).toBe(true);
+    });
+
+    test("does not record timestamp when processMessage fails", async () => {
+      writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
+      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+
+      const service = createService({
+        processMessage: async () => {
+          throw new Error("LLM timeout");
+        },
+      });
+
+      await service.runOnce();
+
+      // The reengagement timestamp file should NOT exist since delivery failed
+      const tsPath = join(testWorkspaceDir, ".reengagement-ts");
+      expect(existsSync(tsPath)).toBe(false);
+    });
+
+    test("records timestamp after successful delivery", async () => {
+      writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), IDENTITY_TEMPLATE);
+      writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
+
+      const service = createService();
+      await service.runOnce();
+
+      // The reengagement timestamp file should exist after successful delivery
+      const tsPath = join(testWorkspaceDir, ".reengagement-ts");
+      expect(existsSync(tsPath)).toBe(true);
     });
   });
 });

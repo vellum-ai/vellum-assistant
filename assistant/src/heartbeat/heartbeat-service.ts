@@ -223,7 +223,7 @@ export class HeartbeatService {
     try {
       const config = getConfig().heartbeat;
       const checklist = this.readChecklist();
-      const prompt = this.buildPrompt(checklist);
+      const { prompt, includedReengagement } = this.buildPrompt(checklist);
 
       const conversation = bootstrapConversation({
         conversationType: "background",
@@ -241,6 +241,11 @@ export class HeartbeatService {
       await this.deps.processMessage(conversation.id, prompt, {
         speed: config.speed,
       });
+
+      if (includedReengagement) {
+        recordReengagementTimestamp();
+      }
+
       log.info({ conversationId: conversation.id }, "Heartbeat completed");
     } catch (err) {
       log.error({ err }, "Heartbeat failed");
@@ -264,7 +269,7 @@ export class HeartbeatService {
   }
 
   /** @internal Exposed for testing. */
-  buildPrompt(checklist: string): string {
+  buildPrompt(checklist: string): { prompt: string; includedReengagement: boolean } {
     let prompt = `You are running a periodic heartbeat check. Review the following checklist and take any necessary actions.
 
 <heartbeat-checklist>
@@ -277,12 +282,13 @@ After completing your review, end your response with one of:
 - HEARTBEAT_ALERT — if you found issues that need attention (describe them before this marker)
 </heartbeat-disposition>`;
 
+    let includedReengagement = false;
     if (isShallowProfile() && isReengagementCooldownElapsed()) {
-      recordReengagementTimestamp();
+      includedReengagement = true;
       prompt += `\n\n<relationship-depth>\nYou don't know much about this person yet — their profile is still sparse. If the moment feels right during this beat, gently invite them to share something about themselves. Not an interrogation — something natural like "I realized I don't actually know much about what you do. Fill me in sometime?" Only do this occasionally, not every beat. If they engage, save what you learn.\n</relationship-depth>`;
     }
 
-    return prompt;
+    return { prompt, includedReengagement };
   }
 }
 
