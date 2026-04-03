@@ -23,7 +23,9 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import {
   SUBAGENT_LIMITS,
+  SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
+  type SubagentRole,
   type SubagentState,
   type SubagentStatus,
   TERMINAL_STATUSES,
@@ -33,17 +35,24 @@ const log = getLogger("subagent-manager");
 
 // ── Default subagent system prompt ──────────────────────────────────────
 
-function buildSubagentSystemPrompt(config: SubagentConfig): string {
+function buildSubagentSystemPrompt(config: SubagentConfig, role: SubagentRole): string {
+  const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
   const sections: string[] = [
-    "You are a focused subagent working on a specific task delegated by a parent assistant.",
-    "Complete the task thoroughly and concisely.",
+    roleConfig.systemPromptPreamble,
     "",
-    `## Your Task`,
+    "## Your Task",
     config.objective,
   ];
   if (config.context) {
     sections.push("", "## Context from Parent", config.context);
   }
+  sections.push(
+    "",
+    "## Constraints",
+    `- Role: ${role}`,
+    "- You cannot spawn nested subagents.",
+    "- Use notify_parent to report important findings or if you are blocked.",
+  );
   return sections.join("\n");
 }
 
@@ -121,6 +130,10 @@ export class SubagentManager {
       );
     }
 
+    // ── Resolve role ─────────────────────────────────────────────────
+    const role: SubagentRole = (config.role as SubagentRole) ?? "general";
+    const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
+
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
     const conversationRecord = bootstrapConversation({
@@ -143,7 +156,7 @@ export class SubagentManager {
 
     const systemPrompt =
       config.systemPromptOverride ??
-      buildSubagentSystemPrompt({ ...config, id: subagentId });
+      buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
     const maxTokens = appConfig.maxTokens;
     const workingDir = getSandboxWorkingDir();
 
@@ -197,6 +210,16 @@ export class SubagentManager {
     // Mark conversation as having no direct client — it routes through parent.
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
+
+    // Apply role-based tool filter if the role defines one.
+    if (roleConfig.allowedTools) {
+      conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
+    }
+
+    // Pre-activate skills defined by the role config.
+    if (roleConfig.skillIds.length > 0) {
+      conversation.setPreactivatedSkillIds(roleConfig.skillIds);
+    }
 
     managed.conversation = conversation;
     this.subagents.set(subagentId, managed);

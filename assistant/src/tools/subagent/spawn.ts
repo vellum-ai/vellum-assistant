@@ -9,6 +9,7 @@ export async function executeSubagentSpawn(
   const objective = input.objective as string;
   const extraContext = input.context as string | undefined;
   const sendResultToUser = input.send_result_to_user !== false;
+  const role = (input.role as string | undefined) ?? undefined;
 
   if (!label || !objective) {
     return {
@@ -36,6 +37,7 @@ export async function executeSubagentSpawn(
         objective,
         context: extraContext,
         sendResultToUser,
+        ...(role ? { role: role as import("../../subagent/types.js").SubagentRole } : {}),
       },
       sendToClient as (msg: unknown) => void,
     );

@@ -25,6 +25,11 @@
             "type": "boolean",
             "description": "Whether to present the subagent's result to the user when it completes. Defaults to true. Set to false for internal/silent processing."
           },
+          "role": {
+            "type": "string",
+            "enum": ["general", "researcher", "coder", "planner"],
+            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'general': full access (default)."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
