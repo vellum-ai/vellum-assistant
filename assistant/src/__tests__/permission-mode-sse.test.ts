@@ -162,8 +162,8 @@ import {
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { settingsRouteDefinitions } from "../runtime/routes/settings-routes.js";
 import type { RouteDefinition } from "../runtime/http-router.js";
+import { settingsRouteDefinitions } from "../runtime/routes/settings-routes.js";
 
 // ---------------------------------------------------------------------------
 // Route helpers — call actual route handlers
