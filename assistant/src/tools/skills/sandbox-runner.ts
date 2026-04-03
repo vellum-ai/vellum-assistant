@@ -147,7 +147,7 @@ function spawnRunner(
     const bunRunCmd = "bun run __skill_runner.ts";
     const wrapped = wrapCommand(bunRunCmd, runDir, sandboxConfig);
 
-    const env = buildSanitizedEnv();
+    const env = buildSanitizedEnv({ cwd: runDir });
     env.__SKILL_INPUT_JSON = JSON.stringify(input);
     // Pass a serializable subset of context to the subprocess
     env.__SKILL_CONTEXT_JSON = JSON.stringify({

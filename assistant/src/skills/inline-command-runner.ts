@@ -117,7 +117,7 @@ export async function runInlineCommand(
   // Build a minimal, sanitized environment. Explicitly exclude gateway URL,
   // workspace dir, and data dir since inline commands have no business calling
   // internal APIs, mutating workspace state, or accessing instance-scoped data.
-  const env = buildSanitizedEnv();
+  const env = buildSanitizedEnv({ cwd: workingDir });
   delete env.INTERNAL_GATEWAY_BASE_URL;
   delete env.VELLUM_WORKSPACE_DIR;
   delete env.VELLUM_DATA_DIR;

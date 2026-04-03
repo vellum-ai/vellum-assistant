@@ -5,6 +5,9 @@
  *
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
 
@@ -39,12 +42,39 @@ const SAFE_ENV_VARS = [
   "CES_SERVICE_TOKEN",
 ] as const;
 
-export function buildSanitizedEnv(): Record<string, string> {
+interface BuildSanitizedEnvOptions {
+  cwd?: string;
+}
+
+function hasProjectBunConfig(cwd: string): boolean {
+  let current = resolve(cwd);
+  while (true) {
+    if (existsSync(join(current, "bunfig.toml"))) {
+      return true;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return false;
+    }
+    current = parent;
+  }
+}
+
+export function buildSanitizedEnv(
+  options?: BuildSanitizedEnvOptions,
+): Record<string, string> {
   const env: Record<string, string> = {};
   for (const key of SAFE_ENV_VARS) {
     if (process.env[key] != null) {
       env[key] = process.env[key]!;
     }
+  }
+  if (
+    process.env.BUN_CONFIG_FILE &&
+    options?.cwd &&
+    !hasProjectBunConfig(options.cwd)
+  ) {
+    env.BUN_CONFIG_FILE = process.env.BUN_CONFIG_FILE;
   }
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();

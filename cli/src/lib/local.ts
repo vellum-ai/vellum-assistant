@@ -9,7 +9,7 @@ import {
 } from "fs";
 import { createRequire } from "module";
 import { homedir, hostname, networkInterfaces, platform } from "os";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 
 import { type LocalInstanceResources } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
@@ -18,6 +18,7 @@ import { stopProcessByPidFile } from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
+const ASSISTANT_BUN_CONFIG_CONTENT = "smol = true\n";
 
 function isAssistantSourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
@@ -130,6 +131,35 @@ function resolveAssistantIndexPath(): string | undefined {
   }
 
   return undefined;
+}
+
+function resolveAssistantBunConfigPath(
+  daemonMainPath: string,
+): string | undefined {
+  const configPath = resolve(
+    dirname(daemonMainPath),
+    "..",
+    "..",
+    "smol-bunfig.toml",
+  );
+  return existsSync(configPath) ? configPath : undefined;
+}
+
+function ensureManagedAssistantBunConfig(
+  resources?: LocalInstanceResources,
+): string {
+  const workspaceDir =
+    process.env.VELLUM_WORKSPACE_DIR?.trim() ||
+    join(resources?.instanceDir ?? homedir(), ".vellum", "workspace");
+  const configPath = join(workspaceDir, "assistant-bunfig.toml");
+  mkdirSync(dirname(configPath), { recursive: true });
+  const existing = existsSync(configPath)
+    ? readFileSync(configPath, "utf-8")
+    : undefined;
+  if (existing !== ASSISTANT_BUN_CONFIG_CONTENT) {
+    writeFileSync(configPath, ASSISTANT_BUN_CONFIG_CONTENT);
+  }
+  return configPath;
 }
 
 function ensureBunInstalled(): void {
@@ -298,6 +328,10 @@ async function startDaemonFromSource(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
+  const bunConfigPath = resolveAssistantBunConfigPath(daemonMainPath);
+  if (bunConfigPath) {
+    env.BUN_CONFIG_FILE = bunConfigPath;
+  }
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
@@ -418,6 +452,10 @@ async function startDaemonWatchFromSource(
   if (options?.defaultWorkspaceConfigPath) {
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
+  }
+  const bunConfigPath = resolveAssistantBunConfigPath(mainPath);
+  if (bunConfigPath) {
+    env.BUN_CONFIG_FILE = bunConfigPath;
   }
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
@@ -894,6 +932,7 @@ export async function startLocalDaemon(
       if (options?.signingKey) {
         daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
       }
+      daemonEnv.BUN_CONFIG_FILE = ensureManagedAssistantBunConfig(resources);
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check

@@ -296,7 +296,7 @@ class ShellTool implements Tool {
       }
     }
 
-    const env = buildSanitizedEnv();
+    const env = buildSanitizedEnv({ cwd: context.workingDir });
     if (proxyEnv) {
       Object.assign(env, proxyEnv);
     }

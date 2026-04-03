@@ -109,6 +109,7 @@ ENV PATH="/home/assistant/.bun/bin:${PATH}"
 # Configure package managers to use assistant home
 ENV BUN_INSTALL="/home/assistant/.bun"
 ENV PATH="${BUN_INSTALL}/bin:${PATH}"
+ENV BUN_CONFIG_FILE="/app/assistant/smol-bunfig.toml"
 ENV PYTHONUSERBASE="/home/assistant/.python"
 ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
 

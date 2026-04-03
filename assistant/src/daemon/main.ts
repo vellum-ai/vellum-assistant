@@ -6,10 +6,13 @@ import { join } from "node:path";
 
 import * as Sentry from "@sentry/node";
 
+import { applyAssistantBunConfig } from "../util/bun-runtime.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { runDaemon } from "./lifecycle.js";
 import { emitDaemonError } from "./startup-error.js";
+
+applyAssistantBunConfig();
 
 runDaemon().catch(async (err) => {
   Sentry.captureException(err);

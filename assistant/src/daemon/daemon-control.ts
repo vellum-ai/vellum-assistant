@@ -12,7 +12,7 @@ import { resolve } from "node:path";
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
-import { ensureBun } from "../util/bun-runtime.js";
+import { applyAssistantBunConfig, ensureBun } from "../util/bun-runtime.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -359,7 +359,7 @@ async function startDaemonLocked(): Promise<{
   // never needs to access the protected directory for key material.
   // Done before opening stderrFd to avoid leaking the file descriptor if
   // loadOrCreateSigningKey throws.
-  const spawnEnv = { ...process.env };
+  const spawnEnv = applyAssistantBunConfig({ ...process.env });
   if (!spawnEnv.ACTOR_TOKEN_SIGNING_KEY) {
     try {
       const key = loadOrCreateSigningKey();
