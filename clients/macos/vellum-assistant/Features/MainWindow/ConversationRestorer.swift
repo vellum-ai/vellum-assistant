@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 import VellumAssistantShared
 import os
 
@@ -13,6 +14,8 @@ protocol ConversationRestorerDelegate: AnyObject {
     var groups: [ConversationGroup] { get set }
     var daemonSupportsGroups: Bool { get set }
     var restoreRecentConversations: Bool { get }
+    /// The persisted last-active conversation UUID string (UserDefaults-backed).
+    var lastActiveConversationIdString: String? { get }
     var isLoadingMoreConversations: Bool { get set }
     var hasMoreConversations: Bool { get set }
     var serverOffset: Int { get set }
@@ -298,26 +301,51 @@ final class ConversationRestorer {
             restoredConversations.append(conversation)
         }
 
-        if defaultConversationIsEmpty {
-            if let defaultConversation = delegate.conversations.first {
-                delegate.removeChatViewModel(for: defaultConversation.id)
+        // Suppress animations during bulk list assignment. Without this,
+        // SwiftUI computes before/after diffing and animation interpolation
+        // for every row — expensive when restoring ~50 conversations at once.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if defaultConversationIsEmpty {
+                if let defaultConversation = delegate.conversations.first {
+                    delegate.removeChatViewModel(for: defaultConversation.id)
+                }
+                delegate.conversations = restoredConversations
+            } else {
+                delegate.conversations = restoredConversations + delegate.conversations
             }
-            delegate.conversations = restoredConversations
-        } else {
-            delegate.conversations = restoredConversations + delegate.conversations
         }
 
-        if let firstVisible = restoredConversations.first(where: { !$0.isArchived }) {
-            delegate.activateConversation(firstVisible.id)
+        if let hasMore = response.hasMore {
+            delegate.hasMoreConversations = hasMore
+        }
+
+        // Determine the activation target once up front.
+        // Priority: saved last-active > first visible restored > new conversation.
+        let activationTarget: UUID? = {
+            // Try the user's last active conversation first.
+            if delegate.restoreRecentConversations,
+               let savedString = delegate.lastActiveConversationIdString,
+               let savedUUID = UUID(uuidString: savedString),
+               delegate.conversations.contains(where: { $0.id == savedUUID && !$0.isArchived }) {
+                return savedUUID
+            }
+            // Fall back to the first visible restored conversation.
+            if let firstVisible = restoredConversations.first(where: { !$0.isArchived }) {
+                return firstVisible.id
+            }
+            return nil
+        }()
+
+        if let target = activationTarget {
+            delegate.activateConversation(target)
         } else if defaultConversationIsEmpty {
             // All restored conversations are archived and the default conversation was removed,
             // so create a new empty conversation to avoid a blank window.
             delegate.createConversation()
         }
 
-        if let hasMore = response.hasMore {
-            delegate.hasMoreConversations = hasMore
-        }
         // serverOffset is set by fetchConversationList before merging foreground +
         // background, so it reflects foreground-only count for correct pagination.
         log.info("Restored \(restoredConversations.count) conversations from daemon (hasMore: \(response.hasMore ?? false))")

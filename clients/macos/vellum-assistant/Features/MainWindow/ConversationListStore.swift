@@ -19,8 +19,12 @@ final class ConversationListStore {
 
     // MARK: - Stored Properties
 
-    var conversations: [ConversationModel] = []
-    var groups: [ConversationGroup] = []
+    var conversations: [ConversationModel] = [] {
+        didSet { recomputeDerivedProperties() }
+    }
+    var groups: [ConversationGroup] = [] {
+        didSet { recomputeDerivedProperties() }
+    }
 
     /// Whether the daemon returned a non-empty groups array, indicating it supports
     /// the group system. When true, `groupId: null` from the server means "explicitly
@@ -115,71 +119,69 @@ final class ConversationListStore {
         }
     }
 
-    // MARK: - Computed Properties
+    // MARK: - Cached Derived Properties
+    //
+    // These are stored rather than computed so that multiple SwiftUI views reading
+    // the same property within a single layout pass share one computation instead
+    // of each re-running the O(N log N) sort + O(N) filter independently.
+    // Recomputed once per `conversations` or `groups` mutation via `didSet`.
 
-    var sortedGroups: [ConversationGroup] {
-        groups.sorted { $0.sortPosition < $1.sortPosition }
-    }
+    private(set) var sortedGroups: [ConversationGroup] = []
 
     /// Conversations organized by group. Groups appear in sortPosition order;
     /// ungrouped conversations (including orphans with unknown groupId) appear last.
-    /// Buckets conversations in a single pass over `visibleConversations` (O(N))
-    /// instead of filtering per group (O(N*G)).
-    var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] {
-        let visible = visibleConversations
-        let knownGroupIds = Set(groups.map(\.id))
+    private(set) var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] = []
 
-        // Single-pass bucketing: group conversations by groupId
+    /// Non-archived, non-private conversations sorted for the sidebar.
+    private(set) var visibleConversations: [ConversationModel] = []
+
+    /// Count of visible conversations with unseen assistant messages (dock badge).
+    private(set) var unseenVisibleConversationCount: Int = 0
+
+    private(set) var archivedConversations: [ConversationModel] = []
+
+    /// Recompute all derived sidebar properties from `conversations` and `groups`.
+    /// Called from `conversations.didSet` and `groups.didSet`.
+    private func recomputeDerivedProperties() {
+        let currentSortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
+        sortedGroups = currentSortedGroups
+
+        let positionMap = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
+        let currentVisible = conversations
+            .filter { !$0.isArchived && $0.kind != .private }
+            .sorted { visibleConversationSortOrder($0, $1, positionMap: positionMap) }
+        visibleConversations = currentVisible
+
+        unseenVisibleConversationCount = conversations.count {
+            !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage
+        }
+
+        archivedConversations = conversations.filter { $0.isArchived }
+
+        // Bucket visible conversations by group in a single pass (O(N)).
+        let knownGroupIds = Set(groups.map(\.id))
         var buckets: [String: [ConversationModel]] = [:]
         var ungrouped: [ConversationModel] = []
         var orphaned: [ConversationModel] = []
 
-        for conversation in visible {
+        for conversation in currentVisible {
             if let gid = conversation.groupId {
                 if knownGroupIds.contains(gid) {
                     buckets[gid, default: []].append(conversation)
                 } else {
-                    orphaned.append(conversation)  // unknown groupId
+                    orphaned.append(conversation)
                 }
             } else {
                 ungrouped.append(conversation)
             }
         }
 
-        // Always include all groups so the view layer can decide visibility.
-        // Non-system groups always appear (so "New Group" is visible immediately).
-        var result: [(ConversationGroup?, [ConversationModel])] = []
-        for group in sortedGroups {
-            result.append((group, buckets[group.id] ?? []))
+        var grouped: [(ConversationGroup?, [ConversationModel])] = []
+        for group in currentSortedGroups {
+            grouped.append((group, buckets[group.id] ?? []))
         }
-
-        // Ungrouped + orphaned (unknown groupId) -- always last
-        result.append((nil, ungrouped + orphaned))
-
-        return result
-    }
-
-    /// Conversations that are not archived — used by the UI to populate the sidebar.
-    /// Sorted: grouped conversations first (by group sortPosition), then ungrouped.
-    /// Within each group, conversations sort by displayOrder ascending, then recency descending.
-    /// Conversations move to the top when messages are sent or received, but NOT when clicked/selected.
-    var visibleConversations: [ConversationModel] {
-        let positionMap = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
-        return conversations
-            .filter { !$0.isArchived && $0.kind != .private }
-            .sorted { visibleConversationSortOrder($0, $1, positionMap: positionMap) }
-    }
-
-    /// Count of visible (non-archived, non-private) conversations with unseen assistant messages.
-    /// Used by AppDelegate to drive the dock badge.
-    /// Filters `conversations` directly instead of calling `visibleConversations` to avoid
-    /// an unnecessary O(N log N) sort — only the count is needed.
-    var unseenVisibleConversationCount: Int {
-        conversations.count { !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage }
-    }
-
-    var archivedConversations: [ConversationModel] {
-        conversations.filter { $0.isArchived }
+        grouped.append((nil, ungrouped + orphaned))
+        groupedConversations = grouped
     }
 
     // MARK: - Sort Helpers

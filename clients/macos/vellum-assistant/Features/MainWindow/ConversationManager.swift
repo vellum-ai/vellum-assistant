@@ -109,6 +109,10 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.restoreRecentConversations
     }
 
+    var lastActiveConversationIdString: String? {
+        selectionStore.lastActiveConversationIdString
+    }
+
     var activeConversationId: UUID? {
         get { selectionStore.activeConversationId }
         set { selectionStore.activeConversationId = newValue }
@@ -303,7 +307,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             vm.prepareForChannelRefresh()
         }
 
-        selectionStore.activeConversationId = id
+        selectionStore.performActivation(for: id)
 
         // Emit explicit seen signal for user-initiated conversation activation.
         // Skip during conversation restoration to avoid false "seen" signals on bootstrap.
@@ -472,7 +476,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             self?.promoteDraft(fromUserSend: true)
         }
         selectionStore.draftViewModel = viewModel
-        selectionStore.activeConversationId = nil
+        selectionStore.performDeactivation()
         activityStore.observeActiveViewModel(viewModel.messageManager)
         log.info("Entered draft mode")
     }
@@ -508,7 +512,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             self?.listStore.updateLastInteracted(conversationId: localId)
         }
 
-        selectionStore.activeConversationId = conversation.id
+        selectionStore.performActivation(for: conversation.id)
         listStore.updateLastInteracted(conversationId: conversation.id)
         log.info("Promoted draft to conversation \(conversation.id)")
     }
@@ -532,7 +536,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         activityStore.observeInteractionState(for: conversation.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         selectionStore.touchVMAccessOrder(conversation.id)
         selectionStore.scheduleEvictionIfNeeded()
-        selectionStore.activeConversationId = conversation.id
+        selectionStore.performActivation(for: conversation.id)
         viewModel.createConversationIfNeeded(conversationType: "private")
         log.info("Created private conversation \(conversation.id)")
     }
@@ -631,9 +635,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         ConversationSelectionStore.clearRenderCaches()
         if selectionStore.activeConversationId == id {
             if index < listStore.conversations.count {
-                selectionStore.activeConversationId = listStore.conversations[index].id
-            } else {
-                selectionStore.activeConversationId = listStore.conversations.last?.id
+                selectionStore.performActivation(for: listStore.conversations[index].id)
+            } else if let lastId = listStore.conversations.last?.id {
+                selectionStore.performActivation(for: lastId)
             }
         }
         log.info("Closed conversation \(id)")
@@ -675,9 +679,9 @@ final class ConversationManager: ConversationRestorerDelegate {
             let visibleAfter = listStore.conversations[index...].dropFirst().first(where: { !$0.isArchived })
             let visibleBefore = listStore.conversations[..<index].last(where: { !$0.isArchived })
             if let next = visibleAfter ?? visibleBefore {
-                selectionStore.activeConversationId = next.id
-            } else {
-                selectionStore.activeConversationId = listStore.visibleConversations.first?.id
+                selectionStore.performActivation(for: next.id)
+            } else if let firstVisibleId = listStore.visibleConversations.first?.id {
+                selectionStore.performActivation(for: firstVisibleId)
             }
         }
 
@@ -723,7 +727,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             vm.prepareForChannelRefresh()
         }
 
-        selectionStore.activeConversationId = id
+        selectionStore.performActivation(for: id)
 
         if id != previousActiveId {
             listStore.markConversationSeen(conversationId: id)
@@ -935,7 +939,9 @@ final class ConversationManager: ConversationRestorerDelegate {
             if listStore.visibleConversations.isEmpty {
                 enterDraftMode()
             } else {
-                selectionStore.activeConversationId = listStore.visibleConversations.first?.id
+                if let firstVisibleId = listStore.visibleConversations.first?.id {
+                    selectionStore.performActivation(for: firstVisibleId)
+                }
             }
         } else if listStore.visibleConversations.isEmpty {
             enterDraftMode()
