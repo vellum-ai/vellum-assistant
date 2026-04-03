@@ -707,15 +707,20 @@ async function* generateTarStream(
     // consistency mechanism for the database.
     let bytesWritten = 0;
     if (file.size > 0) {
-      const stream = createReadStream(file.diskPath, {
-        start: 0,
-        end: file.size - 1,
-      });
-      for await (const chunk of stream) {
-        const data =
-          chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-        bytesWritten += data.length;
-        yield data;
+      try {
+        const stream = createReadStream(file.diskPath, {
+          start: 0,
+          end: file.size - 1,
+        });
+        for await (const chunk of stream) {
+          const data =
+            chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+          bytesWritten += data.length;
+          yield data;
+        }
+      } catch {
+        // File was deleted or rotated between passes — emit zeros for
+        // the full declared size so the tar structure stays valid
       }
     }
 
