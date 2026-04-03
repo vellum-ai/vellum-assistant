@@ -99,7 +99,9 @@ export function setMessageIdOnLogs(
   const db = getDb();
   db.update(llmRequestLogs)
     .set({ messageId })
-    .where(inArray(llmRequestLogs.id, logIds))
+    .where(
+      and(inArray(llmRequestLogs.id, logIds), isNull(llmRequestLogs.messageId)),
+    )
     .run();
 }
 
