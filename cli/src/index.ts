@@ -6,6 +6,7 @@ import { clean } from "./commands/clean";
 import { client } from "./commands/client";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
+import { message } from "./commands/message";
 import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
@@ -36,6 +37,7 @@ const commands = {
   hatch,
   login,
   logout,
+  message,
   pair,
   ps,
   recover,
@@ -64,6 +66,7 @@ function printHelp(): void {
   console.log("  client   Connect to a hatched assistant");
   console.log("  hatch    Create a new assistant instance");
   console.log("  login    Log in to the Vellum platform");
+  console.log("  message  Send a message to a running assistant");
   console.log("  logout   Log out of the Vellum platform");
   console.log("  pair     Pair with a remote assistant via QR code");
   console.log(
