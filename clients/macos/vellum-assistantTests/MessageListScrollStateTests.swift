@@ -157,10 +157,11 @@ final class MessageListScrollStateTests: XCTestCase {
 
         XCTAssertTrue(result,
                       "User-initiated requests should always return true")
-        // User-initiated uses edge-based scroll as primary (reaches actual
-        // content bottom) with ID-based correction in a Task.
-        XCTAssertFalse(scrollToEdgeCalls.isEmpty,
-                       "User-initiated requests should bypass mode checks and scroll to edge")
+        // User-initiated uses ID-based scroll as primary (targets real
+        // ForEach content, never overshoots) with edge-based correction
+        // in a Task.
+        XCTAssertFalse(scrollToCalls.isEmpty,
+                       "User-initiated requests should bypass mode checks and scroll to ID")
     }
 
     // MARK: - Stabilization

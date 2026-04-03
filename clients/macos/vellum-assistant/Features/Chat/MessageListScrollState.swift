@@ -469,12 +469,15 @@ final class MessageListScrollState {
     ///
     /// Two strategies depending on context:
     ///
-    /// **User-initiated (CTA tap):** Edge-based scroll primary, with
-    /// ID-based correction. `scrollToEdge(.bottom)` fires synchronously
-    /// (reaches the actual content bottom, not just the last message —
-    /// there's padding/anchor below). An ID-based scroll to
-    /// `lastMessageId` fires on the next run-loop pass to correct any
-    /// overshoot into blank LazyVStack estimated space. Animation is
+    /// **User-initiated (CTA tap):** ID-based scroll primary, with
+    /// edge-based correction. `scrollTo(id: lastMessageId, .bottom)`
+    /// fires synchronously — targets a real ForEach item that SwiftUI
+    /// can always locate (even when not materialized), so it never
+    /// overshoots into blank LazyVStack estimated space. An edge-based
+    /// `scrollToEdge(.bottom)` fires on the next run-loop pass to close
+    /// the small gap between the last message and the absolute content
+    /// bottom (padding/anchor below). If the user scrolls up before the
+    /// edge correction, they start from real content. Animation is
     /// provided by the caller's `withAnimation` wrapper (spring for
     /// smooth CTA scroll). The recovery window (set in
     /// `requestPinToBottom`) handles failures.
@@ -490,24 +493,27 @@ final class MessageListScrollState {
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
     private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false) {
         if userInitiated {
-            // Edge-based primary: reaches the actual content bottom
-            // (not just the last message — there's padding/anchor below).
-            // Animated with spring from the caller's withAnimation wrapper
-            // for a smooth, visible scroll matching industry standard.
+            // ID-based primary: targets a real ForEach item that SwiftUI
+            // can always locate — never overshoots into blank LazyVStack
+            // estimated space. If the user scrolls up immediately after
+            // tapping, they start from real content (not blank space).
+            // Animated with spring from the caller's withAnimation wrapper.
             pendingIdScrollTask?.cancel()
-            scrollToEdge?(.bottom)
-            // ID-based correction on the next run loop: if edge-based
-            // overshot into blank LazyVStack estimated space, the ID
-            // scroll targets actual ForEach content and materializes
-            // views around it, nudging the viewport toward real content.
-            // The recovery window (set in requestPinToBottom) provides
-            // an additional 2-second safety net.
             let target: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
-            let idScroll = scrollTo
+            scrollTo?(target, .bottom)
+            // Edge-based correction on the next run loop: closes the
+            // small gap between the last message and the absolute content
+            // bottom (padding/anchor below the last ForEach item).
+            // If the user scrolls up before this fires, it's cancelled
+            // by handleUserScrollUp — but the viewport is already at
+            // real content, so no blank screen.
+            // The recovery window (set in requestPinToBottom) provides
+            // an additional 2-second safety net for any remaining gap.
+            let edgeScroll = scrollToEdge
             pendingIdScrollTask = Task { @MainActor [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 guard self.mode.allowsAutoScroll else { return }
-                idScroll?(target, .bottom)
+                edgeScroll?(.bottom)
                 self.pendingIdScrollTask = nil
             }
             return
