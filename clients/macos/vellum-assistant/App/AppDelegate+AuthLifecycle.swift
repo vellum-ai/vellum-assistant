@@ -18,8 +18,19 @@ extension AppDelegate {
             let hasKey = APIKeyManager.hasAnyKey()
             log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
             if isAuthed || hasKey {
-                log.info("[authFlow] → proceedToApp()")
-                proceedToApp()
+                // Verify there is at least one assistant from the current
+                // platform environment before entering the app. After a
+                // retire the lockfile may only contain cross-environment
+                // entries that cannot be connected to — in that case fall
+                // through to onboarding so the user can hatch a new one.
+                let hasConnectable = LockfileAssistant.loadAll().contains { $0.isCurrentEnvironment }
+                if hasConnectable {
+                    log.info("[authFlow] → proceedToApp()")
+                    proceedToApp()
+                } else {
+                    log.info("[authFlow] Authenticated but no current-environment assistant — showing onboarding")
+                    showAuthWindow()
+                }
             } else {
                 // Check if the lockfile has a non-managed assistant we can connect to
                 // without authentication. Local/remote assistants run independently
