@@ -92,6 +92,44 @@ export interface MemoryRecallLog {
   reason: string | null;
 }
 
+/**
+ * Normalizes top-candidate entries from the stored SSE-event format
+ * (key/finalScore/semantic/recency/kind) to the inspector format expected
+ * by the Swift MemoryRecallCandidate struct (nodeId/score/semanticSimilarity/recencyBoost).
+ * Entries already in inspector format pass through unchanged.
+ */
+export function normalizeTopCandidates(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return raw.map((entry: Record<string, unknown>) => {
+    // Start with a shallow copy, then apply field renames
+    const { key, finalScore, semantic, recency, kind, ...rest } = entry;
+
+    // nodeId: prefer existing nodeId, fall back to key
+    if (rest.nodeId === undefined && key !== undefined) {
+      rest.nodeId = key;
+    }
+
+    // score: prefer existing score, fall back to finalScore
+    if (rest.score === undefined && finalScore !== undefined) {
+      rest.score = finalScore;
+    }
+
+    // semanticSimilarity: prefer existing, fall back to semantic
+    if (rest.semanticSimilarity === undefined && semantic !== undefined) {
+      rest.semanticSimilarity = semantic;
+    }
+
+    // recencyBoost: prefer existing, fall back to recency
+    if (rest.recencyBoost === undefined && recency !== undefined) {
+      rest.recencyBoost = recency;
+    }
+
+    // kind is stripped (not in the Swift model) — already excluded via destructuring
+
+    return rest;
+  });
+}
+
 export function getMemoryRecallLogByMessageIds(
   messageIds: string[],
 ): MemoryRecallLog | null {
@@ -121,7 +159,7 @@ export function getMemoryRecallLogByMessageIds(
     sparseVectorUsed: !!row.sparseVectorUsed,
     injectedTokens: row.injectedTokens,
     latencyMs: row.latencyMs,
-    topCandidates: JSON.parse(row.topCandidatesJson),
+    topCandidates: normalizeTopCandidates(JSON.parse(row.topCandidatesJson)),
     injectedText: row.injectedText,
     reason: row.reason,
   };
