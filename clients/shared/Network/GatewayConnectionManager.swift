@@ -46,6 +46,7 @@ public final class GatewayConnectionManager: ObservableObject {
     @Published public var isTrustRulesSheetOpen: Bool = false
     @Published public var currentModel: String?
     @Published public var latestModelInfo: ModelInfoMessage?
+    @Published public var permissionMode: PermissionModeUpdateMessage?
 
     /// Whether the transport has authenticated successfully.
     var isAuthenticated = false
@@ -480,6 +481,8 @@ public final class GatewayConnectionManager: ObservableObject {
             latestModelInfo = msg
         case .memoryStatus(let msg):
             latestMemoryStatus = msg
+        case .permissionModeUpdate(let msg):
+            permissionMode = msg
         case .authResult(let result):
             isAuthenticated = result.success
         default:
@@ -731,12 +734,30 @@ public final class GatewayConnectionManager: ObservableObject {
             #if os(macOS)
             handlePostSparkleUpdate()
             #endif
+            fetchInitialPermissionMode()
         }
         #if os(macOS)
         if !connected {
             autoWakeIfAssistantDied()
         }
         #endif
+    }
+
+    // MARK: - Permission Mode
+
+    /// Fetches the initial permission mode state from the daemon on connection.
+    private func fetchInitialPermissionMode() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let response = try await GatewayHTTPClient.get(path: "permission-mode", quiet: true)
+                guard response.isSuccess else { return }
+                let decoded = try JSONDecoder().decode(PermissionModeUpdateMessage.self, from: response.data)
+                self.permissionMode = decoded
+            } catch {
+                // Non-critical — SSE events will sync state once available.
+            }
+        }
     }
 
     // MARK: - Errors

@@ -2241,6 +2241,7 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileCancel(HostFileCancelRequest)
     case hostCuRequest(HostCuRequest)
     case hostCuCancel(HostCuCancelRequest)
+    case permissionModeUpdate(PermissionModeUpdateMessage)
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
@@ -2685,6 +2686,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_cancel":
             let message = try HostCuCancelRequest(from: decoder)
             self = .hostCuCancel(message)
+        case "permission_mode_update":
+            let message = try PermissionModeUpdateMessage(from: decoder)
+            self = .permissionModeUpdate(message)
         case "usage_update":
             let message = try UsageUpdate(from: decoder)
             self = .usageUpdate(message)
@@ -2705,6 +2709,14 @@ public enum ServerMessage: Decodable, Sendable {
     }
 }
 
+
+// MARK: - Permission Mode
+
+/// Two-axis permission mode state broadcast via SSE or returned by GET /v1/permission-mode.
+public struct PermissionModeUpdateMessage: Decodable, Sendable {
+    public let askBeforeActing: Bool
+    public let hostAccess: Bool
+}
 
 // MARK: - Token Rotation
 
