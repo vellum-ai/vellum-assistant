@@ -2025,7 +2025,7 @@ public struct HistoryResponseMessage: Codable, Sendable {
     public let contentOrder: [String]?
     /// UI surfaces (widgets) embedded in the message.
     public let surfaces: [HistoryResponseSurface]?
-    /// Present when this message is a subagent lifecycle notification (completed/failed/aborted).
+    /// Present when this message is a subagent lifecycle notification (running/completed/failed/aborted).
     public let subagentNotification: HistoryResponseMessageSubagentNotification?
     /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
     public let wasTruncated: Bool?
