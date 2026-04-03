@@ -790,6 +790,111 @@ describe("Subagent read tool", () => {
     }
   });
 
+  test("read with last_n: 1 returns only the last message", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-1";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First message" },
+        { role: "assistant", content: "Second message" },
+        { role: "assistant", content: "Third message" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId, last_n: 1 },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("Third message");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read with last_n: 2 returns last 2 messages joined", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-2";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First message" },
+        { role: "assistant", content: "Second message" },
+        { role: "assistant", content: "Third message" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId, last_n: 2 },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("Second message\n\nThird message");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read with last_n omitted returns all messages", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-omit";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First message" },
+        { role: "assistant", content: "Second message" },
+        { role: "assistant", content: "Third message" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe(
+        "First message\n\nSecond message\n\nThird message",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read with last_n larger than available returns all messages", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-last-n-large";
+    injectSubagent(manager, subagentId, ownerConversation, "completed");
+
+    mockGetMessages = (convId: string) => {
+      if (convId !== `conv-${subagentId}`) return null;
+      return [
+        { role: "assistant", content: "First message" },
+        { role: "assistant", content: "Second message" },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId, last_n: 100 },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("First message\n\nSecond message");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
   test("read concatenates multiple assistant messages", async () => {
     const manager = getSubagentManager();
     const subagentId = "read-multi-1";
