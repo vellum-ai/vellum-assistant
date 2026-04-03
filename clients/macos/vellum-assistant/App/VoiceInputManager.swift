@@ -660,32 +660,35 @@ final class VoiceInputManager {
         // TOCTOU race where a format read via `inputNodeFormat()` becomes stale
         // before a separate `installTap()` async block executes — which crashes
         // with NSInternalInconsistencyException on first use after permission grant.
-        guard let recordingFormat = engineController.installTapAndStart(bufferSize: 1024) { [weak self] buffer, _ in
-            request.append(buffer)
+        guard let recordingFormat = engineController.installTapAndStart(
+            bufferSize: 1024,
+            block: { [weak self] buffer, _ in
+                request.append(buffer)
 
-            guard let channelData = buffer.floatChannelData else { return }
-            let frameLength = Int(buffer.frameLength)
-            guard frameLength > 0 else { return }
+                guard let channelData = buffer.floatChannelData else { return }
+                let frameLength = Int(buffer.frameLength)
+                guard frameLength > 0 else { return }
 
-            let channelDataArray = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-            let rawRMS = vDSP.rootMeanSquare(channelDataArray)
+                let channelDataArray = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
+                let rawRMS = vDSP.rootMeanSquare(channelDataArray)
 
-            let smoothed = 0.5 * rawRMS + 0.5 * ampState.previousSmoothed
-            ampState.previousSmoothed = smoothed
+                let smoothed = 0.5 * rawRMS + 0.5 * ampState.previousSmoothed
+                ampState.previousSmoothed = smoothed
 
-            // Scale amplitude to 0-1 range for waveform visualization.
-            // Speech RMS is typically 0.01-0.1; multiply to fill the visual range.
-            let scaled = min(smoothed * 14.0, 1.0)
+                // Scale amplitude to 0-1 range for waveform visualization.
+                // Speech RMS is typically 0.01-0.1; multiply to fill the visual range.
+                let scaled = min(smoothed * 14.0, 1.0)
 
-            let now = CFAbsoluteTimeGetCurrent()
-            guard now - ampState.lastEmissionTime >= 0.033 else { return }
-            ampState.lastEmissionTime = now
+                let now = CFAbsoluteTimeGetCurrent()
+                guard now - ampState.lastEmissionTime >= 0.033 else { return }
+                ampState.lastEmissionTime = now
 
-            VoiceInputManager.amplitudeSubject.send(scaled)
-            DispatchQueue.main.async { [weak self] in
-                self?.onAmplitudeChanged?(scaled)
+                VoiceInputManager.amplitudeSubject.send(scaled)
+                DispatchQueue.main.async { [weak self] in
+                    self?.onAmplitudeChanged?(scaled)
+                }
             }
-        } else {
+        ) else {
             log.error("Audio engine failed to start — invalid format or engine error")
             isRecording = false
             onRecordingStateChanged?(false)
