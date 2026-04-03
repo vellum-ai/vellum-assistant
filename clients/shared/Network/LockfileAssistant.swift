@@ -253,9 +253,11 @@ public struct LockfileAssistant {
         let fileURL = URL(fileURLWithPath: path)
 
         var lockfile: [String: Any]
+        var loadedFromPrimary = false
         if let data = try? Data(contentsOf: fileURL),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             lockfile = json
+            loadedFromPrimary = true
         } else if lockfilePath == nil, let legacy = LockfilePaths.read() {
             lockfile = legacy
         } else {
@@ -263,7 +265,10 @@ public struct LockfileAssistant {
         }
 
         let previousId = lockfile["activeAssistant"] as? String
-        if previousId == id { return true }
+        // Only skip the write when the value is unchanged AND the primary
+        // lockfile already exists. If we loaded from the legacy fallback,
+        // we still need to write so the data migrates to the primary path.
+        if previousId == id, loadedFromPrimary { return true }
 
         if let id {
             lockfile["activeAssistant"] = id
