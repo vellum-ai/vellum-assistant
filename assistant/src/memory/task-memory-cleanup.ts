@@ -70,9 +70,17 @@ export function invalidateAssistantInferredItemsForConversation(
                   AND tr.status = 'failed'
              )
              AND NOT EXISTS (
+               -- Check only the most recent cron_run for each conversation
+               -- so reused conversations with historical errors but recent
+               -- successes are still treated as valid corroborators.
                SELECT 1 FROM cron_runs cr
                 WHERE cr.conversation_id = jc2.value
                   AND cr.status = 'error'
+                  AND cr.id = (
+                    SELECT cr2.id FROM cron_runs cr2
+                     WHERE cr2.conversation_id = jc2.value
+                     ORDER BY cr2.created_at DESC LIMIT 1
+                  )
              )
         )`,
     Date.now(),
