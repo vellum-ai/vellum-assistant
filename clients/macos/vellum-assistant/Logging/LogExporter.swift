@@ -626,6 +626,8 @@ enum LogExporter {
             body["conversationId"] = conversationId
             if let startTime {
                 body["startTime"] = Int(startTime.timeIntervalSince1970 * 1000)
+            } else if let cutoffDate {
+                body["startTime"] = Int(cutoffDate.timeIntervalSince1970 * 1000)
             }
             if let endTime {
                 body["endTime"] = Int(endTime.timeIntervalSince1970 * 1000)
