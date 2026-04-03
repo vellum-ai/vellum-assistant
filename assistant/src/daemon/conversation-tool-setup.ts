@@ -320,8 +320,7 @@ export function createProxyApprovalCallback(
       input.matching_patterns = decision.matchingPatterns;
     }
 
-    const riskLevel =
-      decision.kind === "ask_missing_credential" ? "high" : "medium";
+    const riskLevel = "medium";
 
     // Check trust store before prompting — build candidates that mirror
     // buildCommandCandidates() in checker.ts for network_request.
