@@ -381,6 +381,14 @@ final class MessageListScrollState {
         switch oldMode {
         case .stabilizing:
             cancelStabilizationTasks()
+            // Reset the overlapping-window counter when forcibly leaving
+            // stabilizing (e.g. user scroll-up, CTA tap). Without this,
+            // the count stays elevated: the deferred endStabilization()
+            // from the interrupted window early-returns (mode is no longer
+            // .stabilizing), and future beginStabilization calls keep
+            // incrementing from the stale base — eventually endStabilization
+            // can never reach 0, permanently locking mode in .stabilizing.
+            activeStabilizationCount = 0
         default:
             break
         }
