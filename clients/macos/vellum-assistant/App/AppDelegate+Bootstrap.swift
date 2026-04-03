@@ -230,14 +230,19 @@ extension AppDelegate {
     /// guardian token to disk (e.g. during a Docker or cloud hatch). If found,
     /// imports it directly and skips the HTTP bootstrap entirely.
     func performInitialBootstrap() async {
-        // Try importing a CLI-persisted guardian token first. During non-local
-        // hatches the CLI calls /v1/guardian/init and saves the result to
-        // ~/.config/vellum/assistants/<id>/guardian-token.json. Importing from
-        // this file avoids a redundant (and often 403-failing) HTTP bootstrap.
-        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-           GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
-            log.info("Imported guardian token from CLI file — skipping HTTP bootstrap")
-            return
+        // Try importing a CLI-persisted guardian token. During hatching the CLI
+        // calls POST /v1/guardian/init (which locks the gateway endpoint) and
+        // saves the result to ~/.config/vellum/assistants/<id>/guardian-token.json.
+        // The app may launch before the CLI finishes writing, so poll for up to
+        // 30 seconds rather than doing a one-shot check. This avoids falling
+        // through to the HTTP bootstrap path which would hit the gateway's
+        // one-time lock and loop on 403 forever.
+        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+            let imported = await GuardianTokenFileReader.pollAndImport(assistantId: assistantId)
+            if imported {
+                log.info("Imported guardian token from CLI file — skipping HTTP bootstrap")
+                return
+            }
         }
 
         let deviceId = PairingQRCodeSheet.computeHostId()

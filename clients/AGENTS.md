@@ -566,6 +566,19 @@ If the team adopts Xcode as the primary development environment and begins using
 - Do not introduce platform-specific dependencies into shared targets.
 - Prefer dependency injection for platform services to keep logic testable.
 
+### Assistant Workspace Boundary
+
+**The desktop app must NEVER read from or write to the assistant's workspace directory** (the per-instance `.vellum` directory managed by the daemon/gateway/CLI). This includes lock files, configuration files, database files, and any other state owned by the runtime.
+
+Reasons:
+- **Docker and cloud assistants**: The workspace lives inside a container or remote host — the desktop app has no filesystem access to it.
+- **Platform-managed assistants**: The workspace is managed by the platform infrastructure, not the local machine.
+- **Race conditions**: The daemon, gateway, and CLI all read/write workspace files concurrently. Desktop app access introduces unsynchronized readers/writers that cause subtle, non-deterministic bugs.
+
+If the desktop app needs data that originates in the workspace, the correct pattern is:
+1. **Expose it via a gateway/daemon HTTP API** that the app can call through `GatewayHTTPClient`.
+2. **Have the CLI write it to a well-known user-config path** (e.g., `$XDG_CONFIG_HOME/vellum/...`) that the app can read — this is how `GuardianTokenFileReader` imports CLI-persisted tokens.
+
 ---
 
 ## Testing and Quality
