@@ -77,9 +77,19 @@ extension MessageListView {
                     }
             }
         } else {
-            if !scrollState.hasBeenInteracted {
-                scrollState.scrollToEdge?(.bottom)
-            }
+            // Initial load (first mount). Let `.defaultScrollAnchor(.bottom,
+            // for: .initialOffset)` handle positioning declaratively —
+            // it places the viewport at the bottom in the same layout pass
+            // as content rendering. An imperative `scrollToEdge(.bottom)`
+            // here would compete with the declarative anchor, causing visible
+            // flicker: the viewport jumps down (declarative), then gets
+            // yanked again by the imperative call, potentially overshooting
+            // into blank LazyVStack estimated space.
+            //
+            // The delayed `restoreScrollToBottom()` (100ms) acts as a safety
+            // net: if `.defaultScrollAnchor` didn't fully resolve (e.g. very
+            // long conversation with unreliable height estimates), the
+            // recovery window + restore fallback will catch it.
             restoreScrollToBottom()
         }
     }

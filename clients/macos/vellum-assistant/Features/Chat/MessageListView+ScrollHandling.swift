@@ -135,7 +135,19 @@ extension MessageListView {
            phaseAllowsAutoFollow,
            effectiveContentHeight > newState.visibleRectHeight,
            (!nowAtBottom || isInRecoveryWindow) {
-            scrollState.requestPinToBottom()
+            // Throttle recovery to at most once per 100ms. Without this,
+            // geometry updates at ~60fps fire scrollTo(id:) every ~16ms.
+            // LazyVStack needs time between scroll attempts to materialize
+            // views at the new position — rapid-fire scrolls keep yanking
+            // the viewport before materialization completes, causing the
+            // chat to appear blank (especially in long conversations).
+            // 100ms ≈ 6 frames at 60fps — enough for LazyVStack to
+            // materialize a batch of views while still feeling responsive.
+            let now = Date()
+            if now.timeIntervalSince(scrollState.lastRecoveryAttempt) >= 0.1 {
+                scrollState.lastRecoveryAttempt = now
+                scrollState.requestPinToBottom()
+            }
         }
 
         // --- Pagination trigger ---

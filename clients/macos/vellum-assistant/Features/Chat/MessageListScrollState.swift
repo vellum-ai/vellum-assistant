@@ -238,6 +238,14 @@ final class MessageListScrollState {
     /// unconditionally until this flag is set by the anchor's `onAppear`.
     @ObservationIgnored var bottomAnchorAppeared: Bool = false
 
+    /// Timestamp of the last recovery `requestPinToBottom()` call.
+    /// Throttles recovery to at most once per 100ms — without this,
+    /// geometry updates at ~60fps fire `scrollTo(id:)` every ~16ms,
+    /// never giving LazyVStack time to materialize views between
+    /// attempts. For very long conversations, this prevents the
+    /// viewport from overshooting into unmaterialized estimated space.
+    @ObservationIgnored var lastRecoveryAttempt: Date = .distantPast
+
     // MARK: - Layout Cache Fields
 
     @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey?
@@ -259,12 +267,6 @@ final class MessageListScrollState {
 
     /// Closure that scrolls to a given edge (e.g. `.bottom`).
     @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
-
-    /// Pending ID-based scroll Task from `executeScrollToBottom`.
-    /// Tracked so it can be cancelled on mode changes (user scroll-up),
-    /// conversation switches (`reset`), and view teardown (`cancelAll`).
-    /// Prevents accumulation of stale Tasks across rapid switches.
-    @ObservationIgnored private var pendingIdScrollTask: Task<Void, Never>?
 
     // MARK: - Circuit Breaker
 
@@ -513,17 +515,12 @@ final class MessageListScrollState {
             // content bottom (padding/anchor below). Recovery is gated by
             // phaseAllowsAutoFollow (.idle only), so it waits until the
             // spring completes, then fires one clean correction.
-            pendingIdScrollTask?.cancel()
-            pendingIdScrollTask = nil
             let target: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
             scrollTo?(target, .bottom)
             return
         }
 
         // Auto-follow / recovery: ID-based primary (synchronous).
-        // Cancel any pending Task from a previous call.
-        pendingIdScrollTask?.cancel()
-        pendingIdScrollTask = nil
         if let target = lastMessageId {
             // ID-based: targets a real ForEach item that SwiftUI can
             // always locate (even when not materialized). Synchronous —
@@ -562,9 +559,6 @@ final class MessageListScrollState {
 
     /// Handles user scrolling up — transitions to freeBrowsing if appropriate.
     func handleUserScrollUp() {
-        // Cancel any pending ID-based scroll — user intent takes priority.
-        pendingIdScrollTask?.cancel()
-        pendingIdScrollTask = nil
         switch mode {
         case .initialLoad, .followingBottom:
             transition(to: .freeBrowsing)
@@ -650,12 +644,11 @@ final class MessageListScrollState {
         // Reset anchor-appeared flag — the new conversation's bottom anchor
         // hasn't materialized yet. Until it does, isAtBottom is unreliable.
         bottomAnchorAppeared = false
+        lastRecoveryAttempt = .distantPast
         // Hard time limit for unconditional recovery. The primary signal
         // is bottomAnchorAppeared, but this prevents infinite recovery
         // in edge cases where the anchor never materializes.
         recoveryDeadline = Date().addingTimeInterval(2.0)
-        pendingIdScrollTask?.cancel()
-        pendingIdScrollTask = nil
         throttleRecoveryTask?.cancel()
         throttleRecoveryTask = nil
         isThrottled = false
@@ -675,8 +668,6 @@ final class MessageListScrollState {
     /// Cancel all tasks and reset mode. Called from `onDisappear`.
     func cancelAll() {
         cancelStabilizationTasks()
-        pendingIdScrollTask?.cancel()
-        pendingIdScrollTask = nil
         uiSyncTask?.cancel()
         uiSyncTask = nil
         scrollRestoreTask?.cancel()
