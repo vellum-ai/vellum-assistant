@@ -1042,7 +1042,7 @@ export class AnthropicProvider implements Provider {
           {
             status: error.status,
             message: error.message,
-            headers: error.headers,
+            headers: Object.fromEntries(error.headers?.entries() ?? []),
           },
           `Anthropic API error (${error.status})`,
         );
