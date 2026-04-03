@@ -26,7 +26,7 @@ public struct VShortcutTag: View {
                 .font(VFont.bodySmallDefault)
         }
         .foregroundStyle(tagColor)
-        .padding(.horizontal, VSpacing.xs)
+        .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .background(
             Capsule()
