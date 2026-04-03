@@ -18,6 +18,7 @@ import {
 } from "../lib/docker";
 import { resolveImageRefs } from "../lib/platform-releases";
 import {
+  authHeaders,
   fetchOrganizationId,
   getPlatformUrl,
   readPlatformToken,
@@ -707,7 +708,19 @@ async function upgradePlatform(
     process.exit(1);
   }
 
-  const orgId = await fetchOrganizationId(token, entry.runtimeUrl);
+  let orgId: string;
+  try {
+    orgId = await fetchOrganizationId(token, entry.runtimeUrl);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("401") || msg.includes("403")) {
+      console.error("Authentication failed. Run 'vellum login' to refresh.");
+    } else {
+      console.error(`Error: ${msg}`);
+    }
+    emitCliError("AUTH_FAILED", "Failed to authenticate with platform", msg);
+    process.exit(1);
+  }
 
   const url = `${entry.runtimeUrl || getPlatformUrl()}/v1/assistants/upgrade/`;
   const body: { assistant_id?: string; version?: string } = {
@@ -721,11 +734,25 @@ async function upgradePlatform(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: JSON.stringify(body),
   });
+
+  if (response.status === 401 || response.status === 403) {
+    const text = await response.text();
+    console.error(
+      `Authentication failed (${response.status}). Run 'vellum login' to refresh.`,
+    );
+    emitCliError("AUTH_FAILED", "Authentication failed", text);
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+    );
+    process.exit(1);
+  }
 
   if (!response.ok) {
     const text = await response.text();
