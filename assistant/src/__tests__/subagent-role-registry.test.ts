@@ -21,7 +21,7 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
   });
 
   test("every role has a non-empty systemPromptPreamble", () => {
-    for (const [role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
+    for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
       expect(config.systemPromptPreamble.length).toBeGreaterThan(0);
     }
   });
@@ -40,7 +40,7 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
   });
 
   test('every role with allowedTools includes "notify_parent"', () => {
-    for (const [role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
+    for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
       if (config.allowedTools !== undefined) {
         expect(config.allowedTools).toContain("notify_parent");
       }
