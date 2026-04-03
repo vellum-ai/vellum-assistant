@@ -24,7 +24,7 @@ After editing `project.yml`, regenerate the Xcode project by running `xcodegen g
 - Onboarding flow with adaptive steps based on connection mode
 - Export conversation as markdown (copy to clipboard or share sheet)
 - Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
-- Deep linking via `vellum://send?message=...` URL scheme
+- Deep linking via `vellum-assistant://send?message=...` URL scheme
 - Responsive typography and spacing that scales down for iPhone compact width
 - Intelligence tab — installed skills management, community skill browser with debounced search, contacts with channel policy editing
 - Library — local apps grid with pin/share/bundle, shared apps with fork, searchable/sortable documents list

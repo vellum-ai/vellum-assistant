@@ -15,7 +15,6 @@
             <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>vellum</string>
                 <string>vellum-assistant</string>
             </array>
         </dict>

@@ -37,7 +37,7 @@ struct AgentPanelContent: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.sparkles, size: 14)
                             .foregroundStyle(VColor.primaryBase)
-                        Text("**Tip:** You can [create a new custom skill](vellum://create-skill) by describing what you want in chat.")
+                        Text("**Tip:** You can [create a new custom skill](vellum-assistant://create-skill) by describing what you want in chat.")
                             .tint(VColor.primaryBase)
                         Spacer()
                         Button(action: {
