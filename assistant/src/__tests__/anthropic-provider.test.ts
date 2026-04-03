@@ -225,14 +225,42 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Automatic caching — request-level cache_control
+  // Advancing tail — 5m cache on last block after turn-starting message
   // -----------------------------------------------------------------------
-  test("request has top-level cache_control with 5m TTL", async () => {
+  test("no advancing tail cache when turn-starting user message is last", async () => {
     await provider.sendMessage([userMsg("Hello")]);
 
+    // No top-level cache_control — would conflict with the 1h block breakpoint
     expect(
       (lastStreamParams as Record<string, unknown>).cache_control,
-    ).toEqual({ type: "ephemeral", ttl: "5m" });
+    ).toBeUndefined();
+  });
+
+  test("advancing tail: 5m cache on last block when tool results follow turn-starting message", async () => {
+    const messages: Message[] = [
+      userMsg("Do something"),
+      toolUseMsg("tu_1", "bash"),
+      toolResultMsg("tu_1", "output"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+
+    // Turn-starting user message (first) keeps 1h
+    const turnStart = sent[0];
+    const turnStartLast = turnStart.content[turnStart.content.length - 1];
+    expect(turnStartLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+
+    // Last message (tool_result) gets 5m advancing tail
+    const lastMessage = sent[sent.length - 1];
+    const lastBlock = lastMessage.content[lastMessage.content.length - 1];
+    expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
   });
 
   test("turn-starting user message gets 1h cache on last block", async () => {
@@ -1330,13 +1358,13 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(lastUser.content[0].cache_control).toBeUndefined();
     expect(lastUser.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
-    // Request-level automatic caching uses 5m TTL
+    // No top-level cache_control — breakpoints are set directly on blocks
     expect(
       (lastStreamParams as Record<string, unknown>).cache_control,
-    ).toEqual({ type: "ephemeral", ttl: "5m" });
+    ).toBeUndefined();
   });
 
-  test("tool loop: turn-starting user message gets 1h cache, tool_result messages do not", async () => {
+  test("tool loop: turn-starting user message gets 1h cache, last tool_result gets 5m advancing tail", async () => {
     const messages: Message[] = [
       userMsg("Read the config file"),
       toolUseMsg("tu_1", "file_read"),
@@ -1359,7 +1387,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[0].role).toBe("user");
     expect(sent[0].content[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
-    // Tool result messages (role: user) do NOT get cache_control
+    // Non-last tool result messages do NOT get cache_control
     const toolResultMsgs = sent.filter(
       (m) =>
         m.role === "user" &&
@@ -1367,11 +1395,16 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         m.content.every((b) => typeof b !== "string" && b.type === "tool_result"),
     );
     expect(toolResultMsgs.length).toBeGreaterThan(0);
-    for (const tr of toolResultMsgs) {
+    for (const tr of toolResultMsgs.slice(0, -1)) {
       for (const block of tr.content) {
         expect(block.cache_control).toBeUndefined();
       }
     }
+
+    // Last message gets 5m advancing tail cache on its last block
+    const lastMsg = sent[sent.length - 1];
+    const lastBlock = lastMsg.content[lastMsg.content.length - 1];
+    expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
   });
 
   // -----------------------------------------------------------------------
