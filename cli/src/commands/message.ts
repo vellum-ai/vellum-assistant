@@ -19,13 +19,29 @@ ARGUMENTS:
     <message>      Message content to send
 
 OPTIONS:
-    --json         Output raw JSON response
+    --conversation-key <key>  Conversation key (default: new conversation)
+    --json                    Output raw JSON response
 
 EXAMPLES:
     vellum message "hello"
     vellum message my-assistant "ping"
+    vellum message --conversation-key my-thread "hello"
     vellum message --json "hello"
 `);
+}
+
+/** Extract a named flag's value from an arg list, returning [value, remaining]. */
+function extractFlag(
+  args: string[],
+  flag: string,
+): [string | undefined, string[]] {
+  const idx = args.indexOf(flag);
+  if (idx === -1 || idx + 1 >= args.length) {
+    return [undefined, args.filter((a) => a !== flag)];
+  }
+  const value = args[idx + 1]!;
+  const remaining = [...args.slice(0, idx), ...args.slice(idx + 2)];
+  return [value, remaining];
 }
 
 export async function message(): Promise<void> {
@@ -37,14 +53,20 @@ export async function message(): Promise<void> {
   }
 
   const jsonOutput = rawArgs.includes("--json");
-  const args = rawArgs.filter((a) => a !== "--json");
+  let args = rawArgs.filter((a) => a !== "--json");
 
-  let assistantName: string | undefined;
+  const [conversationKey, filteredArgs] = extractFlag(
+    args,
+    "--conversation-key",
+  );
+  args = filteredArgs;
+
+  let assistantId: string | undefined;
   let messageContent: string | undefined;
 
   if (args.length >= 2) {
     // vellum message <assistant> <message>
-    assistantName = args[0];
+    assistantId = args[0];
     messageContent = args[1];
   } else if (args.length === 1) {
     // vellum message <message>  (uses active/latest assistant)
@@ -58,12 +80,18 @@ export async function message(): Promise<void> {
     process.exit(1);
   }
 
-  const client = new AssistantClient(assistantName);
+  const client = new AssistantClient({ assistantId });
 
-  const response = await client.post("/messages/", {
-    conversationKey: client.assistantId,
+  const payload: Record<string, string> = {
     content: messageContent,
-  });
+    sourceChannel: "vellum",
+    interface: "cli",
+  };
+  if (conversationKey) {
+    payload.conversationKey = conversationKey;
+  }
+
+  const response = await client.post("/messages/", payload);
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");

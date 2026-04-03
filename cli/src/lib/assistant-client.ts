@@ -5,8 +5,8 @@
  * authenticated fetch so callers can simply do:
  *
  * ```ts
- * const client = new AssistantClient();               // active / latest
- * const client = new AssistantClient("my-assistant");  // by name
+ * const client = new AssistantClient();                          // active / latest
+ * const client = new AssistantClient({ assistantId: "my-bot" }); // by name
  * await client.get("/healthz");
  * await client.post("/messages/", { content: "hi" });
  * ```
@@ -23,6 +23,13 @@ import { loadGuardianToken } from "./guardian-token.js";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
 
+export interface AssistantClientOpts {
+  assistantId?: string;
+  // TODO: Support platform assistants via session token + org id header.
+  // When provided, the client should set `X-Vellum-Org-Id` and use
+  // a session-based `Authorization` header instead of a guardian token.
+}
+
 export interface RequestOpts {
   timeout?: number;
   signal?: AbortSignal;
@@ -31,18 +38,19 @@ export interface RequestOpts {
 
 export class AssistantClient {
   readonly runtimeUrl: string;
-  readonly assistantId: string;
 
+  private readonly _assistantId: string;
   private readonly token: string | undefined;
 
   /**
    * Resolves an assistant entry from the lockfile and loads auth credentials.
    *
-   * @param nameOrId - Explicit assistant name. When omitted, the active
-   *   assistant is used, falling back to the most recently hatched one.
+   * @param opts.assistantId - Explicit assistant name. When omitted, the
+   *   active assistant is used, falling back to the most recently hatched one.
    * @throws If no matching assistant is found.
    */
-  constructor(nameOrId?: string) {
+  constructor(opts?: AssistantClientOpts) {
+    const nameOrId = opts?.assistantId;
     let entry = nameOrId ? findAssistantByName(nameOrId) : null;
 
     if (nameOrId && !entry) {
@@ -70,9 +78,9 @@ export class AssistantClient {
       /\/+$/,
       "",
     );
-    this.assistantId = entry.assistantId;
+    this._assistantId = entry.assistantId;
     this.token =
-      loadGuardianToken(this.assistantId)?.accessToken ?? entry.bearerToken;
+      loadGuardianToken(this._assistantId)?.accessToken ?? entry.bearerToken;
   }
 
   /** GET request to the gateway. Auth headers are added automatically. */
@@ -104,7 +112,7 @@ export class AssistantClient {
     body: unknown | undefined,
     opts?: RequestOpts,
   ): Promise<Response> {
-    const url = `${this.runtimeUrl}/v1/assistants/${this.assistantId}${urlPath}`;
+    const url = `${this.runtimeUrl}/v1/assistants/${this._assistantId}${urlPath}`;
 
     const headers: Record<string, string> = { ...opts?.headers };
     if (this.token) {
