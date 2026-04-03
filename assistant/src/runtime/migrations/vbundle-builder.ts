@@ -9,7 +9,7 @@
  * - trust/trust.json: trust rules (optional, lives in protected/ outside workspace)
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   createReadStream,
@@ -692,10 +692,19 @@ async function* generateTarStream(
   for (const file of files) {
     yield createPaxAndHeaderBlocks(file.archivePath, file.size);
 
-    // Stream file data from disk
+    // Stream file data from disk, tracking bytes to detect TOCTOU races
+    let bytesWritten = 0;
     const stream = createReadStream(file.diskPath);
     for await (const chunk of stream) {
-      yield chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+      const data = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+      bytesWritten += data.length;
+      yield data;
+    }
+
+    if (bytesWritten !== file.size) {
+      throw new Error(
+        `File size changed during export: ${file.archivePath} (expected ${file.size}, got ${bytesWritten})`,
+      );
     }
 
     yield tarPaddingBytes(file.size);
@@ -805,14 +814,19 @@ export async function streamExportVBundle(
   // Pass 2: Stream tar through gzip into a temp file
   // ------------------------------------------------------------------
 
-  const tempPath = join(tmpdir(), `vbundle-export-${Date.now()}.tmp`);
+  const tempPath = join(tmpdir(), `vbundle-export-${randomUUID()}.tmp`);
 
   const tarGenerator = generateTarStream(manifestData, allFileMetadata);
   const tarReadable = Readable.from(tarGenerator);
   const gzipStream = createGzip();
   const writeStream = createWriteStream(tempPath);
 
-  await pipeline(tarReadable, gzipStream, writeStream);
+  try {
+    await pipeline(tarReadable, gzipStream, writeStream);
+  } catch (error) {
+    await unlink(tempPath).catch(() => {});
+    throw error;
+  }
 
   const tempStat = await stat(tempPath);
 
