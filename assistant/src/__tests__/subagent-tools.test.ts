@@ -1297,6 +1297,23 @@ describe("Subagent role-based spawn", () => {
     }
   });
 
+  test("spawn with invalid role returns clear error message", async () => {
+    const result = await executeSubagentSpawn(
+      {
+        label: "Bad role task",
+        objective: "Should fail",
+        role: "nonexistent-role",
+      },
+      makeContext("sess-role-invalid", { sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Invalid subagent role");
+    expect(result.content).toContain("nonexistent-role");
+    expect(result.content).toContain("Must be one of");
+    expect(result.content).toContain("general");
+    expect(result.content).toContain("researcher");
+  });
+
   test("spawn tool definition includes role property", () => {
     const def = findTool("subagent_spawn");
     expect(def).toBeDefined();
