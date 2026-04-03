@@ -838,6 +838,25 @@ export class AnthropicProvider implements Provider {
         }
       }
 
+      // Enforce Anthropic API maximum of 4 cache_control blocks.
+      // When the system prompt boundary splits into 2 cached blocks AND
+      // tools + turn-start + advancing-tail breakpoints are all present,
+      // we'd have 5.  Drop the static system block's breakpoint — it's
+      // small (<1K tokens) so the re-read cost is negligible, while the
+      // dynamic block (workspace context) rarely changes mid-session and
+      // benefits more from caching.
+      const hasTailBreakpoint =
+        turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1;
+      if (
+        hasTailBreakpoint &&
+        Array.isArray(params.system) &&
+        params.system.length === 2 &&
+        params.tools &&
+        params.tools.length > 0
+      ) {
+        delete (params.system[0] as Record<string, unknown>).cache_control;
+      }
+
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
 
