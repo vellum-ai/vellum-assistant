@@ -591,7 +591,7 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceOverlay)
+            .vCard()
 
             // TRUST RULES section
             if connectionManager != nil {
@@ -612,7 +612,7 @@ struct SettingsPanel: View {
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
             }
 
             // PRIVACY section
