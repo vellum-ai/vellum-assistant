@@ -31,7 +31,6 @@ import {
   getProfilerMaxBytes,
   getProfilerRunId,
 } from "../../config/env-registry.js";
-import type { ProfilerRunManifest } from "../../daemon/profiler-run-store.js";
 import {
   rescanRuns,
   runProfilerSweep,
@@ -59,18 +58,6 @@ function readProfileSummary(runDir: string): string | undefined {
     return readFileSync(join(runDir, mdFile), "utf-8");
   } catch {
     return undefined;
-  }
-}
-
-/**
- * Read and parse a manifest.json from a run directory.
- */
-function readManifest(runDir: string): ProfilerRunManifest | null {
-  try {
-    const raw = readFileSync(join(runDir, "manifest.json"), "utf-8");
-    return JSON.parse(raw) as ProfilerRunManifest;
-  } catch {
-    return null;
   }
 }
 
@@ -106,25 +93,20 @@ function handleGetRun(runId: string): Response {
     return httpError("BAD_REQUEST", "Invalid run ID", 400);
   }
 
-  const runDir = getProfilerRunDir(runId);
-  if (!existsSync(runDir)) {
+  // Rescan all runs first to get freshly computed totalBytes for every run,
+  // then find the target run in the results. This avoids using a stale
+  // manifest from the last write-through rescan.
+  const allManifests = rescanRuns({ readOnly: true });
+  const manifest = allManifests.find((m) => m.runId === runId);
+  if (!manifest) {
     return httpError("NOT_FOUND", `Profiler run '${runId}' not found`, 404);
   }
 
-  const manifest = readManifest(runDir);
-  if (!manifest) {
-    return httpError(
-      "INTERNAL_ERROR",
-      `Manifest missing for profiler run '${runId}'`,
-      500,
-    );
-  }
-
+  const runDir = getProfilerRunDir(runId);
   const summary = readProfileSummary(runDir);
   const activeRunId = getProfilerRunId();
 
-  // Compute budget state from all runs (read-only to avoid disk writes)
-  const allManifests = rescanRuns({ readOnly: true });
+  // Compute budget state from all runs
   const maxBytes = getProfilerMaxBytes() ?? DEFAULT_MAX_BYTES;
   const totalBytesAllRuns = allManifests.reduce(
     (sum, m) => sum + m.totalBytes,
