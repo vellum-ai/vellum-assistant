@@ -14,7 +14,14 @@ struct ScrollToLatestOverlayView: View {
         if scrollState.showScrollToLatest {
             Button(action: {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
-                scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                // Spring animation drives both the CTA exit transition
+                // and the scroll-to-bottom. syncUIImmediately() inside
+                // requestPinToBottom captures showScrollToLatest = false
+                // within this animation transaction, so the .move/.opacity
+                // transition runs in sync with the scroll.
+                withAnimation(VAnimation.spring) {
+                    scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                }
             }) {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.arrowDown, size: 10)

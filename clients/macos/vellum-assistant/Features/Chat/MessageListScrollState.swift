@@ -443,15 +443,18 @@ final class MessageListScrollState {
     func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false) -> Bool {
         if userInitiated {
             transition(to: .followingBottom)
+            // Sync UI immediately so showScrollToLatest is updated within
+            // the caller's withAnimation block — this animates the CTA's
+            // exit transition (.move + .opacity) in sync with the scroll.
+            syncUIImmediately()
             // Start a fresh recovery window — the scroll-to-bottom might
-            // land in blank estimated space (LazyVStack overshoot), and
-            // isAtBottom could be falsely true at the estimated bottom.
-            // Without this, the CTA tap can result in a blank screen with
-            // no recovery because bottomAnchorAppeared is already true
-            // (from the initial load) and the recovery deadline has passed.
+            // miss on first attempt (e.g. lastMessageId stale, anchor not
+            // materialized). Without this, no recovery fires because
+            // bottomAnchorAppeared is already true (from initial load)
+            // and the recovery deadline has passed.
             bottomAnchorAppeared = false
             recoveryDeadline = Date().addingTimeInterval(2.0)
-            executeScrollToBottom(animated: animated)
+            executeScrollToBottom(animated: animated, userInitiated: true)
             return true
         }
 
@@ -462,31 +465,41 @@ final class MessageListScrollState {
 
     /// Low-level scroll-to-bottom execution. Does not check mode.
     ///
-    /// Uses both edge-based and ID-based scrolling in separate
-    /// transactions for true redundancy:
+    /// Two strategies depending on context:
     ///
-    ///   1. `scrollToEdge(.bottom)` — fires immediately. Targets the
-    ///      content edge; fast and reliable when LazyVStack height
-    ///      estimation is accurate, but can overshoot into blank
-    ///      estimated space when it isn't.
+    /// **User-initiated (CTA tap):** ID-based scroll only, synchronous.
+    /// Targets `lastMessageId` (a ForEach item) which SwiftUI can always
+    /// locate in the data source — even when not materialized. This avoids
+    /// `scrollToEdge(.bottom)` which targets the *estimated* content
+    /// bottom and can overshoot into blank LazyVStack space. If the user
+    /// scrolls up immediately after tapping, they start from actual
+    /// content rather than blank space. Animation is provided by the
+    /// caller's `withAnimation` wrapper (spring for smooth CTA scroll).
+    /// The recovery window (set in `requestPinToBottom`) handles failures.
     ///
-    ///   2. `scrollTo(id: "scroll-bottom-anchor")` — fires on the
-    ///      next run-loop pass via `Task`. Targets the actual anchor
-    ///      view; SwiftUI locates it by ID and materializes views
-    ///      around it, bypassing height estimation entirely.
-    ///
-    /// The two calls MUST run in separate transactions. Within a
-    /// single synchronous block (or `withAnimation` transaction),
-    /// the second `ScrollPosition` mutation overwrites the first —
-    /// only the final value takes effect. By staggering, edge-based
-    /// gets the current frame and ID-based corrects on the next.
-    ///
-    /// Both are O(1) operations. The combination is intentionally
-    /// redundant — each covers failure modes the other misses.
+    /// **Auto-follow / recovery:** Dual scroll strategy — edge-based
+    /// fires immediately (fast for near-bottom adjustments), ID-based
+    /// fires on the next run-loop pass via Task (corrects edge overshoot).
+    /// The two MUST run in separate transactions — within a single
+    /// synchronous block, the second ScrollPosition mutation overwrites
+    /// the first.
     ///
     /// - SeeAlso: https://stackoverflow.com/q/79884780 (ScrollPosition unreliable with variable heights)
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
-    private func executeScrollToBottom(animated: Bool) {
+    private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false) {
+        if userInitiated {
+            // ID-based scroll targets actual ForEach content — can't
+            // overshoot into blank LazyVStack estimated space.
+            // No pending Task needed — scroll is synchronous.
+            pendingIdScrollTask?.cancel()
+            pendingIdScrollTask = nil
+            let target: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
+            // Animation comes from the caller's withAnimation wrapper.
+            scrollTo?(target, .bottom)
+            return
+        }
+
+        // Auto-follow / recovery: dual scroll strategy.
         // Transaction 1: edge-based (immediate)
         if animated {
             withAnimation(VAnimation.fast) {
