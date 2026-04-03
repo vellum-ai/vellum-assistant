@@ -488,14 +488,26 @@ final class MessageListScrollState {
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
     private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false) {
         if userInitiated {
-            // ID-based scroll targets actual ForEach content — can't
-            // overshoot into blank LazyVStack estimated space.
-            // No pending Task needed — scroll is synchronous.
+            // Edge-based primary: reaches the actual content bottom
+            // (not just the last message — there's padding/anchor below).
+            // Animated with spring from the caller's withAnimation wrapper
+            // for a smooth, visible scroll matching industry standard.
             pendingIdScrollTask?.cancel()
-            pendingIdScrollTask = nil
+            scrollToEdge?(.bottom)
+            // ID-based correction on the next run loop: if edge-based
+            // overshot into blank LazyVStack estimated space, the ID
+            // scroll targets actual ForEach content and materializes
+            // views around it, nudging the viewport toward real content.
+            // The recovery window (set in requestPinToBottom) provides
+            // an additional 2-second safety net.
             let target: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
-            // Animation comes from the caller's withAnimation wrapper.
-            scrollTo?(target, .bottom)
+            let idScroll = scrollTo
+            pendingIdScrollTask = Task { @MainActor [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                guard self.mode.allowsAutoScroll else { return }
+                idScroll?(target, .bottom)
+                self.pendingIdScrollTask = nil
+            }
             return
         }
 

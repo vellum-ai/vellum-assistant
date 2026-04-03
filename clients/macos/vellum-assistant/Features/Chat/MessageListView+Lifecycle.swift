@@ -195,10 +195,18 @@ extension MessageListView {
                 scrollState.endStabilization()
                 return
             }
-            scrollState.endStabilization()
-            if scrollState.isFollowingBottom && anchorMessageId == nil && !scrollState.isAtBottom {
-                scrollState.requestPinToBottom()
-            }
+                scrollState.endStabilization()
+                if scrollState.isFollowingBottom && anchorMessageId == nil {
+                    // Always re-pin after resize — don't check isAtBottom.
+                    // After a width change, LazyVStack re-estimates content heights.
+                    // The viewport can be at the *estimated* bottom (blank space)
+                    // where distanceFromBottom ≈ 0 → isAtBottom = true, even though
+                    // actual content is above. Start a fresh recovery window so
+                    // persistent recovery fires unconditionally for 2 seconds.
+                    scrollState.bottomAnchorAppeared = false
+                    scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
+                    scrollState.requestPinToBottom()
+                }
         }
     }
 
