@@ -26,6 +26,18 @@ extension MessageListView {
             scrollState.handleUserScrollUp()
         }
 
+        // --- Phase guard (shared by bottom detection, auto-follow, recovery) ---
+        // Only allow automatic scroll actions when scroll is at rest (.idle)
+        // or during our own programmatic animation (.animating). Block during
+        // ALL user-initiated phases: .tracking (finger down, no movement),
+        // .interacting (actively dragging), .decelerating (momentum after
+        // release). Apple's ScrollPhase.isScrolling is `phase != .idle`,
+        // so we use `!isScrolling || == .animating` to carve out the
+        // programmatic exception. Without this, auto-follow fires during
+        // deceleration and fights user scroll momentum (snap-back flicker).
+        let phaseAllowsAutoFollow = !scrollState.scrollPhase.isScrolling
+            || scrollState.scrollPhase == .animating
+
         // --- Viewport height update ---
         // Filter non-finite viewport heights and sub-pixel jitter.
         // A 0.5pt dead-zone prevents floating-point rounding differences
@@ -60,7 +72,14 @@ extension MessageListView {
         }
         if scrollState.isAtBottom != nowAtBottom {
             scrollState.isAtBottom = nowAtBottom
-            if nowAtBottom {
+            // Only reattach during non-user-initiated phases. During
+            // .interacting the user is actively scrolling — reattaching
+            // would cause mode to oscillate between freeBrowsing and
+            // followingBottom within the 16ms UI-sync debounce window,
+            // preventing the CTA from ever appearing. The idle handler
+            // in onScrollPhaseChange provides deferred reattach when
+            // the scroll settles.
+            if nowAtBottom, phaseAllowsAutoFollow {
                 scrollState.handleReachedBottom()
             }
         }
@@ -74,17 +93,6 @@ extension MessageListView {
         // The 0.5pt threshold filters sub-pixel layout noise. Safe from
         // feedback loops because pinning changes contentOffsetY, not
         // contentHeight.
-        //
-        // Phase guard: only fire when scroll is at rest (.idle) or during
-        // our own programmatic animation (.animating). Block during ALL
-        // user-initiated phases: .tracking (finger down, no movement),
-        // .interacting (actively dragging), .decelerating (momentum after
-        // release). Apple's ScrollPhase.isScrolling is `phase != .idle`,
-        // so we use `!isScrolling || == .animating` to carve out the
-        // programmatic exception. Without this, auto-follow fires during
-        // deceleration and fights user scroll momentum (snap-back flicker).
-        let phaseAllowsAutoFollow = !scrollState.scrollPhase.isScrolling
-            || scrollState.scrollPhase == .animating
         if abs(effectiveContentHeight - previousContentHeight) > 0.5,
            scrollState.mode.allowsAutoScroll,
            phaseAllowsAutoFollow {
@@ -215,6 +223,12 @@ extension MessageListView {
                       case .programmaticScroll = scrollState.mode {
                 // A deep-link anchor scroll resolved and cleared anchorMessageId
                 // before this task fired. Don't yank the viewport back to bottom.
+            } else if anchorMessageId == nil,
+                      case .stabilizing = scrollState.mode {
+                // A resize or expansion stabilization started during the
+                // restore window. Overriding with .followingBottom would
+                // leak activeStabilizationCount — endStabilization() checks
+                // `guard case .stabilizing = mode` and bails if mode changed.
             } else if anchorMessageId == nil {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
                 scrollState.transition(to: .followingBottom)

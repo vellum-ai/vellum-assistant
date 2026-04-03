@@ -57,9 +57,13 @@ enum ScrollMode: Equatable, CustomStringConvertible {
     }
 
     /// Whether the "Scroll to latest" CTA should be visible.
+    /// Preserved during `.stabilizing` when the user was already scrolled
+    /// up — prevents the CTA from flashing off during expansion/resize
+    /// stabilization windows.
     var showsScrollToLatest: Bool {
         switch self {
         case .freeBrowsing: true
+        case .stabilizing(let prev, _) where prev == .freeBrowsing: true
         default: false
         }
     }
@@ -439,6 +443,14 @@ final class MessageListScrollState {
     func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false) -> Bool {
         if userInitiated {
             transition(to: .followingBottom)
+            // Start a fresh recovery window — the scroll-to-bottom might
+            // land in blank estimated space (LazyVStack overshoot), and
+            // isAtBottom could be falsely true at the estimated bottom.
+            // Without this, the CTA tap can result in a blank screen with
+            // no recovery because bottomAnchorAppeared is already true
+            // (from the initial load) and the recovery deadline has passed.
+            bottomAnchorAppeared = false
+            recoveryDeadline = Date().addingTimeInterval(2.0)
             executeScrollToBottom(animated: animated)
             return true
         }
