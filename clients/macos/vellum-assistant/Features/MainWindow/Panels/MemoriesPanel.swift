@@ -234,11 +234,9 @@ struct MemoriesPanel: View {
                 }
             )
 
-            VTabs(
+            VSegmentControl(
                 items: MemoryViewMode.allCases.map { (label: $0.rawValue, tag: $0) },
-                selection: $viewMode,
-                style: .pill,
-                size: .compact
+                selection: $viewMode
             )
 
             VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {

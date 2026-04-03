@@ -12,7 +12,6 @@ import {
 } from "../lib/guardian-token.js";
 import {
   readPlatformToken,
-  fetchOrganizationId,
   getPlatformUrl,
   hatchAssistant,
   platformInitiateExport,
@@ -489,36 +488,12 @@ async function exportFromAssistant(
       process.exit(1);
     }
 
-    let orgId: string;
-    try {
-      orgId = await fetchOrganizationId(token, entry.runtimeUrl);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("401") || msg.includes("403")) {
-        console.error("Authentication failed. Run 'vellum login' to refresh.");
-        process.exit(1);
-      }
-      throw err;
-    }
-
     // Initiate export job
-    let jobId: string;
-    try {
-      const result = await platformInitiateExport(
-        token,
-        orgId,
-        "teleport export",
-        entry.runtimeUrl,
-      );
-      jobId = result.jobId;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("401") || msg.includes("403")) {
-        console.error("Authentication failed. Run 'vellum login' to refresh.");
-        process.exit(1);
-      }
-      throw err;
-    }
+    const { jobId } = await platformInitiateExport(
+      token,
+      "teleport export",
+      entry.runtimeUrl,
+    );
 
     console.log(`Export started (job ${jobId})...`);
 
@@ -531,12 +506,7 @@ async function exportFromAssistant(
     while (Date.now() < deadline) {
       let status: { status: string; downloadUrl?: string; error?: string };
       try {
-        status = await platformPollExportStatus(
-          jobId,
-          token,
-          orgId,
-          entry.runtimeUrl,
-        );
+        status = await platformPollExportStatus(jobId, token, entry.runtimeUrl);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("not found")) {
@@ -642,18 +612,6 @@ async function importToAssistant(
       process.exit(1);
     }
 
-    let orgId: string;
-    try {
-      orgId = await fetchOrganizationId(token, entry.runtimeUrl);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("401") || msg.includes("403")) {
-        console.error("Authentication failed. Run 'vellum login' to refresh.");
-        process.exit(1);
-      }
-      throw err;
-    }
-
     // Use pre-uploaded bundle key if provided (string), skip upload if null
     // (signals signed URLs were already tried and unavailable), or try
     // signed-URL upload if undefined (never attempted).
@@ -663,7 +621,6 @@ async function importToAssistant(
       try {
         const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
           token,
-          orgId,
           entry.runtimeUrl,
         );
         bundleKey = key;
@@ -692,15 +649,9 @@ async function importToAssistant(
           ? await platformImportPreflightFromGcs(
               bundleKey,
               token,
-              orgId,
               entry.runtimeUrl,
             )
-          : await platformImportPreflight(
-              bundleData,
-              token,
-              orgId,
-              entry.runtimeUrl,
-            );
+          : await platformImportPreflight(bundleData, token, entry.runtimeUrl);
       } catch (err) {
         if (err instanceof Error && err.name === "TimeoutError") {
           console.error("Error: Preflight request timed out after 2 minutes.");
@@ -751,18 +702,8 @@ async function importToAssistant(
     let importResult: { statusCode: number; body: Record<string, unknown> };
     try {
       importResult = bundleKey
-        ? await platformImportBundleFromGcs(
-            bundleKey,
-            token,
-            orgId,
-            entry.runtimeUrl,
-          )
-        : await platformImportBundle(
-            bundleData,
-            token,
-            orgId,
-            entry.runtimeUrl,
-          );
+        ? await platformImportBundleFromGcs(bundleKey, token, entry.runtimeUrl)
+        : await platformImportBundle(bundleData, token, entry.runtimeUrl);
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         console.error("Error: Import request timed out after 2 minutes.");
@@ -796,7 +737,6 @@ async function importToAssistant(
 export async function resolveOrHatchTarget(
   targetEnv: "local" | "docker" | "platform",
   targetName?: string,
-  orgId?: string,
 ): Promise<AssistantEntry> {
   // If a name is provided, try to find an existing assistant
   if (targetName) {
@@ -876,25 +816,7 @@ export async function resolveOrHatchTarget(
       process.exit(1);
     }
 
-    let resolvedOrgId: string;
-    if (orgId) {
-      resolvedOrgId = orgId;
-    } else {
-      try {
-        resolvedOrgId = await fetchOrganizationId(token);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("401") || msg.includes("403")) {
-          console.error(
-            "Authentication failed. Run 'vellum login' to refresh.",
-          );
-          process.exit(1);
-        }
-        throw err;
-      }
-    }
-
-    const result = await hatchAssistant(token, resolvedOrgId);
+    const result = await hatchAssistant(token);
     const entry: AssistantEntry = {
       assistantId: result.id,
       runtimeUrl: getPlatformUrl(),
@@ -1170,7 +1092,7 @@ export async function teleport(): Promise<void> {
   // Platform target: reordered flow — upload to GCS before hatching so that
   // if upload fails, no empty assistant is left dangling on the platform.
   if (targetEnv === "platform") {
-    // Step B — Auth + Org ID
+    // Step B — Auth
     const token = readPlatformToken();
     if (!token) {
       console.error("Not logged in. Run 'vellum login' first.");
@@ -1191,21 +1113,9 @@ export async function teleport(): Promise<void> {
       }
     }
 
-    // Use the existing target's runtimeUrl for all platform calls so upload,
-    // org ID fetch, and import hit the same instance.
+    // Use the existing target's runtimeUrl for all platform calls so upload
+    // and import hit the same instance.
     const targetPlatformUrl = existingTarget?.runtimeUrl;
-
-    let orgId: string;
-    try {
-      orgId = await fetchOrganizationId(token, targetPlatformUrl);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("401") || msg.includes("403")) {
-        console.error("Authentication failed. Run 'vellum login' to refresh.");
-        process.exit(1);
-      }
-      throw err;
-    }
 
     // Step C — Upload to GCS
     // bundleKey: string = uploaded successfully, null = tried but unavailable,
@@ -1214,7 +1124,6 @@ export async function teleport(): Promise<void> {
     try {
       const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
         token,
-        orgId,
         targetPlatformUrl,
       );
       bundleKey = key;
@@ -1231,7 +1140,7 @@ export async function teleport(): Promise<void> {
     }
 
     // Step D — Hatch (upload succeeded or fallback to inline — safe to hatch)
-    const toEntry = await resolveOrHatchTarget(targetEnv, targetName, orgId);
+    const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
     const toCloud = resolveCloud(toEntry);
 
     // Step E — Import from GCS (or inline fallback)

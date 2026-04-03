@@ -29,7 +29,7 @@ struct SettingsArchivedConversationsTab: View {
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

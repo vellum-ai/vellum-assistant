@@ -79,7 +79,7 @@ struct SharedAppsListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: VSpacing.xs) {
                     Text(app.name)
-                        .font(VFont.bodyMediumEmphasised)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
 

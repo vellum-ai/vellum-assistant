@@ -677,13 +677,24 @@ export async function classifyRisk(
     }
   }
 
-  const result = await classifyRiskUncached(
+  let result = await classifyRiskUncached(
     toolName,
     input,
     workingDir,
     preParsed,
     manifestOverride,
   );
+
+  // Proxied bash commands route through the credential proxy which handles
+  // per-request approval separately. Cap the bash tool's own risk at Medium
+  // so trust rules can auto-allow the command execution.
+  if (
+    (toolName === "bash" || toolName === "host_bash") &&
+    input.network_mode === "proxied" &&
+    result === RiskLevel.High
+  ) {
+    result = RiskLevel.Medium;
+  }
 
   if (cacheKey) {
     if (riskCache.size >= RISK_CACHE_MAX) {

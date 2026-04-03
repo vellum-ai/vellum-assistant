@@ -2,7 +2,7 @@
  * File-based route dispatcher for user-defined HTTP endpoints.
  *
  * Maps requests under the `/x/*` path prefix to handler modules in the
- * workspace routes directory (`/workspace/routes/`). Each handler file
+ * workspace routes directory (`$VELLUM_WORKSPACE_DIR/routes/`). Each handler file
  * exports named functions for HTTP methods (GET, POST, PUT, etc.) using
  * the standard Web API Request/Response signature.
  *

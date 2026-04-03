@@ -10,7 +10,7 @@ extension AppDelegate {
 
     func applyThemePreference() {
         let pref = UserDefaults.standard.string(forKey: "themePreference") ?? "system"
-        VThemeToggle.applyTheme(pref)
+        VTheme.applyTheme(pref)
     }
 
     // MARK: - Lockfile & Transport
