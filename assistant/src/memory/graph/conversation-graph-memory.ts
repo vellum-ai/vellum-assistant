@@ -576,9 +576,7 @@ function injectMemoryBlock(
   const userTail = cleaned[cleaned.length - 1];
   if (!userTail || userTail.role !== "user") return messages;
 
-  const blocks: ContentBlock[] = [
-    { type: "text" as const, text: `<memory __injected>\n${text}\n</memory>` },
-  ];
+  const blocks: ContentBlock[] = [];
 
   for (const [_nodeId, img] of images) {
     blocks.push({
@@ -594,6 +592,11 @@ function injectMemoryBlock(
       },
     } as ImageContent);
   }
+
+  blocks.push({
+    type: "text" as const,
+    text: `<memory __injected>\n${text}\n</memory>`,
+  });
 
   return [
     ...cleaned.slice(0, -1),
