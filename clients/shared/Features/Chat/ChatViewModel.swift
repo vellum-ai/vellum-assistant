@@ -352,7 +352,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         messageManager.latestPersistedTipDaemonMessageId
     }
     public var hasPendingConfirmation: Bool {
-        messages.contains(where: { $0.confirmation?.state == .pending })
+        messageManager.hasPendingConfirmation
     }
     public var pendingQueuedCount: Int {
         get { messageManager.pendingQueuedCount }
@@ -940,12 +940,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         let count = messages.count
         guard count > Self.trimThreshold else { return }
         let trimEnd = count - Self.trimKeepRecent
-        // Strip heavy content first (safety net for any references that linger)
-        for i in 0..<trimEnd {
-            messages[i].stripHeavyContent()
+        // Batch the strip + delete into a single Combine publish so downstream
+        // pipelines (pagination, cached derived values) evaluate only once.
+        messageManager.batchUpdateMessages { msgs in
+            for i in 0..<trimEnd {
+                msgs[i].stripHeavyContent()
+            }
+            msgs.removeSubrange(0..<trimEnd)
         }
-        // Hard-delete the stripped messages so ChatMessage objects are freed entirely.
-        messages.removeSubrange(0..<trimEnd)
         // After deleting the oldest messages, advance the history cursor to the oldest
         // retained message and mark that older pages are available from the daemon so
         // the user can paginate back to re-fetch the trimmed messages.
@@ -963,11 +965,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// pagination so re-activation fetches fresh history from the daemon.
     public func trimForBackground() {
         let pageSize = Self.messagePageSize
-        if messages.count > pageSize {
-            messages = Array(messages.suffix(pageSize))
-        }
-        for i in messages.indices {
-            messages[i].stripHeavyContent()
+        // Batch the suffix + strip into a single Combine publish.
+        messageManager.batchUpdateMessages { msgs in
+            if msgs.count > pageSize {
+                msgs = Array(msgs.suffix(pageSize))
+            }
+            for i in msgs.indices {
+                msgs[i].stripHeavyContent()
+            }
         }
         displayedMessageCount = Self.messagePageSize
         // Only mark history as unloaded if there's a conversation to reload from.

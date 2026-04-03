@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Observation
 import os
@@ -75,12 +76,11 @@ public final class ChatPaginationState {
 
     // MARK: - Lifecycle
 
-    /// Generation counter for the message observation loop. Incremented on
-    /// reset so stale in-flight loops bail out instead of re-arming.
-    @ObservationIgnored private var observationGeneration: Int = 0
+    @ObservationIgnored private var messagesSub: AnyCancellable?
 
     deinit {
         loadMoreTimeoutTask?.cancel()
+        messagesSub?.cancel()
     }
 
     // MARK: - Dependencies
@@ -108,25 +108,15 @@ public final class ChatPaginationState {
         // Seed the cache synchronously so the first view read sees correct data.
         recomputeVisibleMessages(from: messageManager.messages)
 
-        // Reactively update the cache when messages change via
-        // `withObservationTracking`, reading `messageManager.messages`
-        // directly from the @Observable ChatMessageManager.
-        observeMessages(generation: observationGeneration)
-    }
-
-    // MARK: - Message observation loop
-
-    private func observeMessages(generation: Int) {
-        guard generation == observationGeneration else { return }
-        withObservationTracking {
-            _ = self.messageManager.messages
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, generation == self.observationGeneration else { return }
-                self.recomputeVisibleMessages(from: self.messageManager.messages)
-                self.observeMessages(generation: generation)
+        // Subscribe to the Combine publisher instead of using a
+        // `withObservationTracking` loop. The previous loop re-armed via
+        // `Task { @MainActor }` on every change, contributing to cascading
+        // transaction flushes and main-thread hangs.
+        messagesSub = messageManager.messagesPublisher
+            .dropFirst() // skip the seed value already handled above
+            .sink { [weak self] messages in
+                self?.recomputeVisibleMessages(from: messages)
             }
-        }
     }
 
     // MARK: - Cache Recomputation
@@ -213,7 +203,6 @@ public final class ChatPaginationState {
 
     /// Reset pagination when the conversation switches or history is reloaded.
     public func resetMessagePagination() {
-        observationGeneration += 1
         displayedMessageCount = Self.messagePageSize
         historyCursor = nil
         hasMoreHistory = false
@@ -221,7 +210,13 @@ public final class ChatPaginationState {
         loadMoreTimeoutTask = nil
         isLoadingMoreMessages = false
         recomputeVisibleMessages(from: messageManager.messages)
-        observeMessages(generation: observationGeneration)
+        // Re-subscribe so the Combine pipeline picks up messages from the new
+        // conversation. The old subscription is cancelled automatically.
+        messagesSub = messageManager.messagesPublisher
+            .dropFirst()
+            .sink { [weak self] messages in
+                self?.recomputeVisibleMessages(from: messages)
+            }
     }
 
 }

@@ -3,18 +3,14 @@ import Observation
 import VellumAssistantShared
 
 /// Owns per-conversation activity state (busy flags, interaction states, active
-/// message count) as a focused `@Observable` store, giving SwiftUI views
-/// property-level tracking so only views reading a specific property re-evaluate.
+/// message count) as an `@Observable` class for property-level SwiftUI tracking.
 ///
-/// Observation is done via `withObservationTracking` loops that read directly from
-/// `ChatMessageManager` and `ChatErrorManager` `@Observable` properties. Each loop
-/// re-arms itself on change and is guarded by a generation
-/// counter so it can be cleanly invalidated when a conversation is switched,
-/// closed, or archived.
+/// Each observation loop uses `withObservationTracking` to read directly from
+/// `ChatMessageManager` / `ChatErrorManager` properties, guarded by a generation
+/// counter for clean invalidation on conversation switch, close, or archive.
 ///
-/// - SeeAlso: [Migrating from ObservableObject to Observable](https://developer.apple.com/documentation/swiftui/migrating-from-the-observable-object-protocol-to-the-observable-macro)
-/// - SeeAlso: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
 /// - SeeAlso: [Observation framework](https://developer.apple.com/documentation/observation)
+/// - SeeAlso: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
 @MainActor @Observable
 final class ConversationActivityStore {
 
@@ -94,11 +90,8 @@ final class ConversationActivityStore {
     // MARK: - Start observation
 
     /// Begin observing busy-state properties on a ChatViewModel's message manager.
-    ///
-    /// Uses `withObservationTracking` to read `isSending`, `isThinking`, and
-    /// `pendingQueuedCount` directly from the `@Observable` ChatMessageManager.
-    /// The observation loop re-arms itself on each change and is invalidated
-    /// via generation counter when the conversation is unsubscribed.
+    /// The observation loop re-arms on each change and is invalidated via
+    /// generation counter when the conversation is unsubscribed.
     func observeBusyState(for conversationId: UUID, messageManager: ChatMessageManager) {
         let generation = (busyGenerations[conversationId] ?? 0) + 1
         busyGenerations[conversationId] = generation
@@ -106,7 +99,6 @@ final class ConversationActivityStore {
     }
 
     /// Begin observing interaction-state properties on a ChatViewModel.
-    ///
     /// Reads from both `ChatMessageManager` and `ChatErrorManager` in a single
     /// `withObservationTracking` closure, so a change to any tracked property
     /// triggers re-evaluation.
