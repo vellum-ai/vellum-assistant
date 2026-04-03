@@ -114,7 +114,7 @@ describe("onboarding template contracts", () => {
 
   describe("BOOTSTRAP-REFERENCE.md", () => {
     test("contains personality form with 4 dropdowns", () => {
-      expect(bootstrapRef).toContain("surface_type: \"form\"");
+      expect(bootstrapRef).toContain('surface_type: "form"');
       expect(bootstrapRef).toContain("communication_style");
       expect(bootstrapRef).toContain("task_style");
       expect(bootstrapRef).toContain("humor");

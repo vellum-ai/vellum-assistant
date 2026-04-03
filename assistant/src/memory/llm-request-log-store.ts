@@ -91,10 +91,7 @@ export function backfillMessageIdOnLogs(
  * for a conversation), this targets only the given log rows — safe for
  * concurrent watch/assistant turns.
  */
-export function setMessageIdOnLogs(
-  logIds: string[],
-  messageId: string,
-): void {
+export function setMessageIdOnLogs(logIds: string[], messageId: string): void {
   if (logIds.length === 0) return;
   const db = getDb();
   db.update(llmRequestLogs)
@@ -290,8 +287,7 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
           try {
             const db = getDb();
             const ids = unlinkedLogs.map((l) => l.id);
-            const targetMessageId =
-              turnMessageIds[turnMessageIds.length - 1]!;
+            const targetMessageId = turnMessageIds[turnMessageIds.length - 1]!;
             db.update(llmRequestLogs)
               .set({ messageId: targetMessageId })
               .where(

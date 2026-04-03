@@ -25,7 +25,9 @@ export interface RecordMemoryRecallLogParams {
   reason?: string;
 }
 
-export function recordMemoryRecallLog(params: RecordMemoryRecallLogParams): void {
+export function recordMemoryRecallLog(
+  params: RecordMemoryRecallLogParams,
+): void {
   const db = getDb();
   db.insert(memoryRecallLogs)
     .values({
@@ -149,9 +151,7 @@ export function getMemoryRecallLogByMessageIds(
     degraded: !!row.degraded,
     provider: row.provider,
     model: row.model,
-    degradation: row.degradationJson
-      ? JSON.parse(row.degradationJson)
-      : null,
+    degradation: row.degradationJson ? JSON.parse(row.degradationJson) : null,
     semanticHits: row.semanticHits,
     mergedCount: row.mergedCount,
     selectedCount: row.selectedCount,

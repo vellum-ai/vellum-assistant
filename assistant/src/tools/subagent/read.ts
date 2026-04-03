@@ -74,7 +74,9 @@ export async function executeSubagentRead(
   }
 
   const lastN =
-    typeof input.last_n === "number" && input.last_n > 0 ? input.last_n : 0;
+    typeof input.last_n === "number" && input.last_n > 0
+      ? input.last_n
+      : undefined;
   const sliced = lastN ? output.slice(-lastN) : output;
 
   return {

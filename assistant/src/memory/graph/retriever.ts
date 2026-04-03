@@ -712,9 +712,7 @@ export async function loadContextMemory(
   ].slice(0, maxNodes - serendipitySlots);
   // Exclude procedural nodes from serendipity — they have reserved slots
   // and shouldn't appear as random wildcard picks.
-  const serendipityPool = scored.filter(
-    (s) => !isCapabilityNode(s.node),
-  );
+  const serendipityPool = scored.filter((s) => !isCapabilityNode(s.node));
   const serendipityPicks = sampleSerendipity(serendipityPool, serendipitySlots);
 
   // Deduplicate serendipity against deterministic
@@ -890,10 +888,14 @@ export async function retrieveForTurn(
 
   if (queryText.trim().length === 0 && allCandidateIds.size === 0) {
     return {
-      nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start,
+      nodes: [],
+      serendipityNodes: [],
+      triggeredNodes: [],
+      latencyMs: Date.now() - start,
       metrics: {
         ...ZERO_METRICS,
-        hybridSearchLatencyMs: imageBlocks.length > 0 ? Date.now() - searchStart : 0,
+        hybridSearchLatencyMs:
+          imageBlocks.length > 0 ? Date.now() - searchStart : 0,
         embeddingProvider,
         embeddingModel,
       },
@@ -958,7 +960,10 @@ export async function retrieveForTurn(
       log.warn({ err }, "Embedding/search failed for turn retrieval");
       if (allCandidateIds.size === 0) {
         return {
-          nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start,
+          nodes: [],
+          serendipityNodes: [],
+          triggeredNodes: [],
+          latencyMs: Date.now() - start,
           metrics: {
             ...ZERO_METRICS,
             hybridSearchLatencyMs: Date.now() - searchStart,
