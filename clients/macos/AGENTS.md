@@ -75,7 +75,7 @@ NavigationToolbar                     (Chat tab + panel toggle buttons)
 VSplitView                            (ChatView + optional side panel)
 ```
 
-**Data flow**: `ConversationManager` (`@MainActor ObservableObject`) owns `[ConversationModel]` and a dictionary of `ChatViewModel` instances keyed by conversation ID. `MainWindowView` binds to the active `ChatViewModel` via `conversationManager.activeViewModel`. `ChatViewModel` is `@Observable`, so SwiftUI views track property access directly at the view level without `objectWillChange` forwarding. ConversationManager uses sub-manager Combine publishers (e.g. `messagesPublisher`) for its own reactive needs.
+**Data flow**: `ConversationManager` (`@MainActor ObservableObject`) owns `[ConversationModel]` and a dictionary of `ChatViewModel` instances keyed by conversation ID. `MainWindowView` binds to the active `ChatViewModel` via `conversationManager.activeViewModel`. `ChatViewModel` is `@Observable`, so SwiftUI views track property access directly at the view level without `objectWillChange` forwarding. Non-view consumers (e.g. `ConversationActivityStore`, `VoiceModeManager`) observe `@Observable` properties via `withObservationTracking` loops with generation counters for lifecycle invalidation.
 
 ---
 

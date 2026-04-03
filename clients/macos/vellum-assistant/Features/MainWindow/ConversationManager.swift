@@ -3,7 +3,6 @@ import VellumAssistantShared
 import Foundation
 import UserNotifications
 import os
-@preconcurrency import Combine
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationManager")
 
@@ -58,19 +57,6 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationForkClient: any ConversationForkClientProtocol
     private let conversationDetailClient: any ConversationDetailClientProtocol
     private let conversationRestorer: ConversationRestorer
-
-    // MARK: - Assistant Activity (Combine)
-
-    private struct AssistantActivitySnapshot: Equatable {
-        let messageId: UUID
-        let toolCallCount: Int
-        let completedToolCallCount: Int
-        let surfaceCount: Int
-        let isStreaming: Bool
-    }
-
-    @ObservationIgnored private var assistantActivityCancellables: [UUID: AnyCancellable] = [:]
-    @ObservationIgnored private var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = [:]
 
     // MARK: - Notification Catch-Up
 
@@ -190,6 +176,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         activityStore.onBusyToIdle = { [weak self] conversationId in
             self?.drainPendingNotificationCatchUp(for: conversationId)
         }
+        activityStore.onAssistantActivityChange = { [weak self] conversationId, previousSnapshot, currentSnapshot in
+            self?.handleAssistantMessageArrival(conversationId: conversationId, previousSnapshot: previousSnapshot, currentSnapshot: currentSnapshot)
+        }
 
         enterDraftMode()
         conversationRestorer.delegate = self
@@ -245,7 +234,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.onViewModelRegistered = { [weak self] conversationId, vm in
             guard let self else { return }
             self.activityStore.observeBusyState(for: conversationId, messageManager: vm.messageManager)
-            self.subscribeToAssistantActivity(for: conversationId, viewModel: vm)
+            self.activityStore.observeAssistantActivity(for: conversationId, messageManager: vm.messageManager)
             self.activityStore.observeInteractionState(for: conversationId, messageManager: vm.messageManager, errorManager: vm.errorManager)
         }
 
@@ -276,7 +265,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         // List store → activity store: check if conversation has live activity snapshot
         listStore.hasAssistantActivitySnapshot = { [weak self] conversationId in
-            self?.latestAssistantActivitySnapshots[conversationId] != nil
+            self?.activityStore.latestAssistantActivitySnapshots[conversationId] != nil
         }
     }
 
@@ -470,7 +459,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
         activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
-        subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
+        activityStore.observeAssistantActivity(for: conversation.id, messageManager: viewModel.messageManager)
         activityStore.observeInteractionState(for: conversation.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         selectionStore.touchVMAccessOrder(conversation.id)
         selectionStore.scheduleEvictionIfNeeded()
@@ -513,7 +502,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
         activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
-        subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
+        activityStore.observeAssistantActivity(for: conversation.id, messageManager: viewModel.messageManager)
         activityStore.observeInteractionState(for: conversation.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         selectionStore.touchVMAccessOrder(conversation.id)
         selectionStore.scheduleEvictionIfNeeded()
@@ -561,7 +550,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
         activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
-        subscribeToAssistantActivity(for: conversation.id, viewModel: viewModel)
+        activityStore.observeAssistantActivity(for: conversation.id, messageManager: viewModel.messageManager)
         activityStore.observeInteractionState(for: conversation.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         selectionStore.touchVMAccessOrder(conversation.id)
         selectionStore.scheduleEvictionIfNeeded()
@@ -697,7 +686,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             viewModel.conversationId = conversation.conversationId
             selectionStore.chatViewModels[id] = viewModel
             activityStore.observeBusyState(for: id, messageManager: viewModel.messageManager)
-            subscribeToAssistantActivity(for: id, viewModel: viewModel)
+            activityStore.observeAssistantActivity(for: id, messageManager: viewModel.messageManager)
             activityStore.observeInteractionState(for: id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
             selectionStore.scheduleEvictionIfNeeded()
         }
@@ -1130,7 +1119,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations.insert(conversationModel, at: 0)
         selectionStore.chatViewModels[conversationModel.id] = viewModel
         activityStore.observeBusyState(for: conversationModel.id, messageManager: viewModel.messageManager)
-        subscribeToAssistantActivity(for: conversationModel.id, viewModel: viewModel)
+        activityStore.observeAssistantActivity(for: conversationModel.id, messageManager: viewModel.messageManager)
         activityStore.observeInteractionState(for: conversationModel.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         selectionStore.touchVMAccessOrder(conversationModel.id)
         selectionStore.scheduleEvictionIfNeeded()
@@ -1190,49 +1179,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
     }
 
-    // MARK: - Assistant Activity Observation (Combine)
+    // MARK: - Assistant Activity Handling
 
-    private func subscribeToAssistantActivity(for conversationId: UUID, viewModel: ChatViewModel) {
-        if let old = assistantActivityCancellables.removeValue(forKey: conversationId) {
-            ConversationSelectionStore.tearDownCancellables([old])
-        }
-        if let snapshot = latestAssistantActivitySnapshot(in: viewModel.messages) {
-            latestAssistantActivitySnapshots[conversationId] = snapshot
-        } else {
-            latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
-        }
-
-        assistantActivityCancellables[conversationId] = viewModel.messageManager.messagesPublisher
-            .map { [weak self] messages in
-                self?.latestAssistantActivitySnapshot(in: messages)
-            }
-            .removeDuplicates()
-            .sink { [weak self] latestSnapshot in
-                guard let self else { return }
-                let previousSnapshot = self.latestAssistantActivitySnapshots[conversationId]
-                if let latestSnapshot {
-                    self.latestAssistantActivitySnapshots[conversationId] = latestSnapshot
-                } else {
-                    self.latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
-                }
-                guard previousSnapshot != latestSnapshot,
-                      let latestSnapshot else { return }
-                self.handleAssistantMessageArrival(conversationId: conversationId, previousSnapshot: previousSnapshot, currentSnapshot: latestSnapshot)
-            }
-    }
-
-    private func latestAssistantActivitySnapshot(in messages: [ChatMessage]) -> AssistantActivitySnapshot? {
-        guard let message = messages.reversed().first(where: { $0.role == .assistant }) else { return nil }
-        return AssistantActivitySnapshot(
-            messageId: message.id,
-            toolCallCount: message.toolCalls.count,
-            completedToolCallCount: message.toolCalls.filter(\.isComplete).count,
-            surfaceCount: message.inlineSurfaces.count,
-            isStreaming: message.isStreaming
-        )
-    }
-
-    private func handleAssistantMessageArrival(conversationId: UUID, previousSnapshot: AssistantActivitySnapshot?, currentSnapshot: AssistantActivitySnapshot) {
+    private func handleAssistantMessageArrival(conversationId: UUID, previousSnapshot: ConversationActivityStore.AssistantActivitySnapshot?, currentSnapshot: ConversationActivityStore.AssistantActivitySnapshot) {
         guard !selectionStore.isRestoringConversations else { return }
         if let vm = selectionStore.chatViewModels[conversationId], vm.isLoadingHistory || !vm.isHistoryLoaded {
             return
@@ -1260,21 +1209,19 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
     }
 
-    // MARK: - Subscription Lifecycle
+    // MARK: - Observation Lifecycle
 
+    /// Remove busy-state, interaction-state, and assistant-activity observation for a conversation.
+    ///
+    /// Does NOT clear interaction states — the last known state is preserved so
+    /// that evicted (but still visible) conversations continue showing the correct
+    /// sidebar cue. Callers that permanently remove a conversation (close / archive)
+    /// should use `unsubscribeAllForConversation(id:)` instead.
     private func unsubscribeFromBusyState(for conversationId: UUID) {
-        if let sub = assistantActivityCancellables.removeValue(forKey: conversationId) {
-            ConversationSelectionStore.tearDownCancellables([sub])
-        }
-        latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
         activityStore.unsubscribeFromBusyState(for: conversationId)
     }
 
     private func unsubscribeAllForConversation(id: UUID) {
-        if let sub = assistantActivityCancellables.removeValue(forKey: id) {
-            ConversationSelectionStore.tearDownCancellables([sub])
-        }
-        latestAssistantActivitySnapshots.removeValue(forKey: id)
         activityStore.unsubscribeAll(for: id)
     }
 
