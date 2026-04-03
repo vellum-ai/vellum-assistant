@@ -69,8 +69,14 @@ export async function executeSubagentRead(
     return { content: "Subagent produced no text output.", isError: false };
   }
 
+  const lastN =
+    typeof input.last_n === "number" && input.last_n > 0
+      ? input.last_n
+      : undefined;
+  const sliced = lastN ? output.slice(-lastN) : output;
+
   return {
-    content: output.join("\n\n"),
+    content: sliced.join("\n\n"),
     isError: false,
   };
 }
