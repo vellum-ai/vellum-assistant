@@ -397,17 +397,18 @@ export async function loadContextMemory(
   const semanticCandidateIds = new Map<string, number>(); // nodeId → score
   let hybridSearchLatencyMs = 0;
   if (queryVector) {
+    const searchStart = Date.now();
     try {
-      const searchStart = Date.now();
       const results = await searchGraphNodes(queryVector, maxNodes * 3, [
         opts.scopeId,
       ]);
-      hybridSearchLatencyMs = Date.now() - searchStart;
       for (const r of results) {
         semanticCandidateIds.set(r.nodeId, r.score);
       }
     } catch (err) {
       log.warn({ err }, "Qdrant search failed for context load");
+    } finally {
+      hybridSearchLatencyMs = Date.now() - searchStart;
     }
   }
   const pureSemanticHits = semanticCandidateIds.size;
