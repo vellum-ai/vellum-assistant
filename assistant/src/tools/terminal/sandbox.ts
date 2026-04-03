@@ -1,4 +1,3 @@
-import type { SandboxConfig } from "../../config/schema.js";
 import { NativeBackend } from "./backends/native.js";
 import type { SandboxResult, WrapOptions } from "./backends/types.js";
 
@@ -7,6 +6,10 @@ export type {
   SandboxResult,
   WrapOptions,
 } from "./backends/types.js";
+
+export interface SandboxConfig {
+  enabled: boolean;
+}
 
 const nativeBackend = new NativeBackend();
 

@@ -27,7 +27,6 @@ export type {
   PermissionsConfig,
   QdrantConfig,
   RateLimitConfig,
-  SandboxConfig,
   SecretDetectionConfig,
   ServiceMode,
   Services,

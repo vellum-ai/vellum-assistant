@@ -134,8 +134,6 @@ export {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
-export type { SandboxConfig } from "./schemas/sandbox.js";
-export { SandboxConfigSchema } from "./schemas/sandbox.js";
 export type {
   PermissionsConfig,
   SecretDetectionConfig,
@@ -220,7 +218,6 @@ import {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
-import { SandboxConfigSchema } from "./schemas/sandbox.js";
 import {
   PermissionsConfigSchema,
   SecretDetectionConfigSchema,
@@ -254,7 +251,6 @@ export const AssistantConfigSchema = z
       .default(getDataDir())
       .describe("Directory for storing assistant data (database, logs, etc.)"),
     timeouts: TimeoutConfigSchema.default(TimeoutConfigSchema.parse({})),
-    sandbox: SandboxConfigSchema.default(SandboxConfigSchema.parse({})),
     rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
     secretDetection: SecretDetectionConfigSchema.default(
       SecretDetectionConfigSchema.parse({}),

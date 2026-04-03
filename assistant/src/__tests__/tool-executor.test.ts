@@ -33,17 +33,6 @@ const mockConfig = {
     shellMaxTimeoutSec: 600,
     permissionTimeoutSec: 300,
   },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
@@ -1949,7 +1938,6 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
         _allowlistOptions: AllowlistOption[],
         _scopeOptions: ScopeOption[],
         _diff: unknown,
-        _sandboxed: unknown,
         _conversationId: unknown,
         _executionTarget: unknown,
         persistentDecisionsAllowed: boolean | undefined,

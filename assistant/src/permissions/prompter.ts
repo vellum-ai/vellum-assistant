@@ -58,7 +58,6 @@ export class PermissionPrompter {
       newContent: string;
       isNewFile: boolean;
     },
-    sandboxed?: boolean,
     conversationId?: string,
     executionTarget?: ExecutionTarget,
     persistentDecisionsAllowed?: boolean,
@@ -119,7 +118,6 @@ export class PermissionPrompter {
           scope: o.scope,
         })),
         diff,
-        sandboxed,
         conversationId,
         executionTarget,
         persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,

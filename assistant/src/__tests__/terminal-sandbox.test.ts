@@ -2,7 +2,7 @@ import * as realChildProcess from "node:child_process";
 import * as realFs from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SandboxConfig } from "../config/schema.js";
+import type { SandboxConfig } from "../tools/terminal/sandbox.js";
 
 let platform = "linux";
 

@@ -37,7 +37,6 @@ describe("createToolDomainEventPublisher", () => {
       reason: "needs approval",
       allowlistOptions: [],
       scopeOptions: [],
-      sandboxed: true,
     });
 
     await publish({

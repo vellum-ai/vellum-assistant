@@ -41,17 +41,6 @@ const mockConfig = {
     shellMaxTimeoutSec: 600,
     permissionTimeoutSec: 300,
   },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
   rateLimit: { maxRequestsPerMinute: 0 },
   secretDetection: {
     enabled: false,
@@ -416,7 +405,6 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
         _allowlistOptions: unknown[],
         _scopeOptions: unknown[],
         _previewDiff: unknown,
-        _sandboxed: boolean | undefined,
         _conversationId: string,
         _executionTarget: string,
         persistentDecisionsAllowed: boolean,
@@ -467,7 +455,6 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
         _allowlistOptions: unknown[],
         _scopeOptions: unknown[],
         _previewDiff: unknown,
-        _sandboxed: boolean | undefined,
         _conversationId: string,
         _executionTarget: string,
         persistentDecisionsAllowed: boolean,

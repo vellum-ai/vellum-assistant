@@ -39,7 +39,6 @@ export async function requestCompressionApproval(
     undefined,
     undefined,
     undefined,
-    undefined,
     false,
     opts?.signal,
   );

@@ -10,22 +10,6 @@ mock.module("node:child_process", () => ({
   execSync: execSyncMock,
 }));
 
-// Mock config loader — return a config with sandbox settings
-let mockSandboxConfig: {
-  enabled: boolean;
-} = {
-  enabled: true,
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    sandbox: mockSandboxConfig,
-  }),
-  loadRawConfig: () => ({}),
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     error: () => {},
@@ -49,9 +33,6 @@ function setPlatform(platform: string): void {
 
 beforeEach(() => {
   execSyncMock.mockReset();
-  mockSandboxConfig = {
-    enabled: true,
-  };
   // Default: all commands succeed.
   execSyncMock.mockImplementation(() => undefined);
 });
@@ -62,26 +43,14 @@ afterEach(() => {
 });
 
 describe("runSandboxDiagnostics — config reporting", () => {
-  test("reports sandbox enabled state", () => {
-    const result = runSandboxDiagnostics();
-    expect(result.config.enabled).toBe(true);
-  });
-
-  test("reports sandbox disabled state", () => {
-    mockSandboxConfig.enabled = false;
+  test("reports sandbox disabled (sandbox removed)", () => {
     const result = runSandboxDiagnostics();
     expect(result.config.enabled).toBe(false);
   });
 });
 
 describe("runSandboxDiagnostics — active backend reason", () => {
-  test("explains native backend selection", () => {
-    const result = runSandboxDiagnostics();
-    expect(result.activeBackendReason).toContain("Native backend");
-  });
-
   test("explains when sandbox is disabled", () => {
-    mockSandboxConfig.enabled = false;
     const result = runSandboxDiagnostics();
     expect(result.activeBackendReason).toContain("disabled");
   });

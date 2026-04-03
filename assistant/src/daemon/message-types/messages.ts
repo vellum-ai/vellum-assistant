@@ -151,7 +151,6 @@ export interface ConfirmationRequest {
     newContent: string;
     isNewFile: boolean;
   };
-  sandboxed?: boolean;
   conversationId?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;

@@ -55,8 +55,8 @@ describe("requestCompressionApproval", () => {
     await requestCompressionApproval(prompter);
 
     const args = (prompter.prompt as ReturnType<typeof mock>).mock.calls[0];
-    // persistentDecisionsAllowed is index 9
-    expect(args[9]).toBe(false);
+    // persistentDecisionsAllowed is index 8
+    expect(args[8]).toBe(false);
   });
 
   test("includes a description in the input", async () => {
@@ -119,8 +119,8 @@ describe("requestCompressionApproval", () => {
     });
 
     const args = (prompter.prompt as ReturnType<typeof mock>).mock.calls[0];
-    // signal is index 10
-    expect(args[10]).toBe(controller.signal);
+    // signal is index 9
+    expect(args[9]).toBe(controller.signal);
   });
 
   test("works without signal option", async () => {
@@ -130,7 +130,7 @@ describe("requestCompressionApproval", () => {
 
     const args = (prompter.prompt as ReturnType<typeof mock>).mock.calls[0];
     // signal should be undefined when not provided
-    expect(args[10]).toBeUndefined();
+    expect(args[9]).toBeUndefined();
   });
 
   // ── Tool name constant ──
