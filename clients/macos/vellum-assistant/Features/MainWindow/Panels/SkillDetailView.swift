@@ -218,7 +218,7 @@ struct SkillDetailTitleRow: View {
             VSkillTypePill(origin: skill.origin)
 
             if skill.kind == "installed" {
-                VButton(label: "Remove", style: .dangerOutline) {
+                VButton(label: "Remove", leftIcon: VIcon.trash.rawValue, style: .dangerOutline) {
                     onDelete()
                 }
             }

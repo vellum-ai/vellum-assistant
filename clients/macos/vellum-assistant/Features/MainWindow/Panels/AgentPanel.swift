@@ -329,7 +329,7 @@ struct SkillItemRow: View {
                 VButton(
                     label: "Remove",
                     leftIcon: VIcon.trash.rawValue,
-                    style: .outlined,
+                    style: .dangerOutline,
                     action: onDelete
                 )
                 .disabled(!isRemovable)
