@@ -296,12 +296,11 @@ struct MessageInspectorView: View {
 
     private var detailTabBar: some View {
         VTabs(
-            items: MessageInspectorDetailTab.allCases.map { (label: $0.label, icon: $0.icon.rawValue, tag: $0) },
+            items: MessageInspectorDetailTab.allCases.map { (label: $0.label, tag: $0) },
             selection: Binding(
                 get: { viewState.selectedDetailTab },
                 set: { viewState.selectDetailTab($0) }
-            ),
-            style: .underline
+            )
         )
     }
 
@@ -348,11 +347,9 @@ struct MessageInspectorView: View {
             } else {
                 VStack(spacing: 0) {
                     HStack {
-                        VTabs(
+                        VSegmentControl(
                             items: RawPayloadPane.allCases.map { (label: $0.label, tag: $0) },
-                            selection: rawPaneBinding,
-                            style: .pill,
-                            size: .compact
+                            selection: rawPaneBinding
                         )
                         .fixedSize()
 

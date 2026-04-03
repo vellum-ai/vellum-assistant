@@ -35,11 +35,9 @@ struct MessageInspectorPayloadView: View {
             Spacer(minLength: VSpacing.md)
 
             if model.showsViewModePicker {
-                VTabs(
+                VSegmentControl(
                     items: model.availableViewModes.map { (label: $0.label, tag: $0) },
-                    selection: viewModeBinding,
-                    style: .pill,
-                    size: .compact
+                    selection: viewModeBinding
                 )
                 .fixedSize()
             }
