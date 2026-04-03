@@ -682,10 +682,10 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Thinking blocks are stripped at persistence time (consolidation and
-      // DB migration 208) so historical messages are clean when loaded.
-      // Within a turn, assistant messages have original thinking with valid
-      // signatures — the API accepts them. No provider-side stripping needed.
+      // Thinking blocks are stripped at rest by DB migration 209 so
+      // historical messages are clean when loaded. Within a turn,
+      // assistant messages have original thinking with valid signatures
+      // — the API accepts them. No provider-side stripping needed.
 
       sentMessages = ensureToolPairing(repairOrphanedServerToolUse(formatted));
       const { effort, speed, output_config, ...restConfig } = (config ??
