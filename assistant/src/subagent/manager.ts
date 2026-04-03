@@ -216,9 +216,10 @@ export class SubagentManager {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
 
-    // Pre-activate skills defined by the role config.
-    if (roleConfig.skillIds.length > 0) {
-      conversation.setPreactivatedSkillIds(roleConfig.skillIds);
+    // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
+    const mergedSkillIds = [...new Set([...roleConfig.skillIds, ...(config.preactivatedSkillIds ?? [])])];
+    if (mergedSkillIds.length > 0) {
+      conversation.setPreactivatedSkillIds(mergedSkillIds);
     }
 
     managed.conversation = conversation;
