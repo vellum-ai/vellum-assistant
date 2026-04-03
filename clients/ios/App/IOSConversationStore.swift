@@ -923,8 +923,16 @@ class IOSConversationStore: ObservableObject {
     func viewModel(for conversationLocalId: UUID) -> ChatViewModel {
         if let existing = viewModels[conversationLocalId] {
             wireReconnectCallback(vm: existing, conversationLocalId: conversationLocalId)
-            observeForActivityTracking(vm: existing, conversationLocalId: conversationLocalId)
-            observeForForkAvailability(vm: existing, conversationLocalId: conversationLocalId)
+            // Only start observation loops that aren't already running for this
+            // conversation. viewModel(for:) is called on every SwiftUI body
+            // evaluation; without these guards each call would increment the
+            // generation counter and restart the loop unnecessarily.
+            if activityGenerations[conversationLocalId] == nil {
+                observeForActivityTracking(vm: existing, conversationLocalId: conversationLocalId)
+            }
+            if forkGenerations[conversationLocalId] == nil {
+                observeForForkAvailability(vm: existing, conversationLocalId: conversationLocalId)
+            }
             updateForkCommandHandler(vm: existing, conversationLocalId: conversationLocalId)
             return existing
         }
@@ -1099,6 +1107,10 @@ class IOSConversationStore: ObservableObject {
         return next
     }
 
+    /// Remove all generation counters for a conversation, causing any in-flight
+    /// observation loops to bail out on their next re-arm check. Also allows
+    /// `viewModel(for:)` to restart loops on the next call since the nil-check
+    /// guards will pass.
     private func invalidateObservationGenerations(for conversationLocalId: UUID) {
         forkGenerations.removeValue(forKey: conversationLocalId)
         titleGenerations.removeValue(forKey: conversationLocalId)

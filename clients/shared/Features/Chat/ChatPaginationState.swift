@@ -75,6 +75,10 @@ public final class ChatPaginationState {
 
     // MARK: - Lifecycle
 
+    /// Generation counter for the message observation loop. Incremented on
+    /// reset so stale in-flight loops bail out instead of re-arming.
+    @ObservationIgnored private var observationGeneration: Int = 0
+
     deinit {
         loadMoreTimeoutTask?.cancel()
     }
@@ -107,19 +111,20 @@ public final class ChatPaginationState {
         // Reactively update the cache when messages change via
         // `withObservationTracking`, reading `messageManager.messages`
         // directly from the @Observable ChatMessageManager.
-        observeMessages()
+        observeMessages(generation: observationGeneration)
     }
 
     // MARK: - Message observation loop
 
-    private func observeMessages() {
+    private func observeMessages(generation: Int) {
+        guard generation == observationGeneration else { return }
         withObservationTracking {
             _ = self.messageManager.messages
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, generation == self.observationGeneration else { return }
                 self.recomputeVisibleMessages(from: self.messageManager.messages)
-                self.observeMessages()
+                self.observeMessages(generation: generation)
             }
         }
     }
@@ -208,6 +213,7 @@ public final class ChatPaginationState {
 
     /// Reset pagination when the conversation switches or history is reloaded.
     public func resetMessagePagination() {
+        observationGeneration += 1
         displayedMessageCount = Self.messagePageSize
         historyCursor = nil
         hasMoreHistory = false
@@ -215,6 +221,7 @@ public final class ChatPaginationState {
         loadMoreTimeoutTask = nil
         isLoadingMoreMessages = false
         recomputeVisibleMessages(from: messageManager.messages)
+        observeMessages(generation: observationGeneration)
     }
 
 }
