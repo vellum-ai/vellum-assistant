@@ -44,8 +44,9 @@ export async function checkManagedHealth(
       HEALTH_CHECK_TIMEOUT_MS,
     );
 
+    const { authHeaders } = await import("./platform-client.js");
     const headers: Record<string, string> = {
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     };
 
