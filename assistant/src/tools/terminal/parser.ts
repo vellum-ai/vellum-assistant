@@ -51,11 +51,27 @@ const SCRIPT_INTERPRETERS = new Set([
 ]);
 // Flags that make an interpreter read code from stdin rather than from a file.
 const STDIN_EXEC_FLAGS = new Set(["-"]);
-// Flags that provide code inline as an argument (e.g. `python -c 'code'`,
-// `node -e 'code'`). When these are present the interpreter is NOT reading
-// code from stdin — stdin is just data, so piping into the interpreter is
-// no more dangerous than piping into grep or jq.
-const INLINE_CODE_FLAGS = new Set(["-c", "-e"]);
+// Per-interpreter flags that provide code inline as an argument (e.g.
+// `python -c 'code'`, `node -e 'code'`). When these are present the
+// interpreter is NOT reading code from stdin — stdin is just data, so piping
+// into the interpreter is no more dangerous than piping into grep or jq.
+//
+// This must be interpreter-specific because the same flag can mean different
+// things across interpreters. For example, `perl -c` is syntax-check mode
+// (still reads code from stdin and executes BEGIN blocks), while
+// `python -c` provides inline code. Similarly, `ruby -c` is syntax-check.
+const INTERPRETER_INLINE_CODE_FLAGS: ReadonlyMap<
+  string,
+  ReadonlySet<string>
+> = new Map([
+  ["python", new Set(["-c"])],
+  ["python3", new Set(["-c"])],
+  ["ruby", new Set(["-e"])],
+  ["perl", new Set(["-e"])],
+  ["node", new Set(["-e"])],
+  ["deno", new Set(["-e"])],
+  ["bun", new Set(["-e"])],
+]);
 // Per-interpreter flags that consume the next argument as a value (not a filename).
 // Mapped by interpreter name since flags differ across interpreters
 // (e.g. -I is standalone in Python but takes a value in Ruby).
@@ -357,21 +373,23 @@ function extractSegments(node: TSNode): CommandSegment[] {
 
 /**
  * Returns true when the interpreter args indicate stdin-exec mode - i.e. the
- * interpreter will read code from stdin (or from an inline -c/-e argument)
- * rather than from a file.  Concretely:
+ * interpreter will read code from stdin rather than from a file.  Concretely:
  *   - Any STDIN_EXEC_FLAGS present → stdin-exec
+ *   - Interpreter-specific inline code flag (-c/-e) → NOT stdin-exec
  *   - No positional (non-flag) arguments at all → stdin-exec (bare `python`)
  *   - Otherwise the first positional arg is a filename → NOT stdin-exec
  */
 function isStdinExecMode(interpreter: string, args: string[]): boolean {
   const valueFlags =
     INTERPRETER_VALUE_FLAGS.get(interpreter) ?? new Set<string>();
+  const inlineCodeFlags =
+    INTERPRETER_INLINE_CODE_FLAGS.get(interpreter) ?? new Set<string>();
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (STDIN_EXEC_FLAGS.has(arg)) return true;
-    // Inline code flags (-c, -e) mean the code is provided as an argument,
-    // not read from stdin. The interpreter is NOT in stdin-exec mode.
-    if (INLINE_CODE_FLAGS.has(arg)) return false;
+    // Interpreter-specific inline code flags (e.g. python -c, node -e) mean
+    // the code is provided as an argument, not read from stdin.
+    if (inlineCodeFlags.has(arg)) return false;
     // First non-flag argument is a filename/module → file mode
     if (!arg.startsWith("-")) return false;
     // Flags like -W, -X consume the next token as their value - skip it
