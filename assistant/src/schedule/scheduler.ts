@@ -333,13 +333,18 @@ async function runScheduleOnce(
       completeScheduleRun(runId, { status: "error", error: message });
       if (isOneShot) failOneShot(job.id);
 
-      try {
-        invalidateAssistantInferredItemsForConversation(conversationId);
-      } catch (cleanupErr) {
-        log.warn(
-          { err: cleanupErr, conversationId },
-          "Failed to invalidate assistant-inferred memory items",
-        );
+      // Only invalidate memory when the conversation is NOT being reused.
+      // Reused conversations contain valid context from prior successful runs
+      // that should be preserved even if the current run fails.
+      if (!job.reuseConversation) {
+        try {
+          invalidateAssistantInferredItemsForConversation(conversationId);
+        } catch (cleanupErr) {
+          log.warn(
+            { err: cleanupErr, conversationId },
+            "Failed to invalidate assistant-inferred memory items",
+          );
+        }
       }
     }
   }
