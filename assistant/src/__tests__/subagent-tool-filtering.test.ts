@@ -26,6 +26,13 @@ mock.module("../daemon/conversation-skill-tools.js", () => ({
   projectSkillTools: mockProjectSkillTools,
 }));
 
+let mcpToolDefsForNextCall: ToolDefinition[] = [];
+
+mock.module("../tools/registry.js", () => ({
+  getAllToolDefinitions: () => [],
+  getMcpToolDefinitions: () => mcpToolDefsForNextCall,
+}));
+
 // ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------
@@ -139,6 +146,44 @@ describe("createResolveToolsCallback — subagentAllowedTools", () => {
     expect(ctx.allowedToolNames!.has("file_read")).toBe(true);
     expect(ctx.allowedToolNames!.has("web_search")).toBe(true);
     expect(ctx.allowedToolNames!.has("bash")).toBe(false);
+  });
+
+  test("filters MCP tools through the subagent allowlist", () => {
+    mcpToolDefsForNextCall = [
+      makeToolDef("mcp_tool_a"),
+      makeToolDef("mcp_tool_b"),
+      makeToolDef("mcp_tool_c"),
+    ];
+
+    const toolDefs = [makeToolDef("file_read")];
+    const ctx = makeCtx({
+      subagentAllowedTools: new Set(["file_read", "mcp_tool_b"]),
+    });
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+
+    const tools = resolve(EMPTY_HISTORY);
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("file_read");
+    expect(names).toContain("mcp_tool_b");
+    expect(names).not.toContain("mcp_tool_a");
+    expect(names).not.toContain("mcp_tool_c");
+  });
+
+  test("passes all MCP tools through when subagentAllowedTools is undefined", () => {
+    mcpToolDefsForNextCall = [
+      makeToolDef("mcp_tool_a"),
+      makeToolDef("mcp_tool_b"),
+    ];
+
+    const toolDefs = [makeToolDef("file_read")];
+    const ctx = makeCtx({ subagentAllowedTools: undefined });
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+
+    const tools = resolve(EMPTY_HISTORY);
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("file_read");
+    expect(names).toContain("mcp_tool_a");
+    expect(names).toContain("mcp_tool_b");
   });
 
   test("includes all skill tools in allowedToolNames when subagentAllowedTools is undefined", () => {

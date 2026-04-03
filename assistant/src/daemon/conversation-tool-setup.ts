@@ -558,7 +558,10 @@ export function createResolveToolsCallback(
       },
       "MCP tools resolved for turn",
     );
-    const allBaseDefs = [...scopedCoreDefs, ...currentMcpDefs];
+    const scopedMcpDefs = ctx.subagentAllowedTools
+      ? currentMcpDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+      : currentMcpDefs;
+    const allBaseDefs = [...scopedCoreDefs, ...scopedMcpDefs];
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
