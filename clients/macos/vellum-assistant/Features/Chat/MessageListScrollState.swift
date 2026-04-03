@@ -469,18 +469,20 @@ final class MessageListScrollState {
     ///
     /// Two strategies depending on context:
     ///
-    /// **User-initiated (CTA tap):** ID-based scroll primary, with
-    /// edge-based correction. `scrollTo(id: lastMessageId, .bottom)`
-    /// fires synchronously — targets a real ForEach item that SwiftUI
-    /// can always locate (even when not materialized), so it never
-    /// overshoots into blank LazyVStack estimated space. An edge-based
-    /// `scrollToEdge(.bottom)` fires on the next run-loop pass to close
-    /// the small gap between the last message and the absolute content
-    /// bottom (padding/anchor below). If the user scrolls up before the
-    /// edge correction, they start from real content. Animation is
-    /// provided by the caller's `withAnimation` wrapper (spring for
-    /// smooth CTA scroll). The recovery window (set in
-    /// `requestPinToBottom`) handles failures.
+    /// **User-initiated (CTA tap):** ID-based scroll only.
+    /// `scrollTo(id: lastMessageId, .bottom)` fires synchronously —
+    /// targets a real ForEach item that SwiftUI can always locate (even
+    /// when not materialized), so it never overshoots into blank
+    /// LazyVStack estimated space. No deferred edge-based correction:
+    /// a Task calling `scrollToEdge(.bottom)` on the next run loop would
+    /// fire during the in-flight spring animation (~16ms later),
+    /// interrupting it with a non-animated jump to the estimated bottom
+    /// (possibly blank space). Instead, the recovery window (set in
+    /// `requestPinToBottom`) handles the small gap between the last
+    /// message and the absolute content bottom (padding/anchor below).
+    /// Recovery is phase-gated (`.idle` only), so it waits until the
+    /// spring completes. Animation is provided by the caller's
+    /// `withAnimation` wrapper (spring for smooth CTA scroll).
     ///
     /// **Auto-follow / recovery:** Dual scroll strategy — edge-based
     /// fires immediately (fast for near-bottom adjustments), ID-based
@@ -493,29 +495,25 @@ final class MessageListScrollState {
     /// - SeeAlso: https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(edge:)
     private func executeScrollToBottom(animated: Bool, userInitiated: Bool = false) {
         if userInitiated {
-            // ID-based primary: targets a real ForEach item that SwiftUI
+            // ID-based only: targets a real ForEach item that SwiftUI
             // can always locate — never overshoots into blank LazyVStack
             // estimated space. If the user scrolls up immediately after
             // tapping, they start from real content (not blank space).
             // Animated with spring from the caller's withAnimation wrapper.
+            //
+            // No edge-based correction Task here. A deferred non-animated
+            // scrollToEdge(.bottom) would fire on the next run loop (~16ms)
+            // during the in-flight spring animation, interrupting it with
+            // a jarring jump to the estimated bottom (possibly blank space).
+            // Instead, the recovery window (set in requestPinToBottom)
+            // handles the small gap between lastMessageId and the absolute
+            // content bottom (padding/anchor below). Recovery is gated by
+            // phaseAllowsAutoFollow (.idle only), so it waits until the
+            // spring completes, then fires one clean correction.
             pendingIdScrollTask?.cancel()
+            pendingIdScrollTask = nil
             let target: any Hashable = lastMessageId ?? ("scroll-bottom-anchor" as any Hashable)
             scrollTo?(target, .bottom)
-            // Edge-based correction on the next run loop: closes the
-            // small gap between the last message and the absolute content
-            // bottom (padding/anchor below the last ForEach item).
-            // If the user scrolls up before this fires, it's cancelled
-            // by handleUserScrollUp — but the viewport is already at
-            // real content, so no blank screen.
-            // The recovery window (set in requestPinToBottom) provides
-            // an additional 2-second safety net for any remaining gap.
-            let edgeScroll = scrollToEdge
-            pendingIdScrollTask = Task { @MainActor [weak self] in
-                guard let self, !Task.isCancelled else { return }
-                guard self.mode.allowsAutoScroll else { return }
-                edgeScroll?(.bottom)
-                self.pendingIdScrollTask = nil
-            }
             return
         }
 
