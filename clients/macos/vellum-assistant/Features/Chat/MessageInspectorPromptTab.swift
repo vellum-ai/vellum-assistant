@@ -29,7 +29,7 @@ struct MessageInspectorPromptTab: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceBase)
-        .task {
+        .task(id: entry.id) {
             model = MessageInspectorPromptTabModel(entry: entry)
         }
     }

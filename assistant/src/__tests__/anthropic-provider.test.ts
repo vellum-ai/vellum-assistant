@@ -187,6 +187,58 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(system[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
+  test("drops static system block cache_control when total would exceed 4", async () => {
+    const staticBlock = "You are a helpful assistant.";
+    const dynamicBlock = "User workspace files here.";
+    const prompt = staticBlock + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamicBlock;
+
+    // Boundary (2 system) + tools (1) + turn-start (1) + tail (1) = 5 → must cap at 4
+    const messages: Message[] = [
+      userMsg("Do something"),
+      toolUseMsg("tu_1", "bash"),
+      toolResultMsg("tu_1", "output"),
+    ];
+    await provider.sendMessage(messages, sampleTools, prompt);
+
+    const system = lastStreamParams!.system as Array<{
+      type: string;
+      text: string;
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    expect(system).toHaveLength(2);
+    // Static block's cache_control dropped (small, cheap to re-read)
+    expect(system[0].cache_control).toBeUndefined();
+    // Dynamic block keeps its cache_control
+    expect(system[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+
+    // Tools breakpoint still present
+    const tools = lastStreamParams!.tools as Array<{
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    expect(tools[tools.length - 1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
+
+    // Turn-start + tail breakpoints still present
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const turnStart = sent[0];
+    expect(
+      turnStart.content[turnStart.content.length - 1].cache_control,
+    ).toEqual({ type: "ephemeral", ttl: "1h" });
+    const lastMsg = sent[sent.length - 1];
+    expect(lastMsg.content[lastMsg.content.length - 1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "5m",
+    });
+  });
+
   // -----------------------------------------------------------------------
   // Tool cache control
   // -----------------------------------------------------------------------

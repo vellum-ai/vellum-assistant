@@ -25,7 +25,9 @@ export interface RecordMemoryRecallLogParams {
   reason?: string;
 }
 
-export function recordMemoryRecallLog(params: RecordMemoryRecallLogParams): void {
+export function recordMemoryRecallLog(
+  params: RecordMemoryRecallLogParams,
+): void {
   const db = getDb();
   db.insert(memoryRecallLogs)
     .values({
@@ -100,8 +102,8 @@ export interface MemoryRecallLog {
  */
 export function normalizeTopCandidates(raw: unknown): unknown {
   if (!Array.isArray(raw)) return raw;
-  return raw.map((entry: Record<string, unknown>) => {
-    if (!entry || typeof entry !== "object") return entry;
+  return raw.flatMap((entry: Record<string, unknown>) => {
+    if (!entry || typeof entry !== "object") return [];
 
     // Start with a shallow copy, then apply field renames
     const { key, finalScore, semantic, recency, kind: _kind, ...rest } = entry;
@@ -149,9 +151,7 @@ export function getMemoryRecallLogByMessageIds(
     degraded: !!row.degraded,
     provider: row.provider,
     model: row.model,
-    degradation: row.degradationJson
-      ? JSON.parse(row.degradationJson)
-      : null,
+    degradation: row.degradationJson ? JSON.parse(row.degradationJson) : null,
     semanticHits: row.semanticHits,
     mergedCount: row.mergedCount,
     selectedCount: row.selectedCount,

@@ -23,7 +23,9 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import {
   SUBAGENT_LIMITS,
+  SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
+  type SubagentRole,
   type SubagentState,
   type SubagentStatus,
   TERMINAL_STATUSES,
@@ -31,19 +33,36 @@ import {
 
 const log = getLogger("subagent-manager");
 
+// ── Skill ID merge helper ──────────────────────────────────────────────
+
+/**
+ * Merge role-defined skill IDs with caller-provided skill IDs, deduplicating.
+ * Exported for direct unit testing.
+ */
+export function mergeSkillIds(roleSkillIds: string[], configSkillIds?: string[]): string[] {
+  return [...new Set([...roleSkillIds, ...(configSkillIds ?? [])])];
+}
+
 // ── Default subagent system prompt ──────────────────────────────────────
 
-function buildSubagentSystemPrompt(config: SubagentConfig): string {
+function buildSubagentSystemPrompt(config: SubagentConfig, role: SubagentRole): string {
+  const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
   const sections: string[] = [
-    "You are a focused subagent working on a specific task delegated by a parent assistant.",
-    "Complete the task thoroughly and concisely.",
+    roleConfig.systemPromptPreamble,
     "",
-    `## Your Task`,
+    "## Your Task",
     config.objective,
   ];
   if (config.context) {
     sections.push("", "## Context from Parent", config.context);
   }
+  sections.push(
+    "",
+    "## Constraints",
+    `- Role: ${role}`,
+    "- You cannot spawn nested subagents.",
+    "- Use notify_parent to report important findings or if you are blocked.",
+  );
   return sections.join("\n");
 }
 
@@ -59,7 +78,7 @@ interface ManagedSubagent {
 export interface SubagentNotificationInfo {
   subagentId: string;
   label: string;
-  status: "completed" | "failed" | "aborted";
+  status: "running" | "completed" | "failed" | "aborted";
   error?: string;
   conversationId?: string;
 }
@@ -76,6 +95,8 @@ export class SubagentManager {
   private subagents = new Map<string, ManagedSubagent>();
   /** parentConversationId → Set<subagentId> */
   private parentToChildren = new Map<string, Set<string>>();
+  /** `${parentConversationId}:${normalizedLabel}` → subagentId */
+  private labelIndex = new Map<string, string>();
 
   /**
    * Optional callback to inject a completion/failure message into the parent
@@ -119,6 +140,13 @@ export class SubagentManager {
       );
     }
 
+    // ── Resolve role ─────────────────────────────────────────────────
+    const role: SubagentRole = (config.role as SubagentRole) ?? "general";
+    if (!SUBAGENT_ROLE_REGISTRY[role]) {
+      throw new Error(`Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`);
+    }
+    const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
+
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
     const conversationRecord = bootstrapConversation({
@@ -141,7 +169,7 @@ export class SubagentManager {
 
     const systemPrompt =
       config.systemPromptOverride ??
-      buildSubagentSystemPrompt({ ...config, id: subagentId });
+      buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
     const maxTokens = appConfig.maxTokens;
     const workingDir = getSandboxWorkingDir();
 
@@ -196,8 +224,32 @@ export class SubagentManager {
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
 
+    // Apply role-based tool filter if the role defines one.
+    if (roleConfig.allowedTools) {
+      conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
+    }
+
+    // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
+    const mergedSkillIds = mergeSkillIds(roleConfig.skillIds, config.preactivatedSkillIds);
+    if (mergedSkillIds.length > 0) {
+      conversation.setPreactivatedSkillIds(mergedSkillIds);
+    }
+
     managed.conversation = conversation;
     this.subagents.set(subagentId, managed);
+    const labelKey = `${config.parentConversationId}:${config.label.toLowerCase().trim()}`;
+    if (this.labelIndex.has(labelKey)) {
+      log.warn(
+        {
+          label: config.label,
+          parentConversationId: config.parentConversationId,
+          existingSubagentId: this.labelIndex.get(labelKey),
+          newSubagentId: subagentId,
+        },
+        "Label collision: new subagent overwrites label index entry (previous subagent still accessible by UUID)",
+      );
+    }
+    this.labelIndex.set(labelKey, subagentId);
 
     // Track parent → child relationship.
     if (!this.parentToChildren.has(config.parentConversationId)) {
@@ -267,7 +319,7 @@ export class SubagentManager {
         log.info({ subagentId }, "Subagent completed");
 
         // Notify the parent conversation so the LLM can call subagent_read.
-        this.notifyParent(managed, "completed", getSender());
+        this.notifyParentTerminal(managed, "completed", getSender());
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -278,7 +330,7 @@ export class SubagentManager {
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         this.setStatus(subagentId, "failed", getSender(), errorMsg);
-        this.notifyParent(managed, "failed", getSender());
+        this.notifyParentTerminal(managed, "failed", getSender());
       }
 
       log.error({ subagentId, err }, "Subagent failed");
@@ -429,6 +481,15 @@ export class SubagentManager {
     return this.subagents.get(subagentId)?.state;
   }
 
+  getByLabel(
+    label: string,
+    parentConversationId: string,
+  ): SubagentState | undefined {
+    const key = `${parentConversationId}:${label.toLowerCase().trim()}`;
+    const id = this.labelIndex.get(key);
+    return id ? this.getState(id) : undefined;
+  }
+
   getChildrenOf(parentConversationId: string): SubagentState[] {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) return [];
@@ -480,6 +541,15 @@ export class SubagentManager {
     managed.conversation.dispose();
     this.subagents.delete(subagentId);
 
+    // Remove from label index only if it still maps to this subagent
+    // (guards against stale delete when a newer subagent reused the label).
+    const label = managed.state.config.label;
+    const parentConvId = managed.state.config.parentConversationId;
+    const labelKey = `${parentConvId}:${label.toLowerCase().trim()}`;
+    if (this.labelIndex.get(labelKey) === subagentId) {
+      this.labelIndex.delete(labelKey);
+    }
+
     // Remove from parent tracking.
     const parentId = managed.state.config.parentConversationId;
     const siblings = this.parentToChildren.get(parentId);
@@ -529,11 +599,82 @@ export class SubagentManager {
     } as ServerMessage);
   }
 
+  // ── Child → Parent notification ────────────────────────────────────
+
+  /**
+   * Look up the parent info for a child conversation.
+   * Returns undefined if the conversationId doesn't belong to a subagent.
+   */
+  getParentInfo(childConversationId: string):
+    | {
+        parentConversationId: string;
+        subagentId: string;
+        label: string;
+        parentSendToClient: (msg: ServerMessage) => void;
+      }
+    | undefined {
+    for (const [subagentId, managed] of this.subagents) {
+      if (managed.state.conversationId === childConversationId) {
+        return {
+          parentConversationId: managed.state.config.parentConversationId,
+          subagentId,
+          label: managed.state.config.label,
+          parentSendToClient: managed.parentSendToClient,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Send a notification from a running subagent to its parent conversation.
+   * Returns true if the notification was sent, false if the child is not a
+   * subagent, is in a terminal state, or the parent callback is not wired.
+   */
+  notifyParent(
+    childConversationId: string,
+    message: string,
+    urgency: string,
+  ): boolean {
+    const info = this.getParentInfo(childConversationId);
+    if (!info) return false;
+
+    const managed = this.subagents.get(info.subagentId);
+    if (!managed || TERMINAL_STATUSES.has(managed.state.status)) return false;
+    if (!this.onSubagentFinished) return false;
+
+    let notificationString = `[Subagent "${info.label}" — ${urgency}] ${message}`;
+    if (urgency === "blocked") {
+      notificationString +=
+        "\nUse subagent_message to send guidance to this subagent.";
+    }
+
+    try {
+      this.onSubagentFinished(
+        info.parentConversationId,
+        notificationString,
+        info.parentSendToClient,
+        {
+          subagentId: info.subagentId,
+          label: info.label,
+          status: "running",
+        },
+      );
+      return true;
+    } catch (err) {
+      log.error(
+        { subagentId: info.subagentId, err },
+        "Failed to notify parent from subagent",
+      );
+      return false;
+    }
+  }
+
   /**
    * Inject a completion/failure notification into the parent conversation
    * so the LLM automatically informs the user.
    */
-  private notifyParent(
+  private notifyParentTerminal(
     managed: ManagedSubagent,
     outcome: "completed" | "failed",
     parentSendToClient: (msg: ServerMessage) => void,

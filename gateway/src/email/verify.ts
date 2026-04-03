@@ -1,33 +1,41 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
- * Verify a Vellum email webhook secret.
+ * Verify the Vellum-Signature header sent by the Vellum platform.
  *
- * The platform (or any upstream caller) includes the shared secret in
- * the `X-Vellum-Webhook-Secret` header. The gateway compares it against
- * the stored `email:webhook_secret` credential using constant-time
- * comparison to prevent timing attacks.
+ * The platform computes: HMAC-SHA256(webhookSecret, rawBody) and sends it as
+ *   Vellum-Signature: sha256=<hex-digest>
  *
- * This mirrors the Telegram webhook secret verification pattern
- * (`X-Telegram-Bot-Api-Secret-Token` header).
+ * We must compare with a constant-time comparison to avoid timing attacks.
+ *
+ * This mirrors the WhatsApp webhook signature verification pattern
+ * (`X-Hub-Signature-256` header).
  */
 
-const HEADER_NAME = "x-vellum-webhook-secret";
+const HEADER_NAME = "vellum-signature";
 
 export function verifyEmailWebhookSignature(
   headers: Headers,
-  _rawBody: string,
+  rawBody: string,
   webhookSecret: string,
 ): boolean {
-  const provided = headers.get(HEADER_NAME);
-  if (!provided || !webhookSecret) {
-    return false;
-  }
+  const signatureHeader = headers.get(HEADER_NAME);
+  if (!signatureHeader || !webhookSecret) return false;
 
-  const a = Buffer.from(provided);
-  const b = Buffer.from(webhookSecret);
-  if (a.length !== b.length) {
-    return false;
-  }
-  return timingSafeEqual(a, b);
+  // Header format: "sha256=<hex-digest>"
+  if (!signatureHeader.startsWith("sha256=")) return false;
+  const providedHex = signatureHeader.slice(7);
+
+  const expected = createHmac("sha256", webhookSecret)
+    .update(rawBody, "utf8")
+    .digest("hex");
+
+  // Compare Buffer byte lengths — not string .length — to avoid
+  // timingSafeEqual throwing on non-ASCII input where UTF-16 code unit
+  // count matches but byte length diverges.
+  const providedBuf = Buffer.from(providedHex);
+  const expectedBuf = Buffer.from(expected);
+  if (providedBuf.length !== expectedBuf.length) return false;
+
+  return timingSafeEqual(providedBuf, expectedBuf);
 }

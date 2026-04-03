@@ -89,6 +89,26 @@ export function ensurePromptFiles(): void {
         );
       }
     }
+
+    // Also seed BOOTSTRAP-REFERENCE.md (ui_show payloads read on-demand)
+    const refDest = getWorkspacePromptPath("BOOTSTRAP-REFERENCE.md");
+    if (!existsSync(refDest)) {
+      const refSrc = join(templatesDir, "BOOTSTRAP-REFERENCE.md");
+      try {
+        if (existsSync(refSrc)) {
+          copyFileSync(refSrc, refDest);
+          log.info(
+            { file: "BOOTSTRAP-REFERENCE.md", dest: refDest },
+            "Created BOOTSTRAP-REFERENCE.md for first-run onboarding",
+          );
+        }
+      } catch (err) {
+        log.warn(
+          { err, file: "BOOTSTRAP-REFERENCE.md" },
+          "Failed to create BOOTSTRAP-REFERENCE.md from template",
+        );
+      }
+    }
   }
 
   // Auto-delete stale BOOTSTRAP.md at startup.  The model is instructed to
@@ -103,6 +123,20 @@ export function ensurePromptFiles(): void {
       if (existsSync(convDir) && readdirSync(convDir).length > 0) {
         unlinkSync(bootstrapCleanup);
         log.info("Auto-deleted stale BOOTSTRAP.md — prior conversations exist");
+
+        // Also clean up the reference file
+        const refCleanup = getWorkspacePromptPath("BOOTSTRAP-REFERENCE.md");
+        if (existsSync(refCleanup)) {
+          try {
+            unlinkSync(refCleanup);
+            log.info("Auto-deleted stale BOOTSTRAP-REFERENCE.md");
+          } catch (err) {
+            log.warn(
+              { err },
+              "Failed to auto-delete stale BOOTSTRAP-REFERENCE.md",
+            );
+          }
+        }
       }
     } catch (err) {
       log.warn({ err }, "Failed to auto-delete stale BOOTSTRAP.md");

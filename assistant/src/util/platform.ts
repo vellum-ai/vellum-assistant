@@ -325,6 +325,35 @@ export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
 
+// ── Profiler filesystem layout ──────────────────────────────────────────
+// Managed profiler runs live under <workspace>/data/profiler/. These
+// helpers enforce a single canonical layout so every runtime caller
+// resolves the same paths.
+
+/**
+ * Returns the profiler root directory (<workspace>/data/profiler).
+ * All profiler state (runs directory, global metadata) lives here.
+ */
+export function getProfilerRootDir(): string {
+  return join(getDataDir(), "profiler");
+}
+
+/**
+ * Returns the profiler runs directory (<workspace>/data/profiler/runs).
+ * Each completed or active profiler run gets its own sub-directory here.
+ */
+export function getProfilerRunsDir(): string {
+  return join(getProfilerRootDir(), "runs");
+}
+
+/**
+ * Returns the directory for a specific profiler run by ID
+ * (<workspace>/data/profiler/runs/<runId>).
+ */
+export function getProfilerRunDir(runId: string): string {
+  return join(getProfilerRunsDir(), runId);
+}
+
 export function ensureDataDir(): void {
   const root = vellumRoot();
   const workspace = getWorkspaceDir();

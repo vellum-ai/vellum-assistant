@@ -172,6 +172,7 @@ import {
   handlePairingStatus,
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
+import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
@@ -964,6 +965,7 @@ export class RuntimeHttpServer {
       ...notificationRouteDefinitions(),
       ...diagnosticsRouteDefinitions(),
       ...logExportRouteDefinitions(),
+      ...profilerRouteDefinitions(),
       ...documentRouteDefinitions(),
       ...workItemRouteDefinitions(
         this.sendMessageDeps
@@ -1049,6 +1051,7 @@ export class RuntimeHttpServer {
           const attentionStates =
             getAttentionStateByConversationIds(conversationIds);
           const parentCache = new Map<string, ConversationRow | null>();
+          const nextOffset = offset + limit;
           const response: Record<string, unknown> = {
             conversations: rows.map((conversation) =>
               this.serializeConversationSummary({
@@ -1059,7 +1062,8 @@ export class RuntimeHttpServer {
                 parentCache,
               }),
             ),
-            hasMore: offset + rows.length < totalCount,
+            nextOffset,
+            hasMore: nextOffset < totalCount,
           };
           // Include groups array on first page only
           if (offset === 0) {

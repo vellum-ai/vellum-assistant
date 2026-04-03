@@ -21,9 +21,25 @@ This skill lets you create audio clips on demand — narration, announcements, p
 - **API Endpoint:** `https://api.fish.audio/v1/tts`
 - **Model:** `s2-pro`
 - **Voice Reference ID:** Configured via `assistant config get fishAudio.referenceId`
-- **API Key:** Stored as credential `fishaudio/api_key`
+- **API Key:** Stored as credential `fish-audio/api_key`
 - **Default Format:** `mp3` at 192kbps
 - **Default Output Directory:** `scratch/`
+
+## API Key Setup
+
+The Fish Audio API key must be stored securely via the credential store. Get an API key from the Fish Audio dashboard at https://fish.audio.
+
+Check if the key is already configured:
+
+```bash
+assistant credentials inspect --service fish-audio --field api_key --json
+```
+
+If not set, collect it securely (never ask the user to paste it in chat):
+
+```
+credential_store action="prompt" service="fish-audio" field="api_key" label="Fish Audio API Key" description="Enter your Fish Audio API key" placeholder="sk-..."
+```
 
 ## Generating a Single Clip
 
@@ -31,7 +47,7 @@ Use `bash` with `curl` to call the Fish Audio API:
 
 ```bash
 curl -s -X POST "https://api.fish.audio/v1/tts" \
-  -H "Authorization: Bearer $(assistant credentials reveal --service fishaudio --field api_key)" \
+  -H "Authorization: Bearer $(assistant credentials reveal --service fish-audio --field api_key)" \
   -H "Content-Type: application/json" \
   -H "model: s2-pro" \
   -d '{
@@ -58,7 +74,7 @@ ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1.5 -q:a 9 -acodec libmp3lame scr
 ### 2. Create a concat file
 
 ```bash
-cat > /tmp/concat.txt << 'EOF'
+cat > scratch/concat.txt << 'EOF'
 file 'scratch/clip1.mp3'
 file 'scratch/silence.mp3'
 file 'scratch/clip2.mp3'
@@ -67,12 +83,10 @@ file 'scratch/clip3.mp3'
 EOF
 ```
 
-Use absolute paths in the concat file if needed.
-
 ### 3. Combine
 
 ```bash
-ffmpeg -f concat -safe 0 -i /tmp/concat.txt -c copy scratch/final_output.mp3 -y
+ffmpeg -f concat -safe 0 -i scratch/concat.txt -c copy scratch/final_output.mp3 -y
 ```
 
 ## Bracket Syntax — Complete Guide

@@ -191,6 +191,20 @@ struct SidebarSectionView: View {
         }
 
         showMoreLessButton
+
+        // When all loaded conversations fit within maxCollapsed (e.g. pinned
+        // sections use .max) the show-more button never appears, yet more
+        // conversations may exist on the server beyond the initial page.
+        // Auto-trigger a full load so those items become visible.
+        if conversations.count <= maxCollapsed,
+           let conversationManager,
+           conversationManager.hasMoreConversations {
+            Color.clear
+                .frame(height: 0)
+                .onAppear {
+                    conversationManager.loadAllRemainingConversations()
+                }
+        }
     }
 
     // MARK: - Schedule Sub-Groups

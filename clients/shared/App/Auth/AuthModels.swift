@@ -309,6 +309,8 @@ public struct BillingSummaryResponse: Codable, Sendable {
     public let pending_compute_usd: String
     public let effective_balance_usd: String
     public let minimum_top_up_usd: String
+    public let maximum_top_up_usd: String
+    public let maximum_balance_usd: String
     public let is_degraded: Bool
 }
 

@@ -910,9 +910,12 @@ export async function runAgentLoopImpl(
           shouldInjectWorkspace = true;
         }
 
-        // Re-inject with potentially downgraded injection mode
+        // Re-inject with potentially downgraded injection mode.
+        // Override nowScratchpad: compaction strips existing NOW.md blocks,
+        // so we must re-inject the current content unconditionally.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          nowScratchpad: currentNowContent,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1103,9 +1106,13 @@ export async function runAgentLoopImpl(
         shouldInjectWorkspace = true;
       }
 
-      // Re-inject runtime context and re-enter the agent loop
+      // Re-inject runtime context and re-enter the agent loop.
+      // After compaction, stripInjectionsForCompaction() removes the existing
+      // NOW.md block from history, so we must re-inject the current content
+      // even if it hasn't changed since the last injection.
       runMessages = applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
+        nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
           : null,
@@ -1312,6 +1319,7 @@ export async function runAgentLoopImpl(
 
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          nowScratchpad: currentNowContent,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1430,6 +1438,7 @@ export async function runAgentLoopImpl(
 
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
+              nowScratchpad: currentNowContent,
               workspaceTopLevelContext: shouldInjectWorkspace
                 ? ctx.workspaceTopLevelContext
                 : null,
@@ -1546,6 +1555,7 @@ export async function runAgentLoopImpl(
 
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
+            nowScratchpad: currentNowContent,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,

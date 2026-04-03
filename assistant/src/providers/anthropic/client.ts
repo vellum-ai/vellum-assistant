@@ -682,10 +682,10 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Thinking blocks are stripped at persistence time (consolidation and
-      // DB migration 208) so historical messages are clean when loaded.
-      // Within a turn, assistant messages have original thinking with valid
-      // signatures — the API accepts them. No provider-side stripping needed.
+      // Thinking blocks are stripped at rest by DB migration 209 so
+      // historical messages are clean when loaded. Within a turn,
+      // assistant messages have original thinking with valid signatures
+      // — the API accepts them. No provider-side stripping needed.
 
       sentMessages = ensureToolPairing(repairOrphanedServerToolUse(formatted));
       const { effort, speed, output_config, ...restConfig } = (config ??
@@ -762,7 +762,12 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === otherTools.length - 1
-              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
+              ? {
+                  cache_control: {
+                    type: "ephemeral" as const,
+                    ttl: "1h" as const,
+                  },
+                }
               : {}),
           }));
           const webSearchTool: Anthropic.WebSearchTool20250305 = {
@@ -777,7 +782,12 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === tools.length - 1
-              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
+              ? {
+                  cache_control: {
+                    type: "ephemeral" as const,
+                    ttl: "1h" as const,
+                  },
+                }
               : {}),
           }));
         }
@@ -787,14 +797,17 @@ export class AnthropicProvider implements Provider {
       // This is the stable anchor for the current turn — everything up to
       // and including it won't change during tool-use iterations, so a long
       // TTL is appropriate. Walk backwards to find the last user message
-      // with a text block (skipping tool_result-only messages from tool
-      // loops).
+      // with a real text block (skipping tool_result-only messages and
+      // synthetic continuation placeholders injected by ensureToolPairing).
       let turnStartIdx = -1;
       for (let i = sentMessages.length - 1; i >= 0; i--) {
         const msg = sentMessages[i];
         if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
         const hasText = msg.content.some(
-          (b) => typeof b !== "string" && b.type === "text",
+          (b) =>
+            typeof b !== "string" &&
+            b.type === "text" &&
+            b.text !== SYNTHETIC_CONTINUATION_TEXT,
         );
         if (!hasText) continue;
         const lastBlock = msg.content[msg.content.length - 1];
@@ -825,6 +838,25 @@ export class AnthropicProvider implements Provider {
         }
       }
 
+      // Enforce Anthropic API maximum of 4 cache_control blocks.
+      // When the system prompt boundary splits into 2 cached blocks AND
+      // tools + turn-start + advancing-tail breakpoints are all present,
+      // we'd have 5.  Drop the static system block's breakpoint — it's
+      // small (<1K tokens) so the re-read cost is negligible, while the
+      // dynamic block (workspace context) rarely changes mid-session and
+      // benefits more from caching.
+      const hasTailBreakpoint =
+        turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1;
+      if (
+        hasTailBreakpoint &&
+        Array.isArray(params.system) &&
+        params.system.length === 2 &&
+        params.tools &&
+        params.tools.length > 0
+      ) {
+        delete (params.system[0] as unknown as Record<string, unknown>).cache_control;
+      }
+
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
 
@@ -841,8 +873,7 @@ export class AnthropicProvider implements Provider {
       }
 
       // Fast mode: use the beta endpoint with speed: "fast" for Opus 4.6
-      const useFastMode =
-        speed === "fast" && effectiveModel.includes("opus");
+      const useFastMode = speed === "fast" && effectiveModel.includes("opus");
 
       // Collect required betas: extended cache TTL for 1h system prompt caching,
       // 1M context window, and fast-mode when applicable.
@@ -1029,6 +1060,14 @@ export class AnthropicProvider implements Provider {
             "Anthropic 400: tool_use/tool_result pairing error — dumping message structure",
           );
         }
+        log.error(
+          {
+            status: error.status,
+            message: error.message,
+            headers: Object.fromEntries(error.headers?.entries() ?? []),
+          },
+          `Anthropic API error (${error.status})`,
+        );
         const retryAfterMs = extractRetryAfterMs(error.headers);
         throw new ProviderError(
           `Anthropic API error (${error.status}): ${error.message}`,

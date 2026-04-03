@@ -109,9 +109,21 @@ Optionally pass `routing_hints` (a JSON object) to influence routing decisions (
 
 - **Default to `all_channels`** for most notifications. Users usually want to be notified wherever they are.
 - **Use `single_channel`** only when the user explicitly specifies a single channel (e.g. "remind me on Telegram").
-- **Check the `source_channel` field** from the `<turn_context>` block (not `interface` — interface values like `macos`, `ios`, `cli` are not valid channel names). If present, include it as a routing hint:
+- **Determine the originating channel** for routing hints using this priority:
+  1. **`source_channel`** from `<turn_context>` — use directly if present. This is the authoritative channel name.
+  2. **`interface` fallback** — if `source_channel` is absent (common for guardian/direct users), map the `interface` value to a channel name:
+     | `interface` value | Channel name |
+     | --- | --- |
+     | `macos`, `ios` | `vellum` |
+     | `telegram` | `telegram` |
+     | `slack` | `slack` |
+     | `discord` | `discord` |
+     | `cli` | _(omit — no routable channel)_ |
+  3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
+
+  When a channel is determined, include it as a routing hint:
   ```
-  routing_hints: { preferred_channels: ["<source_channel value>"] }
+  routing_hints: { preferred_channels: ["<resolved channel>"] }
   routing_intent: "all_channels"
   ```
 

@@ -1621,7 +1621,7 @@ public struct ChatMessage: Identifiable, Equatable {
     /// Nil for freshly streamed messages that haven't been loaded from history.
     /// Used for fork-from-message, inspect LLM context, TTS, and other daemon-anchored actions.
     public var daemonMessageId: String?
-    /// When true, this message is a subagent notification (e.g. completed/failed/aborted)
+    /// When true, this message is a subagent notification (e.g. running/completed/failed/aborted)
     /// reconstructed from history. It should be hidden from the chat UI since the
     /// corresponding subagent chip conveys the same information.
     public var isSubagentNotification: Bool = false
