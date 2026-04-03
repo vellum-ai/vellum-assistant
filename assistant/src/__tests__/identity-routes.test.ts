@@ -307,14 +307,14 @@ describe("identity routes — health endpoint", () => {
         createdAt: "2025-01-01T00:00:00Z",
         updatedAt: "2025-01-01T01:00:00Z",
       });
-      writeArtifactFile("older-completed", "old.heapprofile", 512);
+      writeArtifactFile("older-completed", "old.heapsnapshot", 512);
 
       writeRunManifest("newer-completed", {
         status: "completed",
         createdAt: "2025-06-15T00:00:00Z",
         updatedAt: "2025-06-15T01:00:00Z",
       });
-      writeArtifactFile("newer-completed", "new.heapprofile", 1024);
+      writeArtifactFile("newer-completed", "new.heapsnapshot", 1024);
 
       const res = handleDetailedHealth();
       const body = (await res.json()) as Record<string, unknown>;

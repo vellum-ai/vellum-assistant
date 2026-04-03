@@ -418,7 +418,7 @@ export interface ProfilerRuntimeStatus {
 }
 
 /** File extensions that Bun profiler writes as raw artifacts. */
-const PROFILER_ARTIFACT_EXTENSIONS = [".cpuprofile", ".heapprofile"];
+const PROFILER_ARTIFACT_EXTENSIONS = [".cpuprofile", ".heapsnapshot"];
 
 /** File extensions for Bun-generated markdown summaries. */
 const PROFILER_SUMMARY_EXTENSIONS = [".md"];
