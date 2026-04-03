@@ -407,7 +407,8 @@ enum LogExporter {
         if shouldCollectLogs {
             // 11. macOS unified log — recent os.Logger entries for this app's subsystem.
             collectUnifiedLog(
-                to: tempDir.appendingPathComponent("os-log.txt")
+                to: tempDir.appendingPathComponent("os-log.txt"),
+                cutoffDate: cutoffDate
             )
 
             // 12. Sanitized workspace config — client-side fallback if daemon export didn't include it.
@@ -718,16 +719,18 @@ enum LogExporter {
     /// for this app's subsystem. Includes CLI audit trail, lifecycle events,
     /// and any other structured log output not written to files on disk.
     ///
-    /// Uses `OSLogStore` to read entries from the last 24 hours. Falls back
-    /// silently if the API is unavailable or the subsystem has no entries.
-    private nonisolated static func collectUnifiedLog(to destination: URL) {
+    /// Uses `OSLogStore` to read entries starting from `cutoffDate`, or the
+    /// last 24 hours when no cutoff is provided. Falls back silently if the
+    /// API is unavailable or the subsystem has no entries.
+    private nonisolated static func collectUnifiedLog(to destination: URL, cutoffDate: Date? = nil) {
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
-            let oneDayAgo = store.position(date: Date().addingTimeInterval(-86400))
+            let logCutoff = cutoffDate ?? Date().addingTimeInterval(-86400)
+            let position = store.position(date: logCutoff)
             let subsystem = Bundle.appBundleIdentifier
 
             let entries = try store.getEntries(
-                at: oneDayAgo,
+                at: position,
                 matching: NSPredicate(format: "subsystem == %@", subsystem)
             )
 
