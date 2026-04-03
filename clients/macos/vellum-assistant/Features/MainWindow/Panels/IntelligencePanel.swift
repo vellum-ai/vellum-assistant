@@ -160,7 +160,7 @@ struct IntelligencePanel: View {
                 .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
-                VEmptyState(message: "Integrations are unavailable.")
+                VEmptyState(title: "Integrations are unavailable.")
             }
 
         case .installedSkills:
