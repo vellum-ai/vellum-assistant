@@ -196,6 +196,31 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "oura",
+      "name": "oura",
+      "description": "Pull sleep, activity, readiness, heart rate, and other health data from a connected Oura Ring via the Oura Cloud API V2",
+      "metadata": {
+        "emoji": "💍",
+        "vellum": {
+          "display-name": "Oura Ring",
+          "includes": ["oura-setup"]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "oura-setup",
+      "name": "oura-setup",
+      "description": "Connect an Oura Ring via OAuth2 — app registration, token exchange, and credential storage",
+      "metadata": {
+        "emoji": "💍",
+        "vellum": {
+          "display-name": "Oura Ring Setup"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "public-ingress",
       "name": "public-ingress",
       "description": "Set up and manage ngrok-based public ingress for local assistants; do not use this in managed mode when platform callback routing is available",
