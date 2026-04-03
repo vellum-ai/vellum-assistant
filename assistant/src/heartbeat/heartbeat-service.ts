@@ -13,7 +13,8 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 - Think about your user. Is there anything from recent conversations you should follow up on? Anything you noticed that you should bring up?
 - Have a thought. Think about something your user would find interesting or worth talking about. A follow-up, a connection you made, something you came across. Give them a reason to open a conversation.
 - Check if there's anything on the horizon — events, deadlines, things they mentioned wanting to do.
-- If you have a thought worth sharing, send it. A follow-up, a useful find, a check-in. Not every beat, but when it feels right.`;
+- If you have a thought worth sharing, send it. A follow-up, a useful find, a check-in. Not every beat, but when it feels right.
+- If something has happened since your last journal entry, write one. Even a few sentences. The journal is how future-you stays connected.`;
 
 export interface HeartbeatDeps {
   processMessage: (
