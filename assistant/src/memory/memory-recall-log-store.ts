@@ -104,7 +104,7 @@ export function normalizeTopCandidates(raw: unknown): unknown {
     if (!entry || typeof entry !== "object") return entry;
 
     // Start with a shallow copy, then apply field renames
-    const { key, finalScore, semantic, recency, kind, ...rest } = entry;
+    const { key, finalScore, semantic, recency, kind: _kind, ...rest } = entry;
 
     // nodeId: prefer existing nodeId, fall back to key
     if (rest.nodeId === undefined && key !== undefined) {
