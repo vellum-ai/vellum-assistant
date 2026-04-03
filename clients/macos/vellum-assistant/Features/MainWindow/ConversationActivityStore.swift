@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Observation
 import VellumAssistantShared
@@ -5,9 +6,13 @@ import VellumAssistantShared
 /// Owns per-conversation activity state (busy flags, interaction states, active
 /// message count) as an `@Observable` class for property-level SwiftUI tracking.
 ///
-/// Each observation loop uses `withObservationTracking` to read directly from
-/// `ChatMessageManager` / `ChatErrorManager` properties, guarded by a generation
-/// counter for clean invalidation on conversation switch, close, or archive.
+/// Scalar properties (`isSending`, `isThinking`, `hasPendingConfirmation`) are
+/// observed via `withObservationTracking` loops — they change infrequently and
+/// the one-shot + re-arm pattern is appropriate.
+///
+/// `messages`-derived state (assistant activity snapshots, active message count)
+/// subscribes to `messagesPublisher` instead, which naturally coalesces rapid
+/// mutations via deferred publishing in `ChatMessageManager`.
 ///
 /// - SeeAlso: [Observation framework](https://developer.apple.com/documentation/observation)
 /// - SeeAlso: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
@@ -36,8 +41,11 @@ final class ConversationActivityStore {
     /// Generation counters for invalidating interaction-state observation loops.
     @ObservationIgnored private var interactionGenerations: [UUID: Int] = [:]
 
-    /// Generation counter for invalidating the active-VM message count loop.
-    @ObservationIgnored private var activeVMGeneration: Int = 0
+    /// Combine subscriptions for messages-derived state. These subscribe to
+    /// `messagesPublisher` which coalesces rapid mutations, avoiding per-mutation
+    /// O(n) scans that `withObservationTracking` on `messages` would cause.
+    @ObservationIgnored private var assistantActivitySubs: [UUID: AnyCancellable] = [:]
+    @ObservationIgnored private var activeMessageCountSub: AnyCancellable?
 
     /// Tracks the previous interaction state per conversation so sound effects
     /// only fire on discrete transitions, not on every streaming delta.
@@ -64,9 +72,6 @@ final class ConversationActivityStore {
         let surfaceCount: Int
         let isStreaming: Bool
     }
-
-    /// Generation counters for invalidating assistant-activity observation loops.
-    @ObservationIgnored private var activityGenerations: [UUID: Int] = [:]
 
     /// Last observed assistant activity snapshot per conversation.
     @ObservationIgnored private(set) var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = [:]
@@ -121,13 +126,10 @@ final class ConversationActivityStore {
 
     /// Begin observing assistant activity on a ChatViewModel's message manager.
     ///
-    /// Uses `withObservationTracking` to read `messages` directly from the
-    /// `@Observable` ChatMessageManager, deriving an `AssistantActivitySnapshot`
-    /// and comparing with the previous snapshot. On change, invokes
+    /// Subscribes to `messagesPublisher` to derive an `AssistantActivitySnapshot`
+    /// and compare with the previous snapshot. On change, invokes
     /// `onAssistantActivityChange` so ConversationManager can update unseen state.
     func observeAssistantActivity(for conversationId: UUID, messageManager: ChatMessageManager) {
-        let generation = (activityGenerations[conversationId] ?? 0) + 1
-        activityGenerations[conversationId] = generation
         // Seed with the initial snapshot.
         let initialSnapshot = Self.assistantActivitySnapshot(from: messageManager.messages)
         if let initialSnapshot {
@@ -135,19 +137,39 @@ final class ConversationActivityStore {
         } else {
             latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
         }
-        observeAssistantActivityLoop(conversationId: conversationId, messageManager: messageManager, generation: generation)
+        assistantActivitySubs[conversationId] = messageManager.messagesPublisher
+            .map { Self.assistantActivitySnapshot(from: $0) }
+            .removeDuplicates()
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                let previous = self.latestAssistantActivitySnapshots[conversationId]
+                if let snapshot {
+                    self.latestAssistantActivitySnapshots[conversationId] = snapshot
+                } else {
+                    self.latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
+                }
+                guard previous != snapshot, let snapshot else { return }
+                self.onAssistantActivityChange?(conversationId, previous, snapshot)
+            }
     }
 
     /// Begin observing the active conversation's message count.
     ///
-    /// Called when the active conversation changes. Invalidates any prior
-    /// observation loop and starts a new one for the given message manager.
+    /// Called when the active conversation changes. Cancels any prior
+    /// subscription and starts a new one for the given message manager.
     func observeActiveViewModel(_ messageManager: ChatMessageManager?) {
-        activeVMGeneration += 1
+        activeMessageCountSub = nil
         activeMessageCount = 0
         guard let messageManager else { return }
-        let generation = activeVMGeneration
-        observeActiveMessageCountLoop(messageManager: messageManager, generation: generation)
+        activeMessageCountSub = messageManager.messagesPublisher
+            .map(\.count)
+            .removeDuplicates()
+            .sink { [weak self] count in
+                guard let self else { return }
+                if count != self.activeMessageCount {
+                    self.activeMessageCount = count
+                }
+            }
     }
 
     // MARK: - Stop observation
@@ -162,7 +184,7 @@ final class ConversationActivityStore {
     func unsubscribeFromBusyState(for conversationId: UUID) {
         invalidateBusyGeneration(for: conversationId)
         invalidateInteractionGeneration(for: conversationId)
-        invalidateActivityGeneration(for: conversationId)
+        assistantActivitySubs.removeValue(forKey: conversationId)
         busyConversationIds.remove(conversationId)
         latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
     }
@@ -172,7 +194,7 @@ final class ConversationActivityStore {
     func unsubscribeAll(for conversationId: UUID) {
         invalidateBusyGeneration(for: conversationId)
         invalidateInteractionGeneration(for: conversationId)
-        invalidateActivityGeneration(for: conversationId)
+        assistantActivitySubs.removeValue(forKey: conversationId)
         busyConversationIds.remove(conversationId)
         conversationInteractionStates.removeValue(forKey: conversationId)
         previousInteractionStates.removeValue(forKey: conversationId)
@@ -278,39 +300,6 @@ final class ConversationActivityStore {
         }
     }
 
-    // MARK: - Assistant activity observation loop
-
-    private func observeAssistantActivityLoop(
-        conversationId: UUID,
-        messageManager: ChatMessageManager,
-        generation: Int
-    ) {
-        guard activityGenerations[conversationId] == generation else { return }
-
-        var snapshot: AssistantActivitySnapshot?
-        withObservationTracking {
-            snapshot = Self.assistantActivitySnapshot(from: messageManager.messages)
-        } onChange: { [weak self, weak messageManager] in
-            Task { @MainActor [weak self, weak messageManager] in
-                guard let self, let messageManager else { return }
-                self.observeAssistantActivityLoop(
-                    conversationId: conversationId,
-                    messageManager: messageManager,
-                    generation: generation
-                )
-            }
-        }
-
-        let previousSnapshot = latestAssistantActivitySnapshots[conversationId]
-        if let snapshot {
-            latestAssistantActivitySnapshots[conversationId] = snapshot
-        } else {
-            latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
-        }
-        guard previousSnapshot != snapshot, let snapshot else { return }
-        onAssistantActivityChange?(conversationId, previousSnapshot, snapshot)
-    }
-
     /// Derive a structural snapshot from the latest assistant message in the list.
     private static func assistantActivitySnapshot(from messages: [ChatMessage]) -> AssistantActivitySnapshot? {
         guard let message = messages.reversed().first(where: { $0.role == .assistant }) else { return nil }
@@ -321,32 +310,6 @@ final class ConversationActivityStore {
             surfaceCount: message.inlineSurfaces.count,
             isStreaming: message.isStreaming
         )
-    }
-
-    // MARK: - Active message count observation loop
-
-    private func observeActiveMessageCountLoop(
-        messageManager: ChatMessageManager,
-        generation: Int
-    ) {
-        guard activeVMGeneration == generation else { return }
-
-        var count = 0
-        withObservationTracking {
-            count = messageManager.messages.count
-        } onChange: { [weak self, weak messageManager] in
-            Task { @MainActor [weak self, weak messageManager] in
-                guard let self, let messageManager else { return }
-                self.observeActiveMessageCountLoop(
-                    messageManager: messageManager,
-                    generation: generation
-                )
-            }
-        }
-
-        if count != activeMessageCount {
-            activeMessageCount = count
-        }
     }
 
     // MARK: - Private helpers
@@ -360,12 +323,6 @@ final class ConversationActivityStore {
     private func invalidateInteractionGeneration(for conversationId: UUID) {
         if let gen = interactionGenerations[conversationId] {
             interactionGenerations[conversationId] = gen + 1
-        }
-    }
-
-    private func invalidateActivityGeneration(for conversationId: UUID) {
-        if let gen = activityGenerations[conversationId] {
-            activityGenerations[conversationId] = gen + 1
         }
     }
 }
