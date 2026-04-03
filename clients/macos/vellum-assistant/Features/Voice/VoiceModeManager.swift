@@ -605,9 +605,8 @@ final class VoiceModeManager: ObservableObject {
 
     private func observeIsThinking(generation: Int, messageManager: ChatMessageManager) {
         guard generation == voiceObservationGeneration else { return }
-        var isThinking = false
         withObservationTracking {
-            isThinking = messageManager.isThinking
+            _ = messageManager.isThinking
         } onChange: { [weak self, weak messageManager] in
             Task { @MainActor [weak self, weak messageManager] in
                 guard let self, let messageManager,
