@@ -3,9 +3,11 @@
  *
  * When the `permission-controls-v2` feature flag is enabled, the permission
  * checker replaces the risk-classification path with a simple binary check:
- *   - Host tools + hostAccess=false → deterministic prompt (denied)
+ *   - Host tools + hostAccess=false → falls through to interactive prompter
  *   - Host tools + hostAccess=true → auto-allowed
  *   - Non-host tools → auto-allowed (no risk classification)
+ *   - requireFreshApproval → falls through to interactive prompter
+ *   - forcePromptSideEffects + side-effect tool → falls through to prompter
  *
  * When the flag is off, existing risk-level behavior is completely unchanged.
  */
@@ -127,8 +129,14 @@ describe("permission-checker host-access gate (v2)", () => {
       });
 
       for (const toolName of HOST_TOOL_NAMES) {
-        test(`${toolName} returns prompt/denied with host_access_disabled`, async () => {
-          const checker = new PermissionChecker(makePrompter());
+        test(`${toolName} falls through to prompter (interactive prompt)`, async () => {
+          const promptSpy = mock(() =>
+            Promise.resolve({ decision: "allow" as const }),
+          );
+          const prompter = {
+            prompt: promptSpy,
+          } as unknown as PermissionPrompter;
+          const checker = new PermissionChecker(prompter);
           const result = await checker.checkPermission(
             toolName,
             {},
@@ -141,13 +149,38 @@ describe("permission-checker host-access gate (v2)", () => {
             noopDiff,
           );
 
-          expect(result.allowed).toBe(false);
-          expect(result.decision).toBe("prompt");
-          if (!result.allowed) {
-            expect(result.content).toBe("host_access_disabled");
-          }
+          // The prompter should have been called (interactive dialog)
+          expect(promptSpy).toHaveBeenCalled();
+          // Since the mock prompter returns "allow", the result should be allowed
+          expect(result.allowed).toBe(true);
+          expect(result.decision).toBe("allow");
         });
       }
+
+      test("host tool denied by user through prompter returns allowed=false", async () => {
+        const promptSpy = mock(() =>
+          Promise.resolve({ decision: "deny" as const }),
+        );
+        const prompter = {
+          prompt: promptSpy,
+        } as unknown as PermissionPrompter;
+        const checker = new PermissionChecker(prompter);
+        const result = await checker.checkPermission(
+          "host_bash",
+          {},
+          makeTool("host_bash"),
+          makeContext(),
+          executionTarget,
+          noopEmit,
+          noopSanitize,
+          Date.now(),
+          noopDiff,
+        );
+
+        expect(promptSpy).toHaveBeenCalled();
+        expect(result.allowed).toBe(false);
+        expect(result.decision).toBe("deny");
+      });
     });
 
     describe("host tools with hostAccess=true", () => {
@@ -202,6 +235,137 @@ describe("permission-checker host-access gate (v2)", () => {
           expect(result.decision).toBe("allow");
         });
       }
+    });
+
+    describe("requireFreshApproval bypasses v2 auto-allow", () => {
+      beforeEach(() => {
+        setHostAccess(true);
+      });
+
+      test("host tool with requireFreshApproval falls through to prompter", async () => {
+        const promptSpy = mock(() =>
+          Promise.resolve({ decision: "allow" as const }),
+        );
+        const prompter = {
+          prompt: promptSpy,
+        } as unknown as PermissionPrompter;
+        const checker = new PermissionChecker(prompter);
+        const result = await checker.checkPermission(
+          "host_bash",
+          {},
+          makeTool("host_bash"),
+          makeContext({ requireFreshApproval: true }),
+          executionTarget,
+          noopEmit,
+          noopSanitize,
+          Date.now(),
+          noopDiff,
+        );
+
+        expect(promptSpy).toHaveBeenCalled();
+        expect(result.allowed).toBe(true);
+        expect(result.decision).toBe("allow");
+      });
+
+      test("non-host side-effect tool with requireFreshApproval falls through to prompter", async () => {
+        const promptSpy = mock(() =>
+          Promise.resolve({ decision: "allow" as const }),
+        );
+        const prompter = {
+          prompt: promptSpy,
+        } as unknown as PermissionPrompter;
+        const checker = new PermissionChecker(prompter);
+        const result = await checker.checkPermission(
+          "bash",
+          { command: "echo hi" },
+          makeTool("bash"),
+          makeContext({ requireFreshApproval: true }),
+          "sandbox",
+          noopEmit,
+          noopSanitize,
+          Date.now(),
+          noopDiff,
+        );
+
+        expect(promptSpy).toHaveBeenCalled();
+        expect(result.allowed).toBe(true);
+        expect(result.decision).toBe("allow");
+      });
+    });
+
+    describe("forcePromptSideEffects bypasses v2 auto-allow for side-effect tools", () => {
+      beforeEach(() => {
+        setHostAccess(true);
+      });
+
+      test("host side-effect tool with forcePromptSideEffects falls through to prompter", async () => {
+        const promptSpy = mock(() =>
+          Promise.resolve({ decision: "allow" as const }),
+        );
+        const prompter = {
+          prompt: promptSpy,
+        } as unknown as PermissionPrompter;
+        const checker = new PermissionChecker(prompter);
+        const result = await checker.checkPermission(
+          "host_bash",
+          {},
+          makeTool("host_bash"),
+          makeContext({ forcePromptSideEffects: true }),
+          executionTarget,
+          noopEmit,
+          noopSanitize,
+          Date.now(),
+          noopDiff,
+        );
+
+        expect(promptSpy).toHaveBeenCalled();
+        expect(result.allowed).toBe(true);
+        expect(result.decision).toBe("allow");
+      });
+
+      test("non-host side-effect tool with forcePromptSideEffects falls through to prompter", async () => {
+        const promptSpy = mock(() =>
+          Promise.resolve({ decision: "allow" as const }),
+        );
+        const prompter = {
+          prompt: promptSpy,
+        } as unknown as PermissionPrompter;
+        const checker = new PermissionChecker(prompter);
+        const result = await checker.checkPermission(
+          "bash",
+          { command: "echo hi" },
+          makeTool("bash"),
+          makeContext({ forcePromptSideEffects: true }),
+          "sandbox",
+          noopEmit,
+          noopSanitize,
+          Date.now(),
+          noopDiff,
+        );
+
+        expect(promptSpy).toHaveBeenCalled();
+        expect(result.allowed).toBe(true);
+        expect(result.decision).toBe("allow");
+      });
+
+      test("non-host read-only tool with forcePromptSideEffects is still auto-allowed", async () => {
+        const checker = new PermissionChecker(makePrompter());
+        const result = await checker.checkPermission(
+          "file_read",
+          {},
+          makeTool("file_read"),
+          makeContext({ forcePromptSideEffects: true }),
+          "sandbox",
+          noopEmit,
+          noopSanitize,
+          Date.now(),
+          noopDiff,
+        );
+
+        // file_read is not a side-effect tool, so v2 auto-allows it
+        expect(result.allowed).toBe(true);
+        expect(result.decision).toBe("allow");
+      });
     });
   });
 
