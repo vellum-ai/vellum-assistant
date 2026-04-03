@@ -652,32 +652,17 @@ final class VoiceInputManager {
         request.shouldReportPartialResults = true
         recognitionRequest = request
 
-        // Remove any stale tap left from a previous session that was not properly
-        // cleaned up (e.g. audio engine stopped unexpectedly). installTap crashes
-        // with NSInternalInconsistencyException if a tap already exists on the bus.
-        // See: https://stackoverflow.com/questions/41805381
-        engineController.removeTap()
-        hasInstalledTap = true
-
-        guard let recordingFormat = engineController.inputNodeFormat() else {
-            log.error("Invalid audio format — no valid input channels or sample rate")
-            isRecording = false
-            onRecordingStateChanged?(false)
-            currentDictationContext = nil
-            recognitionRequest = nil
-            overlayWindow.dismiss()
-            resetAudioEngine()
-            return
-        }
-
         let ampState = amplitudeState
         ampState.reset()
-        engineController.installTap(bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+
+        // Atomically read the hardware format, install the tap, and start the
+        // engine in a single dispatch to the audio queue. This prevents the
+        // TOCTOU race where a format read via `inputNodeFormat()` becomes stale
+        // before a separate `installTap()` async block executes — which crashes
+        // with NSInternalInconsistencyException on first use after permission grant.
+        guard let recordingFormat = engineController.installTapAndStart(bufferSize: 1024) { [weak self] buffer, _ in
             request.append(buffer)
 
-            // Compute amplitude from the audio buffer for visual feedback.
-            // All smoothing/throttling state lives in ampState (a reference type
-            // captured by this closure) so reads and writes stay on the audio thread.
             guard let channelData = buffer.floatChannelData else { return }
             let frameLength = Int(buffer.frameLength)
             guard frameLength > 0 else { return }
@@ -700,7 +685,17 @@ final class VoiceInputManager {
             DispatchQueue.main.async { [weak self] in
                 self?.onAmplitudeChanged?(scaled)
             }
+        } else {
+            log.error("Audio engine failed to start — invalid format or engine error")
+            isRecording = false
+            onRecordingStateChanged?(false)
+            currentDictationContext = nil
+            recognitionRequest = nil
+            overlayWindow.dismiss()
+            resetAudioEngine()
+            return
         }
+        hasInstalledTap = true
 
         recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
@@ -737,17 +732,7 @@ final class VoiceInputManager {
             }
         }
 
-        if engineController.prepareAndStart() {
-            VoiceFeedback.playActivationChime()
-        } else {
-            log.error("Audio engine failed to start")
-            isRecording = false
-            onRecordingStateChanged?(false)
-            currentDictationContext = nil
-            overlayWindow.dismiss()
-            tearDownAudioState()
-            engineController.reset()
-        }
+        VoiceFeedback.playActivationChime()
     }
 
     // MARK: - Permission Prompt
