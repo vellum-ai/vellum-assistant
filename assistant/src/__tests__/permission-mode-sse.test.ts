@@ -91,6 +91,63 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
+// Heavy dependency stubs — prevent settings-routes.ts transitive imports from
+// reaching real OAuth orchestration, secure-key decryption, tool registry, etc.
+// Only the permission-mode GET/PUT handlers are exercised in this file, so these
+// stubs are never called.
+mock.module("../config/skills.js", () => ({
+  loadSkillCatalog: () => [],
+}));
+mock.module("../config/env.js", () => ({
+  getPlatformBaseUrl: () => "http://localhost",
+  setIngressPublicBaseUrl: () => {},
+}));
+mock.module("../daemon/handlers/config-ingress.js", () => ({
+  computeGatewayTarget: () => "",
+  getIngressConfigResult: () => ({}),
+}));
+mock.module("../daemon/handlers/config-voice.js", () => ({
+  normalizeActivationKey: () => ({ ok: true, value: "" }),
+}));
+mock.module("../oauth/connect-orchestrator.js", () => ({
+  orchestrateOAuthConnect: async () => ({ success: false, error: "stub" }),
+}));
+mock.module("../oauth/oauth-store.js", () => ({
+  getApp: () => undefined,
+  getConnectionByProvider: () => undefined,
+  getMostRecentAppByProvider: () => undefined,
+  getProvider: () => undefined,
+}));
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async () => undefined,
+}));
+mock.module("../skills/tool-manifest.js", () => ({
+  parseToolManifestFile: () => ({ tools: [] }),
+}));
+mock.module("../tools/execution-target.js", () => ({
+  resolveExecutionTarget: () => undefined,
+}));
+mock.module("../tools/registry.js", () => ({
+  getAllTools: () => [],
+  getTool: () => undefined,
+}));
+mock.module("../tools/schema-transforms.js", () => ({
+  ACTIVITY_SKIP_SET: new Set(),
+  injectActivityField: (defs: unknown[]) => defs,
+}));
+mock.module("../tools/side-effects.js", () => ({
+  isSideEffectTool: () => false,
+}));
+mock.module("../tools/system/avatar-generator.js", () => ({
+  generateAndSaveAvatar: async () => ({ isError: true, content: "stub" }),
+}));
+mock.module("../permissions/checker.js", () => ({
+  check: async () => ({ decision: "allow", reason: "" }),
+  classifyRisk: async () => "low",
+  generateAllowlistOptions: async () => [],
+  generateScopeOptions: () => [],
+}));
+
 afterAll(() => {
   mock.restore();
 });
@@ -105,6 +162,50 @@ import {
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { settingsRouteDefinitions } from "../runtime/routes/settings-routes.js";
+import type { RouteDefinition } from "../runtime/http-router.js";
+
+// ---------------------------------------------------------------------------
+// Route helpers — call actual route handlers
+// ---------------------------------------------------------------------------
+
+const routes = settingsRouteDefinitions();
+
+function getRoute(method: string, endpoint: string): RouteDefinition {
+  const route = routes.find(
+    (r) => r.method === method && r.endpoint === endpoint,
+  );
+  if (!route) throw new Error(`Route not found: ${method} ${endpoint}`);
+  return route;
+}
+
+function callPut(
+  body: Record<string, unknown>,
+): Promise<Response> | Response {
+  const req = new Request("http://localhost/v1/permission-mode", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return getRoute("PUT", "permission-mode").handler({
+    req,
+    url: new URL(req.url),
+    server: null as never,
+    authContext: null as never,
+    params: {},
+  });
+}
+
+function callGet(): Promise<Response> | Response {
+  const req = new Request("http://localhost/v1/permission-mode");
+  return getRoute("GET", "permission-mode").handler({
+    req,
+    url: new URL(req.url),
+    server: null as never,
+    authContext: null as never,
+    params: {},
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
@@ -235,56 +336,83 @@ describe("Permission mode SSE broadcast", () => {
 });
 
 describe("GET /v1/permission-mode", () => {
-  test("returns current permission mode state", () => {
-    const mode = getMode();
-    expect(mode.askBeforeActing).toBe(true);
-    expect(mode.hostAccess).toBe(false);
+  test("returns current permission mode state via route handler", async () => {
+    const res = await callGet();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      askBeforeActing: boolean;
+      hostAccess: boolean;
+    };
+    expect(body.askBeforeActing).toBe(true);
+    expect(body.hostAccess).toBe(false);
   });
 
-  test("returns updated state after mutation", () => {
+  test("returns updated state after mutation via route handler", async () => {
     setAskBeforeActing(false);
     setHostAccess(true);
 
-    const mode = getMode();
-    expect(mode.askBeforeActing).toBe(false);
-    expect(mode.hostAccess).toBe(true);
+    const res = await callGet();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      askBeforeActing: boolean;
+      hostAccess: boolean;
+    };
+    expect(body.askBeforeActing).toBe(false);
+    expect(body.hostAccess).toBe(true);
   });
 });
 
 describe("PUT /v1/permission-mode", () => {
-  test("updates askBeforeActing when flag is enabled", () => {
+  test("updates askBeforeActing via route handler when flag is enabled", async () => {
     mockFeatureFlagEnabled = true;
 
-    setAskBeforeActing(false);
-    const mode = getMode();
-    expect(mode.askBeforeActing).toBe(false);
+    const res = await callPut({ askBeforeActing: false });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      askBeforeActing: boolean;
+      hostAccess: boolean;
+    };
+    expect(body.askBeforeActing).toBe(false);
+    expect(body.hostAccess).toBe(false);
   });
 
-  test("updates hostAccess when flag is enabled", () => {
+  test("updates hostAccess via route handler when flag is enabled", async () => {
     mockFeatureFlagEnabled = true;
 
-    setHostAccess(true);
-    const mode = getMode();
-    expect(mode.hostAccess).toBe(true);
+    const res = await callPut({ hostAccess: true });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      askBeforeActing: boolean;
+      hostAccess: boolean;
+    };
+    expect(body.askBeforeActing).toBe(true);
+    expect(body.hostAccess).toBe(true);
   });
 
-  test("updates both axes independently", () => {
+  test("updates both axes independently via route handler", async () => {
     mockFeatureFlagEnabled = true;
 
-    setAskBeforeActing(false);
-    setHostAccess(true);
+    const res1 = await callPut({ askBeforeActing: false });
+    expect(res1.status).toBe(200);
 
-    const mode = getMode();
-    expect(mode.askBeforeActing).toBe(false);
-    expect(mode.hostAccess).toBe(true);
+    const res2 = await callPut({ hostAccess: true });
+    expect(res2.status).toBe(200);
+    const body = (await res2.json()) as {
+      askBeforeActing: boolean;
+      hostAccess: boolean;
+    };
+    expect(body.askBeforeActing).toBe(false);
+    expect(body.hostAccess).toBe(true);
   });
 
-  test("feature flag gate prevents updates when flag is off", () => {
+  test("returns 404 when feature flag is off", async () => {
     mockFeatureFlagEnabled = false;
 
-    // Verify the mock reflects the flag being off; the route handler
-    // checks `isAssistantFeatureFlagEnabled("permission-controls-v2", config)`
-    // and returns 404 when this returns false.
-    expect(mockFeatureFlagEnabled).toBe(false);
+    const res = await callPut({ askBeforeActing: false });
+    expect(res.status).toBe(404);
+
+    // Verify the store was NOT mutated — askBeforeActing should remain at default
+    const mode = getMode();
+    expect(mode.askBeforeActing).toBe(true);
   });
 });
