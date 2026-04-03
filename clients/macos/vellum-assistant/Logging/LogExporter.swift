@@ -285,6 +285,8 @@ enum LogExporter {
         let connectedAssistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
         var daemonUnreachable = false
 
+        let cutoffDate: Date? = formData?.logTimeRange.cutoffDate
+
         let shouldCollectLogs = formData?.includeLogs ?? true
         if shouldCollectLogs {
             // 1-2. Client artifacts — session logs, debug-state, hang-context, hang-sample files
