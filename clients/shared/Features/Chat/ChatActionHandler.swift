@@ -784,6 +784,10 @@ final class ChatActionHandler {
         // in the assistant message before we clear the turn state.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
+        // Capture the blocked message data *before* the batch removes it,
+        // so "Send Anyway" can reconstruct the original user message with
+        // attachments and surface metadata.
+        var capturedBlockedMessage: ChatMessage?
         // Finalize assistant message, mark preview-only tool calls as
         // complete, reset processing statuses, and handle secret_blocked
         // removal — all in a single batch to avoid per-mutation overhead.
@@ -815,6 +819,8 @@ final class ChatActionHandler {
                     return msgs.lastIndex(where: { $0.role == .user })
                 }()
                 if let blockedMessageIndex {
+                    // Capture before removal so "Send Anyway" context is preserved.
+                    capturedBlockedMessage = msgs[blockedMessageIndex]
                     let blockedMessage = msgs[blockedMessageIndex]
                     if case .queued = blockedMessage.status {
                         vm.pendingQueuedCount = max(0, vm.pendingQueuedCount - 1)
@@ -849,30 +855,18 @@ final class ChatActionHandler {
             // stash the full send context so "Send Anyway" can reconstruct
             // the original UserMessageMessage with attachments and surface metadata.
             if err.category == "secret_blocked" {
-                let normalizedTurnText = savedTurnUserText?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let blockedMessageIndex: Int? = {
-                    if let normalizedTurnText, !normalizedTurnText.isEmpty {
-                        return vm.messages.lastIndex(where: {
-                            $0.role == .user
-                                && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTurnText
-                        })
-                    }
-                    return vm.messages.lastIndex(where: { $0.role == .user })
-                }()
-                let blockedUserMessage = blockedMessageIndex.map { vm.messages[$0] }
-
                 // Prefer the snapshotted turn text (the text that was actually sent)
                 // over the transcript lookup, which can miss workspace refinements
                 // that don't append a user chat message.
                 if let sendText = savedTurnUserText {
                     vm.secretBlockedMessageText = sendText
-                } else if let blockedUserMessage {
+                } else if let blockedUserMessage = capturedBlockedMessage {
                     vm.secretBlockedMessageText = blockedUserMessage.text
                 }
                 // Reconstruct attachments from the blocked user message's ChatAttachments.
                 // Include filePath, sizeBytes, and thumbnailData so file-backed
                 // attachments survive the secret-ingress redirect.
-                if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
+                if let blockedUserMessage = capturedBlockedMessage, !blockedUserMessage.attachments.isEmpty {
                     vm.secretBlockedAttachments = blockedUserMessage.attachments.compactMap { att in
                         guard !att.data.isEmpty || att.filePath != nil else { return nil }
                         return UserMessageAttachment(
