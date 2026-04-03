@@ -196,7 +196,7 @@ final class SkillsManager {
     static func sourceLabel(_ origin: String) -> String {
         switch origin {
         case "vellum":
-            return "Core"
+            return "Vellum"
         case "clawhub":
             return "Community"
         case "skillssh":

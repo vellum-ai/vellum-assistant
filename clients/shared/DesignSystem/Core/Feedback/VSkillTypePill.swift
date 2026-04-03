@@ -12,7 +12,7 @@ public struct VSkillTypePill: View {
 
         var label: String {
             switch self {
-            case .vellum: return "Core"
+            case .vellum: return "Vellum"
             case .clawhub: return "Community"
             case .skillssh: return "Community"
             case .custom: return "Created"
@@ -26,7 +26,7 @@ public struct VSkillTypePill: View {
             case .vellum: return .package
             case .clawhub: return .globe
             case .skillssh: return .globe
-            case .custom: return .sparkles
+            case .custom: return .user
             case .available: return .arrowDownToLine
             case .other(_, let icon, _, _): return .resolve(icon)
             }
