@@ -423,7 +423,7 @@ public struct InlineWeatherWidget: View {
         return HStack(spacing: VSpacing.sm) {
             // Day name
             Text(item.day)
-                .font(item.day == "Today" ? VFont.bodyMediumDefault : VFont.bodyMediumDefault)
+                .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .frame(width: 46, alignment: .leading)
 

@@ -133,7 +133,7 @@ public enum VFont {
 
     #if os(macOS)
     /// Creates an Inter `NSFont` at the given CSS weight and size via CTFont variation axis.
-    private static func nsInter(weight: Int, size: CGFloat) -> NSFont {
+    public static func nsInter(weight: Int, size: CGFloat) -> NSFont {
         let baseName = "InterVariable" as CFString
         let baseFont = CTFontCreateWithName(baseName, size, nil)
         let variations: [CFNumber: CFNumber] = [

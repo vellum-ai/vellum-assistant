@@ -371,8 +371,8 @@ struct MarkdownSegmentView: View, Equatable {
                 case 2: 16
                 default: 14
                 }
-                let headingWeight: NSFont.Weight = level == 1 ? .bold : .semibold
-                let headingNS = NSFont.systemFont(ofSize: headingSize, weight: headingWeight)
+                let headingWght = level == 1 ? 700 : 600
+                let headingNS = VFont.nsInter(weight: headingWght, size: headingSize)
                 headingAttr.font = Font(headingNS)
                 if index > 0 {
                     let paraStyle = NSMutableParagraphStyle()
@@ -403,7 +403,7 @@ struct MarkdownSegmentView: View, Equatable {
                     if let cached = prefixWidthCache[prefixText] {
                         prefixWidth = cached
                     } else {
-                        let font = NSFont.systemFont(ofSize: 16, weight: .regular)
+                        let font = VFont.nsChat
                         let prefixNS = NSString(string: prefixText)
                         prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                         if prefixWidthCache.count < 200 {
@@ -469,11 +469,24 @@ struct MarkdownSegmentView: View, Equatable {
         let ns = NSMutableAttributedString(source)
         let fullRange = NSRange(location: 0, length: ns.length)
 
-        // Apply italic/bold to emphasized runs using system font variants.
+        // Apply italic/bold to emphasized runs using Inter via CTFont.
+        // InterVariable doesn't bundle an italic face, so we apply a synthetic
+        // oblique via affine transform (same approach as the old DM Sans code).
         let sz = font.pointSize
-        let italicNS = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-        let boldNS = NSFont.systemFont(ofSize: sz, weight: .bold)
-        let boldItalicNS = NSFontManager.shared.convert(boldNS, toHaveTrait: .italicFontMask)
+        var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
+        let baseCT = CTFontCreateWithName("InterVariable" as CFString, sz, nil)
+        let italicNS = CTFontCreateWithName("InterVariable" as CFString, sz, &oblique) as NSFont
+        let boldWght = 700
+        let wghtTag = 0x77676874
+        let boldVars: [CFNumber: CFNumber] = [wghtTag as CFNumber: boldWght as CFNumber]
+        let boldNS = CTFontCreateCopyWithAttributes(
+            baseCT, sz, nil,
+            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+        ) as NSFont
+        let boldItalicNS = CTFontCreateCopyWithAttributes(
+            baseCT, sz, &oblique,
+            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+        ) as NSFont
 
         ns.enumerateAttribute(.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
             guard let rawValue = (value as? NSNumber)?.uintValue else { return }
