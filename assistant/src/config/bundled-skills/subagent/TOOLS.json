@@ -133,6 +133,10 @@
             "type": "string",
             "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
           },
+          "last_n": {
+            "type": "integer",
+            "description": "Number of recent assistant messages to return. Omit to return all messages (current behavior)."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"

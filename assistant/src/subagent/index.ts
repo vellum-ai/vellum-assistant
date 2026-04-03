@@ -1,6 +1,16 @@
 export { SubagentManager } from "./manager.js";
-export type { SubagentConfig, SubagentState, SubagentStatus } from "./types.js";
-export { SUBAGENT_LIMITS, TERMINAL_STATUSES } from "./types.js";
+export type {
+  SubagentConfig,
+  SubagentRole,
+  SubagentRoleConfig,
+  SubagentState,
+  SubagentStatus,
+} from "./types.js";
+export {
+  SUBAGENT_LIMITS,
+  SUBAGENT_ROLE_REGISTRY,
+  TERMINAL_STATUSES,
+} from "./types.js";
 
 import { SubagentManager } from "./manager.js";
 
