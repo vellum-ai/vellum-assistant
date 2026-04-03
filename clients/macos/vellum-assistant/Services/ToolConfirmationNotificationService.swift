@@ -100,33 +100,134 @@ public final class ToolConfirmationNotificationService {
     // MARK: - Private
 
     private func formatTitle(_ message: ConfirmationRequestMessage) -> String {
-        let toolName = toolDisplayName(message.toolName)
-        var title = "\(toolName) — \(message.riskLevel) risk"
+        let action = toolHumanAction(message.toolName, input: message.input)
         if let target = message.executionTarget, !target.isEmpty {
-            title += " (\(target))"
+            return "Permission Required: \(action) on \(target)"
         }
-        return title
+        return "Permission Required: \(action)"
     }
 
     private func formatBody(_ message: ConfirmationRequestMessage) -> String {
-        let description = confirmationHumanDescription(
-            toolName: message.toolName,
-            input: message.input
-        )
-        return description.count > 200 ? String(description.prefix(197)) + "..." : description
+        let rawReason = (message.input["reason"]?.value as? String) ?? ""
+        let reason: String = rawReason.isEmpty
+            ? (message.input["description"]?.value as? String)
+                ?? (message.input["message"]?.value as? String)
+                ?? ""
+            : rawReason
+
+        if reason.isEmpty {
+            return toolHumanFallbackBody(message.toolName, input: message.input)
+        }
+
+        let capitalized = reason.prefix(1).uppercased() + reason.dropFirst()
+        let body = "Reason: \(capitalized)"
+        return body.count > 200 ? String(body.prefix(197)) + "..." : body
     }
 
-    private func toolDisplayName(_ toolName: String) -> String {
+    /// Returns a short, non-technical description of what the tool wants to do.
+    private func toolHumanAction(_ toolName: String, input: [String: AnyCodable]) -> String {
         switch toolName {
-        case "file_write":      return "Write File"
-        case "file_edit":       return "Edit File"
-        case "bash", "host_bash": return "Run Command"
-        case "web_fetch":       return "Fetch URL"
-        case "schedule_create": return "Create Schedule"
-        case "schedule_update": return "Update Schedule"
-        case "schedule_delete": return "Delete Schedule"
-        case "schedule_list":   return "List Schedules"
-        default: return toolName.replacingOccurrences(of: "_", with: " ").capitalized
+        case "file_write", "host_file_write":
+            if let path = input["path"]?.value as? String, !path.isEmpty {
+                return "Save to \(URL(fileURLWithPath: path).lastPathComponent)"
+            }
+            return "Save a file"
+        case "file_edit", "host_file_edit":
+            if let path = input["path"]?.value as? String, !path.isEmpty {
+                return "Edit \(URL(fileURLWithPath: path).lastPathComponent)"
+            }
+            return "Edit a file"
+        case "file_read", "host_file_read":
+            if let path = input["path"]?.value as? String, !path.isEmpty {
+                return "Read \(URL(fileURLWithPath: path).lastPathComponent)"
+            }
+            return "Read a file"
+        case "bash", "host_bash":
+            return "Run a command"
+        case "web_fetch":
+            if let url = input["url"]?.value as? String, let host = URL(string: url)?.host {
+                return "Fetch data from \(host)"
+            }
+            return "Fetch a webpage"
+        case "web_search":
+            return "Search the web"
+        case "browser_navigate":
+            if let url = input["url"]?.value as? String, let host = URL(string: url)?.host {
+                return "Open \(host)"
+            }
+            return "Open a webpage"
+        case "credential_store":
+            let action = (input["action"]?.value as? String) ?? ""
+            let service = (input["service"]?.value as? String) ?? ""
+            switch action {
+            case "oauth2_connect":
+                return service.isEmpty ? "Connect an account" : "Connect your \(service.capitalized) account"
+            case "store":
+                return service.isEmpty ? "Save a credential" : "Save a \(service) credential"
+            case "delete":
+                return service.isEmpty ? "Remove a credential" : "Remove a \(service) credential"
+            default:
+                return "Access secure storage"
+            }
+        case "schedule_create":
+            if let name = input["name"]?.value as? String, !name.isEmpty {
+                return "Create schedule \"\(name)\""
+            }
+            return "Create a schedule"
+        case "schedule_update": return "Update a schedule"
+        case "schedule_delete": return "Delete a schedule"
+        case "schedule_list":   return "View schedules"
+        case "request_system_permission":
+            let perm = permissionDisplayName(input)
+            return "Use \(perm)"
+        default:
+            return toolName
+                .replacingOccurrences(of: "host_", with: "")
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+        }
+    }
+
+    /// Fallback body when no reason is provided by the tool.
+    private func toolHumanFallbackBody(_ toolName: String, input: [String: AnyCodable]) -> String {
+        switch toolName {
+        case "bash", "host_bash":
+            if let cmd = input["command"]?.value as? String, !cmd.isEmpty {
+                let truncated = cmd.count > 150 ? String(cmd.prefix(147)) + "..." : cmd
+                return "Command: \(truncated)"
+            }
+            return "Vellum wants to run a command on your computer."
+        case "file_write", "host_file_write":
+            if let path = input["path"]?.value as? String, !path.isEmpty {
+                return "Vellum wants to save changes to \(URL(fileURLWithPath: path).lastPathComponent)."
+            }
+            return "Vellum wants to save a file."
+        case "file_edit", "host_file_edit":
+            if let path = input["path"]?.value as? String, !path.isEmpty {
+                return "Vellum wants to make changes to \(URL(fileURLWithPath: path).lastPathComponent)."
+            }
+            return "Vellum wants to edit a file."
+        case "request_system_permission":
+            let perm = permissionDisplayName(input)
+            return "Vellum needs \(perm) access to continue."
+        default:
+            return "Vellum is asking for your permission to continue."
+        }
+    }
+
+    private func permissionDisplayName(_ input: [String: AnyCodable]) -> String {
+        guard let type = input["permission_type"]?.value as? String else { return "Permission" }
+        switch type {
+        case "full_disk_access": return "Full Disk Access"
+        case "accessibility": return "Accessibility"
+        case "screen_recording": return "Screen Recording"
+        case "calendar": return "Calendar"
+        case "contacts": return "Contacts"
+        case "photos": return "Photos"
+        case "location": return "Location Services"
+        case "microphone": return "Microphone"
+        case "camera": return "Camera"
+        default: return type.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 
