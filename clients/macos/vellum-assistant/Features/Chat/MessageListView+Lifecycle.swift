@@ -196,7 +196,11 @@ extension MessageListView {
                 return
             }
                 scrollState.endStabilization()
-                if scrollState.isFollowingBottom && anchorMessageId == nil {
+                if scrollState.mode.allowsAutoScroll && anchorMessageId == nil {
+                    // Use mode.allowsAutoScroll (covers both .initialLoad and
+                    // .followingBottom) instead of isFollowingBottom (which
+                    // returns false for .initialLoad). A resize during initial
+                    // load — e.g. app opens with side panel — must still re-pin.
                     // Always re-pin after resize — don't check isAtBottom.
                     // After a width change, LazyVStack re-estimates content heights.
                     // The viewport can be at the *estimated* bottom (blank space)
