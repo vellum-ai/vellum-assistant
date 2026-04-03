@@ -14,10 +14,9 @@ struct MessageInspectorMemoryTabModel: Equatable {
 
     struct CandidateRow: Identifiable, Equatable {
         let id: String
-        let key: String
+        let nodeId: String
         let type: String
-        let kind: String
-        let finalScore: String
+        let score: String
         let semanticScore: String
         let recencyScore: String
     }
@@ -90,17 +89,16 @@ struct MessageInspectorMemoryTabModel: Equatable {
         ]
 
         candidates = recall.topCandidates
-            .sorted { $0.finalScore > $1.finalScore }
+            .sorted { $0.score > $1.score }
             .enumerated()
             .map { index, candidate in
                 CandidateRow(
-                    id: "\(index)-\(candidate.key)",
-                    key: candidate.key,
+                    id: "\(index)-\(candidate.nodeId)",
+                    nodeId: candidate.nodeId,
                     type: candidate.type,
-                    kind: candidate.kind,
-                    finalScore: Self.formatScore(candidate.finalScore),
-                    semanticScore: Self.formatScore(candidate.semantic),
-                    recencyScore: Self.formatScore(candidate.recency)
+                    score: Self.formatScore(candidate.score),
+                    semanticScore: Self.formatScore(candidate.semanticSimilarity),
+                    recencyScore: Self.formatScore(candidate.recencyBoost)
                 )
             }
 
@@ -279,21 +277,18 @@ struct MessageInspectorMemoryTab: View {
     private func candidateRow(_ candidate: MessageInspectorMemoryTabModel.CandidateRow) -> some View {
         HStack(alignment: .top, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text(candidate.key)
+                Text(candidate.nodeId)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
 
-                HStack(spacing: VSpacing.xs) {
-                    chip(candidate.type)
-                    chip(candidate.kind)
-                }
+                chip(candidate.type)
             }
 
             Spacer(minLength: VSpacing.sm)
 
             VStack(alignment: .trailing, spacing: VSpacing.xxs) {
-                Text(candidate.finalScore)
+                Text(candidate.score)
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
 
