@@ -713,12 +713,18 @@ async function upgradePlatform(
     orgId = await fetchOrganizationId(token, entry.runtimeUrl);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("401") || msg.includes("403")) {
+    const isAuthError = msg.includes("401") || msg.includes("403");
+    if (isAuthError) {
       console.error("Authentication failed. Run 'vellum login' to refresh.");
+      emitCliError("AUTH_FAILED", "Failed to authenticate with platform", msg);
     } else {
       console.error(`Error: ${msg}`);
+      emitCliError(
+        categorizeUpgradeError(err),
+        "Failed to fetch organization",
+        msg,
+      );
     }
-    emitCliError("AUTH_FAILED", "Failed to authenticate with platform", msg);
     process.exit(1);
   }
 
