@@ -889,7 +889,15 @@ export async function retrieveForTurn(
   }
 
   if (queryText.trim().length === 0 && allCandidateIds.size === 0) {
-    return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start, metrics: ZERO_METRICS };
+    return {
+      nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start,
+      metrics: {
+        ...ZERO_METRICS,
+        hybridSearchLatencyMs: imageBlocks.length > 0 ? Date.now() - searchStart : 0,
+        embeddingProvider,
+        embeddingModel,
+      },
+    };
   }
 
   // Chunk if too large (8k token ≈ 32k chars conservative estimate)
@@ -949,7 +957,15 @@ export async function retrieveForTurn(
     } catch (err) {
       log.warn({ err }, "Embedding/search failed for turn retrieval");
       if (allCandidateIds.size === 0) {
-        return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start, metrics: ZERO_METRICS };
+        return {
+          nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start,
+          metrics: {
+            ...ZERO_METRICS,
+            hybridSearchLatencyMs: Date.now() - searchStart,
+            embeddingProvider,
+            embeddingModel,
+          },
+        };
       }
     }
   }
