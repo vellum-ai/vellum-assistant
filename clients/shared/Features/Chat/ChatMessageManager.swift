@@ -46,6 +46,15 @@ public final class ChatMessageManager {
             }
             _messagesSubject.send(newValue)
         }
+        // swiftlint:disable:next identifier_name
+        _modify {
+            _$observationRegistrar.willSet(self, keyPath: \.messages)
+            defer {
+                _$observationRegistrar.didSet(self, keyPath: \.messages)
+                _messagesSubject.send(_messagesStorage)
+            }
+            yield &_messagesStorage
+        }
     }
     @ObservationIgnored private var _messagesStorage: [ChatMessage] = []
 
