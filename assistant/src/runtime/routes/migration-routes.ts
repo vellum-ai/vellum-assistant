@@ -11,6 +11,8 @@
  * results with is_valid flag and detailed error descriptions.
  */
 
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import { Database } from "bun:sqlite";
 
 import { z } from "zod";
@@ -27,7 +29,7 @@ import {
 } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
-import { buildExportVBundle } from "../migrations/vbundle-builder.js";
+import { streamExportVBundle } from "../migrations/vbundle-builder.js";
 import {
   analyzeImport,
   DefaultPathResolver,
@@ -141,8 +143,10 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
     }
   }
 
+  let cleanup: (() => Promise<void>) | undefined;
+
   try {
-    const { archive, manifest } = buildExportVBundle({
+    const result = await streamExportVBundle({
       // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
       // and are included in the workspace walk. Passing hooksDir separately would
       // export them twice (once as workspace/hooks/... and again as hooks/...).
@@ -170,25 +174,32 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       },
     });
 
+    cleanup = result.cleanup;
+    const { tempPath, size, manifest } = result;
+
     const timestamp = manifest.created_at.replace(/[:.]/g, "-");
     const filename = `export-${timestamp}.vbundle`;
 
-    const body = archive.buffer.slice(
-      archive.byteOffset,
-      archive.byteOffset + archive.byteLength,
-    ) as ArrayBuffer;
+    const fileStream = createReadStream(tempPath);
+    fileStream.on("close", () => {
+      cleanup?.();
+      cleanup = undefined;
+    });
+
+    const body = Readable.toWeb(fileStream) as unknown as ReadableStream;
 
     return new Response(body, {
       status: 200,
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Length": String(archive.length),
+        "Content-Length": String(size),
         "X-Vbundle-Schema-Version": manifest.schema_version,
         "X-Vbundle-Manifest-Sha256": manifest.manifest_sha256,
       },
     });
   } catch (err) {
+    await cleanup?.();
     log.error({ err }, "Failed to build export bundle");
     return httpError(
       "INTERNAL_ERROR",
