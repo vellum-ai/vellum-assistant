@@ -183,10 +183,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         enterDraftMode()
         conversationRestorer.delegate = self
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
-        // Always seed system groups so the sidebar renders section headers even
-        // when the initial conversation-list fetch fails (e.g. daemon not yet
-        // ready). handleConversationListResponse will overwrite with the daemon's
-        // groups once the fetch succeeds.
         if listStore.groups.isEmpty {
             listStore.groups = [.pinned, .scheduled, .background]
         }
