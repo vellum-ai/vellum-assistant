@@ -19,7 +19,7 @@ struct ScrollToLatestOverlayView: View {
                 // requestPinToBottom captures showScrollToLatest = false
                 // within this animation transaction, so the .move/.opacity
                 // transition runs in sync with the scroll.
-                withAnimation(VAnimation.spring) {
+                _ = withAnimation(VAnimation.spring) {
                     scrollState.requestPinToBottom(animated: true, userInitiated: true)
                 }
             }) {
