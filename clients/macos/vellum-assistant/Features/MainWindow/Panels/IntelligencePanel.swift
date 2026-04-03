@@ -82,6 +82,9 @@ struct IntelligencePanel: View {
                 }
                 if key == Self.integrationsFeatureFlagKey {
                     isIntegrationsTabEnabled = enabled
+                    if !enabled && selectedTab == .integrations {
+                        selectedTab = .identity
+                    }
                 }
             }
         }
@@ -103,6 +106,9 @@ struct IntelligencePanel: View {
             }
             if let integrationsFlag = flags.first(where: { $0.key == Self.integrationsFeatureFlagKey }) {
                 isIntegrationsTabEnabled = integrationsFlag.enabled
+                if !integrationsFlag.enabled && selectedTab == .integrations {
+                    selectedTab = .identity
+                }
             }
         } catch {
             // Fall through to local file fallback
@@ -114,6 +120,9 @@ struct IntelligencePanel: View {
             }
             if let integrationsEnabled = resolved[Self.integrationsFeatureFlagKey] {
                 isIntegrationsTabEnabled = integrationsEnabled
+                if !integrationsEnabled && selectedTab == .integrations {
+                    selectedTab = .identity
+                }
             }
         }
     }
