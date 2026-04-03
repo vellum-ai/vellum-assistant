@@ -81,6 +81,21 @@ export function authHeaders(token: string): Record<string, string> {
   return { "X-Session-Token": token };
 }
 
+/**
+ * Returns auth headers AND the `Vellum-Organization-Id` header in one call.
+ * Fetches the org ID from the platform, throwing on failure.
+ */
+export async function platformAuthHeaders(
+  token: string,
+  platformUrl?: string,
+): Promise<Record<string, string>> {
+  const orgId = await fetchOrganizationId(token, platformUrl);
+  return {
+    ...authHeaders(token),
+    "Vellum-Organization-Id": orgId,
+  };
+}
+
 export interface HatchedAssistant {
   id: string;
   name: string;

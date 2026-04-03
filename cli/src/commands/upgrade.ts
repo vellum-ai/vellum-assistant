@@ -18,9 +18,8 @@ import {
 } from "../lib/docker";
 import { resolveImageRefs } from "../lib/platform-releases";
 import {
-  authHeaders,
-  fetchOrganizationId,
   getPlatformUrl,
+  platformAuthHeaders,
   readPlatformToken,
 } from "../lib/platform-client";
 import {
@@ -708,9 +707,12 @@ async function upgradePlatform(
     process.exit(1);
   }
 
-  let orgId: string;
+  let headers: Record<string, string>;
   try {
-    orgId = await fetchOrganizationId(token, entry.runtimeUrl);
+    headers = {
+      "Content-Type": "application/json",
+      ...(await platformAuthHeaders(token, entry.runtimeUrl)),
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const isAuthError = msg.includes("401") || msg.includes("403");
@@ -738,11 +740,7 @@ async function upgradePlatform(
 
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(token),
-      "Vellum-Organization-Id": orgId,
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
@@ -752,11 +750,15 @@ async function upgradePlatform(
       `Authentication failed (${response.status}). Run 'vellum login' to refresh.`,
     );
     emitCliError("AUTH_FAILED", "Authentication failed", text);
-    await broadcastUpgradeEvent(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
-    );
+    try {
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      );
+    } catch {
+      // Best-effort — broadcast may fail if the assistant is unreachable
+    }
     process.exit(1);
   }
 
@@ -770,11 +772,15 @@ async function upgradePlatform(
       `Platform upgrade failed (${response.status})`,
       text,
     );
-    await broadcastUpgradeEvent(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
-    );
+    try {
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      );
+    } catch {
+      // Best-effort — broadcast may fail if the assistant is unreachable
+    }
     process.exit(1);
   }
 
