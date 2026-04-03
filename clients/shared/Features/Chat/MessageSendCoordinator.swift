@@ -505,11 +505,13 @@ final class MessageSendCoordinator {
         // currentAssistantMessageId), complete them locally and return —
         // there is nothing to cancel on the daemon side.
         if !messageManager.isSending && !messageManager.isThinking && delegate.currentAssistantMessageId == nil && delegate.hasIncompleteToolCalls {
-            if let lastAssistant = messageManager.messages.last(where: { $0.role == .assistant }),
-               let index = messageManager.messages.firstIndex(where: { $0.id == lastAssistant.id }) {
-                for j in messageManager.messages[index].toolCalls.indices where !messageManager.messages[index].toolCalls[j].isComplete {
-                    messageManager.messages[index].toolCalls[j].isComplete = true
-                    messageManager.messages[index].toolCalls[j].completedAt = Date()
+            messageManager.batchUpdateMessages { msgs in
+                if let lastAssistant = msgs.last(where: { $0.role == .assistant }),
+                   let index = msgs.firstIndex(where: { $0.id == lastAssistant.id }) {
+                    for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
+                        msgs[index].toolCalls[j].isComplete = true
+                        msgs[index].toolCalls[j].completedAt = Date()
+                    }
                 }
             }
             return

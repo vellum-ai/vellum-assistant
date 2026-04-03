@@ -207,7 +207,8 @@ public final class ChatPaginationState {
         isLoadingMoreMessages = false
         recomputeVisibleMessages(from: messageManager.messages)
         // Re-subscribe so the Combine pipeline picks up messages from the new
-        // conversation. The old subscription is cancelled automatically.
+        // conversation. Cancel the old subscription explicitly for clarity.
+        messagesSub?.cancel()
         messagesSub = messageManager.messagesPublisher
             .dropFirst()
             .sink { [weak self] messages in

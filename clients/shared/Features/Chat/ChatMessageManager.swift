@@ -177,6 +177,11 @@ public final class ChatMessageManager {
             }
     }
 
+    deinit {
+        _deferredPublishTask?.cancel()
+        derivedValuesSub?.cancel()
+    }
+
     // MARK: - Input / send state
 
     public var inputText: String = ""
