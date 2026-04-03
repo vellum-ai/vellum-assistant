@@ -128,7 +128,7 @@ public final class ChatMessageManager {
     private func scheduleDeferredPublish() {
         guard _deferredPublishTask == nil else { return }
         _deferredPublishTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             self._deferredPublishTask = nil
             self._messagesSubject.send(self._messagesStorage)
         }
