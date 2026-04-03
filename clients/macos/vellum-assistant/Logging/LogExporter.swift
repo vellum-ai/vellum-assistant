@@ -300,6 +300,8 @@ enum LogExporter {
 
             if isManagedAssistant, let assistantId = connectedId,
                let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+                // TODO: fetchPlatformLogs does not yet support time-range filtering.
+                // The platform export API would need a startTime parameter to respect cutoffDate here.
                 await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
             } else {
                 let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global, cutoffDate: cutoffDate)
@@ -500,7 +502,8 @@ enum LogExporter {
                 let filtered = files.filter { url in
                     guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
                           let modDate = values.contentModificationDate else {
-                        return false
+                        // Include files whose modification date can't be read to avoid data loss
+                        return true
                     }
                     return modDate >= cutoffDate
                 }
