@@ -1097,13 +1097,15 @@ final class ConversationManager: ConversationRestorerDelegate {
     func handleNotificationIntentForExistingConversation(daemonConversationId: String) {
         guard let idx = listStore.conversations.firstIndex(where: { $0.conversationId == daemonConversationId }) else { return }
         let localId = listStore.conversations[idx].id
-        listStore.conversations[idx].lastInteractedAt = Date()
+        var conversation = listStore.conversations[idx]
+        conversation.lastInteractedAt = Date()
 
         if localId != selectionStore.activeConversationId {
-            listStore.conversations[idx].hasUnseenLatestAssistantMessage = true
-            listStore.conversations[idx].latestAssistantMessageAt = Date()
+            conversation.hasUnseenLatestAssistantMessage = true
+            conversation.latestAssistantMessageAt = Date()
             listStore.pendingSeenConversationIds.removeAll { $0 == daemonConversationId }
         }
+        listStore.conversations[idx] = conversation
 
         if let vm = selectionStore.chatViewModels[localId], !vm.isThinking, !vm.isSending {
             pendingNotificationCatchUpIds.remove(daemonConversationId)
@@ -1270,21 +1272,25 @@ final class ConversationManager: ConversationRestorerDelegate {
         if isNewMessage && !listStore.conversations[index].isBackgroundConversation {
             listStore.updateLastInteracted(conversationId: conversationId)
         }
-        if listStore.conversations[index].latestAssistantMessageAt == nil || isNewMessage {
-            listStore.conversations[index].latestAssistantMessageAt = Date()
+        var conversation = listStore.conversations[index]
+        if conversation.latestAssistantMessageAt == nil || isNewMessage {
+            conversation.latestAssistantMessageAt = Date()
         }
+        var shouldEmitSeenSignal = false
         if conversationId == selectionStore.activeConversationId {
-            if listStore.conversations[index].hasUnseenLatestAssistantMessage {
-                listStore.conversations[index].hasUnseenLatestAssistantMessage = false
+            if conversation.hasUnseenLatestAssistantMessage {
+                conversation.hasUnseenLatestAssistantMessage = false
             }
             let streamingJustCompleted = previousSnapshot?.isStreaming == true && !currentSnapshot.isStreaming
             if isNewMessage || streamingJustCompleted {
-                if let conversationId = listStore.conversations[index].conversationId {
-                    listStore.emitConversationSeenSignal(conversationId: conversationId)
-                }
+                shouldEmitSeenSignal = true
             }
-        } else if !listStore.conversations[index].hasUnseenLatestAssistantMessage {
-            listStore.conversations[index].hasUnseenLatestAssistantMessage = true
+        } else if !conversation.hasUnseenLatestAssistantMessage {
+            conversation.hasUnseenLatestAssistantMessage = true
+        }
+        listStore.conversations[index] = conversation
+        if shouldEmitSeenSignal, let daemonId = conversation.conversationId {
+            listStore.emitConversationSeenSignal(conversationId: daemonId)
         }
     }
 

@@ -313,16 +313,19 @@ final class ConversationListStore {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         // Remember the pre-pin groupId so unpin can restore the original group.
         prePinGroupIds[id] = conversations[index].groupId
-        conversations[index].groupId = ConversationGroup.pinned.id
+        var conversation = conversations[index]
+        conversation.groupId = ConversationGroup.pinned.id
         let maxOrder = conversations
             .filter { $0.groupId == ConversationGroup.pinned.id && $0.id != id }
             .compactMap(\.displayOrder).max() ?? -1
-        conversations[index].displayOrder = maxOrder + 1
+        conversation.displayOrder = maxOrder + 1
+        conversations[index] = conversation
         sendReorderConversations()
     }
 
     func unpinConversation(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        var conversation = conversations[index]
         // Restore the group the conversation belonged to before pinning.
         // Falls back to heuristic routing when no pre-pin groupId was recorded
         // (e.g. conversations pinned before this feature was added).
@@ -330,15 +333,16 @@ final class ConversationListStore {
            stored == nil || groups.contains(where: { $0.id == stored }) {
             // Restore the saved group only if it still exists (or was nil/ungrouped).
             // If the group was deleted while pinned, fall through to heuristics.
-            conversations[index].groupId = stored
-        } else if conversations[index].isScheduleConversation {
-            conversations[index].groupId = ConversationGroup.scheduled.id
-        } else if conversations[index].shouldReturnToBackgroundOnUnpin {
-            conversations[index].groupId = ConversationGroup.background.id
+            conversation.groupId = stored
+        } else if conversation.isScheduleConversation {
+            conversation.groupId = ConversationGroup.scheduled.id
+        } else if conversation.shouldReturnToBackgroundOnUnpin {
+            conversation.groupId = ConversationGroup.background.id
         } else {
-            conversations[index].groupId = nil
+            conversation.groupId = nil
         }
-        conversations[index].displayOrder = nil
+        conversation.displayOrder = nil
+        conversations[index] = conversation
         sendReorderConversations()
     }
 
@@ -351,19 +355,21 @@ final class ConversationListStore {
         if groupId == ConversationGroup.pinned.id {
             prePinGroupIds[conversationId] = conversations[index].groupId
         }
-        conversations[index].groupId = groupId
+        var conversation = conversations[index]
+        conversation.groupId = groupId
         if let groupId {
             // Place at the end of the target group by assigning max + 1.
             let maxOrder = conversations
                 .filter { $0.groupId == groupId && $0.id != conversationId }
                 .compactMap(\.displayOrder).max() ?? -1
-            conversations[index].displayOrder = maxOrder + 1
+            conversation.displayOrder = maxOrder + 1
         } else {
             // When ungrouping, clear displayOrder and bump lastInteractedAt so
             // the conversation appears at the top of the ungrouped list.
-            conversations[index].displayOrder = nil
-            conversations[index].lastInteractedAt = Date()
+            conversation.displayOrder = nil
+            conversation.lastInteractedAt = Date()
         }
+        conversations[index] = conversation
         sendReorderConversations()
     }
 

@@ -209,14 +209,22 @@ final class ConversationRestorer {
         // Seed groups from the response if available, otherwise fall back to system defaults.
         // This must run before the restoreRecentConversations guard so that users who
         // disable restore still get groups initialized for the session.
+        // Wrapped in an animation-suppressing transaction so SwiftUI doesn't
+        // compute diffing/animation for the groups-only update.
+        var groupTransaction = Transaction()
+        groupTransaction.disablesAnimations = true
         let daemonSupportsGroups: Bool
         if let responseGroups = response.groups, !responseGroups.isEmpty {
-            delegate.groups = responseGroups.map { ConversationGroup(from: $0) }
+            withTransaction(groupTransaction) {
+                delegate.groups = responseGroups.map { ConversationGroup(from: $0) }
+            }
             delegate.daemonSupportsGroups = true
             daemonSupportsGroups = true
         } else {
             if delegate.groups.isEmpty {
-                delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+                withTransaction(groupTransaction) {
+                    delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+                }
             }
             delegate.daemonSupportsGroups = false
             daemonSupportsGroups = false

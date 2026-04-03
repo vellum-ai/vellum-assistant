@@ -53,6 +53,7 @@ final class ConversationSelectionStore {
     /// Canonical entry point for switching to a conversation. Use
     /// ``performDeactivation()`` to clear the selection instead.
     func performActivation(for conversationId: UUID) {
+        guard conversationId != activeConversationId else { return }
         // Switching to a real conversation discards any draft.
         draftViewModel = nil
         activeConversationId = conversationId
