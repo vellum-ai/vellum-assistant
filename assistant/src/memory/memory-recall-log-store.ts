@@ -101,6 +101,8 @@ export interface MemoryRecallLog {
 export function normalizeTopCandidates(raw: unknown): unknown {
   if (!Array.isArray(raw)) return raw;
   return raw.map((entry: Record<string, unknown>) => {
+    if (!entry || typeof entry !== "object") return entry;
+
     // Start with a shallow copy, then apply field renames
     const { key, finalScore, semantic, recency, kind, ...rest } = entry;
 
