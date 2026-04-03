@@ -348,7 +348,8 @@ enum LogExporter {
             // 9. macOS crash/hang reports — recent .ips/.crash/.spin files for assistant-related processes
             collectCrashReports(
                 into: tempDir.appendingPathComponent("crash-reports", isDirectory: true),
-                fileManager: fileManager
+                fileManager: fileManager,
+                cutoffDate: cutoffDate
             )
         }
 
@@ -689,7 +690,8 @@ enum LogExporter {
     /// included, capped at 5 MB total (newest first).
     private nonisolated static func collectCrashReports(
         into dest: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        cutoffDate: Date? = nil
     ) {
         let home = NSHomeDirectory()
         let reportsDir = URL(fileURLWithPath: home)
@@ -702,7 +704,7 @@ enum LogExporter {
             options: [.skipsHiddenFiles]
         ) else { return }
 
-        let cutoff = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+        let cutoff = cutoffDate ?? Date().addingTimeInterval(-7 * 24 * 60 * 60)
 
         // Filter to matching files, then sort newest-first
         let matching = contents
