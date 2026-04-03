@@ -797,14 +797,17 @@ export class AnthropicProvider implements Provider {
       // This is the stable anchor for the current turn — everything up to
       // and including it won't change during tool-use iterations, so a long
       // TTL is appropriate. Walk backwards to find the last user message
-      // with a text block (skipping tool_result-only messages from tool
-      // loops).
+      // with a real text block (skipping tool_result-only messages and
+      // synthetic continuation placeholders injected by ensureToolPairing).
       let turnStartIdx = -1;
       for (let i = sentMessages.length - 1; i >= 0; i--) {
         const msg = sentMessages[i];
         if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
         const hasText = msg.content.some(
-          (b) => typeof b !== "string" && b.type === "text",
+          (b) =>
+            typeof b !== "string" &&
+            b.type === "text" &&
+            b.text !== SYNTHETIC_CONTINUATION_TEXT,
         );
         if (!hasText) continue;
         const lastBlock = msg.content[msg.content.length - 1];
