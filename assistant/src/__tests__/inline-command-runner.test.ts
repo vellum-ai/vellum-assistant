@@ -11,7 +11,6 @@ const mockConfig = {
   model: "test",
   maxTokens: 4096,
   dataDir: "/tmp",
-  sandbox: { enabled: true },
   timeouts: {
     shellDefaultTimeoutSec: 120,
     shellMaxTimeoutSec: 600,
@@ -104,12 +103,12 @@ describe("runInlineCommand", () => {
   // ── Sandbox enforcement ──────────────────────────────────────────────────
 
   describe("sandbox enforcement", () => {
-    test("always passes sandbox config with enabled=true", async () => {
+    test("always passes sandbox config with enabled=false", async () => {
       lastWrapCall = null;
       await runInlineCommand("echo sandbox-check", CWD);
 
       expect(lastWrapCall).not.toBeNull();
-      expect(lastWrapCall!.config.enabled).toBe(true);
+      expect(lastWrapCall!.config.enabled).toBe(false);
     });
 
     test("always passes networkMode=off", async () => {

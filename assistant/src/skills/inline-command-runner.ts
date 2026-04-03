@@ -1,8 +1,8 @@
 /**
- * Sandbox-only runner for inline command expansions (`!\`command\``).
+ * Runner for inline command expansions (`!\`command\``).
  *
- * Executes the literal command string in the sandbox without going through the
- * general `bash` tool's permission path. Security constraints:
+ * Executes the literal command string without going through the general `bash`
+ * tool's permission path. Security constraints:
  *
  * - Network mode forced off (no outbound connections)
  * - Sanitized environment variables only (no API keys, tokens, credentials)
@@ -90,7 +90,7 @@ export interface InlineCommandRunnerOptions {
 }
 
 /**
- * Run an inline command expansion in the sandbox.
+ * Run an inline command expansion.
  *
  * @param command  The literal command string from the `!\`...\`` token.
  * @param workingDir  The conversation's working directory (repo root).
