@@ -71,7 +71,7 @@ extension MessageListView {
                         scrollState.anchorSetTime = nil
                         scrollState.anchorTimeoutTask = nil
                         scrollState.transition(to: .followingBottom)
-                        withAnimation(VAnimation.fast) {
+                        _ = withAnimation(VAnimation.fast) {
                             scrollState.requestPinToBottom(animated: true, userInitiated: true)
                         }
                     }
@@ -301,7 +301,7 @@ extension MessageListView {
                 anchorMessageId = nil
                 scrollState.anchorSetTime = nil
                 scrollState.anchorTimeoutTask = nil
-                withAnimation(VAnimation.fast) {
+                _ = withAnimation(VAnimation.fast) {
                     scrollState.requestPinToBottom(animated: true, userInitiated: true)
                 }
             }
