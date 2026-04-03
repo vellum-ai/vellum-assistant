@@ -160,6 +160,7 @@ export class Conversation {
   /** @internal */ allowedToolNames?: Set<string>;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
+  /** @internal */ subagentAllowedTools?: Set<string>;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
@@ -538,6 +539,10 @@ export class Conversation {
 
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
+  }
+
+  setSubagentAllowedTools(tools: Set<string> | undefined): void {
+    this.subagentAllowedTools = tools;
   }
 
   isProcessing(): boolean {

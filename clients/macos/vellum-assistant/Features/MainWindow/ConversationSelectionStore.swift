@@ -25,35 +25,17 @@ final class ConversationSelectionStore {
 
     // MARK: - Selection State
 
-    /// The currently active conversation's local ID. Setting this triggers
-    /// ViewModel creation, history loading, and daemon notification.
-    var activeConversationId: UUID? {
+    /// The currently active conversation's local ID.
+    ///
+    /// The `didSet` performs only lightweight bookkeeping (UserDefaults persistence,
+    /// stale anchor clearing). Heavy side effects live in ``performActivation(for:)``
+    /// and ``performDeactivation()`` — callers must invoke those explicitly.
+    private(set) var activeConversationId: UUID? {
         didSet {
-            if let activeConversationId {
-                // Switching to a real conversation discards any draft
-                draftViewModel = nil
-
-                let activeViewModel = getOrCreateViewModel(for: activeConversationId)
-                activeViewModel?.ensureMessageLoopStarted()
-                onActiveConversationChanged?(activeConversationId)
-                // Only persist the active conversation ID if we're not in the middle of restoration.
-                if !isRestoringConversations {
-                    lastActiveConversationIdString = activeConversationId.uuidString
-                }
-                // Notify the daemon so it rebinds the socket to this conversation.
-                if let conversationId = activeViewModel?.conversationId {
-                    Task {
-                        let success = await listStore.conversationListClient.switchConversation(conversationId: conversationId)
-                        if !success {
-                            log.error("Failed to send conversation switch request")
-                        }
-                    }
-                }
-            } else {
-                // Only clear the persisted conversation ID outside of restoration.
-                if !isRestoringConversations {
-                    lastActiveConversationIdString = nil
-                }
+            // Persist selection (skip during restoration to avoid overwriting the
+            // saved value before restoreLastActiveConversation reads it).
+            if !isRestoringConversations {
+                lastActiveConversationIdString = activeConversationId?.uuidString
             }
             // Clear stale anchor when switching away from the conversation that
             // owns it — prevents the anchor from suppressing scroll-to-bottom
@@ -62,16 +44,47 @@ final class ConversationSelectionStore {
                 pendingAnchorMessageId = nil
                 pendingAnchorConversationId = nil
             }
-            // Observe the new active view model's message count via the @Observable store.
-            onActiveViewModelChanged?(activeViewModel?.messageManager)
+        }
+    }
 
-            // Manage periodic refresh polling for channel conversations.
-            if let activeConversationId {
-                startChannelRefreshIfNeeded(conversationId: activeConversationId)
-            } else {
-                stopChannelRefresh()
+    /// Activate a conversation: set ``activeConversationId``, create/retrieve the VM,
+    /// start the message loop, notify the daemon, and set up observation.
+    ///
+    /// Canonical entry point for switching to a conversation. Use
+    /// ``performDeactivation()`` to clear the selection instead.
+    func performActivation(for conversationId: UUID) {
+        guard conversationId != activeConversationId else { return }
+        // Switching to a real conversation discards any draft.
+        draftViewModel = nil
+        activeConversationId = conversationId
+
+        let vm = getOrCreateViewModel(for: conversationId)
+        vm?.ensureMessageLoopStarted()
+        onActiveConversationChanged?(conversationId)
+
+        // Notify the daemon so it rebinds the socket to this conversation.
+        if let serverConversationId = vm?.conversationId {
+            Task {
+                let success = await listStore.conversationListClient.switchConversation(conversationId: serverConversationId)
+                if !success {
+                    log.error("Failed to send conversation switch request")
+                }
             }
         }
+
+        // Observe the new active view model's message count via the @Observable store.
+        onActiveViewModelChanged?(activeViewModel?.messageManager)
+
+        // Manage periodic refresh polling for channel conversations.
+        startChannelRefreshIfNeeded(conversationId: conversationId)
+    }
+
+    /// Deactivate selection (e.g. entering draft mode): clear `activeConversationId`,
+    /// stop channel refresh, and notify observation.
+    func performDeactivation() {
+        activeConversationId = nil
+        onActiveViewModelChanged?(nil)
+        stopChannelRefresh()
     }
 
     // MARK: - Draft Mode
@@ -346,8 +359,10 @@ final class ConversationSelectionStore {
     // MARK: - Restoration
 
     /// Restore the last active conversation from UserDefaults after conversation restoration completes.
+    ///
+    /// If `handleConversationListResponse` already activated the correct conversation,
+    /// this is a no-op — `activeConversationId` already matches the saved UUID.
     func restoreLastActiveConversation() {
-        // After restoration finishes, re-run the active-conversation seen check.
         defer { onRestorationComplete?() }
 
         guard restoreRecentConversations else {
@@ -360,10 +375,15 @@ final class ConversationSelectionStore {
             return
         }
 
-        // Only restore if conversation exists and is visible (not archived)
+        // Only restore if conversation exists and is visible (not archived).
+        // Skip when already active to avoid redundant activation side effects.
         if listStore.conversations.contains(where: { $0.id == savedUUID && !$0.isArchived }) {
-            activeConversationId = savedUUID
-            log.info("Restored last active conversation: \(savedUUID)")
+            if activeConversationId != savedUUID {
+                performActivation(for: savedUUID)
+                log.info("Restored last active conversation: \(savedUUID)")
+            } else {
+                log.info("Last active conversation \(savedUUID) already active, skipping")
+            }
         } else {
             lastActiveConversationIdString = nil
             log.info("Saved conversation not found, falling back to default")

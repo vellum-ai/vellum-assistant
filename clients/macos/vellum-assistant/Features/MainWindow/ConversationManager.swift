@@ -109,9 +109,12 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.restoreRecentConversations
     }
 
+    var lastActiveConversationIdString: String? {
+        selectionStore.lastActiveConversationIdString
+    }
+
     var activeConversationId: UUID? {
-        get { selectionStore.activeConversationId }
-        set { selectionStore.activeConversationId = newValue }
+        selectionStore.activeConversationId
     }
 
     var draftViewModel: ChatViewModel? {
@@ -303,7 +306,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             vm.prepareForChannelRefresh()
         }
 
-        selectionStore.activeConversationId = id
+        selectionStore.performActivation(for: id)
 
         // Emit explicit seen signal for user-initiated conversation activation.
         // Skip during conversation restoration to avoid false "seen" signals on bootstrap.
@@ -472,7 +475,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             self?.promoteDraft(fromUserSend: true)
         }
         selectionStore.draftViewModel = viewModel
-        selectionStore.activeConversationId = nil
+        selectionStore.performDeactivation()
         activityStore.observeActiveViewModel(viewModel.messageManager)
         log.info("Entered draft mode")
     }
@@ -508,7 +511,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             self?.listStore.updateLastInteracted(conversationId: localId)
         }
 
-        selectionStore.activeConversationId = conversation.id
+        selectionStore.performActivation(for: conversation.id)
         listStore.updateLastInteracted(conversationId: conversation.id)
         log.info("Promoted draft to conversation \(conversation.id)")
     }
@@ -532,7 +535,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         activityStore.observeInteractionState(for: conversation.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
         selectionStore.touchVMAccessOrder(conversation.id)
         selectionStore.scheduleEvictionIfNeeded()
-        selectionStore.activeConversationId = conversation.id
+        selectionStore.performActivation(for: conversation.id)
         viewModel.createConversationIfNeeded(conversationType: "private")
         log.info("Created private conversation \(conversation.id)")
     }
@@ -631,9 +634,11 @@ final class ConversationManager: ConversationRestorerDelegate {
         ConversationSelectionStore.clearRenderCaches()
         if selectionStore.activeConversationId == id {
             if index < listStore.conversations.count {
-                selectionStore.activeConversationId = listStore.conversations[index].id
+                selectionStore.performActivation(for: listStore.conversations[index].id)
+            } else if let lastId = listStore.conversations.last?.id {
+                selectionStore.performActivation(for: lastId)
             } else {
-                selectionStore.activeConversationId = listStore.conversations.last?.id
+                selectionStore.performDeactivation()
             }
         }
         log.info("Closed conversation \(id)")
@@ -672,12 +677,12 @@ final class ConversationManager: ConversationRestorerDelegate {
         if listStore.visibleConversations.isEmpty {
             enterDraftMode()
         } else if selectionStore.activeConversationId == id {
-            let visibleAfter = listStore.conversations[index...].dropFirst().first(where: { !$0.isArchived })
-            let visibleBefore = listStore.conversations[..<index].last(where: { !$0.isArchived })
+            let visibleAfter = listStore.conversations[index...].dropFirst().first(where: { !$0.isArchived && $0.kind != .private })
+            let visibleBefore = listStore.conversations[..<index].last(where: { !$0.isArchived && $0.kind != .private })
             if let next = visibleAfter ?? visibleBefore {
-                selectionStore.activeConversationId = next.id
-            } else {
-                selectionStore.activeConversationId = listStore.visibleConversations.first?.id
+                selectionStore.performActivation(for: next.id)
+            } else if let firstVisibleId = listStore.visibleConversations.first?.id {
+                selectionStore.performActivation(for: firstVisibleId)
             }
         }
 
@@ -723,7 +728,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             vm.prepareForChannelRefresh()
         }
 
-        selectionStore.activeConversationId = id
+        selectionStore.performActivation(for: id)
 
         if id != previousActiveId {
             listStore.markConversationSeen(conversationId: id)
@@ -935,7 +940,9 @@ final class ConversationManager: ConversationRestorerDelegate {
             if listStore.visibleConversations.isEmpty {
                 enterDraftMode()
             } else {
-                selectionStore.activeConversationId = listStore.visibleConversations.first?.id
+                if let firstVisibleId = listStore.visibleConversations.first?.id {
+                    selectionStore.performActivation(for: firstVisibleId)
+                }
             }
         } else if listStore.visibleConversations.isEmpty {
             enterDraftMode()
@@ -1090,13 +1097,15 @@ final class ConversationManager: ConversationRestorerDelegate {
     func handleNotificationIntentForExistingConversation(daemonConversationId: String) {
         guard let idx = listStore.conversations.firstIndex(where: { $0.conversationId == daemonConversationId }) else { return }
         let localId = listStore.conversations[idx].id
-        listStore.conversations[idx].lastInteractedAt = Date()
+        var conversation = listStore.conversations[idx]
+        conversation.lastInteractedAt = Date()
 
         if localId != selectionStore.activeConversationId {
-            listStore.conversations[idx].hasUnseenLatestAssistantMessage = true
-            listStore.conversations[idx].latestAssistantMessageAt = Date()
+            conversation.hasUnseenLatestAssistantMessage = true
+            conversation.latestAssistantMessageAt = Date()
             listStore.pendingSeenConversationIds.removeAll { $0 == daemonConversationId }
         }
+        listStore.conversations[idx] = conversation
 
         if let vm = selectionStore.chatViewModels[localId], !vm.isThinking, !vm.isSending {
             pendingNotificationCatchUpIds.remove(daemonConversationId)
@@ -1263,21 +1272,25 @@ final class ConversationManager: ConversationRestorerDelegate {
         if isNewMessage && !listStore.conversations[index].isBackgroundConversation {
             listStore.updateLastInteracted(conversationId: conversationId)
         }
-        if listStore.conversations[index].latestAssistantMessageAt == nil || isNewMessage {
-            listStore.conversations[index].latestAssistantMessageAt = Date()
+        var conversation = listStore.conversations[index]
+        if conversation.latestAssistantMessageAt == nil || isNewMessage {
+            conversation.latestAssistantMessageAt = Date()
         }
+        var shouldEmitSeenSignal = false
         if conversationId == selectionStore.activeConversationId {
-            if listStore.conversations[index].hasUnseenLatestAssistantMessage {
-                listStore.conversations[index].hasUnseenLatestAssistantMessage = false
+            if conversation.hasUnseenLatestAssistantMessage {
+                conversation.hasUnseenLatestAssistantMessage = false
             }
             let streamingJustCompleted = previousSnapshot?.isStreaming == true && !currentSnapshot.isStreaming
             if isNewMessage || streamingJustCompleted {
-                if let conversationId = listStore.conversations[index].conversationId {
-                    listStore.emitConversationSeenSignal(conversationId: conversationId)
-                }
+                shouldEmitSeenSignal = true
             }
-        } else if !listStore.conversations[index].hasUnseenLatestAssistantMessage {
-            listStore.conversations[index].hasUnseenLatestAssistantMessage = true
+        } else if !conversation.hasUnseenLatestAssistantMessage {
+            conversation.hasUnseenLatestAssistantMessage = true
+        }
+        listStore.conversations[index] = conversation
+        if shouldEmitSeenSignal, let daemonId = conversation.conversationId {
+            listStore.emitConversationSeenSignal(conversationId: daemonId)
         }
     }
 
