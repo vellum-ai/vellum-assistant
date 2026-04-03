@@ -562,7 +562,7 @@ enum LogExporter {
     /// are handled consistently for both local and managed assistants.
     @discardableResult
     private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope) async -> Bool {
-        var body: [String: Any] = ["auditLimit": 10000]
+        var body: [String: Any] = ["auditLimit": 1000]
         if case .conversation(let conversationId, _, let startTime, let endTime) = scope {
             body["conversationId"] = conversationId
             if let startTime {
