@@ -336,8 +336,11 @@ final class ConversationManager: ConversationRestorerDelegate {
             defaults.removeObject(forKey: "lastActiveThreadId")
         }
 
-        // Phase 2: Migrate unscoped keys to per-assistant scoped keys.
-        // Only runs once per assistant; the unscoped keys are removed after migration.
+        // Phase 2: Copy unscoped keys into per-assistant scoped keys.
+        // Unscoped keys are intentionally preserved as a read-only fallback so that
+        // switching to a second assistant can still pick up its archived state.
+        // Conversation IDs are unique per assistant, so stale IDs from other
+        // assistants in the unscoped key are harmless (they never match).
         let assistantId = currentAssistantScope()
         guard !assistantId.isEmpty else { return }
 
@@ -345,25 +348,21 @@ final class ConversationManager: ConversationRestorerDelegate {
         if let value = defaults.string(forKey: "lastActiveConversationId"),
            defaults.string(forKey: scopedLastActive) == nil {
             defaults.set(value, forKey: scopedLastActive)
-            defaults.removeObject(forKey: "lastActiveConversationId")
         }
 
         let scopedCompleted = scopedKey("completedConversationCount")
         let unscopedCompleted = defaults.integer(forKey: "completedConversationCount")
         if unscopedCompleted != 0, defaults.object(forKey: scopedCompleted) == nil {
             defaults.set(unscopedCompleted, forKey: scopedCompleted)
-            defaults.removeObject(forKey: "completedConversationCount")
         }
 
-        // Migrate archived conversation IDs.
+        // Copy archived conversation IDs into the scoped key.
         let legacyArchived = defaults.stringArray(forKey: archivedConversationsKey) ?? []
         let newerArchived = defaults.stringArray(forKey: archivedConversationsNewKey) ?? []
         let mergedArchived = Array(Set(legacyArchived).union(Set(newerArchived)))
         let scopedArchivedKey = scopedKey(archivedConversationsKey)
         if !mergedArchived.isEmpty, defaults.stringArray(forKey: scopedArchivedKey) == nil {
             defaults.set(mergedArchived, forKey: scopedArchivedKey)
-            defaults.removeObject(forKey: archivedConversationsKey)
-            defaults.removeObject(forKey: archivedConversationsNewKey)
         }
     }
 
@@ -2402,33 +2401,15 @@ final class ConversationManager: ConversationRestorerDelegate {
         get {
             let key = scopedKey(archivedConversationsKey)
             let scoped = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
-            // Also check unscoped legacy/newer keys for backwards compatibility
-            // with data that wasn't migrated (e.g. no assistant was connected at launch).
+            // Also merge from unscoped legacy/newer keys as a read-only fallback.
+            // Conversation IDs are unique per assistant, so stale IDs from other
+            // assistants are harmless — they never match any local conversation.
             let legacy = Set(UserDefaults.standard.stringArray(forKey: archivedConversationsKey) ?? [])
             let newer = Set(UserDefaults.standard.stringArray(forKey: archivedConversationsNewKey) ?? [])
-            let merged = scoped.union(legacy).union(newer)
-            // Consolidate everything into the scoped key and clean up unscoped keys.
-            // Only remove unscoped keys when scope is non-empty, otherwise the
-            // scoped key IS the unscoped key and we'd delete our own data.
-            let hasScope = !currentAssistantScope().isEmpty
-            if hasScope, !legacy.isEmpty || !newer.isEmpty {
-                UserDefaults.standard.set(Array(merged), forKey: key)
-                UserDefaults.standard.removeObject(forKey: archivedConversationsKey)
-                UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
-            } else if !newer.isEmpty {
-                // Unscoped: still consolidate newer → legacy key (pre-existing migration).
-                UserDefaults.standard.set(Array(merged), forKey: key)
-                UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
-            }
-            return merged
+            return scoped.union(legacy).union(newer)
         }
         set {
             UserDefaults.standard.set(Array(newValue), forKey: scopedKey(archivedConversationsKey))
-            // Clean up unscoped keys only when a scope exists.
-            if !currentAssistantScope().isEmpty {
-                UserDefaults.standard.removeObject(forKey: archivedConversationsKey)
-            }
-            UserDefaults.standard.removeObject(forKey: archivedConversationsNewKey)
         }
     }
 
