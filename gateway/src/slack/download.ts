@@ -41,7 +41,9 @@ export async function downloadSlackFile(
       );
     }
     // CDN redirect URLs are signed — no Authorization needed.
-    response = await fetchImpl(location, {
+    // Resolve against the original URL to handle relative Location headers.
+    const resolvedLocation = new URL(location, url).href;
+    response = await fetchImpl(resolvedLocation, {
       signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
     });
   }
