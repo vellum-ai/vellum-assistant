@@ -3,15 +3,8 @@ import Observation
 import VellumAssistantShared
 
 /// Owns per-conversation activity state (busy flags, interaction states, active
-/// message count) on an `@Observable` class so SwiftUI views get **property-level**
-/// tracking instead of the broad `objectWillChange` signal that
-/// `ObservableObject` emits.
-///
-/// Before this extraction, `ConversationManager` held these values as `@Published`
-/// properties. Every message-stream token, every send/think toggle wrote to a
-/// `@Published` var → fired `objectWillChange` → invalidated the entire view tree
-/// rooted at `MainWindowView`. Moving the high-churn state here breaks that
-/// cascade: only views that actually read a specific property re-evaluate.
+/// message count) as a focused `@Observable` store, giving SwiftUI views
+/// property-level tracking so only views reading a specific property re-evaluate.
 ///
 /// Observation is done via `withObservationTracking` loops that read directly from
 /// `ChatMessageManager` and `ChatErrorManager` `@Observable` properties. Each loop
@@ -36,8 +29,7 @@ final class ConversationActivityStore {
     private(set) var conversationInteractionStates: [UUID: ConversationInteractionState] = [:]
 
     /// Message count of the active conversation's view model.
-    /// Views that need to react to new messages observe this instead of
-    /// subscribing to ConversationManager.objectWillChange.
+    /// Views that need to react to new messages observe this property directly.
     private(set) var activeMessageCount: Int = 0
 
     // MARK: - Observation lifecycle
