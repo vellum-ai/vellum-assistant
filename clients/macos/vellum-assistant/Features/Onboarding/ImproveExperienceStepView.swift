@@ -13,9 +13,9 @@ struct ImproveExperienceStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool ?? true
-    @State private var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool ?? true
-    @State private var tosAccepted: Bool = UserDefaults.standard.bool(forKey: "tosAccepted")
+    @AppStorage("collectUsageData") private var collectUsageData: Bool = true
+    @AppStorage("sendDiagnostics") private var sendDiagnostics: Bool = true
+    @AppStorage("tosAccepted") private var tosAccepted: Bool = false
 
     var body: some View {
         Text("Before You Start")
@@ -60,10 +60,10 @@ struct ImproveExperienceStepView: View {
 
                 // ToS consent checkbox
                 VCard {
-                    HStack(spacing: VSpacing.md) {
-                        VCheckbox(isOn: $tosAccepted)
+                    Toggle(isOn: $tosAccepted) {
                         tosConsentText
                     }
+                    .toggleStyle(CheckboxToggleStyle())
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
@@ -119,9 +119,10 @@ struct ImproveExperienceStepView: View {
     // MARK: - Actions
 
     private func saveAndContinue() {
-        UserDefaults.standard.set(collectUsageData, forKey: "collectUsageData")
-        UserDefaults.standard.set(sendDiagnostics, forKey: "sendDiagnostics")
-        UserDefaults.standard.set(true, forKey: "tosAccepted")
+        // @AppStorage already persists collectUsageData, sendDiagnostics, and
+        // tosAccepted. Explicitly set tosAccepted = true here as a safeguard
+        // so acceptance is recorded even if the user somehow bypasses the toggle.
+        tosAccepted = true
 
         if sendDiagnostics {
             MetricKitManager.startSentry()
@@ -144,43 +145,44 @@ struct ImproveExperienceStepView: View {
     }
 }
 
-// MARK: - Checkbox
+// MARK: - Checkbox Toggle Style
 
-/// A styled checkbox matching the V* component aesthetic: primary-filled with
-/// white checkmark when checked, outlined rounded square when unchecked.
-private struct VCheckbox: View {
-    @Binding var isOn: Bool
-
+/// A ToggleStyle that renders as a checkbox matching the design system aesthetic:
+/// primary-filled with white checkmark when on, outlined rounded square when off.
+private struct CheckboxToggleStyle: ToggleStyle {
     private let size: CGFloat = 20
     private let cornerRadius: CGFloat = VRadius.sm
 
-    var body: some View {
-        Button {
-            isOn.toggle()
-        } label: {
-            ZStack {
-                if isOn {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(VColor.primaryBase)
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: VSpacing.md) {
+            checkboxIndicator(isOn: configuration.isOn)
 
-                    VIconView(.check, size: 12)
-                        .foregroundStyle(VColor.auxWhite)
-                } else {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(Color.clear)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: cornerRadius)
-                                .stroke(VColor.borderBase, lineWidth: 1.5)
-                        )
-                }
-            }
-            .frame(width: size, height: size)
-            .contentShape(Rectangle())
+            configuration.label
         }
-        .buttonStyle(.plain)
-        .animation(VAnimation.fast, value: isOn)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(VAnimation.fast) {
+                configuration.isOn.toggle()
+            }
+        }
         .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
-        .accessibilityValue(isOn ? "Checked" : "Unchecked")
-        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(configuration.isOn ? "Checked" : "Unchecked")
+    }
+
+    private func checkboxIndicator(isOn: Bool) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(isOn ? VColor.primaryBase : Color.clear)
+
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .strokeBorder(isOn ? Color.clear : VColor.borderBase, lineWidth: 1.5)
+
+            if isOn {
+                VIconView(.check, size: 12)
+                    .foregroundStyle(VColor.auxWhite)
+            }
+        }
+        .frame(width: size, height: size)
+        .animation(VAnimation.fast, value: isOn)
     }
 }
