@@ -121,13 +121,6 @@ export async function events(): Promise<void> {
 
   const client = new AssistantClient({ assistantId });
 
-  const queryParams = new URLSearchParams();
-  if (conversationKey) {
-    queryParams.set("conversationKey", conversationKey);
-  }
-  const queryString = queryParams.toString();
-  const path = `/events${queryString ? `?${queryString}` : ""}`;
-
   // Use an explicit AbortController so we can clean up on SIGINT
   const controller = new AbortController();
   process.on("SIGINT", () => {
@@ -135,61 +128,19 @@ export async function events(): Promise<void> {
     process.exit(0);
   });
 
-  const response = await client.get(path, {
+  const query: Record<string, string> = {};
+  if (conversationKey) {
+    query.conversationKey = conversationKey;
+  }
+
+  for await (const event of client.stream<AssistantEvent>("/events", {
     signal: controller.signal,
-    headers: { Accept: "text/event-stream" },
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    console.error(
-      `Error: HTTP ${response.status}: ${body || response.statusText}`,
-    );
-    process.exit(1);
-  }
-
-  if (!response.body) {
-    console.error("Error: No response body received.");
-    process.exit(1);
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  for await (const chunk of response.body) {
-    buffer += decoder.decode(chunk, { stream: true });
-
-    // Process complete SSE frames (delimited by double newlines)
-    let boundary: number;
-    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-      const frame = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-
-      // Skip heartbeat comments and empty frames
-      if (!frame.trim() || frame.startsWith(":")) continue;
-
-      // Parse SSE fields
-      let data: string | undefined;
-      for (const line of frame.split("\n")) {
-        if (line.startsWith("data: ")) {
-          data = line.slice(6);
-        }
-      }
-
-      if (!data) continue;
-
-      let event: AssistantEvent;
-      try {
-        event = JSON.parse(data) as AssistantEvent;
-      } catch {
-        continue;
-      }
-
-      if (jsonOutput) {
-        console.log(JSON.stringify(event));
-      } else {
-        renderMarkdown(event);
-      }
+    query,
+  })) {
+    if (jsonOutput) {
+      console.log(JSON.stringify(event));
+    } else {
+      renderMarkdown(event);
     }
   }
 }
