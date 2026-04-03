@@ -14,8 +14,8 @@ import VellumAssistantShared
 /// cascade: only views that actually read a specific property re-evaluate.
 ///
 /// Observation is done via `withObservationTracking` loops that read directly from
-/// `ChatMessageManager` and `ChatErrorManager` `@Observable` properties — no
-/// Combine bridge publishers are needed. Each loop is guarded by a generation
+/// `ChatMessageManager` and `ChatErrorManager` `@Observable` properties. Each loop
+/// re-arms itself on change and is guarded by a generation
 /// counter so it can be cleanly invalidated when a conversation is switched,
 /// closed, or archived.
 ///
@@ -104,10 +104,9 @@ final class ConversationActivityStore {
     /// Begin observing busy-state properties on a ChatViewModel's message manager.
     ///
     /// Uses `withObservationTracking` to read `isSending`, `isThinking`, and
-    /// `pendingQueuedCount` directly from the `@Observable` ChatMessageManager,
-    /// bypassing the Combine bridge publishers entirely. The observation loop
-    /// re-arms itself on each change and is invalidated via generation counter
-    /// when the conversation is unsubscribed.
+    /// `pendingQueuedCount` directly from the `@Observable` ChatMessageManager.
+    /// The observation loop re-arms itself on each change and is invalidated
+    /// via generation counter when the conversation is unsubscribed.
     func observeBusyState(for conversationId: UUID, messageManager: ChatMessageManager) {
         let generation = (busyGenerations[conversationId] ?? 0) + 1
         busyGenerations[conversationId] = generation
@@ -118,8 +117,7 @@ final class ConversationActivityStore {
     ///
     /// Reads from both `ChatMessageManager` and `ChatErrorManager` in a single
     /// `withObservationTracking` closure, so a change to any tracked property
-    /// triggers re-evaluation. This replaces the CombineLatest4 + error bridge
-    /// Subject pipeline that previously existed on ConversationManager.
+    /// triggers re-evaluation.
     func observeInteractionState(
         for conversationId: UUID,
         messageManager: ChatMessageManager,

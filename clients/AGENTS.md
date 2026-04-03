@@ -88,7 +88,7 @@ These classes stay `ObservableObject` because they have deep Combine integration
 |---|---|
 | `SettingsStore` | Heavy `UserDefaults.publisher` + Combine pipelines |
 | `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
-| `VoiceModeManager` | Complex Combine pipelines (audio streams, state machine transitions) |
+| `VoiceModeManager` | `@Published` state machine properties consumed by SwiftUI views; audio stream delegates |
 | `GatewayConnectionManager` | Combine-based SSE event stream processing |
 | `RecordingManager` | Audio capture Combine pipelines |
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |

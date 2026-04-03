@@ -587,6 +587,10 @@ final class VoiceModeManager: ObservableObject {
 
     private func observeMessages(generation: Int, messageManager: ChatMessageManager) {
         guard generation == voiceObservationGeneration else { return }
+        // Check current state immediately so confirmations already pending
+        // before voice activation are spoken without waiting for the next
+        // messages mutation.
+        checkForConfirmations(in: messageManager.messages)
         withObservationTracking {
             _ = messageManager.messages
         } onChange: { [weak self, weak messageManager] in
