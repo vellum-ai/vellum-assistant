@@ -90,6 +90,7 @@ public final class GatewayConnectionManager: ObservableObject {
     /// Number of consecutive successful health checks. Used to suppress
     /// repetitive "Health check passed" logs after the first three passes.
     private var consecutiveHealthCheckSuccesses = 0
+    private let permissionModeClient: any PermissionModeClientProtocol = PermissionModeClient()
 
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = isUpdateInProgress
@@ -749,14 +750,10 @@ public final class GatewayConnectionManager: ObservableObject {
     private func fetchInitialPermissionMode() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            do {
-                let response = try await GatewayHTTPClient.get(path: "permission-mode", quiet: true)
-                guard response.isSuccess else { return }
-                let decoded = try JSONDecoder().decode(PermissionModeUpdateMessage.self, from: response.data)
-                self.permissionMode = decoded
-            } catch {
-                // Non-critical — SSE events will sync state once available.
+            if let mode = await permissionModeClient.fetchPermissionMode() {
+                self.permissionMode = mode
             }
+            // Non-critical — SSE events will sync state once available.
         }
     }
 

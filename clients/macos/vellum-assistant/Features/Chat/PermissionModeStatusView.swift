@@ -10,13 +10,14 @@ import VellumAssistantShared
 /// The view is feature-flag gated on `permission-controls-v2`.
 struct PermissionModeStatusView: View {
     @ObservedObject var connectionManager: GatewayConnectionManager
+    private let permissionModeClient: any PermissionModeClientProtocol = PermissionModeClient()
 
     private var askBeforeActing: Bool {
-        connectionManager.permissionMode?.askBeforeActing ?? true
+        connectionManager.permissionMode?.askBeforeActing ?? PermissionModeDefaults.askBeforeActing
     }
 
     private var hostAccess: Bool {
-        connectionManager.permissionMode?.hostAccess ?? false
+        connectionManager.permissionMode?.hostAccess ?? PermissionModeDefaults.hostAccess
     }
 
     var body: some View {
@@ -97,7 +98,7 @@ struct PermissionModeStatusView: View {
 
     private func updateMode(askBeforeActing: Bool? = nil, hostAccess: Bool? = nil) {
         Task {
-            _ = await PermissionModeClient().updatePermissionMode(
+            _ = await permissionModeClient.updatePermissionMode(
                 askBeforeActing: askBeforeActing,
                 hostAccess: hostAccess
             )

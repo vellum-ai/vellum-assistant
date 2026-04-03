@@ -548,8 +548,8 @@ struct MainWindowView: View {
     ///
     /// Tapping opens the `PermissionModeStatusView` popover.
     private var permissionModeIndicator: some View {
-        let askBeforeActing = connectionManager.permissionMode?.askBeforeActing ?? true
-        let hostAccess = connectionManager.permissionMode?.hostAccess ?? false
+        let askBeforeActing = connectionManager.permissionMode?.askBeforeActing ?? PermissionModeDefaults.askBeforeActing
+        let hostAccess = connectionManager.permissionMode?.hostAccess ?? PermissionModeDefaults.hostAccess
 
         let iconName: String
         let iconColor: Color
