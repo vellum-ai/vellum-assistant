@@ -70,7 +70,7 @@ const interfaceIdSchema = z.enum(INTERFACE_IDS);
 const subagentNotificationSchema = z.object({
   subagentId: z.string(),
   label: z.string(),
-  status: z.enum(["completed", "failed", "aborted"]),
+  status: z.enum(["running", "completed", "failed", "aborted"]),
   error: z.string().optional(),
   conversationId: z.string().optional(),
 });
