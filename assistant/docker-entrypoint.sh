@@ -6,4 +6,6 @@ if [ "$(id -u)" = "0" ] && [ "${VELLUM_WORKSPACE_DIR:-}" = "/workspace" ] && [ -
   git config --global --add safe.directory '/workspace/*' >/dev/null 2>&1 || true
 fi
 
-exec bun --smol run src/daemon/main.ts
+export BUN_CONFIG_FILE="/app/assistant/smol-bunfig.toml"
+
+exec bun run src/daemon/main.ts

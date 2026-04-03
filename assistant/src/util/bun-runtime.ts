@@ -14,26 +14,63 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { arch, homedir, platform } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { getLogger } from "./logger.js";
-import { getBinDir } from "./platform.js";
+import { getBinDir, getWorkspaceDir } from "./platform.js";
 
 const log = getLogger("bun-runtime");
 
 /** Pinned bun version to download when no system bun is available. */
 const BUN_VERSION = "1.2.0";
+const ASSISTANT_BUN_CONFIG_CONTENT = "smol = true\n";
 
 /** Module-level cache so we only resolve/download once per process. */
 let cachedBunPath: string | undefined;
 
 /** In-flight download promise to deduplicate concurrent callers. */
 let inflightDownload: Promise<string> | undefined;
+
+/**
+ * Force Bun child processes to load the assistant's smol config even when they
+ * run from a different working directory.
+ */
+export function applyAssistantBunConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  env.BUN_CONFIG_FILE = getAssistantBunConfigPath();
+  return env;
+}
+
+function getAssistantBunConfigPath(): string {
+  const sourceConfigPath = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "smol-bunfig.toml",
+  );
+  if (existsSync(sourceConfigPath)) {
+    return sourceConfigPath;
+  }
+
+  const managedConfigPath = join(getWorkspaceDir(), "assistant-bunfig.toml");
+  mkdirSync(dirname(managedConfigPath), { recursive: true });
+
+  const existing = existsSync(managedConfigPath)
+    ? readFileSync(managedConfigPath, "utf-8")
+    : undefined;
+  if (existing !== ASSISTANT_BUN_CONFIG_CONTENT) {
+    writeFileSync(managedConfigPath, ASSISTANT_BUN_CONFIG_CONTENT);
+  }
+
+  return managedConfigPath;
+}
 
 /**
  * Return a path to a usable `bun` binary, downloading one if necessary.
