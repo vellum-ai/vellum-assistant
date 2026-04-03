@@ -206,6 +206,11 @@ export interface OpenUrl {
   title?: string;
 }
 
+export interface CopyToClipboard {
+  type: "copy_to_clipboard";
+  text: string;
+}
+
 export interface NavigateSettings {
   type: "navigate_settings";
   tab: string;
@@ -245,6 +250,7 @@ export type _IntegrationsServerMessages =
   | IntegrationConnectResult
   | OAuthConnectResultResponse
   | OpenUrl
+  | CopyToClipboard
   | NavigateSettings
   | ShowPlatformLogin
   | PlatformDisconnected;

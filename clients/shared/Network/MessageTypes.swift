@@ -752,6 +752,10 @@ extension DictationRequest {
 /// Backed by generated `OpenUrl`.
 public typealias OpenUrlMessage = OpenUrl
 
+/// Instructs the client to copy text to the system clipboard.
+/// Backed by generated `CopyToClipboard`.
+public typealias CopyToClipboardMessage = CopyToClipboard
+
 
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
@@ -2184,6 +2188,7 @@ public enum ServerMessage: Decodable, Sendable {
     case documentListResponse(DocumentListResponseMessage)
     case assistantStatus(AssistantStatusMessage)
     case openUrl(OpenUrlMessage)
+    case copyToClipboard(CopyToClipboardMessage)
     case navigateSettings(NavigateSettings)
     case showPlatformLogin(ShowPlatformLogin)
     case platformDisconnected(PlatformDisconnected)
@@ -2501,6 +2506,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)
+        case "copy_to_clipboard":
+            let message = try CopyToClipboardMessage(from: decoder)
+            self = .copyToClipboard(message)
         case "navigate_settings":
             let message = try NavigateSettings(from: decoder)
             self = .navigateSettings(message)
