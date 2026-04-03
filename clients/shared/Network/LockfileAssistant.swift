@@ -270,6 +270,8 @@ public struct LockfileAssistant {
         // we still need to write so the data migrates to the primary path.
         if previousId == id, loadedFromPrimary { return true }
 
+        let valueChanged = previousId != id
+
         if let id {
             lockfile["activeAssistant"] = id
         } else {
@@ -301,8 +303,12 @@ public struct LockfileAssistant {
 
             try data.write(to: fileURL, options: .atomic)
 
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: activeAssistantDidChange, object: nil)
+            // Only notify when the value actually changed. Migration-only
+            // writes (legacy → primary with same value) should not fire.
+            if valueChanged {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: activeAssistantDidChange, object: nil)
+                }
             }
             return true
         } catch {
