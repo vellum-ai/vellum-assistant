@@ -244,7 +244,7 @@ Deletion triggers:
 
 If onboarding was partial, that's fine. IDENTITY.md, SOUL.md, and USER.md persist. You can organically pick up incomplete personalization in future conversations by checking those files, without replaying the bootstrap script.
 
-If you still haven't shown the two suggestions (Phase 2 step 4), try to fit them in before wrapping, but do NOT let that block deletion of BOOTSTRAP.md.
+If you still haven't shown the two suggestions (Phase 2 step 5), try to fit them in before wrapping, but do NOT let that block deletion of BOOTSTRAP.md.
 
 ---
 
