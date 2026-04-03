@@ -19,9 +19,9 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatM
 /// `messages` and `isThinking` use custom getters/setters that participate in
 /// the Observation framework via `access(keyPath:)` / `withMutation(keyPath:)`
 /// while simultaneously publishing to Combine `CurrentValueSubject`s. This
-/// eliminates the `withObservationTracking` → `Task { @MainActor }` re-entrancy
-/// loops that previously bridged Observable → Combine, which caused cascading
-/// SwiftUI transaction flushes and main-thread hangs.
+/// dual-channel approach lets SwiftUI views track property access for
+/// fine-grained invalidation while Combine subscribers (pagination, voice
+/// mode, conversation manager, iOS store) receive the same updates.
 ///
 /// - SeeAlso: [Observation framework — custom access](https://developer.apple.com/documentation/observation)
 /// - SeeAlso: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
@@ -33,8 +33,7 @@ public final class ChatMessageManager {
     /// The full message array. The custom getter/setter participates in the
     /// Observation framework (`access`/`withMutation`) while also pushing
     /// every mutation through `_messagesSubject` so Combine subscribers
-    /// (pagination, voice mode, conversation manager, iOS store) stay in sync
-    /// without a `withObservationTracking` bridge loop.
+    /// (pagination, voice mode, conversation manager, iOS store) stay in sync.
     public var messages: [ChatMessage] {
         get {
             access(keyPath: \.messages)
@@ -113,8 +112,6 @@ public final class ChatMessageManager {
         // Derive cached values from `messagesPublisher` using Combine pipelines
         // with `.removeDuplicates()`. Each pipeline coalesces rapid updates and
         // only writes to the stored property when the derived value changes.
-        // This replaces the previous `withObservationTracking` loops that caused
-        // cascading `Task { @MainActor }` re-entrancy on every `messages` mutation.
 
         // Uses visibleMessages (all non-hidden) rather than paginatedMessages
         // because pending confirmations are always near the end of the list,
@@ -165,7 +162,7 @@ public final class ChatMessageManager {
 
     /// Whether the assistant is in a "thinking" phase. Like `messages`, the
     /// custom setter publishes directly to `_isThinkingSubject` so Combine
-    /// subscribers stay in sync without a bridge loop.
+    /// subscribers stay in sync.
     public var isThinking: Bool {
         get {
             access(keyPath: \.isThinking)

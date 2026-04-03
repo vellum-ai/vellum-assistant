@@ -29,8 +29,8 @@ public final class ChatPaginationState {
 
     /// All visible messages (excludes subagent notifications, hidden messages,
     /// and messages without renderable content). Cached as a stored property
-    /// and updated reactively via `withObservationTracking` when
-    /// `messageManager.messages` changes, so views read an O(1) cached value
+    /// and updated reactively via a Combine subscription to
+    /// `messageManager.messagesPublisher`, so views read an O(1) cached value
     /// instead of recomputing the O(n) filter on every body evaluation.
     ///
     /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
@@ -108,10 +108,6 @@ public final class ChatPaginationState {
         // Seed the cache synchronously so the first view read sees correct data.
         recomputeVisibleMessages(from: messageManager.messages)
 
-        // Subscribe to the Combine publisher instead of using a
-        // `withObservationTracking` loop. The previous loop re-armed via
-        // `Task { @MainActor }` on every change, contributing to cascading
-        // transaction flushes and main-thread hangs.
         messagesSub = messageManager.messagesPublisher
             .dropFirst() // skip the seed value already handled above
             .sink { [weak self] messages in
@@ -122,9 +118,9 @@ public final class ChatPaginationState {
     // MARK: - Cache Recomputation
 
     /// Recomputes `displayedMessages` and `paginatedVisibleMessages` from a
-    /// snapshot of the raw message array. Called by the observation loop when
-    /// messages change, and by mutation sites that alter both `messages` and
-    /// `displayedMessageCount` in the same synchronous block.
+    /// snapshot of the raw message array. Called by the Combine subscription
+    /// when messages change, and by mutation sites that alter both `messages`
+    /// and `displayedMessageCount` in the same synchronous block.
     func recomputeVisibleMessages(from messages: [ChatMessage]) {
         displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: messages)
         recomputePaginatedSuffix()
