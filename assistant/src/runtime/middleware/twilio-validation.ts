@@ -28,6 +28,7 @@ export const GATEWAY_SUBPATH_MAP: Record<string, string> = {
   voice: "voice-webhook",
   status: "status",
   "connect-action": "connect-action",
+  sms: "sms",
 };
 
 /**
@@ -40,6 +41,7 @@ export const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set([
   "voice-webhook",
   "status",
   "connect-action",
+  "sms",
 ]);
 
 /**

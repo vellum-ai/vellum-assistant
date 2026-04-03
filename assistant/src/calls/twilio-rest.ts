@@ -251,6 +251,7 @@ export async function fetchMessageStatus(
 export interface WebhookUrls {
   voiceUrl: string;
   statusCallbackUrl: string;
+  smsUrl?: string;
 }
 
 /**
@@ -308,6 +309,10 @@ export async function updatePhoneNumberWebhooks(
     StatusCallback: webhooks.statusCallbackUrl,
     StatusCallbackMethod: "POST",
   });
+  if (webhooks.smsUrl) {
+    body.set("SmsUrl", webhooks.smsUrl);
+    body.set("SmsMethod", "POST");
+  }
 
   const updateRes = await fetch(
     `${twilioBaseUrl(accountSid)}/IncomingPhoneNumbers/${match.sid}.json`,

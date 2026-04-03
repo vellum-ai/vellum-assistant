@@ -544,6 +544,42 @@ export async function forwardTwilioConnectActionWebhook(
   return { status: response.status, body, headers };
 }
 
+/**
+ * Forward a validated Twilio SMS webhook payload to the runtime.
+ */
+export async function forwardTwilioSmsWebhook(
+  config: GatewayConfig,
+  params: Record<string, string>,
+): Promise<TwilioForwardResponse> {
+  cbBeforeRequest();
+
+  const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/sms`;
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method: "POST",
+      headers: runtimeServiceHeaders(config, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({ params }),
+      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+    });
+  } catch (err) {
+    cbOnFailure();
+    throw err;
+  }
+
+  const body = await response.text();
+  const headers: Record<string, string> = {};
+  const contentType = response.headers.get("content-type");
+  if (contentType) headers["Content-Type"] = contentType;
+
+  if (response.status >= 500) cbOnFailure();
+  else cbOnSuccess();
+  return { status: response.status, body, headers };
+}
+
 export async function uploadAttachment(
   config: GatewayConfig,
   input: UploadAttachmentInput,
