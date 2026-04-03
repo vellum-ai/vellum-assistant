@@ -286,6 +286,7 @@ jobs:
             gh release create "$VERSION_TAG" \
               "$DMG_PATH#vellum-assistant.dmg" \
               --repo "${{ github.repository }}" \
+              --target "${{ github.sha }}" \
               --title "Vellum ${DEV_VERSION}" \
               --notes "Dev build from main at ${{ github.sha }}" \
               --prerelease
