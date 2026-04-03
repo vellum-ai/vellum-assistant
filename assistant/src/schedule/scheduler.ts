@@ -263,10 +263,12 @@ async function runScheduleOnce(
     // Reuse the conversation from the last successful run when the flag is set
     // and a prior conversation still exists; otherwise bootstrap a new one.
     let conversationId: string | null = null;
+    let conversationReused = false;
     if (job.reuseConversation && !isOneShot) {
       const lastId = getLastScheduleConversationId(job.id);
       if (lastId && getConversation(lastId)) {
         conversationId = lastId;
+        conversationReused = true;
       }
     }
     if (!conversationId) {
@@ -333,10 +335,12 @@ async function runScheduleOnce(
       completeScheduleRun(runId, { status: "error", error: message });
       if (isOneShot) failOneShot(job.id);
 
-      // Only invalidate memory when the conversation is NOT being reused.
-      // Reused conversations contain valid context from prior successful runs
-      // that should be preserved even if the current run fails.
-      if (!job.reuseConversation) {
+      // Only skip invalidation when the conversation was *actually* reused,
+      // i.e. it contains prior successful context worth preserving. When
+      // reuseConversation is true but no prior conversation existed (first run
+      // or deleted), the conversation is brand-new and should be invalidated
+      // like any other failed conversation.
+      if (!conversationReused) {
         try {
           invalidateAssistantInferredItemsForConversation(conversationId);
         } catch (cleanupErr) {
