@@ -88,12 +88,12 @@ assistant routes inspect <path> --json
 
 ## Behavior
 
-- **Hot-reload:** New, changed, or deleted files are picked up without daemon restart (mtime-based cache busting).
-- **Auth:** All `/x/*` routes go through standard daemon JWT auth. No unauthenticated traffic.
+- **Hot-reload:** New, changed, or deleted files are picked up without assistant restart (mtime-based cache busting).
+- **Auth:** All `/x/*` routes go through standard assistant JWT auth. No unauthenticated traffic.
 - **Timeout:** 30-second per-request default.
 - **Errors:** Missing file returns 404. Unsupported method returns 405 with `Allow` header. Handler crash returns 500.
 - **Path traversal:** Paths containing `..` are rejected.
-- **Body limit:** Inherits daemon global limit (512 MB). Handlers can enforce tighter limits.
+- **Body limit:** Inherits assistant global limit (512 MB). Handlers can enforce tighter limits.
 
 ## When building apps with API backends
 
