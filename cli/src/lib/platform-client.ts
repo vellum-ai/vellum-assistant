@@ -81,6 +81,10 @@ function tokenAuthHeader(token: string): Record<string, string> {
   return { "X-Session-Token": token };
 }
 
+/** Module-level cache for org IDs to avoid redundant fetches in polling loops. */
+const orgIdCache = new Map<string, { orgId: string; expiresAt: number }>();
+const ORG_ID_CACHE_TTL_MS = 60_000; // 60 seconds
+
 /**
  * Returns the full set of headers needed for an authenticated platform
  * API request:
@@ -90,6 +94,9 @@ function tokenAuthHeader(token: string): Record<string, string> {
  *   API keys, `X-Session-Token` for session tokens).
  * - `Vellum-Organization-Id` – fetched from the platform.  Only
  *   included for session-token callers; API keys are already org-scoped.
+ *
+ * The org ID is cached per (token, platformUrl) for 60 seconds to avoid
+ * redundant HTTP requests in tight polling loops.
  *
  * Auth errors (401 / 403) from the org-ID fetch are logged with a
  * user-friendly message before re-throwing, so callers don't need to
@@ -109,8 +116,18 @@ export async function authHeaders(
     return base;
   }
 
+  const cacheKey = `${token}::${platformUrl ?? ""}`;
+  const cached = orgIdCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return { ...base, "Vellum-Organization-Id": cached.orgId };
+  }
+
   try {
     const orgId = await fetchOrganizationId(token, platformUrl);
+    orgIdCache.set(cacheKey, {
+      orgId,
+      expiresAt: Date.now() + ORG_ID_CACHE_TTL_MS,
+    });
     return { ...base, "Vellum-Organization-Id": orgId };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
