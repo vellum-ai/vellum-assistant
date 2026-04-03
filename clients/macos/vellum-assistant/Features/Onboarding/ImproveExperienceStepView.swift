@@ -155,18 +155,21 @@ private struct CheckboxToggleStyle: ToggleStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: VSpacing.md) {
-            checkboxIndicator(isOn: configuration.isOn)
+            Button {
+                withAnimation(VAnimation.fast) {
+                    configuration.isOn.toggle()
+                }
+            } label: {
+                checkboxIndicator(isOn: configuration.isOn)
+            }
+            .buttonStyle(.plain)
 
             configuration.label
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(VAnimation.fast) {
-                configuration.isOn.toggle()
-            }
-        }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
         .accessibilityValue(configuration.isOn ? "Checked" : "Unchecked")
+        .accessibilityAddTraits(.isToggle)
     }
 
     private func checkboxIndicator(isOn: Bool) -> some View {
