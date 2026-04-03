@@ -168,7 +168,7 @@ struct SidebarConversationItem: View, Equatable {
                     .accessibilityLabel("Private conversation")
             }
             Text(conversation.title)
-                .font(VFont.menuCompact)
+                .font(VFont.bodyMediumDefault)
                 .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -255,7 +255,7 @@ struct SidebarConversationItem: View, Equatable {
             HStack(spacing: VSpacing.xs) {
                 Color.clear.frame(width: 20, height: 20)
                 Text(conversation.title)
-                    .font(VFont.menuCompact)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
             }
