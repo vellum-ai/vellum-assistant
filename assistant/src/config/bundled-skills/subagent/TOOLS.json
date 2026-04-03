@@ -47,6 +47,10 @@
             "type": "string",
             "description": "Optional subagent ID to query. If omitted, returns all subagents for this conversation."
           },
+          "label": {
+            "type": "string",
+            "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -59,7 +63,7 @@
     },
     {
       "name": "subagent_abort",
-      "description": "Abort a running subagent by ID.",
+      "description": "Abort a running subagent by ID or label.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {
@@ -69,12 +73,16 @@
             "type": "string",
             "description": "The ID of the subagent to abort."
           },
+          "label": {
+            "type": "string",
+            "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["subagent_id"]
+        "required": []
       },
       "executor": "tools/subagent-abort.ts",
       "execution_target": "host"
@@ -91,6 +99,10 @@
             "type": "string",
             "description": "The ID of the subagent to send a message to."
           },
+          "label": {
+            "type": "string",
+            "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
+          },
           "content": {
             "type": "string",
             "description": "The message content to send to the subagent."
@@ -100,7 +112,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["subagent_id", "content"]
+        "required": ["content"]
       },
       "executor": "tools/subagent-message.ts",
       "execution_target": "host"
@@ -117,12 +129,16 @@
             "type": "string",
             "description": "The ID of the subagent whose output to read."
           },
+          "label": {
+            "type": "string",
+            "description": "The label of the subagent (alternative to subagent_id). Case-insensitive."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["subagent_id"]
+        "required": []
       },
       "executor": "tools/subagent-read.ts",
       "execution_target": "host"
