@@ -111,12 +111,15 @@ describe("runInlineCommand", () => {
       expect(lastWrapCall!.config.enabled).toBe(false);
     });
 
-    test("always passes networkMode=off", async () => {
+    test("does not pass networkMode when sandbox is disabled", async () => {
       lastWrapCall = null;
       await runInlineCommand("echo network-check", CWD);
 
       expect(lastWrapCall).not.toBeNull();
-      expect(lastWrapCall!.options?.networkMode).toBe("off");
+      // networkMode is a no-op when sandbox is disabled (wrapCommand returns
+      // a plain bash invocation), so it is not passed. Network isolation is
+      // provided by the Docker/platform-managed container.
+      expect(lastWrapCall!.options).toBeUndefined();
     });
 
     test("uses the provided workingDir as cwd", async () => {
