@@ -855,7 +855,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     await stopServer();
   });
 
-  test("returns 400 when conversationKey is missing", async () => {
+  test("accepts message when conversationKey is omitted (defaults to random UUID)", async () => {
     await startServer(() => makeCompletingConversation());
 
     const res = await fetch(messagesUrl(), {
@@ -867,7 +867,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
         interface: "macos",
       }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(202);
 
     await stopServer();
   });
