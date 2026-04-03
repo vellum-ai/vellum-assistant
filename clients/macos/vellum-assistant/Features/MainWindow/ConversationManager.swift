@@ -2410,6 +2410,18 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
         set {
             UserDefaults.standard.set(Array(newValue), forKey: scopedKey(archivedConversationsKey))
+            // Remove any IDs that were unarchived from the unscoped legacy keys so
+            // the getter's union doesn't resurrect them on the next read / app restart.
+            let removed = Set(UserDefaults.standard.stringArray(forKey: archivedConversationsKey) ?? []).subtracting(newValue)
+            if !removed.isEmpty {
+                let updatedLegacy = (UserDefaults.standard.stringArray(forKey: archivedConversationsKey) ?? []).filter { !removed.contains($0) }
+                UserDefaults.standard.set(updatedLegacy, forKey: archivedConversationsKey)
+            }
+            let removedNewer = Set(UserDefaults.standard.stringArray(forKey: archivedConversationsNewKey) ?? []).subtracting(newValue)
+            if !removedNewer.isEmpty {
+                let updatedNewer = (UserDefaults.standard.stringArray(forKey: archivedConversationsNewKey) ?? []).filter { !removedNewer.contains($0) }
+                UserDefaults.standard.set(updatedNewer, forKey: archivedConversationsNewKey)
+            }
         }
     }
 
