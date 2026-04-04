@@ -861,10 +861,12 @@ export function initializeDb(): void {
   safeMigrate("validateMigrationState", () => validateMigrationState(database));
 
   if (failures.length > 0) {
-    log.error(
-      { failedMigrations: failures, count: failures.length },
-      `DB initialization completed with ${failures.length} failed migration(s)`,
-    );
+    const msg = `DB initialization completed with ${failures.length} failed migration(s)`;
+    log.error({ failedMigrations: failures, count: failures.length }, msg);
+    // Re-throw so lifecycle.ts can detect the failure and enter degraded mode.
+    // Individual errors have already been logged above, so the caller gets a
+    // summary while the log still contains per-migration detail.
+    throw new Error(`${msg}: ${failures.join(", ")}`);
   }
 
   if (process.env.BUN_TEST === "1") {
