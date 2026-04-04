@@ -525,7 +525,13 @@ struct MainWindowView: View {
                         dismissConversationDrawer()
                     },
                     onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
-                    onOpenForkParent: { openForkParentConversation() }
+                    onOpenForkParent: { openForkParentConversation() },
+                    onAnalyzeConversation: {
+                        Task {
+                            await conversationManager.analyzeActiveConversation()
+                            await MainActor.run { dismissConversationDrawer() }
+                        }
+                    }
                 )
             }
         }
@@ -832,6 +838,7 @@ private struct ConversationTitleOverlay: View {
     let onArchive: () -> Void
     let onRename: () -> Void
     let onOpenForkParent: () -> Void
+    let onAnalyzeConversation: () -> Void
 
     private var presentation: ConversationHeaderPresentation {
         ConversationHeaderPresentation(
@@ -851,6 +858,7 @@ private struct ConversationTitleOverlay: View {
             onArchive: onArchive,
             onRename: onRename,
             onOpenForkParent: onOpenForkParent,
+            onAnalyzeConversation: onAnalyzeConversation,
             showDrawer: $showDrawer
         )
         .onGeometryChange(for: CGRect.self) { proxy in
