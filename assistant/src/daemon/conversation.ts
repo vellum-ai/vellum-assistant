@@ -160,6 +160,7 @@ export class Conversation {
   /** @internal */ allowedToolNames?: Set<string>;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
+  /** @internal */ subagentAllowedTools?: Set<string>;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
@@ -441,6 +442,7 @@ export class Conversation {
   async loadFromDb(): Promise<void> {
     await loadFromDbImpl(this);
     this.restoreSurfaceStateFromHistory();
+    this.graphMemory.restoreState();
   }
 
   /**
@@ -539,6 +541,10 @@ export class Conversation {
     this.sandboxOverride = enabled;
   }
 
+  setSubagentAllowedTools(tools: Set<string> | undefined): void {
+    this.subagentAllowedTools = tools;
+  }
+
   isProcessing(): boolean {
     return this.processing;
   }
@@ -568,6 +574,7 @@ export class Conversation {
     this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
     this.memoryScopeId = this.memoryPolicy.scopeId;
+    this.graphMemory.persistState();
     disposeConversation(this);
   }
 

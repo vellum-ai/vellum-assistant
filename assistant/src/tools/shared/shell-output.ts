@@ -1,9 +1,24 @@
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export const MAX_OUTPUT_LENGTH = 20_000;
+
+/** Tracks temp files created for truncated shell output so they can be cleaned up on shutdown. */
+const trackedTempFiles = new Set<string>();
+
+/** Remove all tracked truncated-output temp files. Safe to call multiple times. */
+export function cleanupShellOutputTempFiles(): void {
+  for (const filePath of trackedTempFiles) {
+    try {
+      unlinkSync(filePath);
+    } catch {
+      // File may already be gone — ignore.
+    }
+  }
+  trackedTempFiles.clear();
+}
 
 export interface ShellOutputResult {
   content: string;
@@ -41,7 +56,8 @@ export function formatShellOutput(
     let fullOutputPath: string | undefined;
     try {
       fullOutputPath = join(tmpdir(), `vellum-shell-output-${randomUUID()}.txt`);
-      writeFileSync(fullOutputPath, output, "utf-8");
+      writeFileSync(fullOutputPath, output, { encoding: "utf-8", mode: 0o600 });
+      trackedTempFiles.add(fullOutputPath);
     } catch {
       fullOutputPath = undefined;
     }

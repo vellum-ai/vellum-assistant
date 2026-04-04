@@ -65,6 +65,7 @@ export async function executeScheduleList(
     lines.push(
       `  Enabled: ${job.enabled}`,
       `  Quiet: ${job.quiet}`,
+      `  Reuse conversation: ${job.reuseConversation}`,
       `  Message: ${job.message}`,
     );
 

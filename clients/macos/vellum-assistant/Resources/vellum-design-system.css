@@ -49,6 +49,45 @@
   --v-system-mid-weak: #FCF3DD;
   --v-aux-white: #FFFFFF;
 
+  /* ── Shorthand Aliases (referenced by app-builder SKILL.md) ── */
+  --v-bg: var(--v-surface-overlay);
+  --v-surface: var(--v-surface-base);
+  --v-surface-border: var(--v-border-base);
+  --v-text: var(--v-content-default);
+  --v-text-secondary: var(--v-content-secondary);
+  --v-text-muted: var(--v-content-tertiary);
+  --v-accent: var(--v-primary-base);
+  --v-accent-hover: var(--v-primary-hover);
+  --v-success: var(--v-system-positive-strong);
+  --v-danger: var(--v-system-negative-strong);
+  --v-warning: var(--v-system-mid-strong);
+
+  /* ── Palette Scales (Tailwind-style, referenced by SKILL.md) ─ */
+  --v-slate-50:  #F8FAFC; --v-slate-100: #F1F5F9; --v-slate-200: #E2E8F0;
+  --v-slate-300: #CBD5E1; --v-slate-400: #94A3B8; --v-slate-500: #64748B;
+  --v-slate-600: #475569; --v-slate-700: #334155; --v-slate-800: #1E293B;
+  --v-slate-900: #0F172A; --v-slate-950: #020617;
+  --v-emerald-50:  #ECFDF5; --v-emerald-100: #D1FAE5; --v-emerald-200: #A7F3D0;
+  --v-emerald-300: #6EE7B7; --v-emerald-400: #34D399; --v-emerald-500: #10B981;
+  --v-emerald-600: #059669; --v-emerald-700: #047857; --v-emerald-800: #065F46;
+  --v-emerald-900: #064E3B; --v-emerald-950: #022C22;
+  --v-violet-50:  #F5F3FF; --v-violet-100: #EDE9FE; --v-violet-200: #DDD6FE;
+  --v-violet-300: #C4B5FD; --v-violet-400: #A78BFA; --v-violet-500: #8B5CF6;
+  --v-violet-600: #7C3AED; --v-violet-700: #6D28D9; --v-violet-800: #5B21B6;
+  --v-violet-900: #4C1D95; --v-violet-950: #2E1065;
+  --v-indigo-50:  #EEF2FF; --v-indigo-100: #E0E7FF; --v-indigo-200: #C7D2FE;
+  --v-indigo-300: #A5B4FC; --v-indigo-400: #818CF8; --v-indigo-500: #6366F1;
+  --v-indigo-600: #4F46E5; --v-indigo-700: #4338CA; --v-indigo-800: #3730A3;
+  --v-indigo-900: #312E81; --v-indigo-950: #1E1B4B;
+  --v-rose-50:  #FFF1F2; --v-rose-100: #FFE4E6; --v-rose-200: #FECDD3;
+  --v-rose-300: #FDA4AF; --v-rose-400: #FB7185; --v-rose-500: #F43F5E;
+  --v-rose-600: #E11D48; --v-rose-700: #BE123C; --v-rose-800: #9F1239;
+  --v-rose-900: #881337; --v-rose-950: #4C0519;
+  --v-amber-50:  #FFFBEB; --v-amber-100: #FEF3C7; --v-amber-200: #FDE68A;
+  --v-amber-300: #FCD34D; --v-amber-400: #FBBF24; --v-amber-500: #F59E0B;
+  --v-amber-600: #D97706; --v-amber-700: #B45309; --v-amber-800: #92400E;
+  --v-amber-900: #78350F; --v-amber-950: #451A03;
+
   /* ── Spacing (4pt grid) ─────────────────────────────────────── */
   --v-spacing-xxs:  2px;
   --v-spacing-xs:   4px;
@@ -265,7 +304,7 @@ th { font-weight: 600; color: var(--v-content-secondary); font-size: var(--v-fon
   font-weight: 500;
   padding: var(--v-spacing-sm) var(--v-spacing-lg);
   background: var(--v-primary-base);
-  color: white;
+  color: var(--v-aux-white);
   border: none;
   border-radius: var(--v-radius-md);
   cursor: pointer;
@@ -1776,7 +1815,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 .v-pill-toggle.active {
   background: var(--v-primary-base);
-  color: white;
+  color: var(--v-aux-white);
   font-weight: 600;
   box-shadow: var(--v-shadow-sm);
 }

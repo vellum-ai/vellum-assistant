@@ -613,6 +613,95 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/email/inbound": {
+        post: {
+          summary: "Email inbound webhook",
+          description:
+            "Receives inbound email webhook events from the Vellum platform, verifies the HMAC signature, normalizes the message, and forwards it to the assistant runtime.",
+          operationId: "emailInboundWebhook",
+          security: [{ VellumSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  description: "Vellum email webhook payload.",
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Webhook accepted",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { ok: { type: "boolean" } },
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid JSON or unreadable body",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "403": {
+              description: "Signature verification failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "409": {
+              description: "Webhook secret not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "500": {
+              description: "Internal error",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Service temporarily unavailable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/audio/{audioId}": {
         get: {
           summary: "Retrieve synthesized audio",
@@ -3408,6 +3497,13 @@ export function buildSchema(): Record<string, unknown> {
           name: "X-Twilio-Signature",
           description:
             "HMAC-SHA1 signature computed by Twilio over the request URL and form parameters.",
+        },
+        VellumSignature: {
+          type: "apiKey",
+          in: "header",
+          name: "Vellum-Signature",
+          description:
+            "HMAC-SHA256 signature computed by the Vellum platform over the raw request body using the webhook secret. Format: sha256=<hex-digest>.",
         },
         WhatsAppHubSignature: {
           type: "apiKey",

@@ -113,6 +113,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "fish-audio",
+      "name": "fish-audio",
+      "description": "Generate expressive audio clips using Fish Audio S2 TTS with bracket emotion tags. Record voice memos, narration, audio messages, or any spoken content.",
+      "metadata": {
+        "emoji": "🎙️",
+        "vellum": {
+          "display-name": "Fish Audio TTS"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "frontend-design",
       "name": "frontend-design",
       "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
@@ -191,6 +203,33 @@
         "emoji": "📝",
         "vellum": {
           "display-name": "Notion"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "oura",
+      "name": "oura",
+      "description": "Pull sleep, activity, readiness, heart rate, and other health data from a connected Oura Ring via the Oura Cloud API V2",
+      "metadata": {
+        "emoji": "💍",
+        "vellum": {
+          "display-name": "Oura Ring",
+          "includes": [
+            "oura-setup"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "oura-setup",
+      "name": "oura-setup",
+      "description": "Connect an Oura Ring via OAuth2 — app registration, token exchange, and credential storage",
+      "metadata": {
+        "emoji": "💍",
+        "vellum": {
+          "display-name": "Oura Ring Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -421,6 +460,16 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "watch-together",
+      "name": "Watch Together",
+      "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis.",
+      "metadata": {
+        "vellum": {
+          "emoji": "📺"
+        }
+      }
     },
     {
       "id": "weather",

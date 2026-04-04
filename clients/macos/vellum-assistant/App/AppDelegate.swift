@@ -132,10 +132,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Text that was in the chat input before PTT voice recording started,
     /// so we can prepend it to partial/final transcriptions instead of overwriting.
     var preVoiceInputText: String?
-    var statusIconCancellable: AnyCancellable?
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
-    var conversationBadgeCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
@@ -774,8 +772,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = appMenuActivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        statusIconCancellable?.cancel()
-        conversationBadgeCancellable?.cancel()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusCancellable?.cancel()
         pulseTimer?.invalidate()

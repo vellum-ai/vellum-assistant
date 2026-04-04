@@ -56,9 +56,26 @@ export function listConversations(
     .select()
     .from(conversations)
     .where(where)
-    .orderBy(desc(conversations.updatedAt))
+    .orderBy(desc(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`))
     .limit(limit ?? 100)
     .offset(offset);
+  return query.all().map(parseConversation);
+}
+
+export function listPinnedConversations(): ConversationRow[] {
+  ensureDisplayOrderMigration();
+  ensureGroupMigration();
+  const db = getDb();
+  const query = db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+        sql`is_pinned = 1`,
+      ),
+    )
+    .orderBy(desc(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`));
   return query.all().map(parseConversation);
 }
 
@@ -83,7 +100,7 @@ export function getLatestConversation(): ConversationRow | null {
     .where(
       sql`${conversations.conversationType} NOT IN ('background', 'private')`,
     )
-    .orderBy(desc(conversations.updatedAt))
+    .orderBy(desc(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`))
     .limit(1)
     .get();
   return row ? parseConversation(row) : null;

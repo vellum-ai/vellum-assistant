@@ -65,7 +65,7 @@ public struct VButton: View {
                         VIconView(.resolve(leftIcon), size: textIconSize)
                     }
                     Text(label)
-                        .font(size == .compact || size == .pill ? VFont.labelDefault : VFont.bodyMediumEmphasised)
+                        .font(size == .compact || size == .pill ? VFont.labelDefault : VFont.bodyMediumDefault)
                     if isFullWidth && (leftIcon != nil || rightIcon != nil) {
                         Spacer(minLength: 0)
                     }

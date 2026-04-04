@@ -397,17 +397,18 @@ export async function loadContextMemory(
   const semanticCandidateIds = new Map<string, number>(); // nodeId → score
   let hybridSearchLatencyMs = 0;
   if (queryVector) {
+    const searchStart = Date.now();
     try {
-      const searchStart = Date.now();
       const results = await searchGraphNodes(queryVector, maxNodes * 3, [
         opts.scopeId,
       ]);
-      hybridSearchLatencyMs = Date.now() - searchStart;
       for (const r of results) {
         semanticCandidateIds.set(r.nodeId, r.score);
       }
     } catch (err) {
       log.warn({ err }, "Qdrant search failed for context load");
+    } finally {
+      hybridSearchLatencyMs = Date.now() - searchStart;
     }
   }
   const pureSemanticHits = semanticCandidateIds.size;
@@ -711,9 +712,7 @@ export async function loadContextMemory(
   ].slice(0, maxNodes - serendipitySlots);
   // Exclude procedural nodes from serendipity — they have reserved slots
   // and shouldn't appear as random wildcard picks.
-  const serendipityPool = scored.filter(
-    (s) => !isCapabilityNode(s.node),
-  );
+  const serendipityPool = scored.filter((s) => !isCapabilityNode(s.node));
   const serendipityPicks = sampleSerendipity(serendipityPool, serendipitySlots);
 
   // Deduplicate serendipity against deterministic
@@ -888,7 +887,19 @@ export async function retrieveForTurn(
   }
 
   if (queryText.trim().length === 0 && allCandidateIds.size === 0) {
-    return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start, metrics: ZERO_METRICS };
+    return {
+      nodes: [],
+      serendipityNodes: [],
+      triggeredNodes: [],
+      latencyMs: Date.now() - start,
+      metrics: {
+        ...ZERO_METRICS,
+        hybridSearchLatencyMs:
+          imageBlocks.length > 0 ? Date.now() - searchStart : 0,
+        embeddingProvider,
+        embeddingModel,
+      },
+    };
   }
 
   // Chunk if too large (8k token ≈ 32k chars conservative estimate)
@@ -948,7 +959,18 @@ export async function retrieveForTurn(
     } catch (err) {
       log.warn({ err }, "Embedding/search failed for turn retrieval");
       if (allCandidateIds.size === 0) {
-        return { nodes: [], serendipityNodes: [], triggeredNodes: [], latencyMs: Date.now() - start, metrics: ZERO_METRICS };
+        return {
+          nodes: [],
+          serendipityNodes: [],
+          triggeredNodes: [],
+          latencyMs: Date.now() - start,
+          metrics: {
+            ...ZERO_METRICS,
+            hybridSearchLatencyMs: Date.now() - searchStart,
+            embeddingProvider,
+            embeddingModel,
+          },
+        };
       }
     }
   }
@@ -1052,9 +1074,27 @@ export async function retrieveForTurn(
     (node) => !opts.tracker.isInContext(node.id),
   );
 
-  const rankedProcedural = proceduralCandidates
+  // Rank by similarity first, then dedup capability nodes by capability ID
+  // so we keep the highest-similarity node per capId rather than an arbitrary
+  // first-seen node that might fail PROCEDURAL_SIM_FLOOR.
+  const rankedProceduralAll = proceduralCandidates
     .map((node) => ({ node, sim: allCandidateIds.get(node.id) ?? 0 }))
-    .sort((a, b) => b.sim - a.sim)
+    .sort((a, b) => b.sim - a.sim);
+
+  const seenProcCapIds = new Set<string>();
+  const rankedProcedural = rankedProceduralAll
+    .filter(({ node }) => {
+      if (!isCapabilityNode(node)) return true; // organic procedural — keep
+      const match = node.content.match(
+        /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+      );
+      const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+      if (capId) {
+        if (seenProcCapIds.has(capId)) return false;
+        seenProcCapIds.add(capId);
+      }
+      return true;
+    })
     .slice(0, PROCEDURAL_RESERVE);
 
   const proceduralScored: ScoredNode[] = rankedProcedural.map(({ node, sim }) =>
@@ -1096,6 +1136,22 @@ export async function retrieveForTurn(
 
   // Remove procedural-reserved nodes from general set to avoid double-counting
   const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
+
+  // Backfill vacated general slots from the remaining pool so we always
+  // return up to MAX_INJECTED general memories when eligible candidates exist.
+  // Only backfill when LLM dedup was NOT applied — otherwise the pool contains
+  // items that dedupForTurn intentionally rejected as duplicates/irrelevant.
+  if (generalInjected.length < MAX_INJECTED && pool.length <= MAX_INJECTED) {
+    const usedIds = new Set([
+      ...generalInjected.map((s) => s.node.id),
+      ...proceduralIds,
+    ]);
+    const backfillCandidates = pool.filter((s) => !usedIds.has(s.node.id));
+    const needed = MAX_INJECTED - generalInjected.length;
+    for (let i = 0; i < Math.min(needed, backfillCandidates.length); i++) {
+      generalInjected.push(backfillCandidates[i]);
+    }
+  }
 
   const allDeterministic = [...generalInjected, ...proceduralInjected];
   const deterministicIds = new Set(allDeterministic.map((n) => n.node.id));

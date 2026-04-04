@@ -26,16 +26,6 @@ export function getPlatformName(): string {
 }
 
 /**
- * Returns the platform-specific clipboard copy command, or null if
- * clipboard access is not supported on the current platform.
- */
-export function getClipboardCommand(): string | null {
-  if (isMacOS()) return "pbcopy";
-  if (isLinux()) return "xclip -selection clipboard";
-  return null;
-}
-
-/**
  * Normalize an assistant ID to its canonical form for DB operations.
  *
  * The system uses "self" as the canonical single-tenant identifier
@@ -315,6 +305,11 @@ export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
 
+/** Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers. */
+export function getWorkspaceRoutesDir(): string {
+  return join(getWorkspaceDir(), "routes");
+}
+
 /** Returns ~/.vellum/workspace/deprecated — transitional files slated for removal. */
 export function getDeprecatedDir(): string {
   return join(getWorkspaceDir(), "deprecated");
@@ -330,6 +325,35 @@ export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
 
+// ── Profiler filesystem layout ──────────────────────────────────────────
+// Managed profiler runs live under <workspace>/data/profiler/. These
+// helpers enforce a single canonical layout so every runtime caller
+// resolves the same paths.
+
+/**
+ * Returns the profiler root directory (<workspace>/data/profiler).
+ * All profiler state (runs directory, global metadata) lives here.
+ */
+export function getProfilerRootDir(): string {
+  return join(getDataDir(), "profiler");
+}
+
+/**
+ * Returns the profiler runs directory (<workspace>/data/profiler/runs).
+ * Each completed or active profiler run gets its own sub-directory here.
+ */
+export function getProfilerRunsDir(): string {
+  return join(getProfilerRootDir(), "runs");
+}
+
+/**
+ * Returns the directory for a specific profiler run by ID
+ * (<workspace>/data/profiler/runs/<runId>).
+ */
+export function getProfilerRunDir(runId: string): string {
+  return join(getProfilerRunsDir(), runId);
+}
+
 export function ensureDataDir(): void {
   const root = vellumRoot();
   const workspace = getWorkspaceDir();
@@ -342,6 +366,7 @@ export function ensureDataDir(): void {
     join(workspace, "signals"),
     join(workspace, "hooks"),
     join(workspace, "skills"),
+    join(workspace, "routes"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),
     join(workspace, "logs"),

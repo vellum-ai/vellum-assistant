@@ -320,8 +320,7 @@ export function createProxyApprovalCallback(
       input.matching_patterns = decision.matchingPatterns;
     }
 
-    const riskLevel =
-      decision.kind === "ask_missing_credential" ? "high" : "medium";
+    const riskLevel: string = "medium";
 
     // Check trust store before prompting — build candidates that mirror
     // buildCommandCandidates() in checker.ts for network_request.
@@ -342,10 +341,7 @@ export function createProxyApprovalCallback(
     );
     if (existingRule && existingRule.decision !== "ask") {
       if (existingRule.decision === "deny") return false;
-      // For high-risk proxy decisions, a plain allow rule (without allowHighRisk)
-      // must fall through to prompting — mirroring the checker's behavior.
-      if (riskLevel !== "high" || existingRule.allowHighRisk === true)
-        return true;
+      return true;
     }
 
     // Use the checker's built-in allowlist generation for network_request
@@ -379,8 +375,7 @@ export function createProxyApprovalCallback(
 
     // Persist trust rule if the user chose "always allow" or "always deny"
     if (
-      (response.decision === "always_allow" ||
-        response.decision === "always_allow_high_risk") &&
+      response.decision === "always_allow" &&
       response.selectedPattern &&
       response.selectedScope
     ) {
@@ -389,7 +384,6 @@ export function createProxyApprovalCallback(
           toolName,
           pattern: response.selectedPattern,
           scope: response.selectedScope,
-          highRisk: response.decision === "always_allow_high_risk",
         },
         "Persisting always-allow trust rule (proxy)",
       );
@@ -399,9 +393,6 @@ export function createProxyApprovalCallback(
         response.selectedScope,
         "allow",
         100,
-        response.decision === "always_allow_high_risk"
-          ? { allowHighRisk: true }
-          : undefined,
       );
     }
     if (
@@ -457,6 +448,8 @@ export interface SkillProjectionContext {
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
+  /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
+  subagentAllowedTools?: Set<string>;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -548,18 +541,27 @@ export function createResolveToolsCallback(
       isToolActiveForContext(d.name, ctx),
     );
 
+    // When the conversation is acting as a subagent, restrict core tools to
+    // only those explicitly allowed by the parent orchestrator.
+    const scopedCoreDefs = ctx.subagentAllowedTools
+      ? filteredCoreDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+      : filteredCoreDefs;
+
     // Re-read MCP tool definitions from the registry each turn so conversations
     // automatically pick up tools added/removed by `vellum mcp reload`.
     const currentMcpDefs = getMcpToolDefinitions();
     log.debug(
       {
-        coreCount: filteredCoreDefs.length,
+        coreCount: scopedCoreDefs.length,
         mcpCount: currentMcpDefs.length,
         mcpTools: currentMcpDefs.map((d) => d.name),
       },
       "MCP tools resolved for turn",
     );
-    const allBaseDefs = [...filteredCoreDefs, ...currentMcpDefs];
+    const scopedMcpDefs = ctx.subagentAllowedTools
+      ? currentMcpDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+      : currentMcpDefs;
+    const allBaseDefs = [...scopedCoreDefs, ...scopedMcpDefs];
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
@@ -572,6 +574,10 @@ export function createResolveToolsCallback(
     });
     const turnAllowed = new Set(allBaseDefs.map((d) => d.name));
     for (const name of projection.allowedToolNames) {
+      // When a subagent allowlist is active, exclude skill tools not on it.
+      if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+        continue;
+      }
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;

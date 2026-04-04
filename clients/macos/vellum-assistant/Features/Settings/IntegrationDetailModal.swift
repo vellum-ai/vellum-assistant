@@ -75,13 +75,12 @@ struct IntegrationDetailModal: View {
         ) {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Mode tabs
-                VTabs(
+                VSegmentControl(
                     items: [
                         (label: "Managed", tag: "managed"),
                         (label: "Your Own", tag: "your-own"),
                     ],
-                    selection: $draftMode,
-                    style: .pill
+                    selection: $draftMode
                 )
                 .frame(maxWidth: .infinity)
 
@@ -261,7 +260,7 @@ struct IntegrationDetailModal: View {
     private var managedConnectionsList: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Connected Accounts")
-                .font(VFont.bodyMediumEmphasised)
+                .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentSecondary)
 
             ForEach(connections, id: \.id) { entry in

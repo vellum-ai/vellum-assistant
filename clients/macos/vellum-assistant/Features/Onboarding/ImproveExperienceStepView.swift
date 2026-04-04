@@ -13,9 +13,9 @@ struct ImproveExperienceStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool ?? true
-    @State private var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool ?? true
-    @State private var tosAccepted: Bool = UserDefaults.standard.bool(forKey: "tosAccepted")
+    @AppStorage("collectUsageData") private var collectUsageData: Bool = true
+    @AppStorage("sendDiagnostics") private var sendDiagnostics: Bool = true
+    @AppStorage("tosAccepted") private var tosAccepted: Bool = false
 
     var body: some View {
         Text("Before You Start")
@@ -61,7 +61,7 @@ struct ImproveExperienceStepView: View {
                 // ToS consent checkbox
                 VCard {
                     HStack(spacing: VSpacing.md) {
-                        VCheckbox(isOn: $tosAccepted)
+                        tosCheckbox
                         tosConsentText
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -88,6 +88,35 @@ struct ImproveExperienceStepView: View {
                 showContent = true
             }
         }
+    }
+
+    // MARK: - ToS Consent Checkbox
+
+    private var tosCheckbox: some View {
+        Button {
+            withAnimation(VAnimation.fast) {
+                tosAccepted.toggle()
+            }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(tosAccepted ? VColor.primaryBase : Color.clear)
+
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .strokeBorder(tosAccepted ? Color.clear : VColor.borderBase, lineWidth: 1.5)
+
+                if tosAccepted {
+                    VIconView(.check, size: 12)
+                        .foregroundStyle(VColor.auxWhite)
+                }
+            }
+            .frame(width: 20, height: 20)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
+        .accessibilityValue(tosAccepted ? "Checked" : "Unchecked")
+        .accessibilityAddTraits(.isToggle)
     }
 
     // MARK: - ToS Consent Text
@@ -119,9 +148,10 @@ struct ImproveExperienceStepView: View {
     // MARK: - Actions
 
     private func saveAndContinue() {
-        UserDefaults.standard.set(collectUsageData, forKey: "collectUsageData")
-        UserDefaults.standard.set(sendDiagnostics, forKey: "sendDiagnostics")
-        UserDefaults.standard.set(true, forKey: "tosAccepted")
+        // @AppStorage already persists collectUsageData, sendDiagnostics, and
+        // tosAccepted. Explicitly set tosAccepted = true here as a safeguard
+        // so acceptance is recorded even if the user somehow bypasses the toggle.
+        tosAccepted = true
 
         if sendDiagnostics {
             MetricKitManager.startSentry()
@@ -141,46 +171,5 @@ struct ImproveExperienceStepView: View {
             // Users who skipped step 2 (API key) go back to step 1
             state.currentStep -= skippedAPIKeyEntry ? 2 : 1
         }
-    }
-}
-
-// MARK: - Checkbox
-
-/// A styled checkbox matching the V* component aesthetic: primary-filled with
-/// white checkmark when checked, outlined rounded square when unchecked.
-private struct VCheckbox: View {
-    @Binding var isOn: Bool
-
-    private let size: CGFloat = 20
-    private let cornerRadius: CGFloat = VRadius.sm
-
-    var body: some View {
-        Button {
-            isOn.toggle()
-        } label: {
-            ZStack {
-                if isOn {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(VColor.primaryBase)
-
-                    VIconView(.check, size: 12)
-                        .foregroundStyle(VColor.auxWhite)
-                } else {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(Color.clear)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: cornerRadius)
-                                .stroke(VColor.borderBase, lineWidth: 1.5)
-                        )
-                }
-            }
-            .frame(width: size, height: size)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .animation(VAnimation.fast, value: isOn)
-        .accessibilityLabel("Agree to Terms of Service and Privacy Policy")
-        .accessibilityValue(isOn ? "Checked" : "Unchecked")
-        .accessibilityAddTraits(.isToggle)
     }
 }

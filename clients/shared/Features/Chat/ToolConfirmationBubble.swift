@@ -114,7 +114,7 @@ public struct ToolConfirmationBubble: View {
                     .foregroundStyle(VColor.primaryBase)
 
                 Text(confirmation.permissionFriendlyName)
-                    .font(VFont.bodyMediumEmphasised)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
             }
 
@@ -457,7 +457,7 @@ public struct ToolConfirmationBubble: View {
 
     private var confirmationDescription: some View {
         Text(confirmation.humanDescription)
-            .font(VFont.bodyMediumEmphasised)
+            .font(VFont.bodyMediumDefault)
             .foregroundStyle(VColor.contentDefault)
             .fixedSize(horizontal: false, vertical: true)
     }

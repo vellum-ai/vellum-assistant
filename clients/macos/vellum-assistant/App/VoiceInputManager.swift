@@ -652,15 +652,44 @@ final class VoiceInputManager {
         request.shouldReportPartialResults = true
         recognitionRequest = request
 
-        // Remove any stale tap left from a previous session that was not properly
-        // cleaned up (e.g. audio engine stopped unexpectedly). installTap crashes
-        // with NSInternalInconsistencyException if a tap already exists on the bus.
-        // See: https://stackoverflow.com/questions/41805381
-        engineController.removeTap()
-        hasInstalledTap = true
+        let ampState = amplitudeState
+        ampState.reset()
 
-        guard let recordingFormat = engineController.inputNodeFormat() else {
-            log.error("Invalid audio format — no valid input channels or sample rate")
+        // Atomically read the hardware format, install the tap, and start the
+        // engine in a single dispatch to the audio queue. This prevents the
+        // TOCTOU race where a format read via `inputNodeFormat()` becomes stale
+        // before a separate `installTap()` async block executes — which crashes
+        // with NSInternalInconsistencyException on first use after permission grant.
+        guard engineController.installTapAndStart(
+            bufferSize: 1024,
+            block: { [weak self] buffer, _ in
+                request.append(buffer)
+
+                guard let channelData = buffer.floatChannelData else { return }
+                let frameLength = Int(buffer.frameLength)
+                guard frameLength > 0 else { return }
+
+                let channelDataArray = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
+                let rawRMS = vDSP.rootMeanSquare(channelDataArray)
+
+                let smoothed = 0.5 * rawRMS + 0.5 * ampState.previousSmoothed
+                ampState.previousSmoothed = smoothed
+
+                // Scale amplitude to 0-1 range for waveform visualization.
+                // Speech RMS is typically 0.01-0.1; multiply to fill the visual range.
+                let scaled = min(smoothed * 14.0, 1.0)
+
+                let now = CFAbsoluteTimeGetCurrent()
+                guard now - ampState.lastEmissionTime >= 0.033 else { return }
+                ampState.lastEmissionTime = now
+
+                VoiceInputManager.amplitudeSubject.send(scaled)
+                DispatchQueue.main.async { [weak self] in
+                    self?.onAmplitudeChanged?(scaled)
+                }
+            }
+        ) else {
+            log.error("Audio engine failed to start — invalid format or engine error")
             isRecording = false
             onRecordingStateChanged?(false)
             currentDictationContext = nil
@@ -669,38 +698,7 @@ final class VoiceInputManager {
             resetAudioEngine()
             return
         }
-
-        let ampState = amplitudeState
-        ampState.reset()
-        engineController.installTap(bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-            request.append(buffer)
-
-            // Compute amplitude from the audio buffer for visual feedback.
-            // All smoothing/throttling state lives in ampState (a reference type
-            // captured by this closure) so reads and writes stay on the audio thread.
-            guard let channelData = buffer.floatChannelData else { return }
-            let frameLength = Int(buffer.frameLength)
-            guard frameLength > 0 else { return }
-
-            let channelDataArray = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-            let rawRMS = vDSP.rootMeanSquare(channelDataArray)
-
-            let smoothed = 0.5 * rawRMS + 0.5 * ampState.previousSmoothed
-            ampState.previousSmoothed = smoothed
-
-            // Scale amplitude to 0-1 range for waveform visualization.
-            // Speech RMS is typically 0.01-0.1; multiply to fill the visual range.
-            let scaled = min(smoothed * 14.0, 1.0)
-
-            let now = CFAbsoluteTimeGetCurrent()
-            guard now - ampState.lastEmissionTime >= 0.033 else { return }
-            ampState.lastEmissionTime = now
-
-            VoiceInputManager.amplitudeSubject.send(scaled)
-            DispatchQueue.main.async { [weak self] in
-                self?.onAmplitudeChanged?(scaled)
-            }
-        }
+        hasInstalledTap = true
 
         recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
@@ -737,17 +735,7 @@ final class VoiceInputManager {
             }
         }
 
-        if engineController.prepareAndStart() {
-            VoiceFeedback.playActivationChime()
-        } else {
-            log.error("Audio engine failed to start")
-            isRecording = false
-            onRecordingStateChanged?(false)
-            currentDictationContext = nil
-            overlayWindow.dismiss()
-            tearDownAudioState()
-            engineController.reset()
-        }
+        VoiceFeedback.playActivationChime()
     }
 
     // MARK: - Permission Prompt

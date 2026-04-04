@@ -6,7 +6,6 @@ import { getBackupsDir, formatSize } from "../lib/backup-ops.js";
 import { loadGuardianToken, leaseGuardianToken } from "../lib/guardian-token";
 import {
   readPlatformToken,
-  fetchOrganizationId,
   platformInitiateExport,
   platformPollExportStatus,
   platformDownloadExport,
@@ -196,24 +195,11 @@ async function backupPlatform(
     process.exit(1);
   }
 
-  let orgId: string;
-  try {
-    orgId = await fetchOrganizationId(token, runtimeUrl);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("401") || msg.includes("403")) {
-      console.error("Authentication failed. Run 'vellum login' to refresh.");
-      process.exit(1);
-    }
-    throw err;
-  }
-
   // Step 2 — Initiate export job
   let jobId: string;
   try {
     const result = await platformInitiateExport(
       token,
-      orgId,
       "CLI backup",
       runtimeUrl,
     );
@@ -244,7 +230,7 @@ async function backupPlatform(
   while (Date.now() < deadline) {
     let status: { status: string; downloadUrl?: string; error?: string };
     try {
-      status = await platformPollExportStatus(jobId, token, orgId, runtimeUrl);
+      status = await platformPollExportStatus(jobId, token, runtimeUrl);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // Let non-transient errors (e.g. 404 "job not found") propagate immediately

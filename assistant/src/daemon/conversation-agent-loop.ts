@@ -44,10 +44,7 @@ import {
   updateConversationTitle,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
-import {
-  rebuildConversationDiskViewFromDbState,
-  syncMessageToDisk,
-} from "../memory/conversation-disk-view.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
@@ -91,7 +88,6 @@ import {
   classifyConversationError,
   isUserCancellation,
 } from "./conversation-error.js";
-import { consolidateAssistantMessages } from "./conversation-history.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
@@ -105,10 +101,11 @@ import type {
 import {
   applyRuntimeInjections,
   buildUnifiedTurnContextBlock,
+  findLastInjectedNowContent,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   readNowScratchpad,
-  stripInjectedContext,
+  stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
@@ -777,6 +774,14 @@ export async function runAgentLoopImpl(
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
 
+    // Only inject NOW.md if it changed since the last injection in the
+    // conversation.  Keeping the previous injection in place avoids mutating
+    // historical user messages and preserves the cached prefix.
+    const currentNowContent = readNowScratchpad();
+    const lastInjectedNow = findLastInjectedNowContent(ctx.messages);
+    const nowScratchpad =
+      currentNowContent !== lastInjectedNow ? currentNowContent : null;
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       activeSurface,
@@ -786,7 +791,7 @@ export async function runAgentLoopImpl(
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
-      nowScratchpad: readNowScratchpad(),
+      nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
@@ -905,9 +910,12 @@ export async function runAgentLoopImpl(
           shouldInjectWorkspace = true;
         }
 
-        // Re-inject with potentially downgraded injection mode
+        // Re-inject with potentially downgraded injection mode.
+        // Override nowScratchpad: compaction strips existing NOW.md blocks,
+        // so we must re-inject the current content unconditionally.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          nowScratchpad: currentNowContent,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1040,7 +1048,7 @@ export async function runAgentLoopImpl(
 
       // Strip injected context from updated history before compacting,
       // so we compact the "raw" persistent messages.
-      const rawHistory = stripInjectedContext(updatedHistory);
+      const rawHistory = stripInjectionsForCompaction(updatedHistory);
       ctx.messages = rawHistory;
 
       ctx.emitActivityState(
@@ -1098,9 +1106,13 @@ export async function runAgentLoopImpl(
         shouldInjectWorkspace = true;
       }
 
-      // Re-inject runtime context and re-enter the agent loop
+      // Re-inject runtime context and re-enter the agent loop.
+      // After compaction, stripInjectionsForCompaction() removes the existing
+      // NOW.md block from history, so we must re-inject the current content
+      // even if it hasn't changed since the last injection.
       runMessages = applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
+        nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
           : null,
@@ -1182,7 +1194,7 @@ export async function runAgentLoopImpl(
     // convergence loop operates on the full (larger) history.
     if (state.contextTooLargeDetected) {
       if (updatedHistory.length > preRunHistoryLength) {
-        ctx.messages = stripInjectedContext(updatedHistory);
+        ctx.messages = stripInjectionsForCompaction(updatedHistory);
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
       }
@@ -1307,6 +1319,7 @@ export async function runAgentLoopImpl(
 
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          nowScratchpad: currentNowContent,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1347,7 +1360,7 @@ export async function runAgentLoopImpl(
           // tier operates on up-to-date history instead of stale
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
-            ctx.messages = stripInjectedContext(updatedHistory);
+            ctx.messages = stripInjectionsForCompaction(updatedHistory);
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
           }
@@ -1425,6 +1438,7 @@ export async function runAgentLoopImpl(
 
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
+              nowScratchpad: currentNowContent,
               workspaceTopLevelContext: shouldInjectWorkspace
                 ? ctx.workspaceTopLevelContext
                 : null,
@@ -1541,6 +1555,7 @@ export async function runAgentLoopImpl(
 
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
+            nowScratchpad: currentNowContent,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
@@ -1687,7 +1702,11 @@ export async function runAgentLoopImpl(
       { providerName: ctx.provider.name, toolTokenBudget },
     );
 
-    ctx.messages = stripInjectedContext(restoredHistory);
+    // Persist injections in history: runtime-injected context stays on
+    // historical user messages so the conversation prefix is stable for
+    // Anthropic's prefix caching.  Stripping only happens during
+    // compaction/overflow recovery (where a cache miss is expected).
+    ctx.messages = restoredHistory;
 
     emitUsage(
       ctx,
@@ -1938,15 +1957,10 @@ export async function runAgentLoopImpl(
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
 
-    if (userMessageId) {
-      const didMutateHistory = consolidateAssistantMessages(
-        ctx.conversationId,
-        userMessageId,
-      );
-      if (didMutateHistory) {
-        rebuildConversationDiskViewFromDbState(ctx.conversationId);
-      }
-    }
+    // Consolidation deferred to compaction: keeping assistant + tool_result
+    // messages unconsolidated preserves the exact message structure sent to
+    // the API, enabling stable prefix caching across turns.  Compaction
+    // consolidates when it summarizes old messages (cache miss is expected).
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
 

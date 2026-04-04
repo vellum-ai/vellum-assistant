@@ -129,10 +129,10 @@ struct SidebarSectionView: View {
                 VStack(spacing: 0) {
                     sectionContent
                 }
-                .padding(.vertical, VSpacing.xxs)
+                .padding(.bottom, VSpacing.xxs)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(isDropTarget ? VColor.systemPositiveWeak : VColor.contentTertiary.opacity(0.06))
+                        .fill(isDropTarget ? VColor.systemPositiveWeak : .clear)
                 )
                 .modifier(SectionBodyDropModifier(
                     groupId: group.id,
@@ -191,6 +191,20 @@ struct SidebarSectionView: View {
         }
 
         showMoreLessButton
+
+        // When all loaded conversations fit within maxCollapsed (e.g. pinned
+        // sections use .max) the show-more button never appears, yet more
+        // conversations may exist on the server beyond the initial page.
+        // Auto-trigger a full load so those items become visible.
+        if conversations.count <= maxCollapsed,
+           let conversationManager,
+           conversationManager.hasMoreConversations {
+            Color.clear
+                .frame(height: 0)
+                .onAppear {
+                    conversationManager.loadAllRemainingConversations()
+                }
+        }
     }
 
     // MARK: - Schedule Sub-Groups
@@ -243,7 +257,7 @@ struct SidebarSectionView: View {
                     .frame(width: 20, height: 20)
 
                 Text(subGroup.label)
-                    .font(VFont.menuCompact)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -312,10 +326,6 @@ struct SidebarSectionView: View {
                 }
             }
             .padding(.vertical, VSpacing.xxs)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.contentTertiary.opacity(0.03))
-            )
             .overlay(alignment: .leading) {
                 UnevenRoundedRectangle(
                     topLeadingRadius: VRadius.md,

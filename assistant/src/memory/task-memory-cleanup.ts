@@ -9,14 +9,27 @@ const log = getLogger("task-memory-cleanup");
  * so the check survives daemon restarts.
  */
 export function isConversationFailed(conversationId: string): boolean {
+  // For reused schedule conversations the same conversation_id appears in
+  // multiple cron_runs. A single failed run should NOT mark the conversation
+  // as permanently failed — only the *most recent* run for that conversation
+  // matters. We therefore check whether the latest cron_run (by created_at,
+  // which is a monotonically increasing epoch timestamp) has an error status.
+  // Note: cron_runs.id is a UUID v4 (random), so we cannot use MAX(id).
   const row = rawGet<{ found: number }>(
     `SELECT 1 AS found
        FROM (
          SELECT 1 FROM task_runs WHERE conversation_id = ? AND status = 'failed'
          UNION ALL
-         SELECT 1 FROM cron_runs WHERE conversation_id = ? AND status = 'error'
+         SELECT 1 FROM cron_runs
+          WHERE conversation_id = ?
+            AND status = 'error'
+            AND id = (
+              SELECT id FROM cron_runs WHERE conversation_id = ?
+              ORDER BY created_at DESC LIMIT 1
+            )
        )
       LIMIT 1`,
+    conversationId,
     conversationId,
     conversationId,
   );
@@ -57,9 +70,17 @@ export function invalidateAssistantInferredItemsForConversation(
                   AND tr.status = 'failed'
              )
              AND NOT EXISTS (
+               -- Check only the most recent cron_run for each conversation
+               -- so reused conversations with historical errors but recent
+               -- successes are still treated as valid corroborators.
                SELECT 1 FROM cron_runs cr
                 WHERE cr.conversation_id = jc2.value
                   AND cr.status = 'error'
+                  AND cr.id = (
+                    SELECT cr2.id FROM cron_runs cr2
+                     WHERE cr2.conversation_id = jc2.value
+                     ORDER BY cr2.created_at DESC LIMIT 1
+                  )
              )
         )`,
     Date.now(),

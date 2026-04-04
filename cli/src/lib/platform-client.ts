@@ -68,17 +68,76 @@ export function clearPlatformToken(): void {
 const VAK_PREFIX = "vak_";
 
 /**
- * Returns the appropriate auth header for the given platform token.
+ * Sync helper – returns only the token-based auth header.
  *
- * - `vak_`-prefixed tokens are long-lived platform API keys and use
- *   `Authorization: Bearer`.
- * - All other tokens are allauth session tokens and use `X-Session-Token`.
+ * Used internally by {@link fetchOrganizationId} (which cannot call the
+ * async {@link authHeaders} without creating a cycle) and by functions
+ * that already have an org ID in hand.
  */
-export function authHeaders(token: string): Record<string, string> {
+function tokenAuthHeader(token: string): Record<string, string> {
   if (token.startsWith(VAK_PREFIX)) {
     return { Authorization: `Bearer ${token}` };
   }
   return { "X-Session-Token": token };
+}
+
+/** Module-level cache for org IDs to avoid redundant fetches in polling loops. */
+const orgIdCache = new Map<string, { orgId: string; expiresAt: number }>();
+const ORG_ID_CACHE_TTL_MS = 60_000; // 60 seconds
+
+/**
+ * Returns the full set of headers needed for an authenticated platform
+ * API request:
+ *
+ * - `Content-Type: application/json`
+ * - The appropriate auth header (`Authorization: Bearer` for `vak_`
+ *   API keys, `X-Session-Token` for session tokens).
+ * - `Vellum-Organization-Id` – fetched from the platform.  Only
+ *   included for session-token callers; API keys are already org-scoped.
+ *
+ * The org ID is cached per (token, platformUrl) for 60 seconds to avoid
+ * redundant HTTP requests in tight polling loops.
+ *
+ * Auth errors (401 / 403) from the org-ID fetch are logged with a
+ * user-friendly message before re-throwing, so callers don't need to
+ * repeat that logic.
+ */
+export async function authHeaders(
+  token: string,
+  platformUrl?: string,
+): Promise<Record<string, string>> {
+  const base: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...tokenAuthHeader(token),
+  };
+
+  if (token.startsWith(VAK_PREFIX)) {
+    // API keys are org-scoped – no need to fetch the org ID.
+    return base;
+  }
+
+  const cacheKey = `${token}::${platformUrl ?? ""}`;
+  const cached = orgIdCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return { ...base, "Vellum-Organization-Id": cached.orgId };
+  }
+
+  try {
+    const orgId = await fetchOrganizationId(token, platformUrl);
+    orgIdCache.set(cacheKey, {
+      orgId,
+      expiresAt: Date.now() + ORG_ID_CACHE_TTL_MS,
+    });
+    return { ...base, "Vellum-Organization-Id": orgId };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("401") || msg.includes("403")) {
+      console.error("Authentication failed. Run 'vellum login' to refresh.");
+    } else {
+      console.error(`Failed to fetch organization: ${msg}`);
+    }
+    throw err;
+  }
 }
 
 export interface HatchedAssistant {
@@ -89,7 +148,6 @@ export interface HatchedAssistant {
 
 export async function hatchAssistant(
   token: string,
-  orgId: string,
   platformUrl?: string,
 ): Promise<HatchedAssistant> {
   const resolvedUrl = platformUrl || getPlatformUrl();
@@ -97,11 +155,7 @@ export async function hatchAssistant(
 
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(token),
-      "Vellum-Organization-Id": orgId,
-    },
+    headers: await authHeaders(token, platformUrl),
     body: JSON.stringify({}),
   });
 
@@ -149,7 +203,7 @@ export async function fetchOrganizationId(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/organizations/`;
   const response = await fetch(url, {
-    headers: { ...authHeaders(token) },
+    headers: { ...tokenAuthHeader(token) },
   });
 
   if (!response.ok) {
@@ -210,18 +264,13 @@ export async function fetchCurrentUser(
 
 export async function rollbackPlatformAssistant(
   token: string,
-  orgId: string,
   version?: string,
   platformUrl?: string,
 ): Promise<{ detail: string; version: string | null }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await fetch(`${resolvedUrl}/v1/assistants/rollback/`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(token),
-      "Vellum-Organization-Id": orgId,
-    },
+    headers: await authHeaders(token, platformUrl),
     body: JSON.stringify(version ? { version } : {}),
   });
 
@@ -255,18 +304,13 @@ export async function rollbackPlatformAssistant(
 
 export async function platformInitiateExport(
   token: string,
-  orgId: string,
   description?: string,
   platformUrl?: string,
 ): Promise<{ jobId: string; status: string }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await fetch(`${resolvedUrl}/v1/migrations/export/`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(token),
-      "Vellum-Organization-Id": orgId,
-    },
+    headers: await authHeaders(token, platformUrl),
     body: JSON.stringify({ description: description ?? "CLI backup" }),
   });
 
@@ -290,17 +334,13 @@ export async function platformInitiateExport(
 export async function platformPollExportStatus(
   jobId: string,
   token: string,
-  orgId: string,
   platformUrl?: string,
 ): Promise<{ status: string; downloadUrl?: string; error?: string }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await fetch(
     `${resolvedUrl}/v1/migrations/export/${jobId}/status/`,
     {
-      headers: {
-        ...authHeaders(token),
-        "Vellum-Organization-Id": orgId,
-      },
+      headers: await authHeaders(token, platformUrl),
     },
   );
 
@@ -345,7 +385,6 @@ export async function platformDownloadExport(
 export async function platformImportPreflight(
   bundleData: Uint8Array<ArrayBuffer>,
   token: string,
-  orgId: string,
   platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
@@ -354,9 +393,8 @@ export async function platformImportPreflight(
     {
       method: "POST",
       headers: {
+        ...(await authHeaders(token, platformUrl)),
         "Content-Type": "application/octet-stream",
-        ...authHeaders(token),
-        "Vellum-Organization-Id": orgId,
       },
       body: new Blob([bundleData]),
       signal: AbortSignal.timeout(120_000),
@@ -373,16 +411,14 @@ export async function platformImportPreflight(
 export async function platformImportBundle(
   bundleData: Uint8Array<ArrayBuffer>,
   token: string,
-  orgId: string,
   platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await fetch(`${resolvedUrl}/v1/migrations/import/`, {
     method: "POST",
     headers: {
+      ...(await authHeaders(token, platformUrl)),
       "Content-Type": "application/octet-stream",
-      ...authHeaders(token),
-      "Vellum-Organization-Id": orgId,
     },
     body: new Blob([bundleData]),
     signal: AbortSignal.timeout(120_000),
@@ -401,17 +437,12 @@ export async function platformImportBundle(
 
 export async function platformRequestUploadUrl(
   token: string,
-  orgId: string,
   platformUrl?: string,
 ): Promise<{ uploadUrl: string; bundleKey: string; expiresAt: string }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await fetch(`${resolvedUrl}/v1/migrations/upload-url/`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(token),
-      "Vellum-Organization-Id": orgId,
-    },
+    headers: await authHeaders(token, platformUrl),
     body: JSON.stringify({ content_type: "application/octet-stream" }),
   });
 
@@ -466,7 +497,6 @@ export async function platformUploadToSignedUrl(
 export async function platformImportPreflightFromGcs(
   bundleKey: string,
   token: string,
-  orgId: string,
   platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
@@ -474,13 +504,9 @@ export async function platformImportPreflightFromGcs(
     `${resolvedUrl}/v1/migrations/import-preflight-from-gcs/`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(token),
-        "Vellum-Organization-Id": orgId,
-      },
-      body: JSON.stringify({ bundle_key: bundleKey }),
+      headers: await authHeaders(token, platformUrl),
       signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify({ bundle_key: bundleKey }),
     },
   );
 
@@ -494,7 +520,6 @@ export async function platformImportPreflightFromGcs(
 export async function platformImportBundleFromGcs(
   bundleKey: string,
   token: string,
-  orgId: string,
   platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
@@ -502,11 +527,7 @@ export async function platformImportBundleFromGcs(
     `${resolvedUrl}/v1/migrations/import-from-gcs/`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(token),
-        "Vellum-Organization-Id": orgId,
-      },
+      headers: await authHeaders(token, platformUrl),
       body: JSON.stringify({ bundle_key: bundleKey }),
       signal: AbortSignal.timeout(120_000),
     },

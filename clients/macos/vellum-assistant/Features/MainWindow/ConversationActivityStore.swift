@@ -1,27 +1,21 @@
+import Combine
 import Foundation
 import Observation
 import VellumAssistantShared
 
 /// Owns per-conversation activity state (busy flags, interaction states, active
-/// message count) on an `@Observable` class so SwiftUI views get **property-level**
-/// tracking instead of the broad `objectWillChange` signal that
-/// `ObservableObject` emits.
+/// message count) as an `@Observable` class for property-level SwiftUI tracking.
 ///
-/// Before this extraction, `ConversationManager` held these values as `@Published`
-/// properties. Every message-stream token, every send/think toggle wrote to a
-/// `@Published` var → fired `objectWillChange` → invalidated the entire view tree
-/// rooted at `MainWindowView`. Moving the high-churn state here breaks that
-/// cascade: only views that actually read a specific property re-evaluate.
+/// Scalar properties (`isSending`, `isThinking`, `hasPendingConfirmation`) are
+/// observed via `withObservationTracking` loops — they change infrequently and
+/// the one-shot + re-arm pattern is appropriate.
 ///
-/// Observation is done via `withObservationTracking` loops that read directly from
-/// `ChatMessageManager` and `ChatErrorManager` `@Observable` properties — no
-/// Combine bridge publishers are needed. Each loop is guarded by a generation
-/// counter so it can be cleanly invalidated when a conversation is switched,
-/// closed, or archived.
+/// `messages`-derived state (assistant activity snapshots, active message count)
+/// subscribes to `messagesPublisher` instead, which naturally coalesces rapid
+/// mutations via deferred publishing in `ChatMessageManager`.
 ///
-/// - SeeAlso: [Migrating from ObservableObject to Observable](https://developer.apple.com/documentation/swiftui/migrating-from-the-observable-object-protocol-to-the-observable-macro)
-/// - SeeAlso: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
 /// - SeeAlso: [Observation framework](https://developer.apple.com/documentation/observation)
+/// - SeeAlso: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
 @MainActor @Observable
 final class ConversationActivityStore {
 
@@ -36,8 +30,7 @@ final class ConversationActivityStore {
     private(set) var conversationInteractionStates: [UUID: ConversationInteractionState] = [:]
 
     /// Message count of the active conversation's view model.
-    /// Views that need to react to new messages observe this instead of
-    /// subscribing to ConversationManager.objectWillChange.
+    /// Views that need to react to new messages observe this property directly.
     private(set) var activeMessageCount: Int = 0
 
     // MARK: - Observation lifecycle
@@ -48,8 +41,11 @@ final class ConversationActivityStore {
     /// Generation counters for invalidating interaction-state observation loops.
     @ObservationIgnored private var interactionGenerations: [UUID: Int] = [:]
 
-    /// Generation counter for invalidating the active-VM message count loop.
-    @ObservationIgnored private var activeVMGeneration: Int = 0
+    /// Combine subscriptions for messages-derived state. These subscribe to
+    /// `messagesPublisher` which coalesces rapid mutations, avoiding per-mutation
+    /// O(n) scans that `withObservationTracking` on `messages` would cause.
+    @ObservationIgnored private var assistantActivitySubs: [UUID: AnyCancellable] = [:]
+    @ObservationIgnored private var activeMessageCountSub: AnyCancellable?
 
     /// Tracks the previous interaction state per conversation so sound effects
     /// only fire on discrete transitions, not on every streaming delta.
@@ -63,6 +59,26 @@ final class ConversationActivityStore {
     /// Callback invoked when a conversation transitions from busy → idle.
     /// ConversationManager uses this to drain pending notification catch-ups.
     @ObservationIgnored var onBusyToIdle: ((UUID) -> Void)?
+
+    // MARK: - Assistant activity observation
+
+    /// Snapshot of the latest assistant message's structural properties,
+    /// used to detect meaningful changes (new messages, tool completions,
+    /// streaming state transitions) without deep-diffing the full message list.
+    struct AssistantActivitySnapshot: Equatable {
+        let messageId: UUID
+        let toolCallCount: Int
+        let completedToolCallCount: Int
+        let surfaceCount: Int
+        let isStreaming: Bool
+    }
+
+    /// Last observed assistant activity snapshot per conversation.
+    @ObservationIgnored private(set) var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = [:]
+
+    /// Callback invoked when assistant activity changes for a conversation.
+    /// Parameters: (conversationId, previousSnapshot, currentSnapshot).
+    @ObservationIgnored var onAssistantActivityChange: ((UUID, AssistantActivitySnapshot?, AssistantActivitySnapshot) -> Void)?
 
     // MARK: - Public API
 
@@ -79,12 +95,8 @@ final class ConversationActivityStore {
     // MARK: - Start observation
 
     /// Begin observing busy-state properties on a ChatViewModel's message manager.
-    ///
-    /// Uses `withObservationTracking` to read `isSending`, `isThinking`, and
-    /// `pendingQueuedCount` directly from the `@Observable` ChatMessageManager,
-    /// bypassing the Combine bridge publishers entirely. The observation loop
-    /// re-arms itself on each change and is invalidated via generation counter
-    /// when the conversation is unsubscribed.
+    /// The observation loop re-arms on each change and is invalidated via
+    /// generation counter when the conversation is unsubscribed.
     func observeBusyState(for conversationId: UUID, messageManager: ChatMessageManager) {
         let generation = (busyGenerations[conversationId] ?? 0) + 1
         busyGenerations[conversationId] = generation
@@ -92,11 +104,9 @@ final class ConversationActivityStore {
     }
 
     /// Begin observing interaction-state properties on a ChatViewModel.
-    ///
     /// Reads from both `ChatMessageManager` and `ChatErrorManager` in a single
     /// `withObservationTracking` closure, so a change to any tracked property
-    /// triggers re-evaluation. This replaces the CombineLatest4 + error bridge
-    /// Subject pipeline that previously existed on ConversationManager.
+    /// triggers re-evaluation.
     func observeInteractionState(
         for conversationId: UUID,
         messageManager: ChatMessageManager,
@@ -114,16 +124,52 @@ final class ConversationActivityStore {
         )
     }
 
+    /// Begin observing assistant activity on a ChatViewModel's message manager.
+    ///
+    /// Subscribes to `messagesPublisher` to derive an `AssistantActivitySnapshot`
+    /// and compare with the previous snapshot. On change, invokes
+    /// `onAssistantActivityChange` so ConversationManager can update unseen state.
+    func observeAssistantActivity(for conversationId: UUID, messageManager: ChatMessageManager) {
+        // Seed with the initial snapshot.
+        let initialSnapshot = Self.assistantActivitySnapshot(from: messageManager.messages)
+        if let initialSnapshot {
+            latestAssistantActivitySnapshots[conversationId] = initialSnapshot
+        } else {
+            latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
+        }
+        assistantActivitySubs[conversationId] = messageManager.messagesPublisher
+            .map { Self.assistantActivitySnapshot(from: $0) }
+            .removeDuplicates()
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                let previous = self.latestAssistantActivitySnapshots[conversationId]
+                if let snapshot {
+                    self.latestAssistantActivitySnapshots[conversationId] = snapshot
+                } else {
+                    self.latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
+                }
+                guard previous != snapshot, let snapshot else { return }
+                self.onAssistantActivityChange?(conversationId, previous, snapshot)
+            }
+    }
+
     /// Begin observing the active conversation's message count.
     ///
-    /// Called when the active conversation changes. Invalidates any prior
-    /// observation loop and starts a new one for the given message manager.
+    /// Called when the active conversation changes. Cancels any prior
+    /// subscription and starts a new one for the given message manager.
     func observeActiveViewModel(_ messageManager: ChatMessageManager?) {
-        activeVMGeneration += 1
+        activeMessageCountSub = nil
         activeMessageCount = 0
         guard let messageManager else { return }
-        let generation = activeVMGeneration
-        observeActiveMessageCountLoop(messageManager: messageManager, generation: generation)
+        activeMessageCountSub = messageManager.messagesPublisher
+            .map(\.count)
+            .removeDuplicates()
+            .sink { [weak self] count in
+                guard let self else { return }
+                if count != self.activeMessageCount {
+                    self.activeMessageCount = count
+                }
+            }
     }
 
     // MARK: - Stop observation
@@ -138,7 +184,9 @@ final class ConversationActivityStore {
     func unsubscribeFromBusyState(for conversationId: UUID) {
         invalidateBusyGeneration(for: conversationId)
         invalidateInteractionGeneration(for: conversationId)
+        assistantActivitySubs.removeValue(forKey: conversationId)
         busyConversationIds.remove(conversationId)
+        latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
     }
 
     /// Cancel all observation and remove cached state for a conversation that
@@ -146,10 +194,12 @@ final class ConversationActivityStore {
     func unsubscribeAll(for conversationId: UUID) {
         invalidateBusyGeneration(for: conversationId)
         invalidateInteractionGeneration(for: conversationId)
+        assistantActivitySubs.removeValue(forKey: conversationId)
         busyConversationIds.remove(conversationId)
         conversationInteractionStates.removeValue(forKey: conversationId)
         previousInteractionStates.removeValue(forKey: conversationId)
         hasInitialInteractionState.removeValue(forKey: conversationId)
+        latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
     }
 
     // MARK: - Busy state observation loop
@@ -199,7 +249,7 @@ final class ConversationActivityStore {
         var state = ConversationInteractionState.idle
         withObservationTracking {
             let hasError = errorManager.errorText != nil || errorManager.conversationError != nil
-            let hasPendingConfirmation = messageManager.messages.contains { $0.confirmation?.state == .pending }
+            let hasPendingConfirmation = messageManager.hasPendingConfirmation
             let isBusy = messageManager.isSending || messageManager.isThinking || messageManager.pendingQueuedCount > 0
 
             if hasError {
@@ -250,30 +300,16 @@ final class ConversationActivityStore {
         }
     }
 
-    // MARK: - Active message count observation loop
-
-    private func observeActiveMessageCountLoop(
-        messageManager: ChatMessageManager,
-        generation: Int
-    ) {
-        guard activeVMGeneration == generation else { return }
-
-        var count = 0
-        withObservationTracking {
-            count = messageManager.messages.count
-        } onChange: { [weak self, weak messageManager] in
-            Task { @MainActor [weak self, weak messageManager] in
-                guard let self, let messageManager else { return }
-                self.observeActiveMessageCountLoop(
-                    messageManager: messageManager,
-                    generation: generation
-                )
-            }
-        }
-
-        if count != activeMessageCount {
-            activeMessageCount = count
-        }
+    /// Derive a structural snapshot from the latest assistant message in the list.
+    private static func assistantActivitySnapshot(from messages: [ChatMessage]) -> AssistantActivitySnapshot? {
+        guard let message = messages.reversed().first(where: { $0.role == .assistant }) else { return nil }
+        return AssistantActivitySnapshot(
+            messageId: message.id,
+            toolCallCount: message.toolCalls.count,
+            completedToolCallCount: message.toolCalls.filter(\.isComplete).count,
+            surfaceCount: message.inlineSurfaces.count,
+            isStreaming: message.isStreaming
+        )
     }
 
     // MARK: - Private helpers

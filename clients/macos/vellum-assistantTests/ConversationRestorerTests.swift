@@ -11,6 +11,7 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     var groups: [ConversationGroup] = []
     var daemonSupportsGroups: Bool = false
     var restoreRecentConversations: Bool = true
+    var lastActiveConversationIdString: String?
     var isLoadingMoreConversations: Bool = false
     var hasMoreConversations: Bool = false
     var serverOffset: Int = 0

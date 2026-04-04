@@ -171,6 +171,11 @@ struct SettingsBillingTab: View {
                 Text("Amount (USD)")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
+                if let summary {
+                    Text("$\(summary.minimum_top_up_usd)\u{2013}$\(summary.maximum_top_up_usd) per transaction. $\(summary.maximum_balance_usd) max balance. Credits expire 12 months after purchase.")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
                 VTextField(
                     placeholder: "Enter amount",
                     text: $topUpAmount
@@ -241,6 +246,23 @@ struct SettingsBillingTab: View {
         }
     }
 
+    /// Extract the first validation error message from an API error response body.
+    private static func parseValidationError(_ body: String?) -> String? {
+        guard let body, let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        for value in json.values {
+            if let messages = value as? [String], let first = messages.first {
+                return first
+            }
+        }
+        if let detail = json["detail"] as? String {
+            return detail
+        }
+        return nil
+    }
+
     // MARK: - Actions
 
     private func loadSummary() async {
@@ -275,6 +297,19 @@ struct SettingsBillingTab: View {
             return
         }
 
+        if let summary, let maximum = Double(summary.maximum_top_up_usd), amount > maximum {
+            topUpError = "Maximum top-up amount is $\(summary.maximum_top_up_usd)."
+            return
+        }
+
+        if let summary,
+           let maxBalance = Double(summary.maximum_balance_usd),
+           let currentBalance = Double(summary.effective_balance_usd),
+           currentBalance + amount > maxBalance {
+            topUpError = "This top-up would exceed the maximum balance of $\(summary.maximum_balance_usd)."
+            return
+        }
+
         let normalizedAmount = String(format: "%.2f", amount)
 
         isProcessingTopUp = true
@@ -285,6 +320,8 @@ struct SettingsBillingTab: View {
             let checkoutURL = try await BillingService.shared.createTopUpCheckout(amountUsd: normalizedAmount)
             NSWorkspace.shared.open(checkoutURL)
             topUpAmount = ""
+        } catch let PlatformAPIError.serverError(_, detail) {
+            self.topUpError = Self.parseValidationError(detail) ?? "Failed to create checkout session. Please try again."
         } catch {
             self.topUpError = "Failed to create checkout session. Please try again."
         }

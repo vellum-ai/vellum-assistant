@@ -41,6 +41,7 @@ import {
 } from "./http/routes/twilio-relay-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
+import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
@@ -238,6 +239,11 @@ async function main() {
     credentials: credentialCache,
     configFile: configFileCache,
   });
+  const { handler: handleEmailWebhook, dedupCache: emailDedupCache } =
+    createEmailWebhookHandler(config, {
+      credentials: credentialCache,
+      configFile: configFileCache,
+    });
   // Map: "channel:threadTs" -> { messageTs, expiresAt } for replacing approval
   // messages with the bot's follow-up content after an approval button click.
   const pendingApprovalReplacements = new Map<
@@ -350,6 +356,10 @@ async function main() {
       path: "/webhooks/whatsapp",
       precondition: requireWhatsApp,
       handler: (req) => handleWhatsAppWebhook(req),
+    },
+    {
+      path: "/webhooks/email/inbound",
+      handler: (req) => handleEmailWebhook(req),
     },
 
     // ── Audio serving (unauthenticated — Twilio fetches these URLs directly) ──
@@ -1161,6 +1171,7 @@ async function main() {
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
   whatsappDedupCache.startCleanup();
+  emailDedupCache.startCleanup();
 
   const telegramCaches = {
     credentials: credentialCache,
@@ -1521,6 +1532,7 @@ async function main() {
     remoteFeatureFlagSync.stop();
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
+    emailDedupCache.stopCleanup();
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;
