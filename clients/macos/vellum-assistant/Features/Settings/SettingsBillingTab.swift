@@ -109,10 +109,10 @@ struct SettingsBillingTab: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Effective balance — large display
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Effective Credit Balance")
+                Text("Balance")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
-                Text("\(summary.effective_balance) credits")
+                Text(summary.effective_balance)
                     .font(VFont.titleMedium)
                     .foregroundStyle(VColor.contentEmphasized)
             }
@@ -137,10 +137,10 @@ struct SettingsBillingTab: View {
 
             HStack(spacing: VSpacing.xl) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Settled Credit Balance")
+                    Text("Settled Balance")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text("\(summary.settled_balance) credits")
+                    Text(summary.settled_balance)
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
                 }
@@ -148,7 +148,7 @@ struct SettingsBillingTab: View {
                     Text(summary.is_degraded ? "Pending Usage (estimated)" : "Pending Usage")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text("\(summary.pending_compute) credits")
+                    Text(summary.pending_compute)
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
@@ -192,12 +192,20 @@ struct SettingsBillingTab: View {
                     ),
                     options: topUpAmounts.map { amount in
                         let credits = amount.replacingOccurrences(of: ".00", with: "")
-                        return (label: "\(credits) ($\(amount))", value: amount)
+                        return (label: "\(credits) credits", value: amount)
                     }
                 )
                 .frame(maxWidth: 200)
                 if let summary {
-                    Text("\(summary.maximum_balance) max credit balance. Credits expire 12 months after purchase.")
+                    let maxFormatted: String = {
+                        if let value = Int(Double(summary.maximum_balance) ?? 0), value > 0 {
+                            let formatter = NumberFormatter()
+                            formatter.numberStyle = .decimal
+                            return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
+                        }
+                        return summary.maximum_balance
+                    }()
+                    Text("1 credit = $1 USD. \(maxFormatted) max credit balance. Credits expire 12 months after purchase.")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }
@@ -287,7 +295,15 @@ struct SettingsBillingTab: View {
            let maxBalance = Double(summary.maximum_balance),
            let currentBalance = Double(summary.effective_balance),
            currentBalance + amount > maxBalance {
-            topUpError = "This top-up would exceed the maximum credit balance of \(summary.maximum_balance)."
+            let maxFormatted: String = {
+                if let value = Int(maxBalance), value > 0 {
+                    let formatter = NumberFormatter()
+                    formatter.numberStyle = .decimal
+                    return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
+                }
+                return summary.maximum_balance
+            }()
+            topUpError = "This top-up would exceed the maximum credit balance of \(maxFormatted)."
             return
         }
 
