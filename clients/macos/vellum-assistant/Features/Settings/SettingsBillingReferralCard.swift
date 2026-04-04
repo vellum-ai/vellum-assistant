@@ -105,7 +105,7 @@ struct SettingsBillingReferralCard: View {
                 }
 
                 // Earning cap note
-                Text("Earn up to \(code.earning_cap_usd.replacingOccurrences(of: ".00", with: "")) referral credits")
+                Text("Earn up to \(code.earning_cap_usd) referral credits")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }

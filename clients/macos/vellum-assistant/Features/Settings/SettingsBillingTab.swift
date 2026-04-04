@@ -197,7 +197,7 @@ struct SettingsBillingTab: View {
                 )
                 .frame(maxWidth: 200)
                 if let summary {
-                    Text("\(summary.maximum_balance_usd.replacingOccurrences(of: ".00", with: "")) max credit balance. Credits expire 12 months after purchase.")
+                    Text("\(summary.maximum_balance_usd) max credit balance. Credits expire 12 months after purchase.")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }
@@ -287,7 +287,7 @@ struct SettingsBillingTab: View {
            let maxBalance = Double(summary.maximum_balance_usd),
            let currentBalance = Double(summary.effective_balance_usd),
            currentBalance + amount > maxBalance {
-            topUpError = "This top-up would exceed the maximum credit balance of \(summary.maximum_balance_usd.replacingOccurrences(of: ".00", with: ""))."
+            topUpError = "This top-up would exceed the maximum credit balance of \(summary.maximum_balance_usd)."
             return
         }
 
