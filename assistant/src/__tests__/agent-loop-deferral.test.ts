@@ -32,15 +32,32 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-// Background tool manager: real implementation for integration tests
-// We import the real class and create a fresh instance per test
+// Background tool manager: real implementation for integration tests.
+// Bun's mock.module() snapshots exports at registration time, so a getter
+// won't re-evaluate dynamically. We create a stable instance up-front and
+// return it directly. In beforeEach we swap the delegate to a fresh instance
+// via our thin proxy wrapper, giving each test a clean slate.
 import { BackgroundToolManager } from "../agent/background-tool-manager.js";
 
-let testBgManager: BackgroundToolManager;
-mock.module("../agent/background-tool-manager.js", () => ({
-  get backgroundToolManager() {
-    return testBgManager;
+let testBgManager = new BackgroundToolManager();
+
+// Proxy that delegates all property access to whichever BackgroundToolManager
+// instance `testBgManager` currently points to. This lets mock.module()
+// capture one stable reference while beforeEach can swap the underlying
+// manager freely.
+const bgManagerProxy = new Proxy({} as BackgroundToolManager, {
+  get(_target, prop, _receiver) {
+    const value = Reflect.get(testBgManager, prop, testBgManager);
+    // Bind methods so `this` inside the real manager is correct
+    if (typeof value === "function") {
+      return value.bind(testBgManager);
+    }
+    return value;
   },
+});
+
+mock.module("../agent/background-tool-manager.js", () => ({
+  backgroundToolManager: bgManagerProxy,
   BackgroundToolManager,
 }));
 
