@@ -270,7 +270,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     },
     fidelity: "vivid" as const,
     confidence: 1.0,
-    significance: 0.3,
+    significance: 0.6,
     stability: 1000, // Effectively permanent — never decays
     reinforcementCount: 0,
     lastReinforced: now,
