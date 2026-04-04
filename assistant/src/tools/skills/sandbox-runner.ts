@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { getConfig } from "../../config/loader.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import { wrapCommand } from "../terminal/sandbox.js";
@@ -138,11 +137,9 @@ function spawnRunner(
     const stderrChunks: Buffer[] = [];
     let timedOut = false;
 
-    const config = getConfig();
-    const sandboxConfig =
-      context.sandboxOverride != null
-        ? { ...config.sandbox, enabled: context.sandboxOverride }
-        : config.sandbox;
+    // The assistant runs exclusively in Docker or platform-managed
+    // environments where the container provides isolation.
+    const sandboxConfig = { enabled: false } as const;
 
     const bunRunCmd = "bun run __skill_runner.ts";
     const wrapped = wrapCommand(bunRunCmd, runDir, sandboxConfig);
