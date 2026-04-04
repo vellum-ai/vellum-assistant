@@ -80,6 +80,7 @@ export function listPinnedConversations(): ConversationRow[] {
       ),
     )
     .orderBy(
+      sql`COALESCE(display_order, 999999) ASC`,
       desc(
         sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
       ),
