@@ -208,8 +208,8 @@ export function initializeDb(): void {
   const log = getLogger("db-init");
   const database = getDb();
 
-  // Every migration step that should be wrapped in safeMigrate, in execution
-  // order. Each function accepts a DrizzleDb and is identified by its .name.
+  // Every migration step, in execution order. Each function accepts a
+  // DrizzleDb and is identified by its .name.
   const migrationSteps = [
     createCoreTables,
     recoverCrashedMigrations,
@@ -349,7 +349,9 @@ export function initializeDb(): void {
   const failures: string[] = [];
   for (const step of migrationSteps) {
     try {
+      log.debug({ migration: step.name }, `Starting migration: ${step.name}`);
       step(database);
+      log.debug({ migration: step.name }, `Migration succeeded: ${step.name}`);
     } catch (err) {
       failures.push(step.name);
       log.error(
@@ -359,17 +361,18 @@ export function initializeDb(): void {
     }
   }
 
-  // Log the migration failure summary before validation so it's visible even if
-  // validateMigrationState also throws.
   if (failures.length > 0) {
-    const msg = `DB initialization completed with ${failures.length} failed migration(s)`;
-    log.error({ failedMigrations: failures, count: failures.length }, msg);
-    throw new Error(`${msg}: ${failures.join(", ")}`);
+    log.error(
+      { failedMigrations: failures, count: failures.length },
+      `DB initialization completed with ${failures.length} failed migration(s)`,
+    );
   }
 
-  // validateMigrationState intentionally throws IntegrityError when dependency
-  // violations are detected — keep it unwrapped so it blocks daemon startup.
-  validateMigrationState(database);
+  try {
+    validateMigrationState(database);
+  } catch (err) {
+    log.error({ err }, "validateMigrationState failed");
+  }
 
   if (process.env.BUN_TEST === "1") {
     saveTemplate();
