@@ -2225,6 +2225,7 @@ public enum ServerMessage: Decodable, Sendable {
     case recordingStop(RecordingStop)
     case clientSettingsUpdate(ClientSettingsUpdate)
     case avatarUpdated(AvatarUpdated)
+    case soundsConfigUpdated(SoundsConfigUpdated)
     case generateAvatarResponse(GenerateAvatarResponse)
     case heartbeatConfigResponse(HeartbeatConfigResponse)
     case heartbeatRunsListResponse(HeartbeatRunsListResponse)
@@ -2638,6 +2639,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "avatar_updated":
             let message = try AvatarUpdated(from: decoder)
             self = .avatarUpdated(message)
+        case "sounds_config_updated":
+            let message = try SoundsConfigUpdated(from: decoder)
+            self = .soundsConfigUpdated(message)
         case "generate_avatar_response":
             let message = try GenerateAvatarResponse(from: decoder)
             self = .generateAvatarResponse(message)

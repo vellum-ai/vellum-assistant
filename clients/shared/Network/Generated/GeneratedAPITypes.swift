@@ -3723,6 +3723,15 @@ public struct SignBundlePayloadResponse: Codable, Sendable {
     }
 }
 
+/// Sent by the daemon when sounds config or sound files change on disk.
+public struct SoundsConfigUpdated: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
 public struct SkillDetailRequest: Codable, Sendable {
     public let type: String
     public let skillId: String
