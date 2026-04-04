@@ -14,7 +14,7 @@ When you introduce a new env var that the assistant process needs to read at run
 
 ## Daemon startup philosophy
 
-The daemon must **never** block startup due to migration or DB-initialization failures. Individual migration errors are caught, logged, and skipped so that independent later migrations can still succeed. Even `validateMigrationState` is wrapped in a try/catch — a validation failure is logged but does not prevent the daemon from starting. The outer `initializeDb()` call in `lifecycle.ts` is also wrapped so a catastrophic DB open failure results in degraded mode, not a crash.
+The daemon must **never** block startup under *any circumstance*. All possible errors should be logged so that the assistant can recover from it's corrupted state after the fact.
 
 ## Code comments
 
