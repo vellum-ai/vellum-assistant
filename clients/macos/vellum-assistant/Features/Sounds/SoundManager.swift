@@ -28,7 +28,9 @@ final class SoundManager {
     @ObservationIgnored private var soundCache: [String: NSSound] = [:]
 
     /// Cached list of available sound files in the workspace sounds directory.
-    @ObservationIgnored private var cachedAvailableSounds: [(label: String, filename: String)] = []
+    /// NOT marked `@ObservationIgnored` so SwiftUI re-renders when the async
+    /// fetch completes (the Settings dropdown reads this via `availableSounds()`).
+    private var cachedAvailableSounds: [(label: String, filename: String)] = []
 
     // MARK: - Lifecycle
 
