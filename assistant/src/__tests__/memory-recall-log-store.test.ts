@@ -62,6 +62,7 @@ describe("memory-recall-log-store", () => {
       topCandidatesJson: [{ id: "c1", score: 0.9 }],
       injectedText: "some memory context",
       reason: "user query matched memories",
+      queryContext: "what is the weather like",
     });
 
     backfillMemoryRecallLogMessageId(conversationId, messageId);
@@ -85,6 +86,34 @@ describe("memory-recall-log-store", () => {
     expect(result!.topCandidates).toEqual([{ id: "c1", score: 0.9 }]);
     expect(result!.injectedText).toBe("some memory context");
     expect(result!.reason).toBe("user query matched memories");
+    expect(result!.queryContext).toBe("what is the weather like");
+  });
+
+  test("queryContext defaults to null when omitted", () => {
+    const conversationId = "conv-no-query-ctx";
+    const messageId = "msg-no-query-ctx";
+
+    recordMemoryRecallLog({
+      conversationId,
+      enabled: true,
+      degraded: false,
+      semanticHits: 1,
+      mergedCount: 1,
+      selectedCount: 1,
+      tier1Count: 1,
+      tier2Count: 0,
+      hybridSearchLatencyMs: 50,
+      sparseVectorUsed: false,
+      injectedTokens: 100,
+      latencyMs: 80,
+      topCandidatesJson: [],
+    });
+
+    backfillMemoryRecallLogMessageId(conversationId, messageId);
+
+    const result = getMemoryRecallLogByMessageIds([messageId]);
+    expect(result).not.toBeNull();
+    expect(result!.queryContext).toBeNull();
   });
 
   test("returns null when no log exists for a messageId", () => {
