@@ -238,13 +238,20 @@ struct MessageListContentView: View, Equatable {
                     providerCatalogHash: providerCatalogHash
                 )
                 .equatable()
-                .frame(height: cachedHeight)
+                // Measure natural content height BEFORE applying the cached frame
+                // so the cache is always updated from unconstrained layout, not
+                // from the pinned frame. This makes the cache self-correcting:
+                // if anything changes cell height (window resize, showTimestamp
+                // toggle, dismissedDocumentSurfaceIds) the next layout pass
+                // writes the correct height and the pinned frame updates on the
+                // following render.
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.size.height
                 } action: { height in
                     guard isCellHeightCacheable, height > 0 else { return }
                     scrollState.cellHeightCache[message.id] = height
                 }
+                .frame(height: cachedHeight)
             }
 
             ForEach(state.orphanSubagents) { subagent in
