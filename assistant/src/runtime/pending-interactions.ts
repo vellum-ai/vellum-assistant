@@ -134,8 +134,11 @@ export function drop(requestId: string): void {
  *
  * By default, host_bash, host_file, host_cu, and acp_confirmation interactions
  * are skipped (same as `removeByConversation`). Pass `{ includeHostTools: true }`
- * to drop everything — use this only when the conversation is being disposed
- * and the host-tool results can no longer be delivered.
+ * to also drop host_bash, host_file, and host_cu entries — use this when the
+ * conversation is being disposed and host-tool results can no longer be delivered.
+ *
+ * acp_confirmation entries are always skipped because they store a `directResolve`
+ * callback that the ACP session manager needs during its own teardown.
  */
 export function dropByConversationId(
   conversationId: string,
@@ -144,12 +147,14 @@ export function dropByConversationId(
   const includeHostTools = options?.includeHostTools ?? false;
   for (const [requestId, interaction] of pending) {
     if (interaction.conversationId !== conversationId) continue;
+    // ACP confirmations are always preserved — the session manager handles
+    // their lifecycle via teardownSession.
+    if (interaction.kind === "acp_confirmation") continue;
     if (
       !includeHostTools &&
       (interaction.kind === "host_bash" ||
         interaction.kind === "host_file" ||
-        interaction.kind === "host_cu" ||
-        interaction.kind === "acp_confirmation")
+        interaction.kind === "host_cu")
     ) {
       continue;
     }

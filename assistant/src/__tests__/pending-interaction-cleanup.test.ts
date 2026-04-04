@@ -275,7 +275,7 @@ describe("SecretPrompter + pending-interactions cleanup", () => {
 // ---------------------------------------------------------------------------
 
 describe("dropByConversationId for conversation disposal", () => {
-  test("drops host_bash, host_file, host_cu, and confirmation entries when includeHostTools is true", () => {
+  test("drops host_bash, host_file, host_cu, and confirmation entries when includeHostTools is true but preserves acp_confirmation", () => {
     pendingInteractions.register("req-conf", {
       conversation: null,
       conversationId: "conv-dispose",
@@ -301,6 +301,12 @@ describe("dropByConversationId for conversation disposal", () => {
       conversationId: "conv-dispose",
       kind: "host_cu",
     });
+    pendingInteractions.register("req-acp", {
+      conversation: null,
+      conversationId: "conv-dispose",
+      kind: "acp_confirmation",
+      directResolve: () => {},
+    });
 
     pendingInteractions.dropByConversationId("conv-dispose", {
       includeHostTools: true,
@@ -311,6 +317,8 @@ describe("dropByConversationId for conversation disposal", () => {
     expect(pendingInteractions.get("req-bash")).toBeUndefined();
     expect(pendingInteractions.get("req-file")).toBeUndefined();
     expect(pendingInteractions.get("req-cu")).toBeUndefined();
+    // ACP confirmations are always preserved for the session manager
+    expect(pendingInteractions.get("req-acp")).toBeDefined();
   });
 
   test("does not affect entries for other conversations", () => {

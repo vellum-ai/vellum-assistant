@@ -919,7 +919,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
 
-    test("removes all entries including host-tools when includeHostTools is true", async () => {
+    test("removes host-tool entries when includeHostTools is true but preserves acp_confirmation", async () => {
       const session = makeIdleSession();
       await startServer(() => session);
 
@@ -943,6 +943,12 @@ describe("standalone approval endpoints — HTTP layer", () => {
         conversationId: "conv-dispose",
         kind: "host_cu",
       });
+      pendingInteractions.register("req-acp-2", {
+        conversation: null,
+        conversationId: "conv-dispose",
+        kind: "acp_confirmation",
+        directResolve: () => {},
+      });
 
       pendingInteractions.dropByConversationId("conv-dispose", {
         includeHostTools: true,
@@ -952,6 +958,8 @@ describe("standalone approval endpoints — HTTP layer", () => {
       expect(pendingInteractions.get("req-bash-2")).toBeUndefined();
       expect(pendingInteractions.get("req-file-2")).toBeUndefined();
       expect(pendingInteractions.get("req-cu-2")).toBeUndefined();
+      // ACP confirmations are always preserved for the session manager
+      expect(pendingInteractions.get("req-acp-2")).toBeDefined();
 
       await stopServer();
     });
