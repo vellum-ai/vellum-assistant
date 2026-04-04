@@ -5,6 +5,7 @@ import SwiftUI
 public struct ToolCallProgressBar: View {
     public let toolCalls: [ToolCallData]
     @State private var expandedStepId: UUID?
+    @State private var cachedResult: (stepId: UUID, lineCount: Int)?
 
     public init(toolCalls: [ToolCallData]) {
         self.toolCalls = toolCalls
@@ -49,6 +50,21 @@ public struct ToolCallProgressBar: View {
                         insertion: .scale(scale: 0.95).combined(with: .opacity),
                         removal: .opacity
                     ))
+            }
+        }
+        .onChange(of: expandedStepId) { _, newId in
+            if let newId, let call = toolCalls.first(where: { $0.id == newId }),
+               let result = call.result {
+                cachedResult = (stepId: newId, lineCount: VCodeView.countLines(in: result))
+            } else {
+                cachedResult = nil
+            }
+        }
+        .onChange(of: toolCalls) {
+            if let expandedId = expandedStepId,
+               let call = toolCalls.first(where: { $0.id == expandedId }),
+               let result = call.result {
+                cachedResult = (stepId: expandedId, lineCount: VCodeView.countLines(in: result))
             }
         }
     }
@@ -243,14 +259,25 @@ public struct ToolCallProgressBar: View {
                                 .foregroundStyle(VColor.contentSecondary)
                         }
                     } else {
-                        ScrollView {
+                        let lineCount = (cachedResult?.stepId == toolCall.id ? cachedResult?.lineCount : nil)
+                            ?? VCodeView.countLines(in: result)
+                        if lineCount > 500 || result.count > 50_000 {
+                            ScrollView {
+                                Text(result)
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
+                            .vAdaptiveScrollFrame(maxHeight: 200)
+                        } else {
                             Text(result)
                                 .font(VFont.bodySmallDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .adaptiveScrollFrame(for: result, maxHeight: 200)
                     }
                 }
             }
@@ -264,6 +291,11 @@ public struct ToolCallProgressBar: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
+        .onAppear {
+            if cachedResult == nil, let result = toolCall.result {
+                cachedResult = (stepId: toolCall.id, lineCount: VCodeView.countLines(in: result))
+            }
+        }
     }
 
     // MARK: - Colors
