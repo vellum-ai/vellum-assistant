@@ -62,6 +62,7 @@ import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { handleCredentialRoute, type CredentialRouteDeps } from "./http/credential-routes.js";
+import { handleLogExportRoute } from "./http/log-export-routes.js";
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -388,6 +389,10 @@ function startHealthServer(
         const credentialResponse = await handleCredentialRoute(req, credentialDeps);
         if (credentialResponse) return credentialResponse;
       }
+
+      // Log export route
+      const logExportResponse = await handleLogExportRoute(req, getCesLogDir("managed"));
+      if (logExportResponse) return logExportResponse;
 
       return new Response("Not Found", { status: 404 });
     },
