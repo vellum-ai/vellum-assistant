@@ -12,6 +12,10 @@ When you introduce a new env var that the assistant process needs to read at run
 
 **Default to including it.** If the var doesn't contain secrets (e.g. a URL, a feature flag, a path, a mode string), add it. Only omit it if it carries credential material (tokens, passwords, private keys) — those must stay isolated to CES.
 
+## Daemon startup philosophy
+
+The daemon must **never** block startup under *any circumstance*. All possible errors should be logged so that the assistant can recover from it's corrupted state after the fact.
+
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.
