@@ -148,7 +148,7 @@ struct EmojiPickerRow: View {
                 Text(entry.emoji)
                     .font(.system(size: 20))
                 Text(":\(entry.shortcode):")
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                 Spacer()
             }

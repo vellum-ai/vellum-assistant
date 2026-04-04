@@ -190,7 +190,7 @@ struct AppsGridView: View {
                 }
 
                 Text(app.name)
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
 
@@ -261,7 +261,7 @@ struct AppsGridView: View {
             VIconView(.circleCheck, size: 16)
                 .foregroundStyle(.white)
             Text("Shared to cloud")
-                .font(VFont.bodyMediumDefault)
+                .font(VFont.bodyMediumEmphasised)
                 .foregroundStyle(.white)
         }
         .padding(.horizontal, VSpacing.md)

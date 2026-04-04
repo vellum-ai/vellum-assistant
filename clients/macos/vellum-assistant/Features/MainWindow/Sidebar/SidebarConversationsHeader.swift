@@ -19,10 +19,9 @@ struct SidebarConversationsHeader: View {
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
-            Text("Threads")
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentTertiary)
-                .padding(.leading, VSpacing.xs)
+            Text("Conversations")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(VColor.contentDefault)
             Spacer()
             HStack(spacing: VSpacing.xs) {
                 if hasUnseenConversations {
