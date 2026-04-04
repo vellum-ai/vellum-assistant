@@ -247,6 +247,13 @@ final class MessageListScrollState {
 
     // MARK: - Layout Cache Fields
 
+    /// Cached rendered heights for completed, non-streaming message cells.
+    /// Applied as `.frame(height:)` so `LazyVStack.sizeThatFits` returns
+    /// immediately without recursing into the cell subtree on every flush.
+    /// Keyed by message ID; invalidated on conversation switch and when a
+    /// message transitions back to active (streaming, pending confirmation).
+    @ObservationIgnored var cellHeightCache: [UUID: CGFloat] = [:]
+
     @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey?
     @ObservationIgnored var cachedLayoutMetadata: CachedMessageLayoutMetadata?
     @ObservationIgnored var messageListVersion: Int = 0
@@ -593,6 +600,7 @@ final class MessageListScrollState {
         if _isPaginationInFlight { _isPaginationInFlight = false }
         wasPaginationTriggerInRange = false
         lastPaginationCompletedAt = .distantPast
+        cellHeightCache.removeAll()
         cachedLayoutKey = nil
         cachedLayoutMetadata = nil
         cachedDerivedStateBox = nil
