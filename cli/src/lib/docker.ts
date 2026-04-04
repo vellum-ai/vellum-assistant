@@ -92,39 +92,13 @@ async function downloadAndExtract(
 }
 
 /**
- * Installs Docker CLI, Colima, and Lima by downloading pre-built binaries
- * directly into ~/.vellum/bin/. No Homebrew or sudo required.
- *
- * Falls back to Homebrew if available (e.g. admin users who prefer it).
+ * Installs Docker CLI (and Colima + Lima on macOS) by downloading pre-built
+ * binaries directly into ~/.local/bin/. No Homebrew or sudo required.
  */
 async function installDockerToolchain(): Promise<void> {
   const isMac = platform() === "darwin";
   const isLinux = platform() === "linux";
 
-  // Try Homebrew first if available (macOS only) — it handles updates and dependencies.
-  if (isMac) {
-    let hasBrew = false;
-    try {
-      await execOutput("brew", ["--version"]);
-      hasBrew = true;
-    } catch {
-      // brew not found
-    }
-
-    if (hasBrew) {
-      console.log("🐳 Docker not found. Installing via Homebrew...");
-      try {
-        await exec("brew", ["install", "colima", "docker"]);
-        return;
-      } catch {
-        console.log(
-          "  ⚠ Homebrew install failed, falling back to direct binary download...",
-        );
-      }
-    }
-  }
-
-  // Direct binary install — no sudo required.
   mkdirSync(LOCAL_BIN_DIR, { recursive: true });
 
   const cpuArch = releaseArch();
