@@ -536,9 +536,9 @@ describe("AgentLoop deferral", () => {
     }
   });
 
-  // ── Cleanup on conversation end ────────────────────────────────────
+  // ── Background executions survive across run() calls ────────────────
 
-  test("cleanup on conversation end", async () => {
+  test("background executions survive across run() calls", async () => {
     mockDeferralEnabled = true;
     mockThresholdSec = 60; // High threshold so no deferral happens
 
@@ -569,8 +569,10 @@ describe("AgentLoop deferral", () => {
       "conv-cleanup",
     );
 
-    // After loop exits, cleanup should have been called
-    expect(testBgManager.getActiveCount("conv-cleanup")).toBe(0);
+    // After loop exits, background executions should still be active —
+    // cleanup is the conversation lifecycle's responsibility (abort/dispose),
+    // not the agent loop's.
+    expect(testBgManager.getActiveCount("conv-cleanup")).toBe(1);
   });
 
   // ── Deferral-exempt tools skip threshold ───────────────────────────

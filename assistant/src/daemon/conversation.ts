@@ -15,6 +15,7 @@
  * - conversation-usage.ts        — recordUsage
  */
 
+import { backgroundToolManager } from "../agent/background-tool-manager.js";
 import type { ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
@@ -579,6 +580,7 @@ export class Conversation {
       clearTimeout(handle);
     }
     this.checkInTimers.clear();
+    backgroundToolManager.cleanup(this.conversationId);
     abortConversation(this);
   }
 
