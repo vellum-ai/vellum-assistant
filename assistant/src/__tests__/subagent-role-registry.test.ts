@@ -43,10 +43,10 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
-  test('every role with allowedTools includes "skill_execute"', () => {
+  test('no role includes "skill_execute" (replaced by core tools)', () => {
     for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
       if (config.allowedTools !== undefined) {
-        expect(config.allowedTools).toContain("skill_execute");
+        expect(config.allowedTools).not.toContain("skill_execute");
       }
     }
   });
@@ -73,10 +73,17 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
-  test('every role pre-activates the "subagent" skill', () => {
+  test("every role has empty skillIds (no skill preactivation)", () => {
     for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
-      expect(config.skillIds).toContain("subagent");
+      expect(config.skillIds).toEqual([]);
     }
+  });
+
+  test('researcher and planner include "file_list"', () => {
+    expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).toContain(
+      "file_list",
+    );
+    expect(SUBAGENT_ROLE_REGISTRY.planner.allowedTools).toContain("file_list");
   });
 });
 

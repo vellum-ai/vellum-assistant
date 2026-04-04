@@ -89,7 +89,7 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
   {
     general: {
       allowedTools: undefined,
-      skillIds: ["subagent"],
+      skillIds: [],
       systemPromptPreamble:
         "You are a general-purpose subagent. Complete the delegated task thoroughly and concisely.",
     },
@@ -98,12 +98,12 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
         "web_search",
         "web_fetch",
         "file_read",
+        "file_list",
         "recall",
         "remember",
         "notify_parent",
-        "skill_execute",
       ],
-      skillIds: ["subagent"],
+      skillIds: [],
       systemPromptPreamble:
         "You are a research-focused subagent with read-only access. Search the web, read files, and recall and store memories. You cannot write files or run shell commands.",
     },
@@ -116,22 +116,21 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
         "web_search",
         "recall",
         "notify_parent",
-        "skill_execute",
       ],
-      skillIds: ["subagent"],
+      skillIds: [],
       systemPromptPreamble:
         "You are a code-focused subagent with file and shell access. Read, write, and edit files, and run shell commands.",
     },
     planner: {
       allowedTools: [
         "file_read",
+        "file_list",
         "web_search",
         "web_fetch",
         "recall",
         "notify_parent",
-        "skill_execute",
       ],
-      skillIds: ["subagent"],
+      skillIds: [],
       systemPromptPreamble:
         "You are an analysis-focused subagent with read-only access. Read files, search the web, and synthesize findings. You cannot write files or run shell commands.",
     },
