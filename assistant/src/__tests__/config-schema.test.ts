@@ -169,7 +169,7 @@ describe("AssistantConfigSchema", () => {
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
       conversationRetentionDays: 0,
-      llmRequestLogRetentionDays: 7,
+      llmRequestLogRetentionMs: 7 * 24 * 60 * 60 * 1000,
     });
   });
 

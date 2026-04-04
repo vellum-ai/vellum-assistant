@@ -17,17 +17,17 @@ export function pruneOldLlmRequestLogsJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): void {
-  const retentionDays =
-    typeof job.payload.retentionDays === "number" &&
-    Number.isFinite(job.payload.retentionDays) &&
-    job.payload.retentionDays >= 0
-      ? job.payload.retentionDays
-      : config.memory.cleanup.llmRequestLogRetentionDays;
+  const retentionMs =
+    typeof job.payload.retentionMs === "number" &&
+    Number.isFinite(job.payload.retentionMs) &&
+    job.payload.retentionMs >= 0
+      ? job.payload.retentionMs
+      : config.memory.cleanup.llmRequestLogRetentionMs;
 
   // 0 means disabled
-  if (retentionDays === 0) return;
+  if (retentionMs === 0) return;
 
-  const cutoffMs = Date.now() - retentionDays * 86_400_000;
+  const cutoffMs = Date.now() - retentionMs;
 
   rawRun(
     `DELETE FROM llm_request_logs WHERE rowid IN (SELECT rowid FROM llm_request_logs WHERE created_at < ? LIMIT ?)`,
@@ -37,13 +37,13 @@ export function pruneOldLlmRequestLogsJob(
   const deleted = rawChanges();
 
   if (deleted >= PRUNE_LOG_BATCH_LIMIT) {
-    enqueueMemoryJob("prune_old_llm_request_logs", { retentionDays });
+    enqueueMemoryJob("prune_old_llm_request_logs", { retentionMs });
   }
 
   log.info(
     {
       deleted,
-      retentionDays,
+      retentionMs,
       cutoffMs,
     },
     "Pruned old LLM request logs",

@@ -147,9 +147,7 @@ export function hasActiveJobOfType(type: MemoryJobType): boolean {
   );
 }
 
-export function enqueuePruneOldLlmRequestLogsJob(
-  retentionDays?: number,
-): string {
+export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {
   const db = getDb();
   const existing = db
     .select()
@@ -165,9 +163,9 @@ export function enqueuePruneOldLlmRequestLogsJob(
   if (existing) {
     if (
       existing.status === "pending" &&
-      typeof retentionDays === "number" &&
-      Number.isFinite(retentionDays) &&
-      retentionDays >= 0
+      typeof retentionMs === "number" &&
+      Number.isFinite(retentionMs) &&
+      retentionMs >= 0
     ) {
       let payload: Record<string, unknown> = {};
       try {
@@ -175,10 +173,10 @@ export function enqueuePruneOldLlmRequestLogsJob(
       } catch {
         payload = {};
       }
-      if (payload.retentionDays !== retentionDays) {
+      if (payload.retentionMs !== retentionMs) {
         db.update(memoryJobs)
           .set({
-            payload: JSON.stringify({ ...payload, retentionDays }),
+            payload: JSON.stringify({ ...payload, retentionMs }),
             updatedAt: Date.now(),
           })
           .where(eq(memoryJobs.id, existing.id))
@@ -188,10 +186,10 @@ export function enqueuePruneOldLlmRequestLogsJob(
     return existing.id;
   }
   const payload =
-    typeof retentionDays === "number" &&
-    Number.isFinite(retentionDays) &&
-    retentionDays >= 0
-      ? { retentionDays }
+    typeof retentionMs === "number" &&
+    Number.isFinite(retentionMs) &&
+    retentionMs >= 0
+      ? { retentionMs }
       : {};
   return enqueueMemoryJob("prune_old_llm_request_logs", payload);
 }

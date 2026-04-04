@@ -447,8 +447,8 @@ export function maybeEnqueueScheduledCleanupJobs(
       ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
       : null;
   const pruneLlmRequestLogsJobId =
-    cleanup.llmRequestLogRetentionDays > 0
-      ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionDays)
+    cleanup.llmRequestLogRetentionMs > 0
+      ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
       : null;
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug(
@@ -457,7 +457,7 @@ export function maybeEnqueueScheduledCleanupJobs(
       pruneLlmRequestLogsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
-      llmRequestLogRetentionDays: cleanup.llmRequestLogRetentionDays,
+      llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
     },
     "Enqueued scheduled memory cleanup jobs",
   );

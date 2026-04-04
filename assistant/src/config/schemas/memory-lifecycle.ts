@@ -72,17 +72,17 @@ export const MemoryCleanupConfigSchema = z
       .describe(
         "Number of days to retain conversation data before cleanup (0 disables pruning)",
       ),
-    llmRequestLogRetentionDays: z
+    llmRequestLogRetentionMs: z
       .number({
-        error: "memory.cleanup.llmRequestLogRetentionDays must be a number",
+        error: "memory.cleanup.llmRequestLogRetentionMs must be a number",
       })
-      .int("memory.cleanup.llmRequestLogRetentionDays must be an integer")
+      .int("memory.cleanup.llmRequestLogRetentionMs must be an integer")
       .nonnegative(
-        "memory.cleanup.llmRequestLogRetentionDays must be non-negative",
+        "memory.cleanup.llmRequestLogRetentionMs must be non-negative",
       )
-      .default(7)
+      .default(7 * 24 * 60 * 60 * 1000)
       .describe(
-        "Number of days to retain LLM request/response logs before cleanup (0 disables pruning)",
+        "Retention period for LLM request/response logs in milliseconds (0 disables pruning)",
       ),
   })
   .describe("Automatic memory cleanup and garbage collection settings");
