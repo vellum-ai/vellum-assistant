@@ -15,16 +15,8 @@ struct ImageLightboxState {
     /// Whether a lazy-load fetch is in progress.
     var isLoadingFullRes: Bool
 
-    /// The best available image — full-res if loaded, then decoded from base64
-    /// data if available (covers non-lazy attachments whose inline preview was
-    /// downsampled), otherwise the original passed at creation.
+    /// The best available image — full-res if loaded, otherwise the original.
     var displayImage: NSImage {
-        if let fullResImage { return fullResImage }
-        if let base64Data, !base64Data.isEmpty,
-           let data = Data(base64Encoded: base64Data),
-           let decoded = NSImage(data: data) {
-            return decoded
-        }
-        return image
+        fullResImage ?? image
     }
 }
