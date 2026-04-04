@@ -165,7 +165,6 @@ import * as scaffoldManaged from "./bundled-skills/skill-management/tools/scaffo
 // ── subagent ───────────────────────────────────────────────────────────────────
 import * as subagentAbort from "./bundled-skills/subagent/tools/subagent-abort.js";
 import * as subagentMessage from "./bundled-skills/subagent/tools/subagent-message.js";
-import * as subagentNotifyParent from "./bundled-skills/subagent/tools/subagent-notify-parent.js";
 import * as subagentRead from "./bundled-skills/subagent/tools/subagent-read.js";
 import * as subagentSpawn from "./bundled-skills/subagent/tools/subagent-spawn.js";
 import * as subagentStatus from "./bundled-skills/subagent/tools/subagent-status.js";
@@ -392,7 +391,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["subagent:tools/subagent-abort.ts", subagentAbort],
   ["subagent:tools/subagent-message.ts", subagentMessage],
   ["subagent:tools/subagent-read.ts", subagentRead],
-  ["subagent:tools/subagent-notify-parent.ts", subagentNotifyParent],
 
   // tasks
   ["tasks:tools/task-save.ts", taskSave],

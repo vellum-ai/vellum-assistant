@@ -23,6 +23,7 @@ import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
 import { skillExecuteTool } from "./skills/execute.js";
 import { skillLoadTool } from "./skills/load.js";
+import { notifyParentTool } from "./subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
 import type { Tool } from "./types.js";
@@ -61,6 +62,7 @@ export const eagerModuleToolNames: string[] = [
   "skill_execute",
   "skill_load",
   "request_system_permission",
+  "notify_parent",
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
@@ -85,6 +87,7 @@ export const explicitTools: Tool[] = [
   rememberTool,
   recallTool,
   credentialStoreTool,
+  notifyParentTool,
 ];
 
 // ── CES tools (feature-flag gated) ──────────────────────────────────
