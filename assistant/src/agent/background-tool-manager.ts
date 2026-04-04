@@ -89,17 +89,27 @@ export class BackgroundToolManager {
         entry.promise
           .then((result) => {
             clearTimeout(timer);
-            resolve({ completed: true, result });
+            // Re-check the entry — it may have been cancelled while we waited
+            const current = this.executions.get(executionId);
+            if (current && current.status === "cancelled") {
+              resolve({ completed: false });
+            } else {
+              resolve({ completed: true, result });
+            }
           })
           .catch(() => {
             clearTimeout(timer);
             // Re-read the entry — the .then handler in register() may have
-            // already populated the error result.
+            // already populated the error result, or it may have been cancelled.
             const current = this.executions.get(executionId);
-            resolve({
-              completed: true,
-              result: current?.result,
-            });
+            if (current && current.status === "cancelled") {
+              resolve({ completed: false });
+            } else {
+              resolve({
+                completed: true,
+                result: current?.result,
+              });
+            }
           });
       },
     );
@@ -160,6 +170,9 @@ export class BackgroundToolManager {
   cleanup(conversationId: string): void {
     for (const [id, entry] of this.executions) {
       if (entry.conversationId === conversationId) {
+        if (entry.status === "running" && entry.abortController) {
+          entry.abortController.abort();
+        }
         this.executions.delete(id);
       }
     }
