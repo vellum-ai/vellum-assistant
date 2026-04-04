@@ -10,7 +10,7 @@ private let supportedSoundExtensions: Set<String> = ["aiff", "wav", "mp3", "m4a"
 
 /// Manages sound playback for configurable app events. Configuration is persisted
 /// to `data/sounds/config.json` in the assistant's workspace and accessed via the
-/// gateway API so it works identically for local and managed/remote assistants.
+/// gateway API so it works identically for all assistants.
 @MainActor @Observable
 final class SoundManager {
     static let shared = SoundManager()
@@ -36,11 +36,9 @@ final class SoundManager {
 
     func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
         self.featureFlagStore = featureFlagStore
-        Task { await fetchConfig() }
-    }
-
-    func stop() {
-        // No file watchers to cancel — config is fetched on demand via the gateway.
+        // Config is fetched later via reloadConfig() once the gateway is
+        // confirmed ready. Fetching here would race the assistant startup
+        // and fall back to defaults on connection-refused.
     }
 
     // MARK: - Config Loading & Saving
