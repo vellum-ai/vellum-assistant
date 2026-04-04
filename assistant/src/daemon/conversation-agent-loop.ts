@@ -1077,6 +1077,8 @@ export async function runAgentLoopImpl(
       abortController.signal,
       reqId,
       onCheckpoint,
+      ctx.conversationId,
+      scheduleCheckInCallback,
     );
 
     // ── Proactive mid-loop compaction ───────────────────────────────
@@ -1398,6 +1400,8 @@ export async function runAgentLoopImpl(
           abortController.signal,
           reqId,
           onCheckpoint,
+          ctx.conversationId,
+          scheduleCheckInCallback,
         );
 
         // If the rerun still yields at checkpoint, the turn is still
@@ -1517,6 +1521,8 @@ export async function runAgentLoopImpl(
               abortController.signal,
               reqId,
               onCheckpoint,
+              ctx.conversationId,
+              scheduleCheckInCallback,
             );
           } else {
             // User denied compression — emit a graceful assistant explanation
@@ -1633,6 +1639,8 @@ export async function runAgentLoopImpl(
             abortController.signal,
             reqId,
             onCheckpoint,
+            ctx.conversationId,
+            scheduleCheckInCallback,
           );
         }
         // action === "fail_gracefully" falls through to the final error below
