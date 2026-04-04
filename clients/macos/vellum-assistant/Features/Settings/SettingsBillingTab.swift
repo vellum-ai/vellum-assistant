@@ -198,7 +198,8 @@ struct SettingsBillingTab: View {
                 .frame(maxWidth: 200)
                 if let summary {
                     let maxFormatted: String = {
-                        if let value = Int(Double(summary.maximum_balance) ?? 0), value > 0 {
+                        let value = Int(Double(summary.maximum_balance) ?? 0)
+                        if value > 0 {
                             let formatter = NumberFormatter()
                             formatter.numberStyle = .decimal
                             return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
@@ -296,7 +297,8 @@ struct SettingsBillingTab: View {
            let currentBalance = Double(summary.effective_balance),
            currentBalance + amount > maxBalance {
             let maxFormatted: String = {
-                if let value = Int(maxBalance), value > 0 {
+                let value = Int(maxBalance)
+                if value > 0 {
                     let formatter = NumberFormatter()
                     formatter.numberStyle = .decimal
                     return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
