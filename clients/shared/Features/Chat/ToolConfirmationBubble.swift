@@ -327,12 +327,14 @@ public struct ToolConfirmationBubble: View {
                 }
                 .vAdaptiveScrollFrame(isLong: true, maxHeight: maxHeight)
             } else {
-                Text(content)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                ScrollView {
+                    Text(content)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .vAdaptiveScrollFrame(isLong: false, maxHeight: maxHeight)
             }
         }
         .padding(VSpacing.sm)

@@ -60,6 +60,13 @@ public struct ToolCallProgressBar: View {
                 cachedResultLineCount = nil
             }
         }
+        .onChange(of: toolCalls) {
+            if let expandedId = expandedStepId,
+               let call = toolCalls.first(where: { $0.id == expandedId }),
+               let result = call.result {
+                cachedResultLineCount = VCodeView.countLines(in: result)
+            }
+        }
     }
 
     // MARK: - Step Circle
@@ -263,12 +270,14 @@ public struct ToolCallProgressBar: View {
                             }
                             .vAdaptiveScrollFrame(isLong: true, maxHeight: 200)
                         } else {
-                            Text(result)
-                                .font(VFont.bodySmallDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
+                            ScrollView {
+                                Text(result)
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
+                            .vAdaptiveScrollFrame(isLong: false, maxHeight: 200)
                         }
                     }
                 }

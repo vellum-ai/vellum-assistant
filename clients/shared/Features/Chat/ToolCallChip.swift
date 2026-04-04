@@ -231,12 +231,14 @@ public struct ToolCallChip: View {
                                     }
                                     .vAdaptiveScrollFrame(isLong: true, maxHeight: 400)
                                 } else {
-                                    Text(result)
-                                        .font(VFont.bodySmallDefault)
-                                        .foregroundStyle(VColor.contentSecondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                    ScrollView {
+                                        Text(result)
+                                            .font(VFont.bodySmallDefault)
+                                            .foregroundStyle(VColor.contentSecondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
+                                    }
+                                    .vAdaptiveScrollFrame(isLong: false, maxHeight: 400)
                                 }
                             }
                         }
