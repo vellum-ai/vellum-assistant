@@ -280,6 +280,7 @@ export class Conversation {
     memoryPolicy?: ConversationMemoryPolicy,
     sharedCesClient?: CesClient,
     speedOverride?: Speed,
+    cacheTtl?: "5m" | "1h",
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
@@ -418,6 +419,7 @@ export class Conversation {
         ...(fastModeEnabled && resolvedSpeed === "fast"
           ? { speed: resolvedSpeed }
           : {}),
+        ...(cacheTtl ? { cacheTtl } : {}),
       },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,

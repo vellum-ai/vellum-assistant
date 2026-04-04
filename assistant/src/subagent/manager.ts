@@ -218,6 +218,9 @@ export class SubagentManager {
       workingDir,
       this.broadcastToAllClients, // forward parent's broadcast so tool side-effects (e.g. app_files_changed) reach all clients
       memoryPolicy,
+      undefined, // sharedCesClient
+      undefined, // speedOverride
+      "5m", // cacheTtl — subagents run tight tool-use loops, 5m is always hot
     );
 
     // Mark conversation as having no direct client — it routes through parent.
