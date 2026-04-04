@@ -3,13 +3,13 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Referral panel — shows referral URL, copy button, stats, and earning cap.
+/// The backend lazily creates a referral code on first GET, so there is
+/// no explicit creation step needed on the client.
 @MainActor
 struct SettingsBillingReferralCard: View {
     @State private var referralCode: ReferralCodeResponse?
     @State private var isLoading: Bool = true
-    @State private var isCreating: Bool = false
     @State private var error: String?
-    @State private var hasNoCode: Bool = false
     @State private var copied: Bool = false
 
     var body: some View {
@@ -18,8 +18,6 @@ struct SettingsBillingReferralCard: View {
                 loadingState
             } else if let error {
                 errorState(error)
-            } else if hasNoCode {
-                noCodeState
             } else if let referralCode {
                 hasCodeState(referralCode)
             }
@@ -41,26 +39,6 @@ struct SettingsBillingReferralCard: View {
                 }
             }
             .accessibilityHidden(true)
-        }
-    }
-
-    // MARK: - No Code State
-
-    private var noCodeState: some View {
-        SettingsCard(title: "Referrals", subtitle: "Share your link and earn credits") {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                Text("Get your personal referral link to share with friends. You'll both earn credits when they sign up.")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentSecondary)
-
-                VButton(
-                    label: isCreating ? "Creating..." : "Get Referral Link",
-                    style: .primary,
-                    isDisabled: isCreating
-                ) {
-                    Task { await createCode() }
-                }
-            }
         }
     }
 
@@ -160,29 +138,13 @@ struct SettingsBillingReferralCard: View {
         }
         error = nil
         do {
-            let result = try await BillingService.shared.getReferralCode()
-            referralCode = result
-            hasNoCode = false
-        } catch PlatformAPIError.notFound {
-            hasNoCode = true
+            referralCode = try await BillingService.shared.getReferralCode()
         } catch {
             if referralCode == nil {
                 self.error = "Failed to load referral information."
             }
         }
         isLoading = false
-    }
-
-    private func createCode() async {
-        isCreating = true
-        defer { isCreating = false }
-        do {
-            let result = try await BillingService.shared.createReferralCode()
-            referralCode = result
-            hasNoCode = false
-        } catch {
-            self.error = "Failed to create referral code. Please try again."
-        }
     }
 
     private func copyToClipboard(_ url: String) {
