@@ -42,6 +42,7 @@ import {
   migrateBackfillGuardianPrincipalId,
   migrateBackfillInlineAttachmentsToDisk,
   migrateBackfillUsageCacheAccounting,
+  migrateBackfillUserMessageAttachmentRefs,
   migrateCallSessionInviteMetadata,
   migrateCallSessionMode,
   migrateCallSessionSkipDisclosure,
@@ -603,6 +604,9 @@ export function initializeDb(): void {
 
   // 109. Add reuse_conversation flag to schedule jobs
   migrateScheduleReuseConversation(database);
+
+  // 110. Rewrite existing user messages to use attachment-backed ref blocks
+  migrateBackfillUserMessageAttachmentRefs(database);
 
   validateMigrationState(database);
 

@@ -23,11 +23,7 @@ import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import {
-  getApp,
-  getAppDirPath,
-  isMultifileApp,
-} from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -210,13 +206,10 @@ function makePendingInteractionRegistrar(
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           commandPreview:
-            redactSecrets(
-              summarizeToolInput(msg.toolName, inputRecord),
-            ) || undefined,
+            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+            undefined,
           riskLevel: msg.riskLevel,
-          activityText: activityRaw
-            ? redactSecrets(activityRaw)
-            : undefined,
+          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
           executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
@@ -648,6 +641,7 @@ export class DaemonServer {
               filename: a.filename,
               mimeType: a.mimeType,
               data: "",
+              sizeBytes: size,
               filePath: a.path,
             });
           } catch (err) {
@@ -671,22 +665,11 @@ export class DaemonServer {
       };
 
       if (conversation.isProcessing()) {
-        // Hydrate file data now — the queue path won't re-read from
-        // the attachment store, so base64 content must be inline.
-        for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
-          const att = resolvedAttachments[i];
-          if (att.filePath && !att.data) {
-            try {
-              att.data = readFileSync(att.filePath).toString("base64");
-            } catch (err) {
-              log.warn(
-                { err, path: att.filePath },
-                "Failed to read queued signal attachment, skipping",
-              );
-              resolvedAttachments.splice(i, 1);
-            }
-          }
-        }
+        // File-backed attachments have already been registered in the
+        // attachment store (above) and carry their ID + sizeBytes.
+        // persistUserMessage handles the id-only path, so we do NOT
+        // read from disk here — that would re-introduce the exact
+        // base64-in-queue memory waste this change is designed to remove.
         const requestId = crypto.randomUUID();
         const resolvedChannel = resolveTurnChannel(params.sourceChannel);
         const resolvedInterface = resolveTurnInterface(params.sourceInterface);
@@ -722,9 +705,7 @@ export class DaemonServer {
       () => this.broadcastIdentityChanged(),
     );
 
-    this.appSourceWatcher.start((appId) =>
-      this.handleAppSourceChange(appId),
-    );
+    this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
@@ -1103,18 +1084,21 @@ export class DaemonServer {
       assistantMessageInterface: resolvedInterface,
     });
 
+    // Attachments are fetched without hydrating base64 data from disk.
+    // persistUserMessage uses the attachment IDs to create ref blocks
+    // (image_ref / file_ref) which are hydrated just-in-time before each
+    // provider call, avoiding redundant disk reads and memory allocation.
     const attachments = attachmentIds
       ? (() => {
-          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
-            hydrateFileData: true,
-          });
+          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
           const sourcePaths =
             attachmentsStore.getSourcePathsForAttachments(attachmentIds);
           return resolved.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
             mimeType: a.mimeType,
-            data: a.dataBase64,
+            data: "",
+            sizeBytes: a.sizeBytes,
             ...(sourcePaths.has(a.id)
               ? { filePath: sourcePaths.get(a.id) }
               : {}),

@@ -305,10 +305,42 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       attachmentParts.push(renderFileBlockForHistory(block));
       continue;
     }
+    if (block.type === "file_ref") {
+      // Attachment-backed file block — render using stored metadata.
+      const source = isRecord(block.source) ? block.source : null;
+      const mediaType =
+        source && typeof source.media_type === "string"
+          ? source.media_type
+          : "application/octet-stream";
+      const filename =
+        source && typeof source.filename === "string"
+          ? source.filename
+          : "attachment";
+      const sizeBytes =
+        typeof block.size_bytes === "number" ? block.size_bytes : 0;
+      const summaryParts = [
+        `[File attachment] ${filename}`,
+        `type=${mediaType}`,
+      ];
+      if (sizeBytes > 0) summaryParts.push(`size=${formatBytes(sizeBytes)}`);
+      const extractedText =
+        typeof block.extracted_text === "string"
+          ? block.extracted_text.trim()
+          : "";
+      const summary = extractedText
+        ? `${summaryParts.join(", ")}\nAttachment text: ${clampAttachmentText(extractedText)}`
+        : summaryParts.join(", ");
+      attachmentParts.push(summary);
+      continue;
+    }
     if (block.type === "image") {
       // Image data is sent as a separate attachment — skip the placeholder
       // text so the client doesn't render both "[Image attachment]" and the
       // actual image thumbnail.
+      continue;
+    }
+    if (block.type === "image_ref") {
+      // Attachment-backed image — same treatment as inline image blocks.
       continue;
     }
     if (block.type === "tool_use") {

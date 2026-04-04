@@ -9,6 +9,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { hydrateAttachmentBlocks } from "../agent/attachments.js";
 import type {
   AgentEvent,
   AgentLoop,
@@ -33,6 +34,7 @@ import {
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
+import { getAttachmentContent } from "../memory/attachments-store.js";
 import {
   addMessage,
   deleteMessageById,
@@ -421,6 +423,13 @@ export async function runAgentLoopImpl(
       ctx.trustContext?.guardianPrincipalId ??
       ctx.trustContext?.requesterExternalUserId,
   });
+
+  // Expand any attachment-backed ref blocks (image_ref / file_ref) to full
+  // base64 blocks before any provider call.  This is a no-op when no refs
+  // are present (fast path).  Hydration happens once per runAgentLoop
+  // invocation; the in-memory history stays hydrated for the rest of the
+  // session and refs are re-read from DB on the next cold-start.
+  ctx.messages = hydrateAttachmentBlocks(ctx.messages, getAttachmentContent);
 
   try {
     // Auto-complete stale interactive surfaces from previous turns.

@@ -145,6 +145,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+  updateMessageContent: () => {},
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -189,6 +190,7 @@ mock.module("../memory/attachments-store.js", () => ({
   },
   getFilePathForAttachment: () => null,
   setAttachmentThumbnail: () => {},
+  getAttachmentContent: () => null,
 }));
 
 mock.module("../memory/retriever.js", () => ({
@@ -1838,7 +1840,7 @@ describe("MessageQueue byte budget", () => {
   function makeItem(
     content: string,
     requestId = "r",
-    attachments: { data: string }[] = [],
+    attachments: { data?: string; sizeBytes?: number }[] = [],
   ) {
     return {
       content,
@@ -1846,7 +1848,8 @@ describe("MessageQueue byte budget", () => {
         id: "a",
         filename: "f",
         mimeType: "text/plain",
-        data: a.data,
+        data: a.data ?? "",
+        sizeBytes: a.sizeBytes,
       })),
       requestId,
       onEvent: () => {},
@@ -1916,5 +1919,26 @@ describe("MessageQueue byte budget", () => {
     expect(
       q.push(makeItem("y".repeat(100), "r2", [{ data: "b".repeat(100) }])),
     ).toBe(false);
+  });
+
+  test("file-backed attachments use sizeBytes instead of data.length", () => {
+    // Without sizeBytes accounting, a file-backed attachment (data: "") would
+    // appear to cost 0 bytes and never trigger the budget. With sizeBytes, the
+    // actual decoded size is counted.
+    const q = new MessageQueue(5_000);
+    // First item: base64-only attachment (2000 chars * 2 = 4000 bytes + 512 + content overhead)
+    expect(q.push(makeItem("hi", "r1", [{ data: "a".repeat(2000) }]))).toBe(
+      true,
+    );
+    // Second item: file-backed attachment — sizeBytes triggers the budget limit
+    expect(q.push(makeItem("hi", "r2", [{ sizeBytes: 3000 }]))).toBe(false);
+  });
+
+  test("file-backed attachments with no sizeBytes are treated as zero-cost", () => {
+    // When neither data nor sizeBytes is set (e.g. metadata-only), no memory
+    // cost is counted — the attachment itself doesn't occupy the queue budget.
+    const q = new MessageQueue(1_000);
+    expect(q.push(makeItem("hello", "r1"))).toBe(true);
+    expect(q.push(makeItem("world", "r2", [{}]))).toBe(false); // budget exceeded by content alone
   });
 });

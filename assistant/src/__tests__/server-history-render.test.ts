@@ -285,6 +285,79 @@ describe("renderHistoryContent", () => {
   });
 });
 
+describe("renderHistoryContent — attachment-backed ref blocks", () => {
+  test("image_ref block is silently skipped (same as inline image)", () => {
+    const output = renderHistoryContent([
+      {
+        type: "image_ref",
+        source: { attachment_id: "att-1", media_type: "image/jpeg" },
+        size_bytes: 12345,
+      },
+    ]);
+    expect(output.text).toBe("");
+    expect(output.toolCalls).toEqual([]);
+  });
+
+  test("file_ref block renders filename, media type and size", () => {
+    const output = renderHistoryContent([
+      {
+        type: "file_ref",
+        source: {
+          attachment_id: "att-2",
+          media_type: "application/pdf",
+          filename: "report.pdf",
+        },
+        size_bytes: 51200,
+      },
+    ]);
+    expect(output.text).toContain("[File attachment] report.pdf");
+    expect(output.text).toContain("type=application/pdf");
+    expect(output.text).toContain("size=50.0 KB");
+  });
+
+  test("file_ref block renders extracted_text when present", () => {
+    const output = renderHistoryContent([
+      {
+        type: "file_ref",
+        source: {
+          attachment_id: "att-3",
+          media_type: "text/plain",
+          filename: "notes.txt",
+        },
+        extracted_text: "Important content here",
+        size_bytes: 100,
+      },
+    ]);
+    expect(output.text).toContain("Attachment text: Important content here");
+  });
+
+  test("file_ref block without size_bytes omits size from summary", () => {
+    const output = renderHistoryContent([
+      {
+        type: "file_ref",
+        source: {
+          attachment_id: "att-4",
+          media_type: "text/plain",
+          filename: "no-size.txt",
+        },
+      },
+    ]);
+    expect(output.text).toContain("[File attachment] no-size.txt");
+    expect(output.text).not.toContain("size=");
+  });
+
+  test("image_ref mixed with text renders only the text", () => {
+    const output = renderHistoryContent([
+      { type: "text", text: "Here is the image" },
+      {
+        type: "image_ref",
+        source: { attachment_id: "att-5", media_type: "image/png" },
+      },
+    ]);
+    expect(output.text).toBe("Here is the image");
+  });
+});
+
 describe("getAttachmentsForMessage", () => {
   beforeEach(() => {
     const db = getDb();

@@ -7,8 +7,11 @@
 
 import { v4 as uuid } from "uuid";
 
-import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
-import { createUserMessage } from "../agent/message-types.js";
+import {
+  attachmentsToContentBlocks,
+  enrichMessageWithSourcePaths,
+  type MessageAttachmentInput,
+} from "../agent/attachments.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -27,13 +30,19 @@ import {
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
+  updateMessageContent,
 } from "../memory/conversation-crud.js";
 import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import type { Message } from "../providers/types.js";
+import type {
+  AttachmentBackedFileBlock,
+  AttachmentBackedImageBlock,
+  ContentBlock,
+  Message,
+} from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { TrustContext } from "./conversation-runtime-assembly.js";
@@ -263,6 +272,33 @@ export function enqueueMessage(
 
 // ── persistUserMessage ───────────────────────────────────────────────
 
+/** Build an attachment-backed ref block for a stored attachment. */
+function makeAttachmentRefBlock(
+  attachmentId: string,
+  mimeType: string,
+  filename: string,
+  sizeBytes: number,
+  extractedText?: string,
+): AttachmentBackedImageBlock | AttachmentBackedFileBlock {
+  if (mimeType.toLowerCase().startsWith("image/")) {
+    return {
+      type: "image_ref",
+      source: { attachment_id: attachmentId, media_type: mimeType },
+      size_bytes: sizeBytes,
+    };
+  }
+  return {
+    type: "file_ref",
+    source: {
+      attachment_id: attachmentId,
+      media_type: mimeType,
+      filename,
+    },
+    extracted_text: extractedText,
+    size_bytes: sizeBytes,
+  };
+}
+
 export async function persistUserMessage(
   ctx: MessagingConversationContext,
   content: string,
@@ -284,24 +320,63 @@ export async function persistUserMessage(
   ctx.processing = true;
   ctx.abortController = new AbortController();
 
-  const attachmentInputs = attachments.map((attachment) => ({
-    id: attachment.id,
-    filename: attachment.filename,
-    mimeType: attachment.mimeType,
-    data: attachment.data,
-    extractedText: attachment.extractedText,
-    filePath: attachment.filePath,
-  }));
-  const cleanMessage = createUserMessage(content, attachmentInputs);
+  // Collect source paths for image annotations (sent to LLM as text context).
+  const imageSourcePaths: Record<string, string> = {};
+  for (let i = 0; i < attachments.length; i++) {
+    const a = attachments[i];
+    if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+      imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
+    }
+  }
+
+  // Build the live content blocks for ctx.messages:
+  //   - Pre-stored attachments (have an ID in the store): use ref blocks immediately.
+  //   - Inline attachments (raw base64 data, not yet stored): use base64 blocks for
+  //     this turn so the LLM sees the image without waiting for storage to complete.
+  //     These get replaced with ref blocks after storage (see below).
+  const inlineAttachmentInputs: MessageAttachmentInput[] = [];
+  const liveAttachmentBlocks: ContentBlock[] = [];
+  for (const a of attachments) {
+    if (a.id && attachmentExists(a.id)) {
+      liveAttachmentBlocks.push(
+        makeAttachmentRefBlock(
+          a.id,
+          a.mimeType,
+          a.filename,
+          a.sizeBytes ?? 0,
+          a.extractedText,
+        ),
+      );
+    } else if (a.data) {
+      const input: MessageAttachmentInput = {
+        id: a.id,
+        filename: a.filename,
+        mimeType: a.mimeType,
+        data: a.data,
+        extractedText: a.extractedText,
+        filePath: a.filePath,
+      };
+      inlineAttachmentInputs.push(input);
+      const [block] = attachmentsToContentBlocks([input]);
+      liveAttachmentBlocks.push(block);
+    }
+  }
+
+  const liveTextContent: ContentBlock[] = [];
+  if (content.trim().length > 0) {
+    liveTextContent.push({ type: "text", text: content });
+  }
+  const liveMessage: Message = {
+    role: "user",
+    content: [...liveTextContent, ...liveAttachmentBlocks],
+  };
   const llmMessage = enrichMessageWithSourcePaths(
-    cleanMessage,
-    attachmentInputs,
+    liveMessage,
+    inlineAttachmentInputs,
   );
   log.info(
     {
-      contentBlockTypes: Array.isArray(llmMessage.content)
-        ? llmMessage.content.map((b) => b.type)
-        : typeof llmMessage.content,
+      contentBlockTypes: llmMessage.content.map((b) => b.type),
       attachmentCount: attachments.length,
     },
     "persistUserMessage: content blocks being sent to model",
@@ -314,13 +389,6 @@ export async function persistUserMessage(
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
     const provenance = provenanceFromTrustContext(ctx.trustContext);
-    const imageSourcePaths: Record<string, string> = {};
-    for (let i = 0; i < attachments.length; i++) {
-      const a = attachments[i];
-      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-        imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
-      }
-    }
 
     const mergedMetadata = {
       ...(metadata ?? {}),
@@ -340,19 +408,18 @@ export async function persistUserMessage(
       ...(Object.keys(imageSourcePaths).length > 0 ? { imageSourcePaths } : {}),
     };
 
-    // When displayContent is provided (e.g. original text before recording
-    // intent stripping), persist that to DB so users see the full message
-    // after restart. The in-memory userMessage (sent to the LLM) still uses
-    // the stripped content.
-    const contentToPersist = displayContent
-      ? JSON.stringify(
-          createUserMessage(displayContent, attachmentInputs).content,
-        )
-      : JSON.stringify(cleanMessage.content);
+    // Persist the message to the DB with a placeholder content that includes
+    // only text blocks. Attachment-backed ref blocks are written in a second
+    // pass below, once each attachment has been stored and has a stable ID.
+    const displayText = displayContent ?? content;
+    const textOnlyContent: ContentBlock[] = [];
+    if (displayText.trim().length > 0) {
+      textOnlyContent.push({ type: "text", text: displayText });
+    }
     const persistedUserMessage = await addMessage(
       ctx.conversationId,
       "user",
-      contentToPersist,
+      JSON.stringify(textOnlyContent),
       mergedMetadata,
     );
 
@@ -381,16 +448,25 @@ export async function persistUserMessage(
       throw new Error("Failed to persist user message");
     }
 
-    // Index user attachments in the attachments table for later retrieval.
+    // Store each attachment and collect the resulting ref blocks for the
+    // second-pass content update. Pre-stored attachments are linked directly;
+    // inline attachments are written to disk and linked in one step.
+    const storedRefBlocks: ContentBlock[] = [];
+
     for (let i = 0; i < attachments.length; i++) {
       const a = attachments[i];
       try {
-        // If the attachment already exists in the store (e.g. file-backed
-        // attachments uploaded separately), link it directly without
-        // re-uploading. This handles the case where data is empty because
-        // the attachment content lives on disk.
         if (a.id && attachmentExists(a.id)) {
           linkAttachmentToMessage(persistedUserMessage.id, a.id, i);
+          storedRefBlocks.push(
+            makeAttachmentRefBlock(
+              a.id,
+              a.mimeType,
+              a.filename,
+              a.sizeBytes ?? 0,
+              a.extractedText,
+            ),
+          );
           continue;
         }
 
@@ -404,13 +480,22 @@ export async function persistUserMessage(
           );
           continue;
         }
-        attachInlineAttachmentToMessage(
+        const stored = attachInlineAttachmentToMessage(
           persistedUserMessage.id,
           i,
           a.filename,
           a.mimeType,
           a.data,
           { sourcePath: a.filePath },
+        );
+        storedRefBlocks.push(
+          makeAttachmentRefBlock(
+            stored.id,
+            a.mimeType,
+            a.filename,
+            stored.sizeBytes,
+            a.extractedText,
+          ),
         );
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
@@ -427,7 +512,27 @@ export async function persistUserMessage(
       }
     }
 
-    // Sync the persisted user message (with attachments) to the disk view
+    // Rewrite the persisted message content with attachment-backed ref blocks
+    // so stored messages never contain inline base64 bytes.
+    const persistedContent: ContentBlock[] = [
+      ...textOnlyContent,
+      ...storedRefBlocks,
+    ];
+    updateMessageContent(
+      persistedUserMessage.id,
+      JSON.stringify(persistedContent),
+    );
+
+    // Replace the live message in ctx.messages with the ref-only version so
+    // subsequent context-window passes don't hold base64 bytes in memory.
+    // Source-path annotations are re-added for the LLM's benefit.
+    const refMessage: Message = { role: "user", content: persistedContent };
+    ctx.messages[ctx.messages.length - 1] = enrichMessageWithSourcePaths(
+      refMessage,
+      inlineAttachmentInputs,
+    );
+
+    // Sync the updated message (with attachment refs) to the disk view.
     const conv = getConversation(ctx.conversationId);
     if (conv) {
       syncMessageToDisk(

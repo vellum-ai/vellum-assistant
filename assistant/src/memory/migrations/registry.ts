@@ -41,6 +41,7 @@ import { migrateAddSourceTypeColumnsDown } from "./193-add-source-type-columns.j
 import { migrateStripIntegrationPrefixFromProviderKeysDown } from "./196-strip-integration-prefix-from-provider-keys.js";
 import { migrateRenameMemoryGraphTypeValuesDown } from "./204-rename-memory-graph-type-values.js";
 import { migrateScrubCorruptedImageAttachmentsDown } from "./206-scrub-corrupted-image-attachments.js";
+import { migrateBackfillUserMessageAttachmentRefsDown } from "./211-backfill-user-message-attachment-refs.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -356,6 +357,14 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Remove image attachments containing HTML error pages instead of image data",
     down: migrateScrubCorruptedImageAttachmentsDown,
+  },
+  {
+    key: "migration_backfill_user_message_attachment_refs_v1",
+    version: 41,
+    dependsOn: ["migration_backfill_inline_attachments_v1"],
+    description:
+      "Rewrite existing user messages to replace inline base64 image/file blocks with attachment-backed ref blocks (image_ref / file_ref)",
+    down: migrateBackfillUserMessageAttachmentRefsDown,
   },
 ];
 

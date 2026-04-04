@@ -103,7 +103,9 @@ function estimateAnthropicImageTokens(width: number, height: number): number {
     scaledHeight = Math.round(scaledHeight * mpScale);
   }
 
-  return Math.ceil(scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL);
+  return Math.ceil(
+    scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL,
+  );
 }
 
 function estimateImageTokens(
@@ -177,6 +179,23 @@ export function estimateContentBlockTokens(
     case "web_search_tool_result":
       return (
         WEB_SEARCH_RESULT_TOKENS + estimateTextTokens(stableJson(block.content))
+      );
+    case "image_ref":
+      // Estimate from stored size_bytes; treat as a single Anthropic image page.
+      return (
+        IMAGE_BLOCK_OVERHEAD_TOKENS +
+        estimateTextTokens(block.source.media_type) +
+        Math.min(
+          ANTHROPIC_IMAGE_MAX_TOKENS,
+          Math.ceil((block.size_bytes ?? 0) * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL),
+        )
+      );
+    case "file_ref":
+      return (
+        FILE_BLOCK_OVERHEAD_TOKENS +
+        estimateTextTokens(block.source.filename) +
+        estimateTextTokens(block.source.media_type) +
+        estimateTextTokens(block.extracted_text ?? "")
       );
     default:
       return OTHER_BLOCK_TOKENS;

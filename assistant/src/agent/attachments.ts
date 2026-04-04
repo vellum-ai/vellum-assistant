@@ -1,4 +1,11 @@
-import type { ContentBlock, Message } from "../providers/types.js";
+import type {
+  AttachmentBackedFileBlock,
+  AttachmentBackedImageBlock,
+  ContentBlock,
+  FileContent,
+  ImageContent,
+  Message,
+} from "../providers/types.js";
 import { optimizeImageForTransport } from "./image-optimize.js";
 
 export interface MessageAttachmentInput {
@@ -65,4 +72,70 @@ export function enrichMessageWithSourcePaths(
     ...message,
     content: [...message.content, { type: "text" as const, text: annotation }],
   };
+}
+
+/** Type guard — returns true for attachment-backed image or file ref blocks. */
+export function isAttachmentBackedBlock(
+  block: ContentBlock,
+): block is AttachmentBackedImageBlock | AttachmentBackedFileBlock {
+  return block.type === "image_ref" || block.type === "file_ref";
+}
+
+/**
+ * Expand any `image_ref` / `file_ref` blocks in the message list to full
+ * `image` / `file` blocks with inline base64 data, ready for a provider call.
+ *
+ * Returns the same array reference unchanged when no attachment-backed blocks
+ * are present (fast path — no allocation).
+ *
+ * @param messages  History to hydrate.
+ * @param getContent  Returns the raw bytes for a given attachment ID, or null
+ *                    if the attachment cannot be read.  A null return leaves
+ *                    the ref block in place so the message remains valid.
+ */
+export function hydrateAttachmentBlocks(
+  messages: Message[],
+  getContent: (attachmentId: string) => Buffer | null,
+): Message[] {
+  const needsHydration = messages.some((m) =>
+    m.content.some(isAttachmentBackedBlock),
+  );
+  if (!needsHydration) return messages;
+
+  return messages.map((msg) => {
+    if (!msg.content.some(isAttachmentBackedBlock)) return msg;
+    return {
+      ...msg,
+      content: msg.content.map((block): ContentBlock => {
+        if (block.type === "image_ref") {
+          const buf = getContent(block.source.attachment_id);
+          if (!buf) return block;
+          const b64 = buf.toString("base64");
+          const { data, mediaType } = optimizeImageForTransport(
+            b64,
+            block.source.media_type,
+          );
+          return {
+            type: "image",
+            source: { type: "base64", media_type: mediaType, data },
+          } satisfies ImageContent;
+        }
+        if (block.type === "file_ref") {
+          const buf = getContent(block.source.attachment_id);
+          if (!buf) return block;
+          return {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: block.source.media_type,
+              data: buf.toString("base64"),
+              filename: block.source.filename,
+            },
+            extracted_text: block.extracted_text,
+          } satisfies FileContent;
+        }
+        return block;
+      }),
+    };
+  });
 }

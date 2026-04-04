@@ -23,6 +23,40 @@ export interface FileContent {
   extracted_text?: string;
 }
 
+/**
+ * Persisted form of a user image attachment. The binary payload lives in the
+ * attachment store; only the attachment ID and media type are kept inline.
+ * Hydrated to a full `ImageContent` block (with base64 `data`) right before
+ * each provider call. Must never be sent to a provider as-is.
+ */
+export interface AttachmentBackedImageBlock {
+  type: "image_ref";
+  source: {
+    attachment_id: string;
+    media_type: string;
+  };
+  /** File size in bytes, used for token estimation without reading the file. */
+  size_bytes?: number;
+}
+
+/**
+ * Persisted form of a user file attachment. The binary payload lives in the
+ * attachment store; only the attachment ID and metadata are kept inline.
+ * Hydrated to a full `FileContent` block (with base64 `data`) right before
+ * each provider call. Must never be sent to a provider as-is.
+ */
+export interface AttachmentBackedFileBlock {
+  type: "file_ref";
+  source: {
+    attachment_id: string;
+    media_type: string;
+    filename: string;
+  };
+  extracted_text?: string;
+  /** File size in bytes, used for token estimation without reading the file. */
+  size_bytes?: number;
+}
+
 export interface ToolUseContent {
   type: "tool_use";
   id: string;
@@ -69,6 +103,8 @@ export type ContentBlock =
   | RedactedThinkingContent
   | ImageContent
   | FileContent
+  | AttachmentBackedImageBlock
+  | AttachmentBackedFileBlock
   | ToolUseContent
   | ToolResultContent
   | ServerToolUseContent

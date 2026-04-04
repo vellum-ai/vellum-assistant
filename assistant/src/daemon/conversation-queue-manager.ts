@@ -147,12 +147,19 @@ export class MessageQueue {
 
 /**
  * Estimate the in-memory byte cost of a queued message.
- * Dominated by content text and attachment `data` (base64 strings).
+ *
+ * For file-backed attachments the `data` field is empty; use `sizeBytes`
+ * (the actual decoded file size) as the cost estimate instead so the queue
+ * budget reflects the real allocation that will occur at persist time.
  */
 function estimateItemBytes(item: QueuedMessage): number {
   let bytes = item.content.length * 2; // JS strings are UTF-16
   for (const a of item.attachments) {
-    bytes += a.data.length * 2;
+    if (a.data) {
+      bytes += a.data.length * 2; // base64 string (2 bytes per char in V8)
+    } else if (a.sizeBytes) {
+      bytes += a.sizeBytes; // file-backed: count actual decoded bytes
+    }
     if (a.extractedText) bytes += a.extractedText.length * 2;
   }
   // Small fixed overhead for metadata, pointers, etc. (not worth
