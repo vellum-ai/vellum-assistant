@@ -715,8 +715,22 @@ export class AgentLoop {
               }
             }
 
-            // Append system notice about deferred tools
-            resultBlocks.push({
+            // Pre-emptively truncate oversized tool results in the deferral
+            // path, matching the non-deferral path's truncation behavior.
+            const { blocks: truncatedResultBlocks, truncatedCount } =
+              truncateOversizedToolResults(
+                resultBlocks,
+                this.config.maxInputTokens ?? 180_000,
+              );
+            if (truncatedCount > 0) {
+              log.warn(
+                `Truncated ${truncatedCount} oversized tool result(s) in deferral path to prevent context overflow`,
+              );
+            }
+
+            // Append system notice about deferred tools (after truncation so
+            // the notice text block is not subject to truncation)
+            truncatedResultBlocks.push({
               type: "text",
               text: `<system_notice>One or more tool executions exceeded the ${Math.round(thresholdMs / 1000)}s deferral threshold and are now running in the background. You have full agency — you can respond to the user, call other tools, or use background_tool_control to wait longer, check status, or cancel background executions. Each deferred tool's placeholder result above includes its execution_id.</system_notice>`,
             });
@@ -724,8 +738,8 @@ export class AgentLoop {
             // Suppress unhandled rejections from background promises
             toolExecutionPromise.catch(() => {});
 
-            // Push combined result blocks and continue the agent loop
-            history.push({ role: "user", content: resultBlocks });
+            // Push combined result blocks into history
+            history.push({ role: "user", content: truncatedResultBlocks });
             toolUseTurns++;
 
             // Handle scheduleCheckIn from completed results
@@ -735,6 +749,12 @@ export class AgentLoop {
                   scheduleCheckInCallback(result.scheduleCheckIn);
                 }
               }
+            }
+
+            // If any completed tool result requests yielding to the user,
+            // push results and stop the loop (matching non-deferral path).
+            if (completedResults.some(({ result }) => result.yieldToUser)) {
+              break;
             }
 
             // Invoke checkpoint callback after tool results are in history
@@ -924,10 +944,10 @@ export class AgentLoop {
       }
     }
 
-    // Cleanup background tool state for this conversation on loop exit
-    if (deferralEnabled && conversationId) {
-      backgroundToolManager.cleanup(conversationId);
-    }
+    // Note: cleanup of background tool state is handled by the conversation
+    // lifecycle teardown (conversation.ts abort path). We intentionally do NOT
+    // cleanup here because running background executions must survive across
+    // run() calls so drainCompleted() can pick them up on the next turn.
 
     return history;
   }
