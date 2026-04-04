@@ -31,11 +31,11 @@ function getSender(
 export async function ensureScreencast(conversationId: string): Promise<void> {
   if (browserManager.isScreencastActive(conversationId)) return;
 
-  browserManager.setScreencastActive(conversationId, true);
-
   try {
-    // Ensure the page exists (may trigger browser launch/connect)
+    // Ensure the page exists (may trigger browser launch/connect).
+    // Must come before setScreencastActive since it creates the session entry.
     await browserManager.getOrCreateSessionPage(conversationId);
+    browserManager.setScreencastActive(conversationId, true);
   } catch (err) {
     // Roll back so future calls can retry
     browserManager.setScreencastActive(conversationId, false);
