@@ -253,6 +253,8 @@ describe("background_tool_control", () => {
 
   describe("unknown action", () => {
     test("returns error for invalid action", async () => {
+      registerFakeExecution("exec-x");
+
       const result = await backgroundToolControlTool.execute(
         { execution_id: "exec-x", action: "restart" },
         makeContext(),
@@ -260,6 +262,93 @@ describe("background_tool_control", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Unknown action");
+    });
+  });
+
+  describe("conversation ownership", () => {
+    test("returns error when execution belongs to a different conversation", async () => {
+      // Register under a different conversation
+      backgroundToolManager.register({
+        executionId: "exec-other-conv",
+        toolName: "test_tool",
+        toolUseId: "tu-other",
+        conversationId: "conv-different",
+        startedAt: Date.now(),
+        promise: new Promise(() => {}),
+      });
+
+      const result = await backgroundToolControlTool.execute(
+        { execution_id: "exec-other-conv", action: "wait" },
+        makeContext(), // uses conversationId "conv-test-123"
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("does not belong to this conversation");
+
+      // Cleanup the other conversation's entry
+      backgroundToolManager.cleanup("conv-different");
+    });
+
+    test("cancel returns error when execution belongs to a different conversation", async () => {
+      backgroundToolManager.register({
+        executionId: "exec-other-cancel",
+        toolName: "test_tool",
+        toolUseId: "tu-other-cancel",
+        conversationId: "conv-different",
+        startedAt: Date.now(),
+        promise: new Promise(() => {}),
+      });
+
+      const result = await backgroundToolControlTool.execute(
+        { execution_id: "exec-other-cancel", action: "cancel" },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("does not belong to this conversation");
+
+      backgroundToolManager.cleanup("conv-different");
+    });
+  });
+
+  describe("terminal status before deferred check-in", () => {
+    test("long wait on completed execution returns result immediately without scheduleCheckIn", async () => {
+      const { resolve } = registerFakeExecution("exec-terminal-done");
+      resolve({ content: "Already finished", isError: false });
+      // Allow microtask to settle
+      await new Promise((r) => setTimeout(r, 10));
+
+      const result = await backgroundToolControlTool.execute(
+        {
+          execution_id: "exec-terminal-done",
+          action: "wait",
+          wait_seconds: 30,
+        },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("completed");
+      expect(result.content).toContain("Already finished");
+      expect(result.scheduleCheckIn).toBeUndefined();
+    });
+
+    test("long wait on cancelled execution returns immediately without scheduleCheckIn", async () => {
+      registerFakeExecution("exec-terminal-cancelled");
+      backgroundToolManager.cancel("exec-terminal-cancelled");
+
+      const result = await backgroundToolControlTool.execute(
+        {
+          execution_id: "exec-terminal-cancelled",
+          action: "wait",
+          wait_seconds: 30,
+        },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("cancelled");
+      expect(result.scheduleCheckIn).toBeUndefined();
     });
   });
 });

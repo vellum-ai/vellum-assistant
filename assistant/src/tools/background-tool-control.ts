@@ -61,6 +61,21 @@ class BackgroundToolControlTool implements Tool {
     const action = input.action as string;
     const waitSeconds = input.wait_seconds as number | undefined;
 
+    // Verify the execution exists and belongs to this conversation
+    const status = backgroundToolManager.getStatus(executionId);
+    if (!status) {
+      return {
+        content: `No execution found with ID ${executionId}`,
+        isError: true,
+      };
+    }
+    if (status.conversationId !== context.conversationId) {
+      return {
+        content: `Execution ${executionId} does not belong to this conversation`,
+        isError: true,
+      };
+    }
+
     if (action === "cancel") {
       const result = backgroundToolManager.cancel(executionId);
       return {
@@ -70,15 +85,6 @@ class BackgroundToolControlTool implements Tool {
     }
 
     if (action === "wait") {
-      // Unknown execution ID check
-      const status = backgroundToolManager.getStatus(executionId);
-      if (!status) {
-        return {
-          content: `No execution found with ID ${executionId}`,
-          isError: true,
-        };
-      }
-
       // Immediate status check (no wait_seconds or 0)
       if (waitSeconds === undefined || waitSeconds === 0) {
         if (status.status === "completed" && status.result) {
@@ -115,7 +121,21 @@ class BackgroundToolControlTool implements Tool {
         };
       }
 
-      // Long wait — return immediately with scheduleCheckIn
+      // Long wait — but if already terminal, return immediately
+      if (status.status === "completed" && status.result) {
+        return {
+          content: `Execution ${executionId} completed:\n${status.result.content}`,
+          isError: status.result.isError,
+        };
+      }
+      if (status.status === "cancelled") {
+        return {
+          content: `Execution ${executionId} was cancelled`,
+          isError: false,
+        };
+      }
+
+      // Still running — schedule deferred check-in
       return {
         content: `Deferred check-in scheduled for execution ${executionId} in ${waitSeconds}s`,
         isError: false,
