@@ -201,7 +201,7 @@ describe("platform-hosted bash auto-approval", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("host_bash auto-approved in platform-hosted mode", async () => {
+  test("host_bash NOT auto-approved in platform-hosted mode", async () => {
     checkResultOverride = { decision: "prompt", reason: "Needs approval" };
 
     let promptCalled = false;
@@ -216,14 +216,13 @@ describe("platform-hosted bash auto-approval", () => {
     } as unknown as PermissionPrompter;
 
     const executor = new ToolExecutor(trackingPrompter);
-    const result = await executor.execute(
+    await executor.execute(
       "host_bash",
       { command: "echo hello" },
       makeContext({ isPlatformHosted: true, trustClass: "guardian" }),
     );
 
-    expect(promptCalled).toBe(false);
-    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
   });
 
   test("bash NOT auto-approved when not platform-hosted", async () => {

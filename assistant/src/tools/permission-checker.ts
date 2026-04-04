@@ -137,17 +137,16 @@ export class PermissionChecker {
         };
       }
 
-      // Platform-hosted mode: auto-approve bash and host_bash for guardians.
-      // The sandbox provides the security boundary for bash commands, and
-      // host_bash is proxied to the connected desktop client where the user
-      // has physical access. Prompting is unnecessary friction in this context.
+      // Platform-hosted mode: auto-approve sandboxed bash for guardians.
+      // The sandbox provides the security boundary — prompting is unnecessary
+      // friction. host_bash is excluded because it runs unsandboxed on the
+      // user's machine and warrants explicit approval.
       // Deny rules are still respected (checked above). requireFreshApproval
-      // is preserved as a belt-and-suspenders guard even though it is not
-      // currently set on bash tools.
+      // is preserved as a belt-and-suspenders guard.
       if (
         result.decision === "prompt" &&
         context.isPlatformHosted &&
-        (name === "bash" || name === "host_bash") &&
+        name === "bash" &&
         context.trustClass === "guardian" &&
         !context.requireFreshApproval
       ) {
