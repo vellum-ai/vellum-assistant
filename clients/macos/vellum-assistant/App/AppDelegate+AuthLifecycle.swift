@@ -552,6 +552,9 @@ extension AppDelegate {
 
         // Reload avatar for the new assistant via the gateway.
         AvatarAppearanceManager.shared.reloadAvatar()
+        // If we just hatched a new assistant, sync the onboarding avatar traits
+        // to the daemon so the randomly-generated character avatar is preserved.
+        syncOnboardingAvatarIfNeeded()
 
         showMainWindow()
     }

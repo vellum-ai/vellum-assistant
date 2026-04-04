@@ -817,7 +817,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// If onboarding generated avatar traits, sync them to the daemon and clear the state.
     /// Called from both the first-launch and non-first-launch paths in `proceedToApp`
     /// so that auth-gate onboarding flows also persist avatar traits on the daemon.
-    private func syncOnboardingAvatarIfNeeded() {
+    func syncOnboardingAvatarIfNeeded() {
         guard let body = onboardingState?.hatchAvatarBodyShape,
               let eyes = onboardingState?.hatchAvatarEyeStyle,
               let color = onboardingState?.hatchAvatarColor else {
