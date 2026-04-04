@@ -97,6 +97,7 @@ import {
   migrateInviteContactId,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
+  migrateLlmRequestLogsCreatedAtIndex,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
@@ -342,6 +343,7 @@ export function initializeDb(): void {
     migrateStripThinkingFromConsolidated,
     migrateScheduleReuseConversation,
     migrateMemoryRecallLogsQueryContext,
+    migrateLlmRequestLogsCreatedAtIndex,
   ];
 
   // Run each migration step, catching and logging individual failures so one

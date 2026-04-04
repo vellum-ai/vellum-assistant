@@ -16,6 +16,7 @@ export type MemoryJobType =
   | "embed_segment"
   | "embed_summary"
   | "prune_old_conversations"
+  | "prune_old_llm_request_logs"
   | "build_conversation_summary"
   | "backfill"
   | "rebuild_index"
@@ -61,10 +62,10 @@ export function enqueueMemoryJob(
   payload: Record<string, unknown>,
   runAfter = Date.now(),
   dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
-    tx: infer T
+    tx: infer T,
   ) => unknown
     ? T
-    : never
+    : never,
 ): string {
   const db = dbOverride ?? getDb();
   const id = uuid();
@@ -99,10 +100,10 @@ export function upsertDebouncedJob(
   payload: { conversationId: string },
   runAfter: number,
   dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
-    tx: infer T
+    tx: infer T,
   ) => unknown
     ? T
-    : never
+    : never,
 ): void {
   const db = dbOverride ?? getDb();
   const existing = db
@@ -112,8 +113,8 @@ export function upsertDebouncedJob(
       and(
         eq(memoryJobs.type, type),
         eq(memoryJobs.status, "pending"),
-        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`
-      )
+        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
+      ),
     )
     .get();
   if (existing) {
@@ -139,15 +140,64 @@ export function hasActiveJobOfType(type: MemoryJobType): boolean {
       .where(
         and(
           eq(memoryJobs.type, type),
-          inArray(memoryJobs.status, ["pending", "running"])
-        )
+          inArray(memoryJobs.status, ["pending", "running"]),
+        ),
       )
       .get() != null
   );
 }
 
+export function enqueuePruneOldLlmRequestLogsJob(
+  retentionDays?: number,
+): string {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "prune_old_llm_request_logs"),
+        inArray(memoryJobs.status, ["pending", "running"]),
+      ),
+    )
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) {
+    if (
+      existing.status === "pending" &&
+      typeof retentionDays === "number" &&
+      Number.isFinite(retentionDays) &&
+      retentionDays >= 0
+    ) {
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(existing.payload) as Record<string, unknown>;
+      } catch {
+        payload = {};
+      }
+      if (payload.retentionDays !== retentionDays) {
+        db.update(memoryJobs)
+          .set({
+            payload: JSON.stringify({ ...payload, retentionDays }),
+            updatedAt: Date.now(),
+          })
+          .where(eq(memoryJobs.id, existing.id))
+          .run();
+      }
+    }
+    return existing.id;
+  }
+  const payload =
+    typeof retentionDays === "number" &&
+    Number.isFinite(retentionDays) &&
+    retentionDays >= 0
+      ? { retentionDays }
+      : {};
+  return enqueueMemoryJob("prune_old_llm_request_logs", payload);
+}
+
 export function enqueuePruneOldConversationsJob(
-  retentionDays?: number
+  retentionDays?: number,
 ): string {
   const db = getDb();
   const existing = db
@@ -156,8 +206,8 @@ export function enqueuePruneOldConversationsJob(
     .where(
       and(
         eq(memoryJobs.type, "prune_old_conversations"),
-        inArray(memoryJobs.status, ["pending", "running"])
-      )
+        inArray(memoryJobs.status, ["pending", "running"]),
+      ),
     )
     .orderBy(asc(memoryJobs.createdAt))
     .get();
@@ -201,7 +251,7 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
   const now = Date.now();
   const pendingFilter = and(
     eq(memoryJobs.status, "pending"),
-    lte(memoryJobs.runAfter, now)
+    lte(memoryJobs.runAfter, now),
   );
 
   // Claim non-embed jobs first, then fill remaining slots with embed jobs.
@@ -230,7 +280,7 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
   }
   if (probeAllowed && remainingSlots > 0) {
     log.debug(
-      "Allowing 1 embed probe job — Qdrant circuit breaker cooldown elapsed"
+      "Allowing 1 embed probe job — Qdrant circuit breaker cooldown elapsed",
     );
   }
 
@@ -260,7 +310,7 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
         status: "running",
         startedAt: now,
         updatedAt: now,
-      })
+      }),
     );
   }
   return claimed;
@@ -305,7 +355,7 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
   if (deferrals >= MAX_DEFERRALS) {
     log.error(
       { jobId: id, type: row.type, deferrals },
-      "Job exceeded max deferrals, marking as failed"
+      "Job exceeded max deferrals, marking as failed",
     );
     db.update(memoryJobs)
       .set({
@@ -324,14 +374,14 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
   if (DEFERRAL_WARN_MILESTONES.includes(deferrals)) {
     log.warn(
       { jobId: id, type: row.type, deferrals, max: MAX_DEFERRALS },
-      "Job approaching max deferral limit"
+      "Job approaching max deferral limit",
     );
   }
 
   // Exponential backoff: 30s, 60s, 120s, ... capped at 5 minutes
   const delay = Math.min(
     DEFER_BASE_DELAY_MS * Math.pow(2, Math.min(deferrals - 1, 10)),
-    DEFER_MAX_DELAY_MS
+    DEFER_MAX_DELAY_MS,
   );
   db.update(memoryJobs)
     .set({
@@ -348,7 +398,7 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
 export function failMemoryJob(
   id: string,
   error: string,
-  options?: { retryDelayMs?: number; maxAttempts?: number }
+  options?: { retryDelayMs?: number; maxAttempts?: number },
 ): void {
   const retryDelayMs = options?.retryDelayMs ?? 30_000;
   const maxAttempts = options?.maxAttempts ?? 5;
@@ -405,7 +455,7 @@ export function failStalledJobs(timeoutMs: number): number {
       AND started_at IS NOT NULL
       AND started_at < ?
   `,
-    cutoff
+    cutoff,
   );
   if (stalled.length === 0) return 0;
 
@@ -416,14 +466,14 @@ export function failStalledJobs(timeoutMs: number): number {
         status: "failed",
         updatedAt: now,
         lastError: `Job timed out after ${Math.round(
-          timeoutMs / 60_000
+          timeoutMs / 60_000,
         )} minutes`,
       })
       .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, "running")))
       .run();
     log.warn(
       { jobId: row.id, type: row.type, timeoutMs },
-      "Failed stalled memory job due to timeout"
+      "Failed stalled memory job due to timeout",
     );
   }
   return stalled.length;
