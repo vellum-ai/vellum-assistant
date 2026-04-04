@@ -330,6 +330,6 @@ public struct TopUpCheckoutResponse: Codable, Sendable {
 public struct ReferralCodeResponse: Codable, Sendable {
     public let referral_url: String
     public let referred_count: Int
-    public let total_earned_usd: String
-    public let earning_cap_usd: String
+    public let total_earned: String
+    public let earning_cap: String
 }
