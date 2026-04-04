@@ -2521,6 +2521,22 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/analyze:
+    post:
+      operationId: conversations_by_id_analyze_post
+      summary: Analyze a conversation
+      description: Create a new conversation with a structured self-assessment of an existing conversation.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}/cancel:
     post:
       operationId: conversations_by_id_cancel_post
