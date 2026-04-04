@@ -385,14 +385,18 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
-    /// Decode base64 image data off the main thread and set fullResImage once
-    /// complete. This avoids repeated decoding in the displayImage computed
-    /// property during view body evaluations.
+    /// Decode base64 image data off the main thread using thread-safe ImageIO
+    /// APIs and set fullResImage once complete. This avoids repeated decoding
+    /// in the displayImage computed property during view body evaluations.
     private func decodeBase64LightboxImage(_ base64Data: String) {
         lightboxFetchTask = Task { @MainActor [weak self] in
             let decoded: NSImage? = await Task.detached(priority: .userInitiated) {
                 guard let data = Data(base64Encoded: base64Data) else { return nil }
-                return NSImage(data: data)
+                guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                      let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                    return nil
+                }
+                return NSImage(cgImage: cgImage, size: .zero)
             }.value
             guard !Task.isCancelled else { return }
             if let decoded {
