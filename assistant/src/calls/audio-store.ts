@@ -3,6 +3,7 @@ import {
   appendFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -36,6 +37,19 @@ function getSpoolDir(): string {
   if (!spoolDir) {
     spoolDir = join(getDataDir(), "audio-spool");
     mkdirSync(spoolDir, { recursive: true });
+    // Purge leftover files from prior unclean exits so stale audio
+    // does not accumulate outside of the tracked eviction budget.
+    try {
+      for (const name of readdirSync(spoolDir)) {
+        try {
+          unlinkSync(join(spoolDir, name));
+        } catch {
+          // best-effort
+        }
+      }
+    } catch {
+      // best-effort
+    }
   }
   return spoolDir;
 }
@@ -102,6 +116,11 @@ export function createStreamingEntry(
   return {
     audioId: id,
     push(chunk: Uint8Array) {
+      // Guard: entry may have been evicted (TTL/capacity) while the
+      // producer is still pushing. Silently drop the chunk so we don't
+      // write to an untracked file or corrupt currentBytes accounting.
+      if (!entries.has(id)) return;
+
       appendFileSync(filePath, chunk);
       entry.sizeBytes += chunk.byteLength;
       currentBytes += chunk.byteLength;
@@ -115,6 +134,8 @@ export function createStreamingEntry(
       }
     },
     finalize() {
+      if (!entries.has(id)) return;
+
       entry.complete = true;
       for (const controller of entry.subscribers) {
         try {
