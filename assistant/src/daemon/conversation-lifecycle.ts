@@ -23,6 +23,7 @@ import {
   isUntrustedTrustClass,
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
+import { browserManager } from "../tools/browser/browser-manager.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -326,6 +327,12 @@ export function disposeConversation(ctx: DisposeContext): void {
   ctx.abort();
   unregisterCallNotifiers(ctx.conversationId);
   unregisterConversationSender(ctx.conversationId);
+
+  // Close any browser session owned by this conversation (best-effort, non-blocking).
+  browserManager
+    .closeSession(ctx.conversationId, "conversation disposed")
+    .catch(() => {});
+
   resetSkillToolProjection(ctx.skillProjectionState);
   ctx.eventBus.dispose();
 
