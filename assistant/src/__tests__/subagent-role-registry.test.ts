@@ -51,6 +51,28 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
+  test('researcher includes "recall" and "remember" for memory access', () => {
+    const tools = SUBAGENT_ROLE_REGISTRY.researcher.allowedTools!;
+    expect(tools).toContain("recall");
+    expect(tools).toContain("remember");
+  });
+
+  test('coder includes "recall" for memory access', () => {
+    expect(SUBAGENT_ROLE_REGISTRY.coder.allowedTools!).toContain("recall");
+  });
+
+  test('planner includes "recall" for memory access', () => {
+    expect(SUBAGENT_ROLE_REGISTRY.planner.allowedTools!).toContain("recall");
+  });
+
+  test("no role references the old memory_recall tool name", () => {
+    for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
+      if (config.allowedTools !== undefined) {
+        expect(config.allowedTools).not.toContain("memory_recall");
+      }
+    }
+  });
+
   test('every role pre-activates the "subagent" skill', () => {
     for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
       expect(config.skillIds).toContain("subagent");

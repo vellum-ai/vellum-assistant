@@ -95,26 +95,28 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
     },
     researcher: {
       allowedTools: [
-        "skill_execute",
         "web_search",
         "web_fetch",
         "file_read",
-        "memory_recall",
+        "recall",
+        "remember",
         "notify_parent",
+        "skill_execute",
       ],
       skillIds: ["subagent"],
       systemPromptPreamble:
-        "You are a research-focused subagent with read-only access. Search the web, read files, and recall memories. You cannot write files or run shell commands.",
+        "You are a research-focused subagent with read-only access. Search the web, read files, and recall and store memories. You cannot write files or run shell commands.",
     },
     coder: {
       allowedTools: [
-        "skill_execute",
         "bash",
         "file_read",
         "file_write",
         "file_edit",
         "web_search",
+        "recall",
         "notify_parent",
+        "skill_execute",
       ],
       skillIds: ["subagent"],
       systemPromptPreamble:
@@ -122,12 +124,12 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
     },
     planner: {
       allowedTools: [
-        "skill_execute",
         "file_read",
         "web_search",
         "web_fetch",
-        "memory_recall",
+        "recall",
         "notify_parent",
+        "skill_execute",
       ],
       skillIds: ["subagent"],
       systemPromptPreamble:
