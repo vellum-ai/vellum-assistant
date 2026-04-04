@@ -11,6 +11,7 @@ struct SettingsBillingReferralCard: View {
     @State private var isLoading: Bool = true
     @State private var error: String?
     @State private var copied: Bool = false
+    @State private var copyResetTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -64,7 +65,7 @@ struct SettingsBillingReferralCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
                     VButton(
-                        label: "",
+                        label: copied ? "Copied" : "Copy referral link",
                         iconOnly: copied ? VIcon.check.rawValue : VIcon.copy.rawValue,
                         style: .ghost
                     ) {
@@ -151,8 +152,10 @@ struct SettingsBillingReferralCard: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(url, forType: .string)
         copied = true
-        Task {
+        copyResetTask?.cancel()
+        copyResetTask = Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
             copied = false
         }
     }
