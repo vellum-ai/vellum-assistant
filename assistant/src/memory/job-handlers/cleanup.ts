@@ -9,17 +9,6 @@ const PRUNE_BATCH_LIMIT = 100;
 const PRUNE_LOG_BATCH_LIMIT = 1000;
 
 /**
- * Delete conversations that have had no activity (updatedAt) for longer than
- * the configured retention period. Processes in batches so a single job doesn't
- * hold the DB lock for too long.
- *
- * Tables with onDelete cascade on conversation FK (memory_segments,
- * conversation_keys, channel_inbound_events, message_runs, call_sessions,
- * external_conversation_bindings, assistant_inbox_conversation_state) are handled
- * automatically. Tables without cascade (messages, tool_invocations,
- * llm_request_logs) are deleted explicitly before removing the conversation row.
- */
-/**
  * Delete LLM request/response logs older than the configured retention period.
  * Processes in batches to avoid long DB locks and excessive WAL growth.
  * Re-enqueues itself if more rows remain.
@@ -61,6 +50,17 @@ export function pruneOldLlmRequestLogsJob(
   );
 }
 
+/**
+ * Delete conversations that have had no activity (updatedAt) for longer than
+ * the configured retention period. Processes in batches so a single job doesn't
+ * hold the DB lock for too long.
+ *
+ * Tables with onDelete cascade on conversation FK (memory_segments,
+ * conversation_keys, channel_inbound_events, message_runs, call_sessions,
+ * external_conversation_bindings, assistant_inbox_conversation_state) are handled
+ * automatically. Tables without cascade (messages, tool_invocations,
+ * llm_request_logs) are deleted explicitly before removing the conversation row.
+ */
 export function pruneOldConversationsJob(
   job: MemoryJob,
   config: AssistantConfig,
