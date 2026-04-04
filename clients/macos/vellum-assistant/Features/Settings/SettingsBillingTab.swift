@@ -296,7 +296,7 @@ struct SettingsBillingTab: View {
         defer { isProcessingTopUp = false }
 
         do {
-            let checkoutURL = try await BillingService.shared.createTopUpCheckout(amountUsd: amountStr)
+            let checkoutURL = try await BillingService.shared.createTopUpCheckout(amount: amountStr)
             NSWorkspace.shared.open(checkoutURL)
         } catch let PlatformAPIError.serverError(_, detail) {
             self.topUpError = Self.parseValidationError(detail) ?? "Failed to create checkout session. Please try again."

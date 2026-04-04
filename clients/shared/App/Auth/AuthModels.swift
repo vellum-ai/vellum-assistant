@@ -319,7 +319,7 @@ public struct BillingSummaryResponse: Codable, Sendable {
 }
 
 public struct TopUpCheckoutRequest: Codable, Sendable {
-    public let amount_usd: String
+    public let amount: String
     public let return_path: String
 }
 

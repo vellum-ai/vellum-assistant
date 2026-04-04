@@ -214,7 +214,7 @@ public final class BillingService {
     }
 
     /// Create a top-up checkout session and return the Stripe checkout URL.
-    public func createTopUpCheckout(amountUsd: String) async throws -> URL {
+    public func createTopUpCheckout(amount: String) async throws -> URL {
         let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/top-ups/checkout-session/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
@@ -236,7 +236,7 @@ public final class BillingService {
         }
         urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
-        let requestBody = TopUpCheckoutRequest(amount_usd: amountUsd, return_path: "/billing/top-up/success")
+        let requestBody = TopUpCheckoutRequest(amount: amount, return_path: "/billing/top-up/success")
         let encoder = JSONEncoder()
         urlRequest.httpBody = try encoder.encode(requestBody)
 
