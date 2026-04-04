@@ -38,7 +38,6 @@ struct ChatBubble: View, Equatable {
             && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
             && lhs.processingStatusText == rhs.processingStatusText
             && lhs.isTTSEnabled == rhs.isTTSEnabled
-            && lhs.hideInlineAvatar == rhs.hideInlineAvatar
             && lhs.activeSurfaceId == rhs.activeSurfaceId
     }
     let message: ChatMessage
@@ -76,8 +75,6 @@ struct ChatBubble: View, Equatable {
     var processingStatusText: String?
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
-    /// When true, hide the inline avatar (e.g. thinking indicator is showing it instead).
-    var hideInlineAvatar: Bool = false
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
     @State private var hoverState = ChatBubbleHoverState()
@@ -119,8 +116,7 @@ struct ChatBubble: View, Equatable {
         isLatestAssistantMessage: Bool = false,
         isProcessingAfterTools: Bool = false,
         processingStatusText: String? = nil,
-        activeSurfaceId: String? = nil,
-        hideInlineAvatar: Bool = false
+        activeSurfaceId: String? = nil
     ) {
         self.message = message
         self.decidedConfirmation = decidedConfirmation
@@ -145,7 +141,6 @@ struct ChatBubble: View, Equatable {
         self.isProcessingAfterTools = isProcessingAfterTools
         self.processingStatusText = processingStatusText
         self.activeSurfaceId = activeSurfaceId
-        self.hideInlineAvatar = hideInlineAvatar
 
         // Eagerly compute interleaved content cache so the first body
         // evaluation uses the correct layout path (no flash).
@@ -389,7 +384,7 @@ struct ChatBubble: View, Equatable {
         }
 
         // Avatar below the latest assistant message, left-aligned
-        if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
+        if isLatestAssistantMessage && !isUser {
             HStack {
                 inlineAvatar
                 Spacer()

@@ -21,7 +21,6 @@ struct MessageCellView: View, Equatable {
             && lhs.isLatestAssistantMessage == rhs.isLatestAssistantMessage
             && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
             && lhs.processingStatusText == rhs.processingStatusText
-            && lhs.hideInlineAvatar == rhs.hideInlineAvatar
             && lhs.showAnchoredThinkingIndicator == rhs.showAnchoredThinkingIndicator
             && lhs.anchoredThinkingLabel == rhs.anchoredThinkingLabel
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
@@ -49,7 +48,6 @@ struct MessageCellView: View, Equatable {
     let isLatestAssistantMessage: Bool
     let isProcessingAfterTools: Bool
     let processingStatusText: String?
-    let hideInlineAvatar: Bool
     let showAnchoredThinkingIndicator: Bool
     let anchoredThinkingLabel: String
     let dismissedDocumentSurfaceIds: Set<String>
@@ -132,8 +130,7 @@ struct MessageCellView: View, Equatable {
                 isLatestAssistantMessage: isLatestAssistantMessage,
                 isProcessingAfterTools: isProcessingAfterTools,
                 processingStatusText: processingStatusText,
-                activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: hideInlineAvatar
+                activeSurfaceId: activeSurfaceId
             )
             .equatable()
         }
@@ -219,8 +216,7 @@ struct MessageCellView: View, Equatable {
                 isLatestAssistantMessage: isLatestAssistantMessage,
                 isProcessingAfterTools: isProcessingAfterTools,
                 processingStatusText: processingStatusText,
-                activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: hideInlineAvatar
+                activeSurfaceId: activeSurfaceId
             )
             .equatable()
             .background(

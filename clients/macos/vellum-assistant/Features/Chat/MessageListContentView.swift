@@ -15,10 +15,10 @@ private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "Layou
 /// this struct and applies scroll/lifecycle modifiers. This view's body is
 /// expensive — it drives `LazyStack.measureEstimates` over all visible cells.
 ///
-/// Closures and `@Observable` references (`scrollState`, `appearance`) are
-/// intentionally skipped in `==` — closures are never equal, and `@Observable`
-/// objects are identity-stable. Only data properties that affect rendered
-/// output are compared.
+/// Closures and `@Observable` references (`scrollState`) are intentionally
+/// skipped in `==` — closures are never equal, and `@Observable` objects are
+/// identity-stable. Only data properties that affect rendered output are
+/// compared.
 ///
 /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
 /// - SeeAlso: [Airbnb — Understanding and Improving SwiftUI Performance](https://airbnb.tech/mobile/understanding-and-improving-swiftui-performance/)
@@ -85,7 +85,6 @@ struct MessageListContentView: View, Equatable {
     // MARK: - @Observable references (not compared in ==; reads occur in closures or child views)
 
     let scrollState: MessageListScrollState
-    let appearance: AvatarAppearanceManager
 
     // MARK: - Closures (skipped in ==)
 
@@ -131,35 +130,6 @@ struct MessageListContentView: View, Equatable {
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
-    @ViewBuilder
-    private var thinkingAvatarRow: some View {
-        let avatarSize = ConversationAvatarFollower.avatarSize
-        if appearance.customAvatarImage != nil {
-            HStack {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                Spacer()
-            }
-            .accessibilityHidden(true)
-        } else if let body = appearance.characterBodyShape,
-                  let eyes = appearance.characterEyeStyle,
-                  let color = appearance.characterColor {
-            HStack {
-                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
-                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
-                                   isStreaming: true)
-                    .frame(width: avatarSize, height: avatarSize)
-                Spacer()
-            }
-            .accessibilityHidden(true)
-        } else {
-            HStack {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                Spacer()
-            }
-            .accessibilityHidden(true)
-        }
-    }
-
     // MARK: - Body
 
     var body: some View {
@@ -197,7 +167,6 @@ struct MessageListContentView: View, Equatable {
                     isLatestAssistantMessage: isLatestAssistant,
                     isProcessingAfterTools: state.canInlineProcessing && isLatestAssistant,
                     processingStatusText: state.canInlineProcessing && isLatestAssistant ? state.effectiveStatusText : nil,
-                    hideInlineAvatar: isLatestAssistant && state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil,
                     showAnchoredThinkingIndicator: isAnchored,
                     anchoredThinkingLabel: isAnchored ? thinkingLabel : "",
                     dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
@@ -248,7 +217,6 @@ struct MessageListContentView: View, Equatable {
                 } else {
                     thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
                 }
-                thinkingAvatarRow
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                 compactingIndicatorRow()
             }
