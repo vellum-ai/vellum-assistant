@@ -315,7 +315,7 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private func codePreviewBlock(_ content: String, maxHeight: CGFloat) -> some View {
-        let lineCount = content.components(separatedBy: .newlines).count
+        let lineCount = VCodeView.countLines(in: content)
         ScrollView {
             Text(content)
                 .font(VFont.bodySmallDefault)
