@@ -814,9 +814,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         SoundManager.shared.play(.newConversation)
     }
 
-    /// If onboarding generated avatar traits, sync them to the daemon and clear the state.
+    /// If onboarding generated avatar traits, sync them to the assistant and clear the state.
     /// Called from both the first-launch and non-first-launch paths in `proceedToApp`
-    /// so that auth-gate onboarding flows also persist avatar traits on the daemon.
+    /// so that auth-gate onboarding flows also persist avatar traits on the assistant.
     func syncOnboardingAvatarIfNeeded() {
         guard let body = onboardingState?.hatchAvatarBodyShape,
               let eyes = onboardingState?.hatchAvatarEyeStyle,

@@ -313,7 +313,7 @@ extension AppDelegate {
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
             // Retain the onboarding state so avatar traits generated during
-            // hatching can be synced to the daemon.
+            // hatching can be synced to the assistant.
             self?.onboardingState = state
             self?.syncOnboardingAvatarIfNeeded()
 
@@ -363,7 +363,7 @@ extension AppDelegate {
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
             // Retain the onboarding state so avatar traits generated during
-            // hatching can be synced to the daemon after the assistant switch.
+            // hatching can be synced to the assistant after the switch.
             self?.onboardingState = state
 
             // Detect the newly hatched assistant by diffing lockfile against snapshot.
