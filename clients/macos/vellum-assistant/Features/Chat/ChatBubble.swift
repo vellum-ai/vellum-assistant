@@ -76,7 +76,8 @@ struct ChatBubble: View, Equatable {
     var processingStatusText: String?
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
-    /// When true, hide the inline avatar (e.g. thinking indicator is showing it instead).
+    /// When true, suppress the inline avatar on this bubble because
+    /// `thinkingAvatarRow` is rendering one below the thinking indicator.
     var hideInlineAvatar: Bool = false
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
