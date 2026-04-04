@@ -176,6 +176,7 @@ struct MessageListContentView: View, Equatable {
                 let isLatestAssistant = message.role == .assistant && message.id == state.latestAssistantId
                 let messageIndex = state.messageIndexById[message.id] ?? 0
                 let isAnchored = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == messageIndex
+                let isUnanchoredThinking = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil
                 MessageCellView(
                     message: message,
                     showTimestamp: state.showTimestamp.contains(message.id),
@@ -187,6 +188,7 @@ struct MessageListContentView: View, Equatable {
                     isLatestAssistantMessage: isLatestAssistant,
                     isProcessingAfterTools: state.canInlineProcessing && isLatestAssistant,
                     processingStatusText: state.canInlineProcessing && isLatestAssistant ? state.effectiveStatusText : nil,
+                    hideInlineAvatar: isLatestAssistant && isUnanchoredThinking,
                     showAnchoredThinkingIndicator: isAnchored,
                     anchoredThinkingLabel: isAnchored ? thinkingLabel : "",
                     dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
