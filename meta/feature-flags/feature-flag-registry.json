@@ -272,6 +272,14 @@
       "label": "Teleport",
       "description": "Enable teleport UI in General settings for moving assistants between hosting environments",
       "defaultEnabled": false
+    },
+    {
+      "id": "tool-deferral",
+      "scope": "assistant",
+      "key": "tool-deferral",
+      "label": "Tool Deferral",
+      "description": "When enabled, tool executions that exceed a configurable threshold are deferred to the background. The assistant can continue its turn and manage background executions via background_tool_control.",
+      "defaultEnabled": false
     }
   ]
 }
