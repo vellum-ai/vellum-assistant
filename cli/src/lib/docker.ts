@@ -395,6 +395,15 @@ function walkUpForRepoRoot(startDir: string): string | undefined {
 }
 
 /**
+ * Returns `true` when the given root looks like a full source checkout
+ * (has assistant source code), as opposed to a packaged `.app` bundle
+ * that only contains the Dockerfiles.
+ */
+function hasFullSourceTree(root: string): boolean {
+  return existsSync(join(root, "assistant", "package.json"));
+}
+
+/**
  * Locate the repository root by walking up from `cli/src/lib/` until we
  * find a directory containing the expected Dockerfiles.
  */
@@ -971,6 +980,21 @@ export async function hatchDocker(
     if (watch) {
       emitProgress(2, 6, "Building images...");
       repoRoot = findRepoRoot();
+
+      // When running from a packaged .app bundle, the Dockerfiles are
+      // present (so findRepoRoot succeeds) but the full source tree is
+      // not — we can't build images locally. Fall back to pulling
+      // pre-built images instead.
+      if (!hasFullSourceTree(repoRoot)) {
+        log(
+          "⚠️  Dockerfiles found but no source tree — falling back to image pull",
+        );
+        watch = false;
+        repoRoot = undefined;
+      }
+    }
+
+    if (watch && repoRoot) {
       const localTag = `local-${instanceName}`;
       imageTags.assistant = `vellum-assistant:${localTag}`;
       imageTags.gateway = `vellum-gateway:${localTag}`;
@@ -989,7 +1013,9 @@ export async function hatchDocker(
 
       await buildAllImages(repoRoot, imageTags, log);
       log("✅ Docker images built");
-    } else {
+    }
+
+    if (!watch || !repoRoot) {
       emitProgress(2, 6, "Pulling images...");
       const version = cliPkg.version;
       const versionTag = version ? `v${version}` : "latest";
