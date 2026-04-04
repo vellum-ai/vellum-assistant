@@ -308,18 +308,18 @@ public struct SelfHostedProvisioningInfo: Codable, Sendable {
 // MARK: - Billing Models
 
 public struct BillingSummaryResponse: Codable, Sendable {
-    public let settled_balance_usd: String
-    public let pending_compute_usd: String
-    public let effective_balance_usd: String
-    public let minimum_top_up_usd: String
-    public let maximum_top_up_usd: String
-    public let maximum_balance_usd: String
+    public let settled_balance: String
+    public let pending_compute: String
+    public let effective_balance: String
+    public let minimum_top_up: String
+    public let maximum_top_up: String
+    public let maximum_balance: String
     public let allowed_top_up_amounts: [String]?
     public let is_degraded: Bool
 }
 
 public struct TopUpCheckoutRequest: Codable, Sendable {
-    public let amount_usd: String
+    public let amount: String
     public let return_path: String
 }
 
@@ -330,6 +330,6 @@ public struct TopUpCheckoutResponse: Codable, Sendable {
 public struct ReferralCodeResponse: Codable, Sendable {
     public let referral_url: String
     public let referred_count: Int
-    public let total_earned_usd: String
-    public let earning_cap_usd: String
+    public let total_earned: String
+    public let earning_cap: String
 }
