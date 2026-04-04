@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import { cleanupAudioSpool } from "../calls/audio-store.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { HookManager } from "../hooks/manager.js";
 import type { McpServerManager } from "../mcp/manager.js";
@@ -107,6 +108,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     if (deps.runtimeHttp) await deps.runtimeHttp.stop();
     await browserManager.closeAllPages();
     cleanupShellOutputTempFiles();
+    cleanupAudioSpool();
     deps.scheduler.stop();
     deps.getMemoryWorker()?.stop();
 

@@ -23,12 +23,12 @@ export function handleGetAudio(audioId: string): Response {
   if (!entry) {
     return httpError("NOT_FOUND", "Audio not found", 404);
   }
-  if (entry.type === "buffer") {
-    return new Response(new Uint8Array(entry.buffer), {
+  if (entry.type === "file") {
+    return new Response(Bun.file(entry.filePath), {
       status: 200,
       headers: {
         "Content-Type": entry.contentType,
-        "Content-Length": entry.buffer.length.toString(),
+        "Content-Length": entry.sizeBytes.toString(),
       },
     });
   }
