@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { getLogger } from "../util/logger.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { getDb, getSqlite } from "./db-connection.js";
 import {
@@ -204,404 +205,667 @@ export function initializeDb(): void {
     return;
   }
 
+  const log = getLogger("db-init");
+
+  // Track migration failures so we can report a summary at the end.
+  const failures: string[] = [];
+
+  /**
+   * Run a single migration step, catching and logging any error so it doesn't
+   * propagate up and abort the entire initialization sequence. Later migrations
+   * may still succeed even if an earlier one fails (e.g. an ALTER-TABLE
+   * migration is independent of an index migration).
+   */
+  function safeMigrate(name: string, fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      failures.push(name);
+      log.error({ err, migration: name }, `Migration failed: ${name}`);
+    }
+  }
+
   const database = getDb();
 
   // 1. Create core tables (conversations, messages, memory, etc.)
-  createCoreTables(database);
+  safeMigrate("createCoreTables", () => createCoreTables(database));
 
   // 1b. Clear any stalled 'started' checkpoints left by previous crashes
   // so the affected migrations can re-run from scratch.
-  recoverCrashedMigrations(database);
+  safeMigrate("recoverCrashedMigrations", () =>
+    recoverCrashedMigrations(database),
+  );
 
   // 2. Create watchers, logs, entities, FTS, and conversation keys
-  createWatchersAndLogsTables(database);
+  safeMigrate("createWatchersAndLogsTables", () =>
+    createWatchersAndLogsTables(database),
+  );
 
   // 3. ALTER TABLE ADD COLUMN migrations for core tables
-  addCoreColumns(database);
+  safeMigrate("addCoreColumns", () => addCoreColumns(database));
 
   // 4. Complex multi-step migrations (dedup, FK fixes, assistant_id normalization)
-  runComplexMigrations(database);
+  safeMigrate("runComplexMigrations", () => runComplexMigrations(database));
 
   // 5. Indexes for core tables + attachment dedup
-  createCoreIndexes(database);
+  safeMigrate("createCoreIndexes", () => createCoreIndexes(database));
 
   // 6. Contacts and triage
-  createContactsAndTriageTables(database);
+  safeMigrate("createContactsAndTriageTables", () =>
+    createContactsAndTriageTables(database),
+  );
 
   // 7. Call sessions (outgoing AI phone calls)
-  createCallSessionsTables(database);
+  safeMigrate("createCallSessionsTables", () =>
+    createCallSessionsTables(database),
+  );
 
   // 7b. Call session mode/metadata for deterministic flow selection
-  migrateCallSessionMode(database);
+  safeMigrate("migrateCallSessionMode", () => migrateCallSessionMode(database));
 
   // 8. Follow-ups
-  createFollowupsTables(database);
+  safeMigrate("createFollowupsTables", () => createFollowupsTables(database));
 
   // 9. Tasks and work items
-  createTasksAndWorkItemsTables(database);
+  safeMigrate("createTasksAndWorkItemsTables", () =>
+    createTasksAndWorkItemsTables(database),
+  );
 
   // 10. External conversation bindings
-  createExternalConversationBindingsTables(database);
+  safeMigrate("createExternalConversationBindingsTables", () =>
+    createExternalConversationBindingsTables(database),
+  );
 
   // 11. Channel guardian
-  createChannelGuardianTables(database);
+  safeMigrate("createChannelGuardianTables", () =>
+    createChannelGuardianTables(database),
+  );
 
   // 11b. Guardian verification session columns (outbound identity binding)
-  migrateGuardianVerificationSessions(database);
+  safeMigrate("migrateGuardianVerificationSessions", () =>
+    migrateGuardianVerificationSessions(database),
+  );
 
   // 11c. Guardian bootstrap token hash column (Telegram deep-link flow)
-  migrateGuardianBootstrapToken(database);
+  safeMigrate("migrateGuardianBootstrapToken", () =>
+    migrateGuardianBootstrapToken(database),
+  );
 
   // 11d. Guardian verification purpose discriminator (guardian vs trusted_contact)
-  migrateGuardianVerificationPurpose(database);
+  safeMigrate("migrateGuardianVerificationPurpose", () =>
+    migrateGuardianVerificationPurpose(database),
+  );
 
   // 12. Media assets
-  createMediaAssetsTables(database);
+  safeMigrate("createMediaAssetsTables", () =>
+    createMediaAssetsTables(database),
+  );
 
   // 13. Assistant inbox
-  createAssistantInboxTables(database);
+  safeMigrate("createAssistantInboxTables", () =>
+    createAssistantInboxTables(database),
+  );
 
   // 14. Late-stage migrations (guardian actions, FTS backfill, index migrations)
-  runLateMigrations(database);
+  safeMigrate("runLateMigrations", () => runLateMigrations(database));
 
   // 14b. Track per-segment delivery progress for split channel replies
-  migrateChannelInboundDeliveredSegments(database);
+  safeMigrate("migrateChannelInboundDeliveredSegments", () =>
+    migrateChannelInboundDeliveredSegments(database),
+  );
 
   // 14c. Guardian action follow-up lifecycle columns (timeout reason, late answers)
-  migrateGuardianActionFollowup(database);
+  safeMigrate("migrateGuardianActionFollowup", () =>
+    migrateGuardianActionFollowup(database),
+  );
 
   // 14c2. Guardian action tool-approval metadata columns (tool_name, input_digest)
-  migrateGuardianActionToolMetadata(database);
+  safeMigrate("migrateGuardianActionToolMetadata", () =>
+    migrateGuardianActionToolMetadata(database),
+  );
 
   // 14c3. Guardian action supersession metadata (superseded_by_request_id, superseded_at) + session lookup index
-  migrateGuardianActionSupersession(database);
+  safeMigrate("migrateGuardianActionSupersession", () =>
+    migrateGuardianActionSupersession(database),
+  );
 
   // 14d. Index on conversations.conversation_type for frequent WHERE filters
-  migrateConversationsThreadTypeIndex(database);
+  safeMigrate("migrateConversationsThreadTypeIndex", () =>
+    migrateConversationsThreadTypeIndex(database),
+  );
 
   // 14e. Index on guardian_action_deliveries.destination_conversation_id for conversation-based lookups
-  migrateGuardianDeliveryConversationIndex(database);
+  safeMigrate("migrateGuardianDeliveryConversationIndex", () =>
+    migrateGuardianDeliveryConversationIndex(database),
+  );
 
   // 15. Notification system
-  createNotificationTables(database);
+  safeMigrate("createNotificationTables", () =>
+    createNotificationTables(database),
+  );
 
   // 16. Sequences (multi-step outreach)
-  createSequenceTables(database);
+  safeMigrate("createSequenceTables", () => createSequenceTables(database));
 
   // 17. Messages FTS (full-text search over message content)
-  createMessagesFts(database);
-  migrateMessagesFtsBackfill(database);
+  safeMigrate("createMessagesFts", () => createMessagesFts(database));
+  safeMigrate("migrateMessagesFtsBackfill", () =>
+    migrateMessagesFtsBackfill(database),
+  );
 
   // 18. Conversation attention (seen-state tracking)
-  createConversationAttentionTables(database);
+  safeMigrate("createConversationAttentionTables", () =>
+    createConversationAttentionTables(database),
+  );
 
   // 19. Reminder routing metadata (routing_intent + routing_hints_json columns)
-  migrateReminderRoutingIntent(database);
+  safeMigrate("migrateReminderRoutingIntent", () =>
+    migrateReminderRoutingIntent(database),
+  );
 
   // 20. Schema indexes, columns, and constraints
-  migrateSchemaIndexesAndColumns(database);
+  safeMigrate("migrateSchemaIndexesAndColumns", () =>
+    migrateSchemaIndexesAndColumns(database),
+  );
 
   // 21. Rebuild tables to add ON DELETE CASCADE to FK constraints
-  migrateFkCascadeRebuilds(database);
+  safeMigrate("migrateFkCascadeRebuilds", () =>
+    migrateFkCascadeRebuilds(database),
+  );
 
   // 22. Scoped approval grants (channel-agnostic one-time-use grants)
-  createScopedApprovalGrantsTable(database);
+  safeMigrate("createScopedApprovalGrantsTable", () =>
+    createScopedApprovalGrantsTable(database),
+  );
 
   // 23. Conversation decision audit columns on notification_deliveries
-  migrateNotificationDeliveryThreadDecision(database);
+  safeMigrate("migrateNotificationDeliveryThreadDecision", () =>
+    migrateNotificationDeliveryThreadDecision(database),
+  );
 
   // 24. Canonical guardian requests and deliveries (unified cross-source guardian domain)
-  createCanonicalGuardianTables(database);
+  safeMigrate("createCanonicalGuardianTables", () =>
+    createCanonicalGuardianTables(database),
+  );
 
   // 24b. Add requester_chat_id to canonical_guardian_requests (chat ID != user ID on some channels)
-  migrateCanonicalGuardianRequesterChatId(database);
+  safeMigrate("migrateCanonicalGuardianRequesterChatId", () =>
+    migrateCanonicalGuardianRequesterChatId(database),
+  );
 
   // 24c. Composite index on canonical_guardian_deliveries(destination_channel, destination_chat_id) for chat-based lookups
-  migrateCanonicalGuardianDeliveriesDestinationIndex(database);
+  safeMigrate("migrateCanonicalGuardianDeliveriesDestinationIndex", () =>
+    migrateCanonicalGuardianDeliveriesDestinationIndex(database),
+  );
 
   // 25. Normalize phone-like identity fields to E.164 across guardian and ingress tables
-  migrateNormalizePhoneIdentities(database);
+  safeMigrate("migrateNormalizePhoneIdentities", () =>
+    migrateNormalizePhoneIdentities(database),
+  );
 
   // 26. Voice invite columns on assistant_ingress_invites
-  migrateVoiceInviteColumns(database);
+  safeMigrate("migrateVoiceInviteColumns", () =>
+    migrateVoiceInviteColumns(database),
+  );
 
   // 27. Voice invite display metadata (friend_name, guardian_name) for personalized prompts
-  migrateVoiceInviteDisplayMetadata(database);
+  safeMigrate("migrateVoiceInviteDisplayMetadata", () =>
+    migrateVoiceInviteDisplayMetadata(database),
+  );
 
   // 27b. 6-digit invite code hash column for non-voice channel invite redemption
-  migrateInviteCodeHashColumn(database);
+  safeMigrate("migrateInviteCodeHashColumn", () =>
+    migrateInviteCodeHashColumn(database),
+  );
 
   // 28. Actor token records (hash-only actor token persistence)
-  createActorTokenRecordsTable(database);
+  safeMigrate("createActorTokenRecordsTable", () =>
+    createActorTokenRecordsTable(database),
+  );
 
   // 28b. Actor refresh token records (rotating refresh tokens with family tracking)
-  createActorRefreshTokenRecordsTable(database);
+  safeMigrate("createActorRefreshTokenRecordsTable", () =>
+    createActorRefreshTokenRecordsTable(database),
+  );
 
   // 29. Guardian principal ID columns on channel_guardian_bindings and canonical_guardian_requests
-  migrateGuardianPrincipalIdColumns(database);
+  safeMigrate("migrateGuardianPrincipalIdColumns", () =>
+    migrateGuardianPrincipalIdColumns(database),
+  );
 
   // 30. Backfill guardianPrincipalId for existing bindings and requests, expire unresolvable pending requests
-  migrateBackfillGuardianPrincipalId(database);
+  safeMigrate("migrateBackfillGuardianPrincipalId", () =>
+    migrateBackfillGuardianPrincipalId(database),
+  );
 
   // 31. Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id
-  migrateGuardianPrincipalIdNotNull(database);
+  safeMigrate("migrateGuardianPrincipalIdNotNull", () =>
+    migrateGuardianPrincipalIdNotNull(database),
+  );
 
   // 32. Add role and principal_id columns to contacts table
-  migrateContactsRolePrincipal(database);
+  safeMigrate("migrateContactsRolePrincipal", () =>
+    migrateContactsRolePrincipal(database),
+  );
 
   // 33. Add verification and access-control columns to contact_channels
-  migrateContactChannelsAccessFields(database);
+  safeMigrate("migrateContactChannelsAccessFields", () =>
+    migrateContactChannelsAccessFields(database),
+  );
 
   // 34. Composite index on (type, external_chat_id) for contact channel lookups
-  migrateContactChannelsTypeChatIdIndex(database);
+  safeMigrate("migrateContactChannelsTypeChatIdIndex", () =>
+    migrateContactChannelsTypeChatIdIndex(database),
+  );
 
   // 35. Safety-sync remaining legacy data then drop assistant_ingress_members and channel_guardian_bindings
-  migrateDropLegacyMemberGuardianTables(database);
+  safeMigrate("migrateDropLegacyMemberGuardianTables", () =>
+    migrateDropLegacyMemberGuardianTables(database),
+  );
 
   // 36. Add assistant_id to contacts for per-assistant guardian scoping
-  migrateContactsAssistantId(database);
+  safeMigrate("migrateContactsAssistantId", () =>
+    migrateContactsAssistantId(database),
+  );
 
   // 37. Add contact_type to contacts and assistant_contact_metadata table
-  migrateAssistantContactMetadata(database);
+  safeMigrate("migrateAssistantContactMetadata", () =>
+    migrateAssistantContactMetadata(database),
+  );
 
   // 38. Consolidate contact metadata columns into single notes field
-  migrateContactsNotesColumn(database);
+  safeMigrate("migrateContactsNotesColumn", () =>
+    migrateContactsNotesColumn(database),
+  );
 
   // 39. Backfill contact interaction stats from channel lastSeenAt
-  migrateBackfillContactInteractionStats(database);
+  safeMigrate("migrateBackfillContactInteractionStats", () =>
+    migrateBackfillContactInteractionStats(database),
+  );
 
   // 40. Drop assistant_id columns from all 16 daemon tables
-  migrateDropAssistantIdColumns(database);
+  safeMigrate("migrateDropAssistantIdColumns", () =>
+    migrateDropAssistantIdColumns(database),
+  );
 
   // 41. Indexes on llm_usage_events for usage dashboard time-range and breakdown queries
-  migrateUsageDashboardIndexes(database);
+  safeMigrate("migrateUsageDashboardIndexes", () =>
+    migrateUsageDashboardIndexes(database),
+  );
 
   // 42. (skipped) migrateReorderUsageDashboardIndexes — superseded by 43 which drops
   // all composite indexes that 42 would create, so running it is wasted work.
 
   // 43. Drop all composite usage indexes — they don't eliminate temp B-trees for GROUP BY
-  migrateDropUsageCompositeIndexes(database);
+  safeMigrate("migrateDropUsageCompositeIndexes", () =>
+    migrateDropUsageCompositeIndexes(database),
+  );
 
   // 44. Backfill historical Anthropic usage rows from request-log truth before dashboard reads
-  migrateBackfillUsageCacheAccounting(database);
+  safeMigrate("migrateBackfillUsageCacheAccounting", () =>
+    migrateBackfillUsageCacheAccounting(database),
+  );
 
   // 45. Rename channel_guardian_verification_challenges → channel_verification_sessions
-  migrateRenameVerificationTable(database);
+  safeMigrate("migrateRenameVerificationTable", () =>
+    migrateRenameVerificationTable(database),
+  );
 
   // 46. Rename guardian_verification_session_id → verification_session_id in call_sessions
-  migrateRenameVerificationSessionIdColumn(database);
+  safeMigrate("migrateRenameVerificationSessionIdColumn", () =>
+    migrateRenameVerificationSessionIdColumn(database),
+  );
 
   // 47. Rename persisted guardian_verification call_mode and event_type values
-  migrateRenameGuardianVerificationValues(database);
+  safeMigrate("migrateRenameGuardianVerificationValues", () =>
+    migrateRenameGuardianVerificationValues(database),
+  );
 
   // 48. Rename stored "voice" channel values to "phone" across all channel text columns
-  migrateRenameVoiceToPhone(database);
+  safeMigrate("migrateRenameVoiceToPhone", () =>
+    migrateRenameVoiceToPhone(database),
+  );
 
   // 49. Drop the unused legacy accounts table after removing account_manage
-  migrateDropAccountsTable(database);
+  safeMigrate("migrateDropAccountsTable", () =>
+    migrateDropAccountsTable(database),
+  );
 
   // 50. Extend cron_jobs table with one-shot and routing support
-  migrateScheduleOneShotRouting(database);
+  safeMigrate("migrateScheduleOneShotRouting", () =>
+    migrateScheduleOneShotRouting(database),
+  );
 
   // 51. Migrate existing reminders into cron_jobs as one-shot schedules
-  migrateRemindersToSchedules(database);
+  safeMigrate("migrateRemindersToSchedules", () =>
+    migrateRemindersToSchedules(database),
+  );
 
   // 52. Drop the legacy reminders table after data migration
-  migrateDropRemindersTable(database);
+  safeMigrate("migrateDropRemindersTable", () =>
+    migrateDropRemindersTable(database),
+  );
 
   // 53. OAuth provider/app/connection tables
-  createOAuthTables(database);
+  safeMigrate("createOAuthTables", () => createOAuthTables(database));
 
   // 54. Add explicit client_secret_credential_path to oauth_apps
-  migrateOAuthAppsClientSecretPath(database);
+  safeMigrate("migrateOAuthAppsClientSecretPath", () =>
+    migrateOAuthAppsClientSecretPath(database),
+  );
 
   // 55. Add ping_url column to oauth_providers
-  migrateOAuthProvidersPingUrl(database);
+  safeMigrate("migrateOAuthProvidersPingUrl", () =>
+    migrateOAuthProvidersPingUrl(database),
+  );
 
   // 56. Add supersession tracking columns and override confidence to memory_items
-  migrateMemoryItemSupersession(database);
+  safeMigrate("migrateMemoryItemSupersession", () =>
+    migrateMemoryItemSupersession(database),
+  );
 
   // 56b. Drop unused entity tables (entity search replaced by hybrid search on item statements)
-  migrateDropEntityTables(database);
+  safeMigrate("migrateDropEntityTables", () =>
+    migrateDropEntityTables(database),
+  );
 
   // 57. Drop memory_segment_fts virtual table and triggers (replaced by Qdrant hybrid search)
-  migrateDropMemorySegmentFts(database);
+  safeMigrate("migrateDropMemorySegmentFts", () =>
+    migrateDropMemorySegmentFts(database),
+  );
 
   // 58. Drop memory_item_conflicts table (conflict resolution system removed)
-  migrateDropConflicts(database);
+  safeMigrate("migrateDropConflicts", () => migrateDropConflicts(database));
 
   // 59. Add invite metadata columns to call_sessions for outbound invite call routing
-  migrateCallSessionInviteMetadata(database);
+  safeMigrate("migrateCallSessionInviteMetadata", () =>
+    migrateCallSessionInviteMetadata(database),
+  );
 
   // 60. Add required contact_id to assistant_ingress_invites and clean up legacy rows
-  migrateInviteContactId(database);
+  safeMigrate("migrateInviteContactId", () => migrateInviteContactId(database));
 
   // 61. Add interaction_count and last_interaction columns to contact_channels
-  migrateChannelInteractionColumns(database);
+  safeMigrate("migrateChannelInteractionColumns", () =>
+    migrateChannelInteractionColumns(database),
+  );
 
   // 62. Drop interaction_count and last_interaction columns from contacts (now derived from channels)
-  migrateDropContactInteractionColumns(database);
+  safeMigrate("migrateDropContactInteractionColumns", () =>
+    migrateDropContactInteractionColumns(database),
+  );
 
   // 63. Drop loopback_port column from oauth_providers (moved to code-side behavior registry)
-  migrateDropLoopbackPortColumn(database);
+  safeMigrate("migrateDropLoopbackPortColumn", () =>
+    migrateDropLoopbackPortColumn(database),
+  );
 
   // 64. Drop orphaned media tables (CREATE TABLE removed in #16739, clean up existing databases)
-  migrateDropOrphanedMediaTables(database);
+  safeMigrate("migrateDropOrphanedMediaTables", () =>
+    migrateDropOrphanedMediaTables(database),
+  );
 
   // 65. Convert guardian timestamps from ISO 8601 text to epoch ms integers
-  migrateGuardianTimestampsEpochMs(database);
+  safeMigrate("migrateGuardianTimestampsEpochMs", () =>
+    migrateGuardianTimestampsEpochMs(database),
+  );
 
   // 66. Rename assistant_inbox_thread_state → assistant_inbox_conversation_state
-  migrateRenameInboxThreadStateTable(database);
+  safeMigrate("migrateRenameInboxThreadStateTable", () =>
+    migrateRenameInboxThreadStateTable(database),
+  );
 
   // 67. Rename thread_type → conversation_type in conversations table
-  migrateRenameConversationTypeColumn(database);
+  safeMigrate("migrateRenameConversationTypeColumn", () =>
+    migrateRenameConversationTypeColumn(database),
+  );
 
   // 68. Rename notification_deliveries thread columns → conversation columns
-  migrateRenameNotificationThreadColumns(database);
+  safeMigrate("migrateRenameNotificationThreadColumns", () =>
+    migrateRenameNotificationThreadColumns(database),
+  );
 
   // 69. Rename followups.thread_id → conversation_id
-  migrateRenameFollowupsThreadIdColumn(database);
+  safeMigrate("migrateRenameFollowupsThreadIdColumn", () =>
+    migrateRenameFollowupsThreadIdColumn(database),
+  );
 
   // 70. Rename sequence_enrollments.thread_id → conversation_id
-  migrateRenameSequenceEnrollmentsThreadIdColumn(database);
+  safeMigrate("migrateRenameSequenceEnrollmentsThreadIdColumn", () =>
+    migrateRenameSequenceEnrollmentsThreadIdColumn(database),
+  );
 
   // 71. Rename replyToThread → replyInSameConversation in sequence steps JSON blobs
-  migrateRenameSequenceStepsReplyKey(database);
+  safeMigrate("migrateRenameSequenceStepsReplyKey", () =>
+    migrateRenameSequenceStepsReplyKey(database),
+  );
 
   // 72. Rename integration:gmail → integration:google across OAuth tables
-  migrateRenameGmailProviderKeyToGoogle(database);
+  safeMigrate("migrateRenameGmailProviderKeyToGoogle", () =>
+    migrateRenameGmailProviderKeyToGoogle(database),
+  );
 
   // 73. Create thread_starters table for personalized empty-thread suggestions (renamed in migration 77)
-  migrateCreateThreadStartersTable(database);
+  safeMigrate("migrateCreateThreadStartersTable", () =>
+    migrateCreateThreadStartersTable(database),
+  );
 
   // 74. Add capability card columns to thread_starters + category relevance table
-  migrateCapabilityCardColumns(database);
+  safeMigrate("migrateCapabilityCardColumns", () =>
+    migrateCapabilityCardColumns(database),
+  );
 
   // 75. Rename created_by_session_id → source_conversation_id in verification sessions and invites
-  migrateRenameCreatedBySessionIdColumns(database);
+  safeMigrate("migrateRenameCreatedBySessionIdColumns", () =>
+    migrateRenameCreatedBySessionIdColumns(database),
+  );
 
   // 76. Rename source_session_id → source_context_id in notification_events
-  migrateRenameSourceSessionIdColumn(database);
+  safeMigrate("migrateRenameSourceSessionIdColumn", () =>
+    migrateRenameSourceSessionIdColumn(database),
+  );
 
   // 77. Rename thread_starters → conversation_starters table and indexes
-  migrateRenameThreadStartersTable(database);
+  safeMigrate("migrateRenameThreadStartersTable", () =>
+    migrateRenameThreadStartersTable(database),
+  );
 
   // 77b. Rename checkpoint keys from thread_starters: → conversation_starters: prefix
-  migrateRenameThreadStartersCheckpoints(database);
+  safeMigrate("migrateRenameThreadStartersCheckpoints", () =>
+    migrateRenameThreadStartersCheckpoints(database),
+  );
 
   // 78. Lifecycle events table for app_open / hatch telemetry
-  createLifecycleEventsTable(database);
+  safeMigrate("createLifecycleEventsTable", () =>
+    createLifecycleEventsTable(database),
+  );
 
   // 79. Remove deleted capability-card state while keeping conversation starter chips
-  migrateDropCapabilityCardState(database);
+  safeMigrate("migrateDropCapabilityCardState", () =>
+    migrateDropCapabilityCardState(database),
+  );
 
   // 80. Trace events table for persistent trace/activity storage across sessions
-  migrateCreateTraceEventsTable(database);
+  safeMigrate("migrateCreateTraceEventsTable", () =>
+    migrateCreateTraceEventsTable(database),
+  );
 
   // 81. Add managed_service_config_key column to oauth_providers
-  migrateOAuthProvidersManagedServiceConfigKey(database);
+  safeMigrate("migrateOAuthProvidersManagedServiceConfigKey", () =>
+    migrateOAuthProvidersManagedServiceConfigKey(database),
+  );
 
   // 81b. Add display metadata columns to oauth_providers (display_name, description, dashboard_url, etc.)
-  migrateOAuthProvidersDisplayMetadata(database);
+  safeMigrate("migrateOAuthProvidersDisplayMetadata", () =>
+    migrateOAuthProvidersDisplayMetadata(database),
+  );
 
   // 82. Add message_id column to llm_request_logs for per-message LLM context lookup
-  migrateLlmRequestLogMessageId(database);
+  safeMigrate("migrateLlmRequestLogMessageId", () =>
+    migrateLlmRequestLogMessageId(database),
+  );
 
   // 82b. Add provider column to llm_request_logs for runtime provider lookup
-  migrateLlmRequestLogProvider(database);
+  safeMigrate("migrateLlmRequestLogProvider", () =>
+    migrateLlmRequestLogProvider(database),
+  );
 
   // 83. Backfill existing inline (base64-in-DB) attachments to on-disk storage
-  migrateBackfillInlineAttachmentsToDisk(database);
+  safeMigrate("migrateBackfillInlineAttachmentsToDisk", () =>
+    migrateBackfillInlineAttachmentsToDisk(database),
+  );
 
   // 84. Add nullable conversation fork lineage columns and parent lookup index
-  migrateConversationForkLineage(database);
+  safeMigrate("migrateConversationForkLineage", () =>
+    migrateConversationForkLineage(database),
+  );
 
   // 85. Add quiet flag to schedule jobs
-  migrateScheduleQuietFlag(database);
+  safeMigrate("migrateScheduleQuietFlag", () =>
+    migrateScheduleQuietFlag(database),
+  );
 
   // 86. Drop simplified-memory tables and reducer checkpoint columns
-  migrateDropSimplifiedMemory(database);
+  safeMigrate("migrateDropSimplifiedMemory", () =>
+    migrateDropSimplifiedMemory(database),
+  );
 
   // 87. Add skip_disclosure column to call_sessions for per-call disclosure control
-  migrateCallSessionSkipDisclosure(database);
+  safeMigrate("migrateCallSessionSkipDisclosure", () =>
+    migrateCallSessionSkipDisclosure(database),
+  );
 
   // 88. Backfill correct MIME types for audio attachments stored as application/octet-stream
-  migrateBackfillAudioAttachmentMimeTypes(database);
+  safeMigrate("migrateBackfillAudioAttachmentMimeTypes", () =>
+    migrateBackfillAudioAttachmentMimeTypes(database),
+  );
 
   // 89. Add user_file column to contacts for per-user persona file mapping
-  migrateContactsUserFileColumn(database);
+  safeMigrate("migrateContactsUserFileColumn", () =>
+    migrateContactsUserFileColumn(database),
+  );
 
   // 90. Add source_type and source_message_role columns to memory_items
-  migrateAddSourceTypeColumns(database);
+  safeMigrate("migrateAddSourceTypeColumns", () =>
+    migrateAddSourceTypeColumns(database),
+  );
 
   // 91. Memory recall logs table for inspector memory tab
-  migrateCreateMemoryRecallLogs(database);
+  safeMigrate("migrateCreateMemoryRecallLogs", () =>
+    migrateCreateMemoryRecallLogs(database),
+  );
 
   // 92. Add ping_method, ping_headers, ping_body columns to oauth_providers
-  migrateOAuthProvidersPingConfig(database);
+  safeMigrate("migrateOAuthProvidersPingConfig", () =>
+    migrateOAuthProvidersPingConfig(database),
+  );
 
   // 93. Strip `integration:` prefix from provider_key across OAuth tables
-  migrateStripIntegrationPrefixFromProviderKeys(database);
+  safeMigrate("migrateStripIntegrationPrefixFromProviderKeys", () =>
+    migrateStripIntegrationPrefixFromProviderKeys(database),
+  );
 
   // 94. Composite index on messages(conversation_id, created_at) for paginated history queries
-  migrateMessagesConversationCreatedAtIndex(database);
+  safeMigrate("migrateMessagesConversationCreatedAtIndex", () =>
+    migrateMessagesConversationCreatedAtIndex(database),
+  );
 
   // 95. Add behavioral config columns to oauth_providers (loopback port, injection templates, setup metadata, identity verification)
-  migrateOAuthProvidersBehaviorColumns(database);
+  safeMigrate("migrateOAuthProvidersBehaviorColumns", () =>
+    migrateOAuthProvidersBehaviorColumns(database),
+  );
 
   // 96. Drop the setup_skill_id column from oauth_providers (concept removed)
-  migrateDropSetupSkillIdColumn(database);
+  safeMigrate("migrateDropSetupSkillIdColumn", () =>
+    migrateDropSetupSkillIdColumn(database),
+  );
 
   // 97. Add enrichment columns to canonical_guardian_requests for guardian approval UX
-  migrateGuardianRequestEnrichmentColumns(database);
+  safeMigrate("migrateGuardianRequestEnrichmentColumns", () =>
+    migrateGuardianRequestEnrichmentColumns(database),
+  );
 
   // 98. Add llm_call_count column to llm_usage_events for accurate LLM call counting
-  migrateUsageLlmCallCount(database);
+  safeMigrate("migrateUsageLlmCallCount", () =>
+    migrateUsageLlmCallCount(database),
+  );
 
   // 99. Add feature_flag column to oauth_providers for feature-flag gating
-  migrateOAuthProvidersFeatureFlag(database);
+  safeMigrate("migrateOAuthProvidersFeatureFlag", () =>
+    migrateOAuthProvidersFeatureFlag(database),
+  );
 
   // 100. Drop the vestigial callback_transport column from oauth_providers
   // (transport is now chosen per-flow via the callbackTransport option, not per-provider)
-  migrateDropCallbackTransportColumn(database);
+  safeMigrate("migrateDropCallbackTransportColumn", () =>
+    migrateDropCallbackTransportColumn(database),
+  );
 
   // 101. Memory graph tables (nodes, edges, triggers)
-  migrateCreateMemoryGraphTables(database);
+  safeMigrate("migrateCreateMemoryGraphTables", () =>
+    migrateCreateMemoryGraphTables(database),
+  );
 
   // 101a. Add nullable image_refs TEXT column to memory_graph_nodes
-  migrateMemoryGraphImageRefs(database);
+  safeMigrate("migrateMemoryGraphImageRefs", () =>
+    migrateMemoryGraphImageRefs(database),
+  );
 
   // 102. Drop legacy memory_items and memory_item_sources tables (migrated to memory_graph_nodes)
-  migrateDropMemoryItemsTables(database);
+  safeMigrate("migrateDropMemoryItemsTables", () =>
+    migrateDropMemoryItemsTables(database),
+  );
 
   // 103. Rename legacy memory graph node type values: style → behavioral, relationship → semantic
-  migrateRenameMemoryGraphTypeValues(database);
+  safeMigrate("migrateRenameMemoryGraphTypeValues", () =>
+    migrateRenameMemoryGraphTypeValues(database),
+  );
 
   // 104. Memory graph node edit history
-  migrateCreateMemoryGraphNodeEdits(database);
+  safeMigrate("migrateCreateMemoryGraphNodeEdits", () =>
+    migrateCreateMemoryGraphNodeEdits(database),
+  );
 
   // 105. Remove image attachments containing HTML error pages instead of image data
-  migrateScrubCorruptedImageAttachments(database);
+  safeMigrate("migrateScrubCorruptedImageAttachments", () =>
+    migrateScrubCorruptedImageAttachments(database),
+  );
 
   // 106. Persist graph memory tracker state across conversation eviction
-  migrateCreateConversationGraphMemoryState(database);
+  safeMigrate("migrateCreateConversationGraphMemoryState", () =>
+    migrateCreateConversationGraphMemoryState(database),
+  );
 
   // 107. Add last_message_at denormalized column for message-based sorting
-  migrateConversationsLastMessageAt(database);
+  safeMigrate("migrateConversationsLastMessageAt", () =>
+    migrateConversationsLastMessageAt(database),
+  );
 
   // 108. Strip thinking/redacted_thinking from consolidated assistant messages
   // so the Anthropic provider no longer needs to mutate historical messages,
   // enabling append-only conversation history for prefix caching.
-  migrateStripThinkingFromConsolidated(database);
+  safeMigrate("migrateStripThinkingFromConsolidated", () =>
+    migrateStripThinkingFromConsolidated(database),
+  );
 
   // 109. Add reuse_conversation flag to schedule jobs
-  migrateScheduleReuseConversation(database);
+  safeMigrate("migrateScheduleReuseConversation", () =>
+    migrateScheduleReuseConversation(database),
+  );
 
   // 110. Add query_context column to memory_recall_logs for inspector query display
-  migrateMemoryRecallLogsQueryContext(database);
+  safeMigrate("migrateMemoryRecallLogsQueryContext", () =>
+    migrateMemoryRecallLogsQueryContext(database),
+  );
 
-  validateMigrationState(database);
+  safeMigrate("validateMigrationState", () => validateMigrationState(database));
+
+  if (failures.length > 0) {
+    log.error(
+      { failedMigrations: failures, count: failures.length },
+      `DB initialization completed with ${failures.length} failed migration(s)`,
+    );
+  }
 
   if (process.env.BUN_TEST === "1") {
     saveTemplate();
