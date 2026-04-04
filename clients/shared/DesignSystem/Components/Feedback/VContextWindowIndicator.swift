@@ -94,7 +94,7 @@ public struct VContextWindowIndicator: View {
                 .foregroundStyle(VColor.contentSecondary)
 
             Text("\(percentText) full")
-                .font(VFont.bodyMediumDefault)
+                .font(VFont.bodyMediumEmphasised)
                 .foregroundStyle(ringColor)
 
             if let used = tokensUsed, let max = tokensMax {

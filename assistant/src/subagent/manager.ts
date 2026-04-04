@@ -39,13 +39,19 @@ const log = getLogger("subagent-manager");
  * Merge role-defined skill IDs with caller-provided skill IDs, deduplicating.
  * Exported for direct unit testing.
  */
-export function mergeSkillIds(roleSkillIds: string[], configSkillIds?: string[]): string[] {
+export function mergeSkillIds(
+  roleSkillIds: string[],
+  configSkillIds?: string[],
+): string[] {
   return [...new Set([...roleSkillIds, ...(configSkillIds ?? [])])];
 }
 
 // ── Default subagent system prompt ──────────────────────────────────────
 
-function buildSubagentSystemPrompt(config: SubagentConfig, role: SubagentRole): string {
+function buildSubagentSystemPrompt(
+  config: SubagentConfig,
+  role: SubagentRole,
+): string {
   const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
   const sections: string[] = [
     roleConfig.systemPromptPreamble,
@@ -143,7 +149,9 @@ export class SubagentManager {
     // ── Resolve role ─────────────────────────────────────────────────
     const role: SubagentRole = (config.role as SubagentRole) ?? "general";
     if (!SUBAGENT_ROLE_REGISTRY[role]) {
-      throw new Error(`Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`);
+      throw new Error(
+        `Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`,
+      );
     }
     const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
 
@@ -151,6 +159,7 @@ export class SubagentManager {
     const subagentId = uuid();
     const conversationRecord = bootstrapConversation({
       conversationType: "background",
+      source: "subagent",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
     });
@@ -226,6 +235,7 @@ export class SubagentManager {
     // Mark conversation as having no direct client — it routes through parent.
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
+    conversation.setIsSubagent(true);
 
     // Apply role-based tool filter if the role defines one.
     if (roleConfig.allowedTools) {
@@ -233,7 +243,10 @@ export class SubagentManager {
     }
 
     // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
-    const mergedSkillIds = mergeSkillIds(roleConfig.skillIds, config.preactivatedSkillIds);
+    const mergedSkillIds = mergeSkillIds(
+      roleConfig.skillIds,
+      config.preactivatedSkillIds,
+    );
     if (mergedSkillIds.length > 0) {
       conversation.setPreactivatedSkillIds(mergedSkillIds);
     }

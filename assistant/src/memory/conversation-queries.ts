@@ -50,13 +50,17 @@ export function listConversations(
   ensureGroupMigration();
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} = 'background'`
+    ? sql`${conversations.conversationType} = 'background' AND ${conversations.source} != 'subagent'`
     : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const query = db
     .select()
     .from(conversations)
     .where(where)
-    .orderBy(desc(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`))
+    .orderBy(
+      desc(
+        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
+      ),
+    )
     .limit(limit ?? 100)
     .offset(offset);
   return query.all().map(parseConversation);
@@ -75,14 +79,18 @@ export function listPinnedConversations(): ConversationRow[] {
         sql`is_pinned = 1`,
       ),
     )
-    .orderBy(desc(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`));
+    .orderBy(
+      desc(
+        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
+      ),
+    );
   return query.all().map(parseConversation);
 }
 
 export function countConversations(backgroundOnly = false): number {
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} = 'background'`
+    ? sql`${conversations.conversationType} = 'background' AND ${conversations.source} != 'subagent'`
     : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const [{ total }] = db
     .select({ total: count() })
@@ -100,7 +108,11 @@ export function getLatestConversation(): ConversationRow | null {
     .where(
       sql`${conversations.conversationType} NOT IN ('background', 'private')`,
     )
-    .orderBy(desc(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`))
+    .orderBy(
+      desc(
+        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
+      ),
+    )
     .limit(1)
     .get();
   return row ? parseConversation(row) : null;

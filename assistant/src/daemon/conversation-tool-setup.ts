@@ -450,6 +450,8 @@ export interface SkillProjectionContext {
   readonly hasNoClient?: boolean;
   /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
   subagentAllowedTools?: Set<string>;
+  /** True when this conversation belongs to a subagent spawned by SubagentManager. */
+  readonly isSubagent?: boolean;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -463,6 +465,13 @@ const HOST_TOOL_NAMES = new Set([
 ]);
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
+
+/**
+ * Tools that should only be visible to subagent conversations. Main (parent)
+ * conversations never see these in the LLM tool definitions. Subsequent PRs
+ * will populate this set; it starts empty so there is no behavioral change.
+ */
+export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>(["file_list"]);
 
 /**
  * Determine whether a tool should be included in the LLM tool definitions
@@ -489,6 +498,9 @@ export function isToolActiveForContext(
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
     return process.platform === "darwin" && !ctx.hasNoClient;
+  }
+  if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
+    return ctx.isSubagent === true;
   }
   return true;
 }
