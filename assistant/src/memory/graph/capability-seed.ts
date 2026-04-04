@@ -307,6 +307,10 @@ function deleteCapabilityNode(sourceKey: string): void {
       .set({ fidelity: "gone", lastAccessed: Date.now() })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: existing.id,
+    });
   }
 }
 
@@ -344,6 +348,10 @@ function cleanupOldFormatCapabilityNodes(): void {
       .set({ fidelity: "gone", lastAccessed: now })
       .where(eq(memoryGraphNodes.id, node.id))
       .run();
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: node.id,
+    });
     log.info({ nodeId: node.id }, "Cleaned up old-format skill memory node");
   }
 
@@ -367,6 +375,10 @@ function cleanupOldFormatCapabilityNodes(): void {
       .set({ fidelity: "gone", lastAccessed: now })
       .where(eq(memoryGraphNodes.id, node.id))
       .run();
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: node.id,
+    });
     log.info({ nodeId: node.id }, "Cleaned up old-format CLI memory node");
   }
 }
@@ -404,6 +416,10 @@ function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
           .set({ fidelity: "gone", lastAccessed: now })
           .where(eq(memoryGraphNodes.id, row.id))
           .run();
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "graph_node",
+          targetId: row.id,
+        });
       }
     } catch {
       // Skip malformed JSON
