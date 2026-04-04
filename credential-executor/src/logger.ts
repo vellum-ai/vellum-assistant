@@ -8,16 +8,15 @@ import {
 import { join } from "node:path";
 import pino from "pino";
 import pinoPretty from "pino-pretty";
-import { logSerializers } from "./log-redact.js";
 
 export type LogFileConfig = {
   dir: string | undefined;
   retentionDays: number;
 };
 
-const LOG_FILE_PREFIX = "gateway-";
+const LOG_FILE_PREFIX = "ces-";
 const LOG_FILE_SUFFIX = ".log";
-export const LOG_FILE_PATTERN = /^gateway-(\d{4}-\d{2}-\d{2})\.log$/;
+export const LOG_FILE_PATTERN = /^ces-(\d{4}-\d{2}-\d{2})\.log$/;
 
 function formatDate(date: Date): string {
   const y = date.getUTCFullYear();
@@ -61,8 +60,8 @@ let activeConfig: LogFileConfig | null = null;
 function buildLogger(config: LogFileConfig | null): pino.Logger {
   if (!config?.dir) {
     return pino(
-      { name: "gateway", serializers: logSerializers },
-      pinoPretty({ destination: 1 }),
+      { name: "ces" },
+      pinoPretty({ destination: 2 }),
     );
   }
 
@@ -89,10 +88,10 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
   activeConfig = config;
 
   return pino(
-    { name: "gateway", serializers: logSerializers },
+    { name: "ces" },
     pino.multistream([
       { stream: fileStream, level: "info" as const },
-      { stream: pinoPretty({ destination: 1 }), level: "info" as const },
+      { stream: pinoPretty({ destination: 2 }), level: "info" as const },
     ]),
   );
 }

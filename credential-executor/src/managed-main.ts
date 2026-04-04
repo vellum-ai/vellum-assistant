@@ -33,11 +33,13 @@ import {
   createRevokeGrantHandler,
 } from "./grants/rpc-handlers.js";
 import { TemporaryGrantStore } from "./grants/temporary-store.js";
+import { initLogger, getLogger } from "./logger.js";
 import {
   getBootstrapSocketPath,
   getCesAuditDir,
   getCesDataRoot,
   getCesGrantsDir,
+  getCesLogDir,
   getCesToolStoreDir,
   getHealthPort,
 } from "./paths.js";
@@ -60,16 +62,16 @@ import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { handleCredentialRoute, type CredentialRouteDeps } from "./http/credential-routes.js";
+import { handleLogExportRoute } from "./http/log-export-routes.js";
 
 // ---------------------------------------------------------------------------
-// Logging (managed always logs to stderr)
+// Logging
 // ---------------------------------------------------------------------------
 
-const log = (msg: string) =>
-  process.stderr.write(`[ces-managed] ${msg}\n`);
-
-const warn = (msg: string) =>
-  process.stderr.write(`[ces-managed] WARN: ${msg}\n`);
+// Module-level logger used before initLogger() runs (early bootstrap) and
+// after it runs (structured file + stderr). Before initLogger() the fallback
+// inside getLogger() writes to stderr only, so early messages still appear.
+const log = getLogger("main");
 
 // ---------------------------------------------------------------------------
 // Data directory bootstrap
@@ -122,7 +124,7 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
     });
 
   if (!platformBaseUrl) {
-    warn(
+    log.warn(
       "VELLUM_PLATFORM_URL not set. " +
         "Managed credential materialisation will depend on the handshake-provided values.",
     );
@@ -388,6 +390,10 @@ function startHealthServer(
         if (credentialResponse) return credentialResponse;
       }
 
+      // Log export route
+      const logExportResponse = await handleLogExportRoute(req, getCesLogDir("managed"));
+      if (logExportResponse) return logExportResponse;
+
       return new Response("Not Found", { status: 404 });
     },
   });
@@ -450,20 +456,20 @@ function acceptOneConnection(
     });
 
     netServer.listen(socketPath, () => {
-      log(`Bootstrap socket listening at ${socketPath}`);
+      log.info(`Bootstrap socket listening at ${socketPath}`);
     });
 
     netServer.on("connection", (socket: Socket) => {
       // Accept exactly one connection, then close the listener and
       // unlink the socket path so no other process can connect.
-      log("Assistant connected via bootstrap socket");
+      log.info("Assistant connected via bootstrap socket");
       netServer.close();
       try {
         unlinkSync(socketPath);
       } catch {
         // Already unlinked
       }
-      log("Bootstrap socket unlinked (single-connection enforced)");
+      log.info("Bootstrap socket unlinked (single-connection enforced)");
 
       const readable = new Readable({
         read() {
@@ -506,13 +512,15 @@ function acceptOneConnection(
 async function main(): Promise<void> {
   ensureDataDirs();
 
-  log(`Starting CES v${CES_PROTOCOL_VERSION} (managed mode)`);
+  initLogger({ dir: getCesLogDir("managed"), retentionDays: 30 });
+
+  log.info(`Starting CES v${CES_PROTOCOL_VERSION} (managed mode)`);
 
   const controller = new AbortController();
 
   // Graceful shutdown
   const shutdown = () => {
-    log("Shutting down...");
+    log.info("Shutting down...");
     controller.abort();
   };
   process.on("SIGTERM", shutdown);
@@ -534,9 +542,9 @@ async function main(): Promise<void> {
 
   if (serviceToken) {
     credentialDeps = { backend: secureKeyBackend, serviceToken };
-    log("Credential CRUD routes enabled (CES_SERVICE_TOKEN configured)");
+    log.info("Credential CRUD routes enabled (CES_SERVICE_TOKEN configured)");
   } else {
-    warn(
+    log.warn(
       "CES_SERVICE_TOKEN not set — credential CRUD HTTP routes are disabled. " +
         "Set CES_SERVICE_TOKEN to enable credential management over HTTP.",
     );
@@ -545,18 +553,18 @@ async function main(): Promise<void> {
   // Start health server on dedicated port
   const healthPort = getHealthPort();
   const healthServer = startHealthServer(healthPort, controller.signal, credentialDeps);
-  log(`Health server listening on port ${healthPort}`);
+  log.info(`Health server listening on port ${healthPort}`);
 
   // Wait for exactly one assistant connection on the bootstrap socket
   const socketPath = getBootstrapSocketPath();
-  log(`Waiting for assistant connection on ${socketPath}...`);
+  log.info(`Waiting for assistant connection on ${socketPath}...`);
 
   let connection: Awaited<ReturnType<typeof acceptOneConnection>>;
   try {
     connection = await acceptOneConnection(socketPath, controller.signal);
   } catch (err) {
     if (controller.signal.aborted) {
-      log("Shutdown before assistant connected.");
+      log.info("Shutdown before assistant connected.");
       return;
     }
     throw err;
@@ -572,36 +580,34 @@ async function main(): Promise<void> {
   const assistantIdRef: AssistantIdRef = { current: process.env["PLATFORM_ASSISTANT_ID"] ?? "" };
   const handlers = buildHandlers(sessionIdRef, apiKeyRef, assistantIdRef, secureKeyBackend);
 
+  const rpcLog = getLogger("rpc");
   const server = new CesRpcServer({
     input: connection.readable,
     output: connection.writable,
     handlers,
     logger: {
-      log: (msg: string, ...args: unknown[]) =>
-        process.stderr.write(`[ces-managed] ${msg} ${args.map(String).join(" ")}\n`),
-      warn: (msg: string, ...args: unknown[]) =>
-        process.stderr.write(`[ces-managed] WARN: ${msg} ${args.map(String).join(" ")}\n`),
-      error: (msg: string, ...args: unknown[]) =>
-        process.stderr.write(`[ces-managed] ERROR: ${msg} ${args.map(String).join(" ")}\n`),
+      log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
+      warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
+      error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
     },
     signal: controller.signal,
     onHandshakeComplete: (hsSessionId, hsApiKey, hsAssistantId) => {
       sessionIdRef.current = hsSessionId;
       if (hsApiKey) {
         apiKeyRef.current = hsApiKey;
-        log(`Received assistant API key via handshake`);
+        log.info("Received assistant API key via handshake");
       }
       if (hsAssistantId) {
         assistantIdRef.current = hsAssistantId;
-        log(`Received assistant ID via handshake`);
+        log.info("Received assistant ID via handshake");
       }
     },
     onApiKeyUpdate: (newKey, newAssistantId) => {
       apiKeyRef.current = newKey;
-      log(`Assistant API key updated via RPC`);
+      log.info("Assistant API key updated via RPC");
       if (newAssistantId) {
         assistantIdRef.current = newAssistantId;
-        log(`Assistant ID updated via RPC`);
+        log.info("Assistant ID updated via RPC");
       }
     },
   });
@@ -609,11 +615,15 @@ async function main(): Promise<void> {
   await server.serve();
 
   rpcConnected = false;
-  log("RPC session ended. Shutting down...");
+  log.info("RPC session ended. Shutting down...");
   controller.abort();
 }
 
 main().catch((err) => {
-  process.stderr.write(`[ces-managed] Fatal: ${err}\n`);
+  try {
+    getLogger("main").fatal({ err }, "Fatal error");
+  } catch {
+    process.stderr.write(`[ces-managed] Fatal: ${err}\n`);
+  }
   process.exit(1);
 });
