@@ -157,6 +157,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: true,
       supportsDynamicUi: true,
       supportsVoiceInput: true,
+      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -172,6 +173,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -191,6 +193,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -206,6 +209,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
       chatType: "group",
     };
 
@@ -222,6 +226,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
       chatType: "supergroup",
     };
 
@@ -236,6 +241,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
       chatType: "private",
     };
 
@@ -251,6 +257,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -264,6 +271,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
       chatType: "channel",
     };
 
@@ -279,6 +287,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: true,
       supportsDynamicUi: true,
       supportsVoiceInput: true,
+      clientIsMacOS: false,
       chatType: "channel",
     };
 
@@ -295,6 +304,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -310,6 +320,7 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -424,6 +435,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
     };
 
     const result = applyRuntimeInjections(baseMessages, {
@@ -460,6 +472,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
     };
 
     const result = applyRuntimeInjections(baseMessages, {
@@ -585,8 +598,7 @@ describe("applyRuntimeInjections — injection mode", () => {
   ];
 
   const fullOptions = {
-    workspaceTopLevelContext:
-      "<workspace>\nRoot: /sandbox\n</workspace>",
+    workspaceTopLevelContext: "<workspace>\nRoot: /sandbox\n</workspace>",
     channelCommandContext: { type: "start" } as const,
     activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
     channelCapabilities: {
@@ -594,6 +606,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
+      clientIsMacOS: false,
     } as ChannelCapabilities,
     unifiedTurnContext:
       "<turn_context>\ntimestamp: 2026-03-04 (Tue) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
@@ -1361,9 +1374,9 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
       .text;
     expect(injected).toBe(sampleBlock);
     // Original content preserved
-    expect(
-      (result[0].content[1] as { type: "text"; text: string }).text,
-    ).toBe("Hello there");
+    expect((result[0].content[1] as { type: "text"; text: string }).text).toBe(
+      "Hello there",
+    );
   });
 
   test("does not inject when unifiedTurnContext is null", () => {
@@ -1409,7 +1422,6 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 
     expect(allText).toContain("<turn_context>");
   });
-
 });
 
 // ---------------------------------------------------------------------------

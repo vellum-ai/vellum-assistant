@@ -29,6 +29,8 @@ export interface ChannelCapabilities {
   supportsDynamicUi: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
+  /** Whether the connected client is running on macOS (or iOS). */
+  clientIsMacOS: boolean;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel", "im", "mpim"). */
   chatType?: string;
 }
@@ -198,6 +200,8 @@ export function resolveChannelCapabilities(
 
   const resolvedChatType = chatType ?? undefined;
 
+  const clientIsMacOS = iface === "macos" || iface === "ios";
+
   switch (channel) {
     case "vellum": {
       const supportsDesktopUi = iface === "macos";
@@ -206,6 +210,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi || iface === "vellum",
         supportsVoiceInput: supportsDesktopUi,
+        clientIsMacOS,
         chatType: resolvedChatType,
       };
     }
@@ -219,6 +224,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsVoiceInput: false,
+        clientIsMacOS: false,
         chatType: resolvedChatType,
       };
     default:
@@ -227,6 +233,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsVoiceInput: false,
+        clientIsMacOS: false,
         chatType: resolvedChatType,
       };
   }
@@ -534,12 +541,13 @@ export function injectChannelCapabilityContext(
   message: Message,
   caps: ChannelCapabilities,
 ): Message {
-  // Happy path: desktop with full capabilities — skip injection entirely.
+  // Happy path: desktop with full capabilities and no special context — skip injection.
   if (
     caps.dashboardCapable &&
     caps.supportsDynamicUi &&
     caps.supportsVoiceInput &&
-    !isGroupChatType(caps.chatType)
+    !isGroupChatType(caps.chatType) &&
+    !caps.clientIsMacOS
   ) {
     return message;
   }
@@ -549,6 +557,14 @@ export function injectChannelCapabilityContext(
   lines.push(`dashboard_capable: ${caps.dashboardCapable}`);
   lines.push(`supports_dynamic_ui: ${caps.supportsDynamicUi}`);
   lines.push(`supports_voice_input: ${caps.supportsVoiceInput}`);
+  lines.push(`client_is_macos: ${caps.clientIsMacOS}`);
+
+  if (caps.clientIsMacOS) {
+    lines.push("");
+    lines.push(
+      "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
+    );
+  }
 
   if (!caps.dashboardCapable) {
     lines.push("");
@@ -958,9 +974,7 @@ export function stripInjectionsForCompaction(messages: Message[]): Message[] {
  * Extract the most recently injected NOW.md content from the message history.
  * Returns null if no NOW.md injection is found.
  */
-export function findLastInjectedNowContent(
-  messages: Message[],
-): string | null {
+export function findLastInjectedNowContent(messages: Message[]): string | null {
   const prefix = "<NOW.md Always keep this up to date>\n";
   const suffix = "\n</NOW.md>";
   for (let i = messages.length - 1; i >= 0; i--) {
