@@ -229,34 +229,28 @@ struct ChatBubble: View, Equatable {
         }
     }
 
-    private var bubbleBorderOverlay: some View {
-        // Always produce a non-Optional view type. Using @ViewBuilder with
-        // a bare `if` (no else) wraps the result in Optional<StrokeBorderShapeView>.
-        // Combined with the simplified textBubble return type (no _ConditionalContent),
-        // the Optional variant triggers a SwiftUI attribute graph bug during lazy
-        // list layout: the .none payload's undefined bytes get misinterpreted as
-        // ARC references, causing swift_retain on read-only metadata (SIGBUS).
-        RoundedRectangle(cornerRadius: VRadius.lg)
-            .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
-            .opacity((message.isError || (isUser && message.status == .sendFailed)) ? 1 : 0)
-    }
-
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
+        // Flattened modifier chain: single padding (was two), no inner frame
+        // (redundant with the outer), and background + border combined into
+        // one modifier so the border overlay lives in the background layer
+        // outside the content measurement path.
         return content()
-            .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
-            .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
-            // Inner frame: let content determine natural width (shrink-wrap for
-            // user bubbles). Error messages expand to fill available width.
-            .frame(maxWidth: message.isError ? .infinity : nil)
-            .background(
+            .padding(isPlainAssistant
+                ? EdgeInsets()
+                : EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
+                             bottom: VSpacing.md, trailing: VSpacing.lg))
+            .background {
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
-            )
-            .overlay {
-                bubbleBorderOverlay
+                // Border rendered in the background layer — always present
+                // but 0 opacity when not an error/failed message. Avoids
+                // an Optional return type which can trigger a SwiftUI AG
+                // bug (swift_retain on read-only metadata / SIGBUS).
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
+                    .opacity((message.isError || (isUser && message.status == .sendFailed)) ? 1 : 0)
             }
-            // Outer frame: cap the maximum width and position the bubble.
             .frame(maxWidth: message.isError ? .infinity : bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
     }
 
@@ -292,11 +286,9 @@ struct ChatBubble: View, Equatable {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         #endif
-        // Outer HStack: Spacer pushes the content group to the correct side.
-        HStack(alignment: .top, spacing: 0) {
-            if isUser { Spacer(minLength: 0) }
-
-            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+        // Frame alignment replaces the former HStack + Spacer pattern,
+        // removing two layout nodes (HStack, Spacer) from the measurement chain.
+        VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                     if !isUser && cachedHasInterleavedContent {
                         interleavedContent
                     } else {
@@ -368,9 +360,7 @@ struct ChatBubble: View, Equatable {
                 // the number of CALayers the WindowServer must composite per message.
                 // Skipped during streaming to avoid re-compositing on every token delta.
                 .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
-
-            if !isUser { Spacer(minLength: 0) }
-        }
+                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
         .onAppear { recomputeInterleavedContentCache() }
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
@@ -391,11 +381,9 @@ struct ChatBubble: View, Equatable {
 
         // Avatar below the latest assistant message, left-aligned
         if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
-            HStack {
-                inlineAvatar
-                Spacer()
-            }
-            .padding(.top, VSpacing.sm)
+            inlineAvatar
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, VSpacing.sm)
         }
     }
 
