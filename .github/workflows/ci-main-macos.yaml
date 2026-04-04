@@ -272,26 +272,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Create GitHub pre-release
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          DEV_VERSION="${{ steps.version.outputs.dev_version }}"
-          VERSION_TAG="v${DEV_VERSION}"
-          DMG_PATH="clients/macos/vellum-assistant-${DEV_VERSION}.dmg"
-
-          if ! gh release view "$VERSION_TAG" --repo "${{ github.repository }}" &>/dev/null; then
-            gh release create "$VERSION_TAG" \
-              "$DMG_PATH#vellum-assistant.dmg" \
-              --repo "${{ github.repository }}" \
-              --target "${{ github.sha }}" \
-              --title "Vellum ${DEV_VERSION}" \
-              --notes "Dev build from main at ${{ github.sha }}" \
-              --prerelease
-            echo "Pre-release created: https://github.com/${{ github.repository }}/releases/tag/$VERSION_TAG"
-          else
-            echo "Release $VERSION_TAG already exists, skipping"
-          fi
 
   notify-macos:
     name: Slack Notification (macOS)
