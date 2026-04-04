@@ -1,12 +1,13 @@
 /**
- * Sandbox-only runner for inline command expansions (`!\`command\``).
+ * Runner for inline command expansions (`!\`command\``).
  *
- * Executes the literal command string in the sandbox without going through the
- * general `bash` tool's permission path. Security constraints:
+ * Executes the literal command string without going through the general `bash`
+ * tool's permission path. Security constraints:
  *
- * - Network mode forced off (no outbound connections)
  * - Sanitized environment variables only (no API keys, tokens, credentials)
  * - No credential proxy, no CES client, no host fallback
+ * - Runs in Docker/platform-managed environments (network/filesystem isolation
+ *   is provided by the container, not OS-level sandboxing)
  * - Uses the conversation working directory as `cwd` so repo-local commands
  *   remain interoperable with externally authored skills that expect project
  *   context.
@@ -22,7 +23,6 @@
 
 import { spawn } from "node:child_process";
 
-import { getConfig } from "../config/loader.js";
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import { wrapCommand } from "../tools/terminal/sandbox.js";
 import { getLogger } from "../util/logger.js";
@@ -91,7 +91,7 @@ export interface InlineCommandRunnerOptions {
 }
 
 /**
- * Run an inline command expansion in the sandbox.
+ * Run an inline command expansion.
  *
  * @param command  The literal command string from the `!\`...\`` token.
  * @param workingDir  The conversation's working directory (repo root).
@@ -105,14 +105,12 @@ export async function runInlineCommand(
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxChars = options?.maxOutputChars ?? MAX_OUTPUT_CHARS;
 
-  // Build sandbox-wrapped command. Always use the sandbox config with
-  // network forced off — inline commands never need network access.
-  const config = getConfig();
-  const sandboxConfig = { ...config.sandbox, enabled: true };
-
-  const wrapped = wrapCommand(command, workingDir, sandboxConfig, {
-    networkMode: "off",
-  });
+  // Sandbox is disabled — the assistant runs in Docker or platform-managed
+  // environments where the container provides isolation. The networkMode
+  // option is a no-op when sandbox is disabled (wrapCommand returns a plain
+  // bash invocation); network isolation is handled at the container level.
+  const sandboxConfig = { enabled: false } as const;
+  const wrapped = wrapCommand(command, workingDir, sandboxConfig);
 
   // Build a minimal, sanitized environment. Explicitly exclude gateway URL,
   // workspace dir, and data dir since inline commands have no business calling
