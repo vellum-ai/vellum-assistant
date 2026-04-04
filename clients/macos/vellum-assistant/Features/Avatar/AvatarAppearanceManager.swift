@@ -184,8 +184,6 @@ final class AvatarAppearanceManager {
                 timeout: 10
             )
             guard response.isSuccess, !response.data.isEmpty else {
-                let prevBody = self.characterBodyShape?.rawValue ?? "nil"
-                log.info("[avatarSync] fetchTraitsViaHTTP: no traits on assistant (HTTP \(response.statusCode)), clearing local traits (was: \(prevBody))")
                 if characterBodyShape != nil { characterBodyShape = nil }
                 if characterEyeStyle != nil { characterEyeStyle = nil }
                 if characterColor != nil { characterColor = nil }
@@ -200,7 +198,6 @@ final class AvatarAppearanceManager {
             characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
             characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
             characterColor = AvatarColor(rawValue: components.color)
-            log.info("[avatarSync] fetchTraitsViaHTTP: loaded traits \(components.bodyShape)/\(components.eyeStyle)/\(components.color)")
             // Character traits loaded — the PNG is just a daemon rendering
             // of the character, not a user upload. Clear it so the animated
             // path is used.
@@ -272,10 +269,6 @@ final class AvatarAppearanceManager {
     /// backward compatibility with the daemon's `avatar_updated` event
     /// payload but is not used — all data is fetched via the gateway.
     func reloadAvatar(avatarPath: String?) {
-        let currentBody = characterBodyShape?.rawValue ?? "nil"
-        let currentEyes = characterEyeStyle?.rawValue ?? "nil"
-        let currentColor = characterColor?.rawValue ?? "nil"
-        log.info("[avatarSync] reloadAvatar called (current traits: \(currentBody)/\(currentEyes)/\(currentColor))")
         identityLoadTask?.cancel()
         identityLoadTask = Task {
             let info = await IdentityInfo.loadAsync()

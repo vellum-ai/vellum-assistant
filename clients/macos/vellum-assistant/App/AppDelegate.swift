@@ -833,7 +833,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let body = onboardingState?.hatchAvatarBodyShape,
               let eyes = onboardingState?.hatchAvatarEyeStyle,
               let color = onboardingState?.hatchAvatarColor else {
-            log.info("[avatarSync] syncOnboardingAvatarIfNeeded: no onboarding traits, skipping")
             onboardingState = nil
             return
         }
