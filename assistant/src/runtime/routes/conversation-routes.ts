@@ -431,10 +431,33 @@ export function handleListMessages(
     // was queued or its persistence was delayed (long assistant generation),
     // sentAt captures the actual event time. Falls back to createdAt.
     let sentAt: number | undefined;
+    let subagentNotification:
+      | {
+          subagentId: string;
+          label: string;
+          status: string;
+          error?: string;
+          conversationId?: string;
+        }
+      | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+        if (meta.subagentNotification) {
+          const n = meta.subagentNotification;
+          if (typeof n.subagentId === "string" && typeof n.label === "string") {
+            subagentNotification = {
+              subagentId: n.subagentId,
+              label: n.label,
+              status: typeof n.status === "string" ? n.status : "completed",
+              ...(typeof n.error === "string" ? { error: n.error } : {}),
+              ...(typeof n.conversationId === "string"
+                ? { conversationId: n.conversationId }
+                : {}),
+            };
+          }
+        }
       } catch {
         // Ignore malformed metadata
       }
@@ -482,6 +505,7 @@ export function handleListMessages(
           ? { thinkingSegments: rendered.thinkingSegments }
           : {}),
         id: msg.id,
+        subagentNotification,
       };
     }
 
@@ -499,6 +523,7 @@ export function handleListMessages(
         ? { thinkingSegments: rendered.thinkingSegments }
         : {}),
       id: msg.id,
+      subagentNotification,
     };
   });
 
@@ -587,6 +612,9 @@ export function handleListMessages(
         ? { thinkingSegments: m.thinkingSegments }
         : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
+      ...(m.subagentNotification
+        ? { subagentNotification: m.subagentNotification }
+        : {}),
     };
   });
 
