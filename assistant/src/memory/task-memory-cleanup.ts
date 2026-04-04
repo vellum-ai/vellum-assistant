@@ -100,7 +100,7 @@ export function invalidateAssistantInferredItemsForConversation(
 
 /**
  * Cancel all pending/running memory jobs referencing the given conversation.
- * Covers every job type: `extract_items`, `embed_attachment` (keyed by messageId),
+ * Covers every job type: `graph_extract`, `embed_attachment` (keyed by messageId),
  * `embed_segment` (keyed by segmentId via memory_segments),
  * `build_conversation_summary` (keyed by conversationId),
  * and `embed_graph_node` (keyed by nodeId sourced from the conversation).
@@ -112,7 +112,7 @@ export function cancelPendingJobsForConversation(
   const now = Date.now();
   let total = 0;
 
-  // Jobs keyed by messageId: extract_items, embed_attachment
+  // Jobs keyed by messageId: graph_extract, embed_attachment
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
@@ -183,8 +183,8 @@ export function cancelPendingJobsForConversation(
 }
 
 /**
- * Cancel only pending/running `extract_items` jobs for messages in the
- * given conversation. Used by the task-failure path where we want to
+ * Cancel only pending/running `graph_extract` jobs for the given
+ * conversation. Used by the task-failure path where we want to
  * stop new extractions but must NOT cancel `embed_graph_node` jobs —
  * those nodes may be multi-sourced and still valid.
  */
@@ -198,10 +198,8 @@ function cancelPendingExtractionJobsForConversation(
             last_error = 'conversation_failed',
             updated_at = ?
       WHERE status IN ('pending', 'running')
-        AND type = 'extract_items'
-        AND json_extract(payload, '$.messageId') IN (
-          SELECT id FROM messages WHERE conversation_id = ?
-        )`,
+        AND type = 'graph_extract'
+        AND json_extract(payload, '$.conversationId') = ?`,
     now,
     conversationId,
   );
