@@ -133,8 +133,7 @@ public struct GuardianDecisionBubble: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                 }
-                // Definite height prevents LazyVStack content measurement cascade.
-                .frame(height: 120)
+                .frame(maxHeight: 120)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(

@@ -129,8 +129,7 @@ public struct InlineChatErrorAlert: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
-                        // Definite height prevents LazyVStack content measurement cascade.
-                        .frame(height: 160)
+                        .frame(maxHeight: 160)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.bottom, VSpacing.sm)
                     }

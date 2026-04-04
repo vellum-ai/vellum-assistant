@@ -45,13 +45,8 @@ public struct VDiffView: View {
     public var body: some View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         if let maxHeight {
-            // Use definite height only for tall diffs that would actually hit the cap —
-            // this prevents LazyVStack content measurement cascades for large diffs.
-            // Short diffs use fixedSize so they collapse to content height without blank gaps.
-            let isTall = lines.count > 30
             diffScrollView(lines: lines, axes: [.horizontal, .vertical])
-                .frame(height: isTall ? maxHeight : nil)
-                .fixedSize(horizontal: false, vertical: !isTall)
+                .frame(maxHeight: maxHeight)
         } else {
             diffScrollView(lines: lines, axes: .horizontal)
                 .fixedSize(horizontal: false, vertical: true)
