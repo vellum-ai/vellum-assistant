@@ -768,6 +768,7 @@ export async function loadContextMemory(
       sparseVectorUsed: false,
       embeddingProvider,
       embeddingModel,
+      queryContext: null,
       topCandidates,
     },
   };
@@ -830,6 +831,7 @@ export async function retrieveForTurn(
     sparseVectorUsed: false,
     embeddingProvider: null,
     embeddingModel: null,
+    queryContext: null,
     topCandidates: [],
   };
 
@@ -1187,6 +1189,7 @@ export async function retrieveForTurn(
       sparseVectorUsed: false,
       embeddingProvider,
       embeddingModel,
+      queryContext: null,
       topCandidates,
     },
   };

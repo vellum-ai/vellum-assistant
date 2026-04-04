@@ -267,6 +267,7 @@ export interface RetrievalMetrics {
   sparseVectorUsed: boolean;
   embeddingProvider: string | null;
   embeddingModel: string | null;
+  queryContext: string | null;
   topCandidates: Array<{
     nodeId: string;
     type: string;
