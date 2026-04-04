@@ -260,7 +260,7 @@ public struct ToolCallProgressBar: View {
                         }
                     } else {
                         let lineCount = cachedResultLineCount ?? VCodeView.countLines(in: result)
-                        if lineCount > 500 {
+                        if lineCount > 500 || result.count > 50_000 {
                             ScrollView {
                                 Text(result)
                                     .font(VFont.bodySmallDefault)
@@ -270,14 +270,12 @@ public struct ToolCallProgressBar: View {
                             }
                             .vAdaptiveScrollFrame(isLong: true, maxHeight: 200)
                         } else {
-                            ScrollView {
-                                Text(result)
-                                    .font(VFont.bodySmallDefault)
-                                    .foregroundStyle(VColor.contentSecondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
-                            }
-                            .vAdaptiveScrollFrame(isLong: false, maxHeight: 200)
+                            Text(result)
+                                .font(VFont.bodySmallDefault)
+                                .foregroundStyle(VColor.contentSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }

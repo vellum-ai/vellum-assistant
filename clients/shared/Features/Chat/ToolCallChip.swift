@@ -219,9 +219,10 @@ public struct ToolCallChip: View {
                                 }
                             } else {
                                 let lineCount = cachedResultLineCount ?? VCodeView.countLines(in: result)
+                                let isLong = lineCount > 500 || result.count > 50_000
                                 if Self.isFileEditTool(toolCall.toolName) {
-                                    VDiffView(result, maxHeight: lineCount > 500 ? 400 : nil)
-                                } else if lineCount > 500 {
+                                    VDiffView(result, maxHeight: isLong ? 400 : nil)
+                                } else if isLong {
                                     ScrollView {
                                         Text(result)
                                             .font(VFont.bodySmallDefault)
@@ -231,14 +232,12 @@ public struct ToolCallChip: View {
                                     }
                                     .vAdaptiveScrollFrame(isLong: true, maxHeight: 400)
                                 } else {
-                                    ScrollView {
-                                        Text(result)
-                                            .font(VFont.bodySmallDefault)
-                                            .foregroundStyle(VColor.contentSecondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .textSelection(.enabled)
-                                    }
-                                    .vAdaptiveScrollFrame(isLong: false, maxHeight: 400)
+                                    Text(result)
+                                        .font(VFont.bodySmallDefault)
+                                        .foregroundStyle(VColor.contentSecondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
                         }
