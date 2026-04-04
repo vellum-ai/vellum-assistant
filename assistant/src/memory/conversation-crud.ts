@@ -725,10 +725,7 @@ export function deleteConversation(id: string): DeletedMemoryIds {
  *
  * Extends `deleteConversation` with:
  * - Cancelling pending memory jobs before deletion
- * - Restoring memory items that were explicitly superseded by items from this conversation
- * - Restoring orphaned subject-match superseded items after deletion
  * - Deleting conversation-scoped memory summaries and their embeddings
- * - Enqueuing `embed_item` jobs for all restored items
  */
 export function wipeConversation(id: string): WipeConversationResult {
   const db = getDb();
