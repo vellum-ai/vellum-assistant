@@ -315,6 +315,7 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private func codePreviewBlock(_ content: String, maxHeight: CGFloat) -> some View {
+        let lineCount = content.components(separatedBy: .newlines).count
         ScrollView {
             Text(content)
                 .font(VFont.bodySmallDefault)
@@ -322,10 +323,12 @@ public struct ToolConfirmationBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
-        // Use definite height (not maxHeight) so LazyVStack can skip content
-        // measurement during cell sizing — open-ended maxHeight forces SwiftUI
-        // to measure the scroll content even when the section is collapsed.
-        .frame(height: maxHeight)
+        // Definite height only for large content (>500 lines) so LazyVStack can
+        // skip scroll content measurement during cell sizing. Short previews use
+        // maxHeight so they collapse to content height rather than showing blank
+        // space. Matches the guard pattern in ToolCallChip / ToolCallProgressBar.
+        .frame(height: lineCount > 500 ? maxHeight : nil, alignment: .top)
+        .frame(maxHeight: lineCount > 500 ? nil : maxHeight)
         .padding(VSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
