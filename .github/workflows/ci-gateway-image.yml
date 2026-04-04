@@ -28,15 +28,10 @@ jobs:
 
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork }}
-        uses: nick-fields/retry@v3
         env:
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-        with:
-          timeout_minutes: 2
-          max_attempts: 3
-          retry_wait_seconds: 10
-          command: echo "$DOCKERHUB_ACCESS_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        run: ./scripts/docker-login-with-retry.sh
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
