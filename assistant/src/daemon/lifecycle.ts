@@ -287,8 +287,6 @@ export async function runDaemon(): Promise<void> {
     let dbReady = false;
     try {
       initializeDb();
-      // Seed well-known OAuth provider configurations (insert-if-not-exists)
-      seedOAuthProviders();
       dbReady = true;
       log.info("Daemon startup: DB initialized");
     } catch (err) {
@@ -296,6 +294,17 @@ export async function runDaemon(): Promise<void> {
         { err },
         "DB initialization failed — continuing startup in degraded mode",
       );
+    }
+
+    // Seed well-known OAuth provider configurations (insert-if-not-exists).
+    // Runs in its own try/catch so a seeding error doesn't force degraded mode
+    // when the DB itself initialized successfully.
+    if (dbReady) {
+      try {
+        seedOAuthProviders();
+      } catch (err) {
+        log.warn({ err }, "OAuth provider seeding failed — continuing startup");
+      }
     }
 
     if (dbReady) {
