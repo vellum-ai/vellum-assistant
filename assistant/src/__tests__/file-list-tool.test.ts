@@ -151,8 +151,8 @@ describe("FileListTool", () => {
     // Directory first with trailing /
     expect(lines[0]).toBe("src/");
     // Files after, with size info
-    expect(lines[1]).toMatch(/^README\.md\s+\d+\s*B$/);
-    expect(lines[2]).toMatch(/^index\.ts\s+\d+\s*B$/);
+    expect(lines[1]).toMatch(/^index\.ts\s+\d+\s*B$/);
+    expect(lines[2]).toMatch(/^README\.md\s+\d+\s*B$/);
   });
 
   test("execute() returns error for invalid path input", async () => {
