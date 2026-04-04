@@ -130,6 +130,29 @@ struct MessageListContentView: View, Equatable {
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
+    @ViewBuilder
+    private var thinkingAvatarRow: some View {
+        let appearance = AvatarAppearanceManager.shared
+        let avatarSize = ConversationAvatarFollower.avatarSize
+        HStack {
+            if appearance.customAvatarImage != nil {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+            } else if let body = appearance.characterBodyShape,
+                      let eyes = appearance.characterEyeStyle,
+                      let color = appearance.characterColor {
+                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
+                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
+                                   isStreaming: true)
+                    .frame(width: avatarSize, height: avatarSize)
+            } else {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+            }
+            Spacer()
+        }
+        .padding(.top, VSpacing.sm)
+        .accessibilityHidden(true)
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -214,6 +237,7 @@ struct MessageListContentView: View, Equatable {
                 } else {
                     thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
                 }
+                thinkingAvatarRow
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                 compactingIndicatorRow()
             }
