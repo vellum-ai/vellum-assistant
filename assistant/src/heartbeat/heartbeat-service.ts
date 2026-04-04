@@ -21,7 +21,7 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 - If something has happened since your last journal entry, write one. Even a few sentences. The journal is how future-you stays connected.`;
 
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
-const HEARTBEAT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 /** @internal Exported for testing. */
 export function isShallowProfile(): boolean {
