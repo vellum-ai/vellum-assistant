@@ -19,6 +19,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
+import { resolveLocalTrustContext } from "../local-actor-identity.js";
 
 const log = getLogger("conversation-analysis-routes");
 
@@ -121,12 +122,14 @@ If you identify insights worth remembering for future conversations, use your me
           newConv.id,
           "user",
           JSON.stringify([{ type: "text", text: prompt }]),
+          { provenanceTrustClass: "guardian" as const },
         );
         const messageId = message.id;
 
-        // i. Load the conversation into memory
+        // i. Load the conversation into memory and set guardian trust context
         const analysisConversation =
           await deps.sendMessageDeps.getOrCreateConversation(newConv.id);
+        analysisConversation.setTrustContext(resolveLocalTrustContext("vellum"));
 
         // j. Build onEvent using inline hub publisher
         const onEvent = (msg: ServerMessage) => {
