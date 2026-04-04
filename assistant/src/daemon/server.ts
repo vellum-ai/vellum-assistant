@@ -23,11 +23,7 @@ import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import {
-  getApp,
-  getAppDirPath,
-  isMultifileApp,
-} from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -61,6 +57,7 @@ import { registerConversationUndoCallback } from "../signals/conversation-undo.j
 import { appendEventToStream } from "../signals/event-stream.js";
 import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { browserManager } from "../tools/browser/browser-manager.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -210,13 +207,10 @@ function makePendingInteractionRegistrar(
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           commandPreview:
-            redactSecrets(
-              summarizeToolInput(msg.toolName, inputRecord),
-            ) || undefined,
+            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+            undefined,
           riskLevel: msg.riskLevel,
-          activityText: activityRaw
-            ? redactSecrets(activityRaw)
-            : undefined,
+          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
           executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
@@ -580,6 +574,16 @@ export class DaemonServer {
 
     this.evictor.start();
 
+    // Wire browser session orphan sweep: the manager can check whether a
+    // conversation or subagent is still alive so it can close leaked sessions.
+    browserManager.isConversationAlive = (conversationId: string) => {
+      if (this.conversations.has(conversationId)) return true;
+      // Check if the conversation belongs to a subagent
+      const subagentInfo = getSubagentManager().getParentInfo(conversationId);
+      return subagentInfo !== undefined;
+    };
+    browserManager.startSweep();
+
     registerDaemonCallbacks({
       getOrCreateConversation: (conversationId) =>
         this.getOrCreateConversation(conversationId),
@@ -722,9 +726,7 @@ export class DaemonServer {
       () => this.broadcastIdentityChanged(),
     );
 
-    this.appSourceWatcher.start((appId) =>
-      this.handleAppSourceChange(appId),
-    );
+    this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
@@ -735,6 +737,7 @@ export class DaemonServer {
   }
 
   async stop(): Promise<void> {
+    browserManager.stopSweep();
     getSubagentManager().disposeAll();
     disposeAcpSessionManager();
     this.evictor.stop();

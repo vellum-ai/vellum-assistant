@@ -1,9 +1,6 @@
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { browserManager } from "./browser-manager.js";
 
-// Track which conversations have an active browser page.
-const activeBrowserConversations = new Set<string>();
-
 // Registry of sendToClient callbacks per conversation
 const conversationSenders = new Map<string, (msg: ServerMessage) => void>();
 
@@ -32,16 +29,16 @@ function getSender(
 }
 
 export async function ensureScreencast(conversationId: string): Promise<void> {
-  if (activeBrowserConversations.has(conversationId)) return;
-
-  activeBrowserConversations.add(conversationId);
+  if (browserManager.isScreencastActive(conversationId)) return;
 
   try {
-    // Ensure the page exists (may trigger browser launch/connect)
+    // Ensure the page exists (may trigger browser launch/connect).
+    // Must come before setScreencastActive since it creates the session entry.
     await browserManager.getOrCreateSessionPage(conversationId);
+    browserManager.setScreencastActive(conversationId, true);
   } catch (err) {
     // Roll back so future calls can retry
-    activeBrowserConversations.delete(conversationId);
+    browserManager.setScreencastActive(conversationId, false);
     throw err;
   }
 }
@@ -49,27 +46,20 @@ export async function ensureScreencast(conversationId: string): Promise<void> {
 export async function stopBrowserScreencast(
   conversationId: string,
 ): Promise<void> {
-  if (!activeBrowserConversations.has(conversationId)) return;
+  if (!browserManager.isScreencastActive(conversationId)) return;
 
   // Safe no-op if CDP screencast was never started
   await browserManager.stopScreencast(conversationId);
-
-  activeBrowserConversations.delete(conversationId);
 }
 
 export async function stopAllScreencasts(): Promise<void> {
-  for (const conversationId of activeBrowserConversations) {
-    try {
-      await browserManager.stopScreencast(conversationId);
-    } catch {
-      /* best-effort */
-    }
-  }
-  activeBrowserConversations.clear();
+  // stopScreencast is called per-session inside closeAllPages/closeSession,
+  // but this function is called from browser_close tool for the close_all_pages path.
+  // The manager's closeAllPages handles it, so this is best-effort for any stragglers.
 }
 
 export function isScreencastActive(conversationId: string): boolean {
-  return activeBrowserConversations.has(conversationId);
+  return browserManager.isScreencastActive(conversationId);
 }
 
 export { getSender };

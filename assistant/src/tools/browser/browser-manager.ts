@@ -196,23 +196,40 @@ function getProfileDir(): string {
   return join(getDataDir(), "browser-profile");
 }
 
+/** Consolidated per-conversation browser state. */
+export interface BrowserSessionEntry {
+  page: Page;
+  rawPage: unknown;
+  cdpSession: CDPSession | null;
+  snapshotMap: Map<string, string> | null;
+  downloads: DownloadInfo[];
+  pendingDownloads: {
+    resolve: (info: DownloadInfo) => void;
+    reject: (err: Error) => void;
+  }[];
+  screencastActive: boolean;
+  lastTouchedAt: number;
+}
+
+/** Default TTL for orphaned browser sessions (10 minutes). */
+const SESSION_ORPHAN_TTL_MS = 10 * 60 * 1000;
+/** Interval for the orphan sweep timer (2 minutes). */
+const SESSION_SWEEP_INTERVAL_MS = 2 * 60 * 1000;
+
 class BrowserManager {
   private context: BrowserContext | null = null;
   private contextCreating: Promise<BrowserContext> | null = null;
   private contextCloseHandler: ((...args: unknown[]) => void) | null = null;
-  private pages = new Map<string, Page>();
-  private rawPages = new Map<string, unknown>();
-  private cdpSessions = new Map<string, CDPSession>();
-  private snapshotMaps = new Map<string, Map<string, string>>();
+  private sessions = new Map<string, BrowserSessionEntry>();
   private browserCdpSession: CDPSession | null = null;
   private browserWindowId: number | null = null;
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
-  private downloads = new Map<string, DownloadInfo[]>();
-  private pendingDownloads = new Map<
-    string,
-    { resolve: (info: DownloadInfo) => void; reject: (err: Error) => void }[]
-  >();
+
+  /** Callback used by the sweep to determine if a conversation is still alive. */
+  isConversationAlive?: (conversationId: string) => boolean;
+
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Whether page.route() is supported. Always true for launched browsers. */
   get supportsRouteInterception(): boolean {
@@ -354,17 +371,17 @@ class BrowserManager {
           }
           this.handoffResolvers.clear();
           this.interactiveModeSessions.clear();
-          this.pages.clear();
-          this.rawPages.clear();
-          this.cdpSessions.clear();
-
-          this.snapshotMaps.clear();
-          this.downloads.clear();
-          for (const pending of this.pendingDownloads.values()) {
-            for (const waiter of pending)
-              waiter.reject(new Error("Browser closed"));
+          // Close all sessions — reject pending download waiters
+          for (const [, session] of this.sessions) {
+            for (const waiter of session.pendingDownloads) {
+              try {
+                waiter.reject(new Error("Browser closed"));
+              } catch {
+                /* best-effort */
+              }
+            }
           }
-          this.pendingDownloads.clear();
+          this.sessions.clear();
         };
         rawCtx.on("close", this.contextCloseHandler);
       }
@@ -378,18 +395,29 @@ class BrowserManager {
   async getOrCreateSessionPage(conversationId: string): Promise<Page> {
     const context = await this.ensureContext();
 
-    const existing = this.pages.get(conversationId);
-    if (existing && !existing.isClosed()) {
-      return existing;
+    const existing = this.sessions.get(conversationId);
+    if (existing && !existing.page.isClosed()) {
+      existing.lastTouchedAt = Date.now();
+      return existing.page;
     }
 
-    // Clear stale snapshot mappings and CDP state when replacing a closed page
-    this.snapshotMaps.delete(conversationId);
-    await this.stopScreencast(conversationId);
+    // Clear stale session state when replacing a closed page
+    if (existing) {
+      await this.closeSession(conversationId, "stale page replaced");
+    }
 
     const page = await context.newPage();
-    this.pages.set(conversationId, page);
-    this.rawPages.set(conversationId, page);
+    const session: BrowserSessionEntry = {
+      page,
+      rawPage: page,
+      cdpSession: null,
+      snapshotMap: null,
+      downloads: [],
+      pendingDownloads: [],
+      screencastActive: false,
+      lastTouchedAt: Date.now(),
+    };
+    this.sessions.set(conversationId, session);
 
     // Track downloads for this page
     this.setupDownloadTracking(conversationId, page);
@@ -423,7 +451,23 @@ class BrowserManager {
   }
 
   async closeSessionPage(conversationId: string): Promise<void> {
-    await this.stopScreencast(conversationId);
+    await this.closeSession(conversationId, "page closed");
+  }
+
+  /**
+   * Idempotent cleanup of all browser state for a conversation.
+   * Safe to call from any terminal path (dispose, shutdown, context close).
+   */
+  async closeSession(conversationId: string, reason: string): Promise<void> {
+    const session = this.sessions.get(conversationId);
+
+    // Stop screencast / detach CDP even if session is missing (legacy paths)
+    try {
+      await this.stopScreencast(conversationId);
+    } catch {
+      /* best-effort */
+    }
+
     // Clean up any pending handoff for this session
     this.interactiveModeSessions.delete(conversationId);
     const handoffResolver = this.handoffResolvers.get(conversationId);
@@ -431,51 +475,44 @@ class BrowserManager {
       handoffResolver();
       this.handoffResolvers.delete(conversationId);
     }
-    const page = this.pages.get(conversationId);
-    if (page && !page.isClosed()) {
-      await page.close();
+
+    if (session) {
+      // Reject pending download waiters
+      for (const waiter of session.pendingDownloads) {
+        try {
+          waiter.reject(new Error(`Browser session closed: ${reason}`));
+        } catch {
+          /* best-effort */
+        }
+      }
+
+      // Close the page if still open
+      if (!session.page.isClosed()) {
+        try {
+          await session.page.close();
+        } catch (err) {
+          log.debug(
+            { err, conversationId },
+            "Page close failed during session cleanup",
+          );
+        }
+      }
+
+      this.sessions.delete(conversationId);
     }
-    this.pages.delete(conversationId);
-    this.rawPages.delete(conversationId);
-    this.snapshotMaps.delete(conversationId);
-    this.downloads.delete(conversationId);
-    // Reject any pending download waiters
-    const pending = this.pendingDownloads.get(conversationId);
-    if (pending) {
-      for (const waiter of pending)
-        waiter.reject(new Error("Browser page closed"));
-      this.pendingDownloads.delete(conversationId);
-    }
-    log.debug({ conversationId }, "Conversation page closed");
+
+    log.debug({ conversationId, reason }, "Browser session closed");
   }
 
   async closeAllPages(): Promise<void> {
-    // Stop all screencasts first
-    for (const conversationId of this.cdpSessions.keys()) {
+    // Close all sessions (stops screencasts, rejects download waiters, closes pages)
+    for (const conversationId of [...this.sessions.keys()]) {
       try {
-        await this.stopScreencast(conversationId);
+        await this.closeSession(conversationId, "closeAllPages");
       } catch (err) {
-        log.warn({ err, conversationId }, "Failed to stop screencast");
+        log.warn({ err, conversationId }, "Failed to close session");
       }
     }
-
-    for (const [conversationId, page] of this.pages) {
-      if (!page.isClosed()) {
-        try {
-          await page.close();
-        } catch (err) {
-          log.warn({ err, conversationId }, "Failed to close page");
-        }
-      }
-    }
-    this.pages.clear();
-    this.rawPages.clear();
-    this.snapshotMaps.clear();
-    this.downloads.clear();
-    for (const pending of this.pendingDownloads.values()) {
-      for (const waiter of pending) waiter.reject(new Error("Browser closed"));
-    }
-    this.pendingDownloads.clear();
 
     if (this.context) {
       // Remove the close listener before intentional close to avoid
@@ -511,36 +548,44 @@ class BrowserManager {
   }
 
   async stopScreencast(conversationId: string): Promise<void> {
-    const cdp = this.cdpSessions.get(conversationId);
-    if (cdp) {
+    const session = this.sessions.get(conversationId);
+    if (session?.cdpSession) {
       try {
-        await cdp.send("Page.stopScreencast");
-        await cdp.detach();
+        await session.cdpSession.send("Page.stopScreencast");
+        await session.cdpSession.detach();
       } catch (e) {
         log.debug(
           { err: e },
           "Screencast stop / CDP detach failed during cleanup",
         );
       }
-      this.cdpSessions.delete(conversationId);
+      session.cdpSession = null;
+      session.screencastActive = false;
     }
   }
 
   storeSnapshotMap(conversationId: string, map: Map<string, string>): void {
-    this.snapshotMaps.set(conversationId, map);
+    const session = this.sessions.get(conversationId);
+    if (session) {
+      session.snapshotMap = map;
+      session.lastTouchedAt = Date.now();
+    }
   }
 
   clearSnapshotMap(conversationId: string): void {
-    this.snapshotMaps.delete(conversationId);
+    const session = this.sessions.get(conversationId);
+    if (session) {
+      session.snapshotMap = null;
+    }
   }
 
   resolveSnapshotSelector(
     conversationId: string,
     elementId: string,
   ): string | null {
-    const map = this.snapshotMaps.get(conversationId);
-    if (!map) return null;
-    return map.get(elementId) ?? null;
+    const session = this.sessions.get(conversationId);
+    if (!session?.snapshotMap) return null;
+    return session.snapshotMap.get(elementId) ?? null;
   }
 
   private async ensureBrowserWindowId(): Promise<number | null> {
@@ -656,7 +701,8 @@ class BrowserManager {
     }
 
     // Capture the initial URL so we can auto-detect page changes
-    const page = this.pages.get(conversationId);
+    const session = this.sessions.get(conversationId);
+    const page = session?.page;
     const initialUrl = page && !page.isClosed() ? page.url() : null;
 
     return new Promise<void>((resolve) => {
@@ -716,15 +762,15 @@ class BrowserManager {
    * Used by NetworkRecorder to create its own CDP session.
    */
   getRawPage(conversationId: string): unknown | undefined {
-    return this.rawPages.get(conversationId);
+    return this.sessions.get(conversationId)?.rawPage;
   }
 
   /**
    * Get any available raw page (for network recording when we don't care which page).
    */
   getAnyRawPage(): unknown | undefined {
-    for (const page of this.rawPages.values()) {
-      return page;
+    for (const session of this.sessions.values()) {
+      return session.rawPage;
     }
     return undefined;
   }
@@ -782,6 +828,9 @@ class BrowserManager {
         saveAs(path: string): Promise<void>;
         failure(): Promise<string | null>;
       };
+      const session = this.sessions.get(conversationId);
+      if (!session) return; // Session already closed
+
       try {
         const filename = sanitizeDownloadFilename(dl.suggestedFilename());
         const downloadsDir = getDownloadsDir();
@@ -794,16 +843,11 @@ class BrowserManager {
         const info: DownloadInfo = { path: destPath, filename };
 
         // Resolve a pending waiter if one exists, otherwise store for later retrieval
-        const pending = this.pendingDownloads.get(conversationId);
-        if (pending && pending.length > 0) {
-          const waiter = pending.shift()!;
+        if (session.pendingDownloads.length > 0) {
+          const waiter = session.pendingDownloads.shift()!;
           waiter.resolve(info);
-          if (pending.length === 0)
-            this.pendingDownloads.delete(conversationId);
         } else {
-          const list = this.downloads.get(conversationId) ?? [];
-          list.push(info);
-          this.downloads.set(conversationId, list);
+          session.downloads.push(info);
         }
 
         log.info(
@@ -819,47 +863,47 @@ class BrowserManager {
         log.warn({ err, failure, conversationId }, "Download failed");
 
         // Reject any pending waiters
-        const pending = this.pendingDownloads.get(conversationId);
-        if (pending && pending.length > 0) {
-          const waiter = pending.shift()!;
+        if (session.pendingDownloads.length > 0) {
+          const waiter = session.pendingDownloads.shift()!;
           waiter.reject(
             new Error(`Download failed: ${failure ?? String(err)}`),
           );
-          if (pending.length === 0)
-            this.pendingDownloads.delete(conversationId);
         }
       }
     });
   }
 
   getLastDownload(conversationId: string): DownloadInfo | null {
-    const list = this.downloads.get(conversationId);
-    if (!list || list.length === 0) return null;
-    return list[list.length - 1];
+    const session = this.sessions.get(conversationId);
+    if (!session || session.downloads.length === 0) return null;
+    return session.downloads[session.downloads.length - 1];
   }
 
   waitForDownload(
     conversationId: string,
     timeoutMs: number = 30_000,
   ): Promise<DownloadInfo> {
+    const session = this.sessions.get(conversationId);
+
     // Check if an unconsumed download already completed for this session
-    const existing = this.downloads.get(conversationId);
-    if (existing && existing.length > 0) {
-      const info = existing.shift()!;
-      if (existing.length === 0) this.downloads.delete(conversationId);
+    if (session && session.downloads.length > 0) {
+      const info = session.downloads.shift()!;
       return Promise.resolve(info);
+    }
+
+    if (!session) {
+      return Promise.reject(
+        new Error("No browser session for this conversation"),
+      );
     }
 
     return new Promise<DownloadInfo>((resolve, reject) => {
       const timer = setTimeout(() => {
         // Remove this waiter from the pending list
-        const pending = this.pendingDownloads.get(conversationId);
-        if (pending) {
-          const idx = pending.findIndex((w) => w.resolve === wrappedResolve);
-          if (idx >= 0) pending.splice(idx, 1);
-          if (pending.length === 0)
-            this.pendingDownloads.delete(conversationId);
-        }
+        const idx = session.pendingDownloads.findIndex(
+          (w) => w.resolve === wrappedResolve,
+        );
+        if (idx >= 0) session.pendingDownloads.splice(idx, 1);
         reject(new Error(`Download timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
@@ -872,14 +916,102 @@ class BrowserManager {
         reject(err);
       };
 
-      const pending = this.pendingDownloads.get(conversationId) ?? [];
-      pending.push({ resolve: wrappedResolve, reject: wrappedReject });
-      this.pendingDownloads.set(conversationId, pending);
+      session.pendingDownloads.push({
+        resolve: wrappedResolve,
+        reject: wrappedReject,
+      });
     });
+  }
+
+  /** Returns true when a browser session exists for the given conversation. */
+  hasSession(conversationId: string): boolean {
+    return this.sessions.has(conversationId);
+  }
+
+  /** Update lastTouchedAt for a session (called from browser tool activity). */
+  touchSession(conversationId: string): void {
+    const session = this.sessions.get(conversationId);
+    if (session) {
+      session.lastTouchedAt = Date.now();
+    }
+  }
+
+  /** Store a CDP session on the session entry (for screencast). */
+  setCdpSession(conversationId: string, cdp: CDPSession): void {
+    const session = this.sessions.get(conversationId);
+    if (session) {
+      session.cdpSession = cdp;
+      session.screencastActive = true;
+    }
+  }
+
+  /** Mark a session's screencast as active. */
+  setScreencastActive(conversationId: string, active: boolean): void {
+    const session = this.sessions.get(conversationId);
+    if (session) {
+      session.screencastActive = active;
+    }
+  }
+
+  /** Check if a screencast is active for a session. */
+  isScreencastActive(conversationId: string): boolean {
+    return this.sessions.get(conversationId)?.screencastActive ?? false;
   }
 
   hasContext(): boolean {
     return this.context != null;
+  }
+
+  // ── Orphan sweep ─────────────────────────────────────────────────────
+
+  /** Start the periodic orphan sweep timer. */
+  startSweep(): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(() => {
+      this.sweepOrphanedSessions().catch((err) => {
+        log.warn({ err }, "Browser session orphan sweep failed");
+      });
+    }, SESSION_SWEEP_INTERVAL_MS);
+  }
+
+  /** Stop the periodic orphan sweep timer. */
+  stopSweep(): void {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
+  }
+
+  /**
+   * Close sessions whose conversation is no longer alive, or that have been
+   * idle longer than the bounded TTL.
+   */
+  async sweepOrphanedSessions(): Promise<number> {
+    const now = Date.now();
+    let closed = 0;
+
+    for (const [conversationId, session] of [...this.sessions]) {
+      const isAlive = this.isConversationAlive?.(conversationId) ?? true;
+      const idleTooLong = now - session.lastTouchedAt > SESSION_ORPHAN_TTL_MS;
+
+      if (!isAlive || idleTooLong) {
+        const reason = !isAlive
+          ? "conversation no longer alive"
+          : "idle TTL exceeded";
+        try {
+          await this.closeSession(conversationId, reason);
+          closed++;
+          log.info(
+            { conversationId, reason },
+            "Swept orphaned browser session",
+          );
+        } catch (err) {
+          log.warn({ err, conversationId }, "Failed to sweep browser session");
+        }
+      }
+    }
+
+    return closed;
   }
 }
 
