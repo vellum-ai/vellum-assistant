@@ -10,10 +10,17 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  isToolActiveForContext,
+  type SkillProjectionContext,
+  SUBAGENT_ONLY_TOOL_NAMES,
+} from "../daemon/conversation-tool-setup.js";
+import { fileListTool } from "../tools/filesystem/list.js";
+import {
   FileSystemOps,
   type PathPolicy,
 } from "../tools/shared/filesystem/file-ops-service.js";
 import { sandboxPolicy } from "../tools/shared/filesystem/path-policy.js";
+import type { ToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -111,5 +118,102 @@ describe("FileSystemOps.listDirSafe", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FileListTool integration tests
+// ---------------------------------------------------------------------------
+
+/** Build a minimal ToolContext with the given workingDir. */
+function makeToolContext(workingDir: string): ToolContext {
+  return {
+    workingDir,
+    conversationId: "test-conv",
+    trustClass: "guardian",
+  };
+}
+
+describe("FileListTool", () => {
+  test("execute() returns formatted listing for a temp directory", async () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "README.md"), "# Hello");
+    writeFileSync(join(dir, "index.ts"), "export {}");
+
+    const result = await fileListTool.execute(
+      { path: dir, activity: "listing test dir" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    const lines = result.content.split("\n");
+    // Directory first with trailing /
+    expect(lines[0]).toBe("src/");
+    // Files after, with size info
+    expect(lines[1]).toMatch(/^README\.md\s+\d+\s*B$/);
+    expect(lines[2]).toMatch(/^index\.ts\s+\d+\s*B$/);
+  });
+
+  test("execute() returns error for invalid path input", async () => {
+    const dir = makeTempDir();
+    const result = await fileListTool.execute(
+      { path: 123, activity: "test" },
+      makeToolContext(dir),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("path is required and must be a string");
+  });
+
+  test("execute() returns error for nonexistent directory", async () => {
+    const dir = makeTempDir();
+    const result = await fileListTool.execute(
+      { path: join(dir, "nope"), activity: "test" },
+      makeToolContext(dir),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("not found");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subagent-only visibility
+// ---------------------------------------------------------------------------
+
+describe("file_list subagent visibility", () => {
+  test("file_list is in SUBAGENT_ONLY_TOOL_NAMES", () => {
+    expect(SUBAGENT_ONLY_TOOL_NAMES.has("file_list")).toBe(true);
+  });
+
+  test("isToolActiveForContext hides file_list when isSubagent is false", () => {
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(["file_list"]),
+      toolsDisabledDepth: 0,
+    };
+    expect(isToolActiveForContext("file_list", ctx)).toBe(false);
+  });
+
+  test("isToolActiveForContext hides file_list when isSubagent is undefined", () => {
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(["file_list"]),
+      toolsDisabledDepth: 0,
+      isSubagent: undefined,
+    };
+    expect(isToolActiveForContext("file_list", ctx)).toBe(false);
+  });
+
+  test("isToolActiveForContext shows file_list when isSubagent is true", () => {
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(["file_list"]),
+      toolsDisabledDepth: 0,
+      isSubagent: true,
+    };
+    expect(isToolActiveForContext("file_list", ctx)).toBe(true);
   });
 });

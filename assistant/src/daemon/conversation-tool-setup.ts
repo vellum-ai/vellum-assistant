@@ -471,7 +471,10 @@ const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
  * conversations never see these in the LLM tool definitions. Subsequent PRs
  * will populate this set; it starts empty so there is no behavioral change.
  */
-export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>(["notify_parent"]);
+export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
+  "file_list",
+  "notify_parent",
+]);
 
 /**
  * Determine whether a tool should be included in the LLM tool definitions

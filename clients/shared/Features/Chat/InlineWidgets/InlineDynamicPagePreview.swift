@@ -44,7 +44,7 @@ public struct InlineDynamicPagePreview: View {
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(preview.title)
-                            .font(VFont.bodyMediumDefault)
+                            .font(VFont.bodyMediumEmphasised)
                             .foregroundStyle(VColor.contentDefault)
                             .lineLimit(2)
 

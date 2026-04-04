@@ -78,8 +78,8 @@ struct SidebarSectionHeader: View {
                 }
             } else {
                 Text(group.name)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
+                    .font(VFont.menuCompact)
+                    .foregroundStyle(VColor.contentSecondary)
             }
 
             Spacer()
