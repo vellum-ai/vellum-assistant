@@ -322,7 +322,10 @@ public struct ToolConfirmationBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
-        .frame(maxHeight: maxHeight)
+        // Use definite height (not maxHeight) so LazyVStack can skip content
+        // measurement during cell sizing — open-ended maxHeight forces SwiftUI
+        // to measure the scroll content even when the section is collapsed.
+        .frame(height: maxHeight)
         .padding(VSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(

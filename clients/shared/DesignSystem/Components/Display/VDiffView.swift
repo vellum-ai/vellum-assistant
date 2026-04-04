@@ -46,7 +46,9 @@ public struct VDiffView: View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         if let maxHeight {
             diffScrollView(lines: lines, axes: [.horizontal, .vertical])
-                .frame(maxHeight: maxHeight)
+                // Definite height prevents LazyVStack content measurement cascade
+                // when VDiffView is used inside a message list cell.
+                .frame(height: maxHeight)
         } else {
             diffScrollView(lines: lines, axes: .horizontal)
                 .fixedSize(horizontal: false, vertical: true)

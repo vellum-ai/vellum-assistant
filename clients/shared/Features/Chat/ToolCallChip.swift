@@ -238,7 +238,8 @@ public struct ToolCallChip: View {
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .textSelection(.enabled)
                                     }
-                                    .frame(maxHeight: 400)
+                                    // Definite height prevents LazyVStack content measurement cascade.
+                                    .frame(height: 400)
                                 } else {
                                     Text(result)
                                         .font(VFont.bodySmallDefault)

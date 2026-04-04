@@ -250,7 +250,8 @@ public struct ToolCallProgressBar: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
-                        .frame(maxHeight: 200)
+                        // Definite height prevents LazyVStack content measurement cascade.
+                        .frame(height: 200)
                     }
                 }
             }

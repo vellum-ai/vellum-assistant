@@ -110,7 +110,8 @@ struct CodePreviewView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)
         }
-        .frame(maxHeight: 120)
+        // Definite height so LazyVStack skips scroll content measurement during cell sizing.
+        .frame(height: 120)
         .background(VColor.surfaceOverlay.opacity(0.6))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .overlay(
