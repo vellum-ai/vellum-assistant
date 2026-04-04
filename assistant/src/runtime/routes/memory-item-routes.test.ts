@@ -62,14 +62,10 @@ mock.module("../../memory/qdrant-circuit-breaker.js", () => ({
   withQdrantBreaker: async (fn: () => Promise<unknown>) => fn(),
 }));
 
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { getDb, initializeDb } from "../../memory/db.js";
-import {
-  memoryEmbeddings,
-  memoryItems,
-  memoryJobs,
-} from "../../memory/schema.js";
+import { memoryGraphNodes, memoryJobs } from "../../memory/schema.js";
 import type { RouteContext } from "../http-router.js";
 import { memoryItemRouteDefinitions } from "./memory-item-routes.js";
 
@@ -125,42 +121,45 @@ function makeJsonCtx(
 
 function insertItem(opts: {
   id: string;
-  kind: string;
-  subject: string;
-  statement: string;
-  status?: string;
-  importance?: number;
-  firstSeenAt?: number;
-  lastSeenAt?: number;
-  supersedes?: string;
-  supersededBy?: string;
+  type: string;
+  content: string;
+  fidelity?: string;
+  significance?: number;
+  created?: number;
+  lastAccessed?: number;
 }) {
   const db = getDb();
   const now = Date.now();
-  db.insert(memoryItems)
+  db.insert(memoryGraphNodes)
     .values({
       id: opts.id,
-      kind: opts.kind,
-      subject: opts.subject,
-      statement: opts.statement,
-      status: opts.status ?? "active",
+      content: opts.content,
+      type: opts.type,
+      created: opts.created ?? now,
+      lastAccessed: opts.lastAccessed ?? now,
+      lastConsolidated: now,
+      eventDate: null,
+      emotionalCharge: JSON.stringify({
+        valence: 0,
+        intensity: 0.1,
+        decayCurve: "linear",
+        decayRate: 0.05,
+        originalIntensity: 0.1,
+      }),
+      fidelity: opts.fidelity ?? "vivid",
       confidence: 0.95,
-      importance: opts.importance ?? 0.8,
-      fingerprint: `fp-${opts.id}`,
-      verificationState: "user_confirmed",
+      significance: opts.significance ?? 0.8,
+      stability: 14,
+      reinforcementCount: 0,
+      lastReinforced: now,
+      sourceConversations: JSON.stringify([]),
+      sourceType: "direct",
+      narrativeRole: null,
+      partOfStory: null,
+      imageRefs: null,
       scopeId: "default",
-      firstSeenAt: opts.firstSeenAt ?? now,
-      lastSeenAt: opts.lastSeenAt ?? now,
-      lastUsedAt: null,
     })
     .run();
-
-  if (opts.supersedes || opts.supersededBy) {
-    const set: Record<string, unknown> = {};
-    if (opts.supersedes) set.supersedes = opts.supersedes;
-    if (opts.supersededBy) set.supersededBy = opts.supersededBy;
-    db.update(memoryItems).set(set).where(eq(memoryItems.id, opts.id)).run();
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -174,9 +173,10 @@ describe("Memory Item Routes", () => {
 
   beforeEach(() => {
     const db = getDb();
-    db.run("DELETE FROM memory_embeddings");
-    db.run("DELETE FROM memory_item_sources");
-    db.run("DELETE FROM memory_items");
+    db.run("DELETE FROM memory_graph_node_edits");
+    db.run("DELETE FROM memory_graph_triggers");
+    db.run("DELETE FROM memory_graph_edges");
+    db.run("DELETE FROM memory_graph_nodes");
     db.run("DELETE FROM memory_jobs");
   });
 
@@ -199,16 +199,14 @@ describe("Memory Item Routes", () => {
     test("returns all active items by default", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "s1",
-        statement: "st1",
+        type: "semantic",
+        content: "s1\nst1",
       });
       insertItem({
         id: "i2",
-        kind: "identity",
-        subject: "s2",
-        statement: "st2",
-        status: "deleted",
+        type: "episodic",
+        content: "s2\nst2",
+        fidelity: "gone",
       });
 
       const ctx = makeCtx();
@@ -226,17 +224,15 @@ describe("Memory Item Routes", () => {
     test("returns items of all statuses when status=all", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "s1",
-        statement: "st1",
-        status: "active",
+        type: "semantic",
+        content: "s1\nst1",
+        fidelity: "vivid",
       });
       insertItem({
         id: "i2",
-        kind: "identity",
-        subject: "s2",
-        statement: "st2",
-        status: "deleted",
+        type: "episodic",
+        content: "s2\nst2",
+        fidelity: "gone",
       });
 
       const ctx = makeCtx({ status: "all" });
@@ -255,18 +251,16 @@ describe("Memory Item Routes", () => {
     test("filters by kind", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "s1",
-        statement: "st1",
+        type: "semantic",
+        content: "s1\nst1",
       });
       insertItem({
         id: "i2",
-        kind: "identity",
-        subject: "s2",
-        statement: "st2",
+        type: "episodic",
+        content: "s2\nst2",
       });
 
-      const ctx = makeCtx({ kind: "preference" });
+      const ctx = makeCtx({ kind: "semantic" });
       const res = await handler(ctx);
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
@@ -276,18 +270,16 @@ describe("Memory Item Routes", () => {
       expect(body.items[0].id).toBe("i1");
     });
 
-    test("filters by search on subject and statement", async () => {
+    test("filters by search on content", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "dark mode",
-        statement: "User prefers dark mode",
+        type: "semantic",
+        content: "dark mode\nUser prefers dark mode",
       });
       insertItem({
         id: "i2",
-        kind: "identity",
-        subject: "name",
-        statement: "User name is Alice",
+        type: "episodic",
+        content: "name\nUser name is Alice",
       });
 
       const ctx = makeCtx({ search: "dark" });
@@ -303,24 +295,21 @@ describe("Memory Item Routes", () => {
     test("supports pagination with limit and offset", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "s1",
-        statement: "st1",
-        lastSeenAt: 1000,
+        type: "semantic",
+        content: "s1\nst1",
+        lastAccessed: 1000,
       });
       insertItem({
         id: "i2",
-        kind: "preference",
-        subject: "s2",
-        statement: "st2",
-        lastSeenAt: 2000,
+        type: "semantic",
+        content: "s2\nst2",
+        lastAccessed: 2000,
       });
       insertItem({
         id: "i3",
-        kind: "preference",
-        subject: "s3",
-        statement: "st3",
-        lastSeenAt: 3000,
+        type: "semantic",
+        content: "s3\nst3",
+        lastAccessed: 3000,
       });
 
       const ctx = makeCtx({ limit: "1", offset: "1" });
@@ -338,17 +327,15 @@ describe("Memory Item Routes", () => {
     test("supports sort by firstSeenAt ascending", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "s1",
-        statement: "st1",
-        firstSeenAt: 3000,
+        type: "semantic",
+        content: "s1\nst1",
+        created: 3000,
       });
       insertItem({
         id: "i2",
-        kind: "preference",
-        subject: "s2",
-        statement: "st2",
-        firstSeenAt: 1000,
+        type: "semantic",
+        content: "s2\nst2",
+        created: 1000,
       });
 
       const ctx = makeCtx({ sort: "firstSeenAt", order: "asc" });
@@ -360,32 +347,21 @@ describe("Memory Item Routes", () => {
       expect(body.items[1].id).toBe("i1");
     });
 
-    test("supports sort by accessCount descending", async () => {
+    test("supports sort by importance descending", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "s1",
-        statement: "st1",
+        type: "semantic",
+        content: "s1\nst1",
+        significance: 0.3,
       });
       insertItem({
         id: "i2",
-        kind: "preference",
-        subject: "s2",
-        statement: "st2",
+        type: "semantic",
+        content: "s2\nst2",
+        significance: 0.9,
       });
 
-      getDb()
-        .update(memoryItems)
-        .set({ accessCount: 2 })
-        .where(eq(memoryItems.id, "i1"))
-        .run();
-      getDb()
-        .update(memoryItems)
-        .set({ accessCount: 7 })
-        .where(eq(memoryItems.id, "i2"))
-        .run();
-
-      const ctx = makeCtx({ sort: "accessCount", order: "desc" });
+      const ctx = makeCtx({ sort: "importance", order: "desc" });
       const res = await handler(ctx);
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
@@ -411,15 +387,13 @@ describe("Memory Item Routes", () => {
     test("uses semantic search when embedding backend is available", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "dark mode",
-        statement: "User prefers dark mode",
+        type: "semantic",
+        content: "dark mode\nUser prefers dark mode",
       });
       insertItem({
         id: "i2",
-        kind: "identity",
-        subject: "name",
-        statement: "User name is Alice",
+        type: "episodic",
+        content: "name\nUser name is Alice",
       });
 
       // Enable semantic search
@@ -463,15 +437,13 @@ describe("Memory Item Routes", () => {
     test("falls back to SQL LIKE when backend is unavailable", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "dark mode",
-        statement: "User prefers dark mode",
+        type: "semantic",
+        content: "dark mode\nUser prefers dark mode",
       });
       insertItem({
         id: "i2",
-        kind: "identity",
-        subject: "name",
-        statement: "User name is Alice",
+        type: "episodic",
+        content: "name\nUser name is Alice",
       });
 
       // Backend unavailable
@@ -493,21 +465,18 @@ describe("Memory Item Routes", () => {
     test("semantic search respects pagination", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "s1",
-        statement: "first item",
+        type: "semantic",
+        content: "s1\nfirst item",
       });
       insertItem({
         id: "i2",
-        kind: "preference",
-        subject: "s2",
-        statement: "second item",
+        type: "semantic",
+        content: "s2\nsecond item",
       });
       insertItem({
         id: "i3",
-        kind: "preference",
-        subject: "s3",
-        statement: "third item",
+        type: "semantic",
+        content: "s3\nthird item",
       });
 
       mockBackendStatus = {
@@ -553,9 +522,8 @@ describe("Memory Item Routes", () => {
     test("falls back to SQL when semantic returns empty results", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "dark mode",
-        statement: "User prefers dark mode",
+        type: "semantic",
+        content: "dark mode\nUser prefers dark mode",
       });
 
       mockBackendStatus = {
@@ -593,9 +561,8 @@ describe("Memory Item Routes", () => {
     test("returns item by ID", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "dark mode",
-        statement: "Prefers dark mode",
+        type: "semantic",
+        content: "dark mode\nPrefers dark mode",
       });
 
       const ctx = makeCtx({}, { id: "i1" });
@@ -614,33 +581,20 @@ describe("Memory Item Routes", () => {
       expect(res.status).toBe(404);
     });
 
-    test("includes supersedesSubject when supersedes is set", async () => {
+    test("returns null for legacy supersedes/supersededBy fields", async () => {
       insertItem({
-        id: "old",
-        kind: "preference",
-        subject: "old pref",
-        statement: "old",
-      });
-      insertItem({
-        id: "new",
-        kind: "preference",
-        subject: "new pref",
-        statement: "new",
+        id: "i1",
+        type: "semantic",
+        content: "some content\nsome statement",
       });
 
-      // Set supersedes relationship manually
-      getDb()
-        .update(memoryItems)
-        .set({ supersedes: "old" })
-        .where(eq(memoryItems.id, "new"))
-        .run();
-
-      const ctx = makeCtx({}, { id: "new" });
+      const ctx = makeCtx({}, { id: "i1" });
       const res = await handler(ctx);
       const body = (await res.json()) as {
-        item: { supersedesSubject?: string };
+        item: { supersedes: unknown; supersededBy: unknown };
       };
-      expect(body.item.supersedesSubject).toBe("old pref");
+      expect(body.item.supersedes).toBeNull();
+      expect(body.item.supersededBy).toBeNull();
     });
   });
 
@@ -653,7 +607,7 @@ describe("Memory Item Routes", () => {
 
     test("creates a new memory item", async () => {
       const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "preference",
+        kind: "semantic",
         subject: "dark mode",
         statement: "User prefers dark mode",
       });
@@ -662,14 +616,14 @@ describe("Memory Item Routes", () => {
       const body = (await res.json()) as {
         item: { id: string; kind: string; subject: string; statement: string };
       };
-      expect(body.item.kind).toBe("preference");
+      expect(body.item.kind).toBe("semantic");
       expect(body.item.subject).toBe("dark mode");
       expect(body.item.statement).toBe("User prefers dark mode");
     });
 
     test("uses custom importance when provided", async () => {
       const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "preference",
+        kind: "semantic",
         subject: "importance test",
         statement: "Testing custom importance",
         importance: 0.5,
@@ -682,9 +636,9 @@ describe("Memory Item Routes", () => {
       expect(body.item.importance).toBe(0.5);
     });
 
-    test("rejects duplicate fingerprint", async () => {
+    test("rejects duplicate content", async () => {
       const payload = {
-        kind: "preference",
+        kind: "semantic",
         subject: "dark mode",
         statement: "User prefers dark mode",
       };
@@ -707,18 +661,24 @@ describe("Memory Item Routes", () => {
       expect(res.status).toBe(400);
     });
 
-    test("rejects missing subject", async () => {
+    test("accepts missing subject (optional)", async () => {
       const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "preference",
-        statement: "test",
+        kind: "semantic",
+        statement: "test content without subject",
       });
       const res = await handler(ctx);
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as {
+        item: { subject: string; statement: string };
+      };
+      // When no subject, content has no newline, so subject and statement are the same
+      expect(body.item.subject).toBe("test content without subject");
+      expect(body.item.statement).toBe("test content without subject");
     });
 
     test("rejects missing statement", async () => {
       const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "preference",
+        kind: "semantic",
         subject: "test",
       });
       const res = await handler(ctx);
@@ -729,7 +689,7 @@ describe("Memory Item Routes", () => {
       const longSubject = "a".repeat(200);
       const longStatement = "b".repeat(1000);
       const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "preference",
+        kind: "semantic",
         subject: longSubject,
         statement: longStatement,
       });
@@ -744,7 +704,7 @@ describe("Memory Item Routes", () => {
 
     test("enqueues embed job on create", async () => {
       const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "preference",
+        kind: "semantic",
         subject: "embed test",
         statement: "Should enqueue embed job",
       });
@@ -754,7 +714,7 @@ describe("Memory Item Routes", () => {
       const db = getDb();
       const jobs = db.select().from(memoryJobs).all();
       const embedJobs = jobs.filter(
-        (j) => j.type === "embed_item" && j.status === "pending",
+        (j) => j.type === "embed_graph_node" && j.status === "pending",
       );
       expect(embedJobs.length).toBeGreaterThanOrEqual(1);
     });
@@ -770,9 +730,8 @@ describe("Memory Item Routes", () => {
     test("updates subject and statement", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "old subject",
-        statement: "old statement",
+        type: "semantic",
+        content: "old subject\nold statement",
       });
 
       const ctx = makeJsonCtx(
@@ -801,17 +760,16 @@ describe("Memory Item Routes", () => {
       expect(res.status).toBe(404);
     });
 
-    test("detects fingerprint collision on update", async () => {
+    test("detects content collision on update", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "first",
-        statement: "first statement",
+        type: "semantic",
+        content: "first\nfirst statement",
       });
-      // Insert a second item using the create handler to get a real fingerprint
+      // Insert a second item using the create handler to get a real node
       const createHandler = getHandler("memory-items", "POST");
       const createCtx = makeJsonCtx("memory-items", "POST", {
-        kind: "preference",
+        kind: "semantic",
         subject: "second",
         statement: "second statement",
       });
@@ -832,29 +790,27 @@ describe("Memory Item Routes", () => {
     test("allows updating kind", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "test",
-        statement: "test",
+        type: "semantic",
+        content: "test\ntest",
       });
 
       const ctx = makeJsonCtx(
         "memory-items/i1",
         "PATCH",
-        { kind: "identity" },
+        { kind: "episodic" },
         { id: "i1" },
       );
       const res = await handler(ctx);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { item: { kind: string } };
-      expect(body.item.kind).toBe("identity");
+      expect(body.item.kind).toBe("episodic");
     });
 
     test("rejects invalid kind on update", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "test",
-        statement: "test",
+        type: "semantic",
+        content: "test\ntest",
       });
 
       const ctx = makeJsonCtx(
@@ -870,9 +826,8 @@ describe("Memory Item Routes", () => {
     test("enqueues embed job when statement changes", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "test",
-        statement: "old statement",
+        type: "semantic",
+        content: "test\nold statement",
       });
 
       // Clear jobs first
@@ -889,7 +844,7 @@ describe("Memory Item Routes", () => {
       const db = getDb();
       const jobs = db.select().from(memoryJobs).all();
       const embedJobs = jobs.filter(
-        (j) => j.type === "embed_item" && j.status === "pending",
+        (j) => j.type === "embed_graph_node" && j.status === "pending",
       );
       expect(embedJobs.length).toBe(1);
     });
@@ -905,23 +860,22 @@ describe("Memory Item Routes", () => {
     test("deletes item and returns 204", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "test",
-        statement: "test",
+        type: "semantic",
+        content: "test\ntest",
       });
 
       const ctx = makeJsonCtx("memory-items/i1", "DELETE", null, { id: "i1" });
       const res = await handler(ctx);
       expect(res.status).toBe(204);
 
-      // Verify the item is gone
+      // Verify the node is gone
       const db = getDb();
-      const item = db
+      const node = db
         .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "i1"))
+        .from(memoryGraphNodes)
+        .where(eq(memoryGraphNodes.id, "i1"))
         .get();
-      expect(item).toBeUndefined();
+      expect(node).toBeUndefined();
     });
 
     test("returns 404 for non-existent item", async () => {
@@ -932,46 +886,27 @@ describe("Memory Item Routes", () => {
       expect(res.status).toBe(404);
     });
 
-    test("also deletes associated embeddings", async () => {
+    test("enqueues delete_qdrant_vectors job on delete", async () => {
       insertItem({
         id: "i1",
-        kind: "preference",
-        subject: "test",
-        statement: "test",
+        type: "semantic",
+        content: "test\ntest",
       });
-
-      // Insert an embedding for this item
-      const db = getDb();
-      db.insert(memoryEmbeddings)
-        .values({
-          id: "emb-1",
-          targetType: "item",
-          targetId: "i1",
-          provider: "test",
-          model: "test-model",
-          dimensions: 384,
-          vectorJson: "[]",
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        })
-        .run();
 
       const ctx = makeJsonCtx("memory-items/i1", "DELETE", null, { id: "i1" });
       const res = await handler(ctx);
       expect(res.status).toBe(204);
 
-      // Verify embedding is also gone
-      const emb = db
-        .select()
-        .from(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "item"),
-            eq(memoryEmbeddings.targetId, "i1"),
-          ),
-        )
-        .get();
-      expect(emb).toBeUndefined();
+      // Verify a delete_qdrant_vectors job was enqueued with graph_node targetType
+      const db = getDb();
+      const jobs = db.select().from(memoryJobs).all();
+      const deleteJobs = jobs.filter(
+        (j) => j.type === "delete_qdrant_vectors" && j.status === "pending",
+      );
+      expect(deleteJobs.length).toBe(1);
+      const payload = JSON.parse(deleteJobs[0].payload);
+      expect(payload.targetType).toBe("graph_node");
+      expect(payload.targetId).toBe("i1");
     });
   });
 });
