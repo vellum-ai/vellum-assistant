@@ -140,7 +140,12 @@ If you identify insights worth remembering for future conversations, use your me
           );
         };
 
-        // k. Fire-and-forget the agent loop
+        // k. Set up processing state (required by runAgentLoop guard)
+        analysisConversation.processing = true;
+        analysisConversation.abortController = new AbortController();
+        analysisConversation.currentRequestId = crypto.randomUUID();
+
+        // l. Fire-and-forget the agent loop
         analysisConversation
           .runAgentLoop(prompt, messageId, onEvent, {
             isInteractive: false,
@@ -153,10 +158,16 @@ If you identify insights worth remembering for future conversations, use your me
             );
           });
 
-        // l. Return the new conversation detail
-        return Response.json({
-          conversation: deps.buildConversationDetailResponse(newConv.id),
-        });
+        // m. Return the new conversation detail
+        const detail = deps.buildConversationDetailResponse(newConv.id);
+        if (!detail) {
+          return httpError(
+            "INTERNAL_ERROR",
+            `Analysis conversation ${newConv.id} could not be loaded`,
+            500,
+          );
+        }
+        return Response.json(detail);
       },
     },
   ];
