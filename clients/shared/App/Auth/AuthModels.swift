@@ -311,6 +311,7 @@ public struct BillingSummaryResponse: Codable, Sendable {
     public let minimum_top_up_usd: String
     public let maximum_top_up_usd: String
     public let maximum_balance_usd: String
+    public let allowed_top_up_amounts: [String]?
     public let is_degraded: Bool
 }
 

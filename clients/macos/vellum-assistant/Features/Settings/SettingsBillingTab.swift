@@ -9,7 +9,15 @@ struct SettingsBillingTab: View {
     @State private var summary: BillingSummaryResponse?
     @State private var isLoading: Bool = true
     @State private var error: String?
-    @State private var topUpAmount: String = ""
+    @State private var selectedAmount: String = ""
+
+    private var topUpAmounts: [String] {
+        summary?.allowed_top_up_amounts ?? []
+    }
+
+    private var effectiveAmount: String {
+        topUpAmounts.contains(selectedAmount) ? selectedAmount : topUpAmounts.first ?? ""
+    }
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
@@ -21,7 +29,7 @@ struct SettingsBillingTab: View {
             balanceCard
             if isLoading {
                 addFundsSkeleton
-            } else if summary != nil {
+            } else if !topUpAmounts.isEmpty {
                 addFundsCard
             }
             if devModeManager.isDevMode {
@@ -168,25 +176,27 @@ struct SettingsBillingTab: View {
     private var topUpContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Amount (USD)")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentSecondary)
+                VDropdown(
+                    "Amount (USD)",
+                    placeholder: "",
+                    selection: Binding(
+                        get: { effectiveAmount },
+                        set: { selectedAmount = $0 }
+                    ),
+                    options: topUpAmounts.map { (label: "$\($0)", value: $0) }
+                )
+                .frame(maxWidth: 200)
                 if let summary {
-                    Text("$\(summary.minimum_top_up_usd)\u{2013}$\(summary.maximum_top_up_usd) per transaction. $\(summary.maximum_balance_usd) max balance. Credits expire 12 months after purchase.")
+                    Text("$\(summary.maximum_balance_usd) max balance. Credits expire 12 months after purchase.")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }
-                VTextField(
-                    placeholder: "Enter amount",
-                    text: $topUpAmount
-                )
-                .frame(maxWidth: 200)
             }
 
             VButton(
                 label: isProcessingTopUp ? "Processing..." : "Add funds",
                 style: .primary,
-                isDisabled: isProcessingTopUp || topUpAmount.isEmpty
+                isDisabled: isProcessingTopUp
             ) {
                 Task { await handleTopUp() }
             }
@@ -287,20 +297,8 @@ struct SettingsBillingTab: View {
     }
 
     private func handleTopUp() async {
-        guard let amount = Double(topUpAmount) else {
-            topUpError = "Please enter a valid amount."
-            return
-        }
-
-        if let summary, let minimum = Double(summary.minimum_top_up_usd), amount < minimum {
-            topUpError = "Minimum top-up amount is $\(summary.minimum_top_up_usd)."
-            return
-        }
-
-        if let summary, let maximum = Double(summary.maximum_top_up_usd), amount > maximum {
-            topUpError = "Maximum top-up amount is $\(summary.maximum_top_up_usd)."
-            return
-        }
+        let amountStr = effectiveAmount
+        let amount = Double(amountStr) ?? 0
 
         if let summary,
            let maxBalance = Double(summary.maximum_balance_usd),
@@ -310,16 +308,13 @@ struct SettingsBillingTab: View {
             return
         }
 
-        let normalizedAmount = String(format: "%.2f", amount)
-
         isProcessingTopUp = true
         topUpError = nil
         defer { isProcessingTopUp = false }
 
         do {
-            let checkoutURL = try await BillingService.shared.createTopUpCheckout(amountUsd: normalizedAmount)
+            let checkoutURL = try await BillingService.shared.createTopUpCheckout(amountUsd: amountStr)
             NSWorkspace.shared.open(checkoutURL)
-            topUpAmount = ""
         } catch let PlatformAPIError.serverError(_, detail) {
             self.topUpError = Self.parseValidationError(detail) ?? "Failed to create checkout session. Please try again."
         } catch {
