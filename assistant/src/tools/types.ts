@@ -224,6 +224,12 @@ export interface ToolExecutionResult {
    * approval flow transparently.
    */
   cesApprovalRequired?: ApprovalRequired;
+  /** When set, the agent loop should schedule a deferred check-in for a background execution. */
+  scheduleCheckIn?: {
+    afterSeconds: number;
+    executionId: string;
+    conversationId: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +273,8 @@ export interface Tool {
   description: string;
   category: string;
   defaultRiskLevel: RiskLevel;
+  /** When true, the agent loop should not apply the deferral threshold to this tool. */
+  deferralExempt?: boolean;
   /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
   executionMode?: "local" | "proxy";
   /** Whether this tool is a core built-in, provided by a skill, or from an MCP server. */
