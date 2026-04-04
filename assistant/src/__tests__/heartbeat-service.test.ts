@@ -244,6 +244,24 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls).toHaveLength(0);
   });
 
+  test("active hours skip still advances nextRunAt", async () => {
+    mockConfig.heartbeat.activeHoursStart = 9;
+    mockConfig.heartbeat.activeHoursEnd = 17;
+
+    const service = createService({ getCurrentHour: () => 3 });
+    service.start();
+
+    const before = Date.now();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(0);
+    expect(service.nextRunAt).not.toBeNull();
+    expect(service.nextRunAt!).toBeGreaterThanOrEqual(
+      before + mockConfig.heartbeat.intervalMs,
+    );
+    service.stop();
+  });
+
   test("active hours guard allows within window", async () => {
     mockConfig.heartbeat.activeHoursStart = 9;
     mockConfig.heartbeat.activeHoursEnd = 17;
@@ -374,6 +392,22 @@ describe("HeartbeatService", () => {
     expect(alerterCalls[0].type).toBe("heartbeat_alert");
     expect(alerterCalls[0].title).toBe("Heartbeat Failed");
     expect(alerterCalls[0].body).toBe("LLM timeout");
+  });
+
+  test("successful run updates lastRunAt and nextRunAt", async () => {
+    const service = createService();
+    expect(service.lastRunAt).toBeNull();
+    expect(service.nextRunAt).toBeNull();
+
+    const before = Date.now();
+    await service.runOnce();
+
+    expect(service.lastRunAt).not.toBeNull();
+    expect(service.lastRunAt!).toBeGreaterThanOrEqual(before);
+    expect(service.nextRunAt).not.toBeNull();
+    expect(service.nextRunAt!).toBeGreaterThanOrEqual(
+      before + mockConfig.heartbeat.intervalMs,
+    );
   });
 
   test("alerts on conversation creation failure", async () => {
