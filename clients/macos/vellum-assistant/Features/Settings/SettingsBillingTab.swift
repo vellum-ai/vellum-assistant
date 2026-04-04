@@ -22,6 +22,7 @@ struct SettingsBillingTab: View {
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
     @State private var inviteCode: String = ""
+    @State private var isReferralCodesEnabled: Bool = false
     private var devModeManager: DevModeManager { DevModeManager.shared }
 
     var body: some View {
@@ -35,8 +36,12 @@ struct SettingsBillingTab: View {
             if devModeManager.isDevMode {
                 inviteCodeCard
             }
+            if isReferralCodesEnabled {
+                SettingsBillingReferralCard()
+            }
         }
         .task {
+            isReferralCodesEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("referral-codes")
             await loadSummary()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
@@ -47,6 +52,13 @@ struct SettingsBillingTab: View {
             }
         }
         .background(WindowReader(window: $hostWindow))
+        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+            if let key = notification.userInfo?["key"] as? String,
+               key == "referral-codes",
+               let enabled = notification.userInfo?["enabled"] as? Bool {
+                isReferralCodesEnabled = enabled
+            }
+        }
     }
 
     // MARK: - Balance Card
