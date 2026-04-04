@@ -76,9 +76,9 @@ public final class BillingService {
         guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else { return nil }
 
         // Only attempt bootstrap for all-zero balances
-        let isAllZero = summary.effective_balance_usd == "0.00"
-            && summary.settled_balance_usd == "0.00"
-            && summary.pending_compute_usd == "0.00"
+        let isAllZero = summary.effective_balance == "0.00"
+            && summary.settled_balance == "0.00"
+            && summary.pending_compute == "0.00"
         guard isAllZero else { return nil }
 
         // Skip if we've already attempted bootstrap for this org

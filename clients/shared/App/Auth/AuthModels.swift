@@ -308,12 +308,12 @@ public struct SelfHostedProvisioningInfo: Codable, Sendable {
 // MARK: - Billing Models
 
 public struct BillingSummaryResponse: Codable, Sendable {
-    public let settled_balance_usd: String
-    public let pending_compute_usd: String
-    public let effective_balance_usd: String
-    public let minimum_top_up_usd: String
-    public let maximum_top_up_usd: String
-    public let maximum_balance_usd: String
+    public let settled_balance: String
+    public let pending_compute: String
+    public let effective_balance: String
+    public let minimum_top_up: String
+    public let maximum_top_up: String
+    public let maximum_balance: String
     public let allowed_top_up_amounts: [String]?
     public let is_degraded: Bool
 }

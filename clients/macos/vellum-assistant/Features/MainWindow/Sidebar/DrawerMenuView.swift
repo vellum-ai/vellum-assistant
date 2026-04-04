@@ -89,7 +89,7 @@ struct DrawerMenuView: View {
             if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: summary) {
                 summary = bootstrapped
             }
-            let balanceString = summary.effective_balance_usd
+            let balanceString = summary.effective_balance
             effectiveBalance = balanceString
             if let value = Double(balanceString) {
                 isZeroBalance = value <= 0

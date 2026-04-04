@@ -112,7 +112,7 @@ struct SettingsBillingTab: View {
                 Text("Effective Credit Balance")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
-                Text("\(summary.effective_balance_usd) credits")
+                Text("\(summary.effective_balance) credits")
                     .font(VFont.titleMedium)
                     .foregroundStyle(VColor.contentEmphasized)
             }
@@ -140,7 +140,7 @@ struct SettingsBillingTab: View {
                     Text("Settled Credit Balance")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text("\(summary.settled_balance_usd) credits")
+                    Text("\(summary.settled_balance) credits")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
                 }
@@ -148,7 +148,7 @@ struct SettingsBillingTab: View {
                     Text(summary.is_degraded ? "Pending Usage (estimated)" : "Pending Usage")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text("\(summary.pending_compute_usd) credits")
+                    Text("\(summary.pending_compute) credits")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
@@ -197,7 +197,7 @@ struct SettingsBillingTab: View {
                 )
                 .frame(maxWidth: 200)
                 if let summary {
-                    Text("\(summary.maximum_balance_usd) max credit balance. Credits expire 12 months after purchase.")
+                    Text("\(summary.maximum_balance) max credit balance. Credits expire 12 months after purchase.")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }
@@ -284,10 +284,10 @@ struct SettingsBillingTab: View {
         let amount = Double(amountStr) ?? 0
 
         if let summary,
-           let maxBalance = Double(summary.maximum_balance_usd),
-           let currentBalance = Double(summary.effective_balance_usd),
+           let maxBalance = Double(summary.maximum_balance),
+           let currentBalance = Double(summary.effective_balance),
            currentBalance + amount > maxBalance {
-            topUpError = "This top-up would exceed the maximum credit balance of \(summary.maximum_balance_usd)."
+            topUpError = "This top-up would exceed the maximum credit balance of \(summary.maximum_balance)."
             return
         }
 
