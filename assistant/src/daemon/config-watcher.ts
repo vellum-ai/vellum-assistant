@@ -28,6 +28,8 @@ import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
+  AVATAR_IMAGE_FILENAME,
+  getAvatarDir,
   getSignalsDir,
   getSoundsDir,
   getWorkspaceDir,
@@ -233,7 +235,7 @@ export class ConfigWatcher {
   }
 
   private startAvatarWatcher(onAvatarChanged: () => void): void {
-    const avatarDir = join(getWorkspaceDir(), "data", "avatar");
+    const avatarDir = getAvatarDir();
     try {
       if (!existsSync(avatarDir)) {
         mkdirSync(avatarDir, { recursive: true });
@@ -245,10 +247,11 @@ export class ConfigWatcher {
     try {
       const watcher = watch(avatarDir, (_eventType, filename) => {
         if (!filename) return;
+        if (String(filename) !== AVATAR_IMAGE_FILENAME) return;
         this.debounceTimers.schedule("file:avatar", () => {
           log.info(
             { file: String(filename) },
-            "Avatar directory changed, notifying clients",
+            "Avatar image changed, notifying clients",
           );
           onAvatarChanged();
         });

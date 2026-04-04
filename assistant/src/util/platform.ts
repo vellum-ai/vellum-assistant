@@ -102,6 +102,19 @@ export function getSoundsDir(): string {
   return join(getWorkspaceDir(), "data", "sounds");
 }
 
+/** Returns the avatar directory (~/.vellum/workspace/data/avatar). */
+export function getAvatarDir(): string {
+  return join(getWorkspaceDir(), "data", "avatar");
+}
+
+/** Canonical filename for the custom avatar PNG. */
+export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
+
+/** Returns the canonical avatar image path (~/.vellum/workspace/data/avatar/avatar-image.png). */
+export function getAvatarImagePath(): string {
+  return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
+}
+
 /**
  * Returns the TCP port the daemon should listen on for iOS clients.
  * Hardcoded default: 8765.

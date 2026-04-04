@@ -1,5 +1,4 @@
 import { existsSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
 
 import { buildAssistantEvent } from "../../../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../../../runtime/assistant-event-hub.js";
@@ -9,7 +8,7 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getAvatarImagePath } from "../../../../util/platform.js";
 import { updateIdentityAvatarSection } from "./identity-avatar.js";
 
 const log = getLogger("avatar-remove");
@@ -18,8 +17,7 @@ export async function run(
   _input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const avatarDir = join(getWorkspaceDir(), "data", "avatar");
-  const avatarPath = join(avatarDir, "avatar-image.png");
+  const avatarPath = getAvatarImagePath();
 
   if (!existsSync(avatarPath)) {
     return {

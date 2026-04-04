@@ -3,7 +3,7 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { AVATAR_IMAGE_FILENAME, getAvatarDir } from "../util/platform.js";
 import { renderCharacterAscii } from "./ascii-renderer.js";
 import { getCharacterComponents } from "./character-components.js";
 import { renderCharacterPng } from "./png-renderer.js";
@@ -64,7 +64,7 @@ function writeAvatarFiles(
   pngBuffer: Buffer,
   asciiArt: string | null,
 ): boolean {
-  const pngPath = join(avatarDir, "avatar-image.png");
+  const pngPath = join(avatarDir, AVATAR_IMAGE_FILENAME);
   const pngTmp = `${pngPath}.${randomUUID()}.tmp`;
   writeFileSync(pngTmp, pngBuffer);
   renameSync(pngTmp, pngPath);
@@ -144,7 +144,7 @@ export function writeTraitsAndRenderAvatar(
     };
   }
 
-  const avatarDir = join(getWorkspaceDir(), "data", "avatar");
+  const avatarDir = getAvatarDir();
   const traitsPath = join(avatarDir, "character-traits.json");
 
   try {

@@ -60,8 +60,8 @@ import { getSubagentManager } from "../subagent/index.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import {
+  getAvatarImagePath,
   getSandboxWorkingDir,
-  getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
@@ -532,13 +532,10 @@ export class DaemonServer {
   }
 
   private broadcastAvatarUpdated(): void {
-    const avatarPath = join(
-      getWorkspaceDir(),
-      "data",
-      "avatar",
-      "avatar-image.png",
-    );
-    this.broadcast({ type: "avatar_updated", avatarPath });
+    this.broadcast({
+      type: "avatar_updated",
+      avatarPath: getAvatarImagePath(),
+    });
   }
 
   /**
