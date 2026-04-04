@@ -739,11 +739,13 @@ export async function sleepContainers(
   }
 }
 
-/** Start existing stopped containers, starting Colima first if it isn't running. */
+/** Start existing stopped containers, starting Colima first if it isn't running (macOS only). */
 export async function wakeContainers(
   res: ReturnType<typeof dockerResourceNames>,
 ): Promise<void> {
-  await ensureColimaRunning();
+  if (platform() !== "linux") {
+    await ensureColimaRunning();
+  }
   for (const container of [
     res.assistantContainer,
     res.gatewayContainer,
