@@ -240,6 +240,9 @@ struct ChatBubble: View, Equatable {
                 ? EdgeInsets()
                 : EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
                              bottom: VSpacing.md, trailing: VSpacing.lg))
+            // Error messages expand to fill available width so the
+            // background and border cover the full-width bubble.
+            .frame(maxWidth: message.isError ? .infinity : nil)
             .background {
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
