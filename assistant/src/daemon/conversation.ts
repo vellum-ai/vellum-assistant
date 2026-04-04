@@ -58,6 +58,7 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
+import { getTool } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { runAgentLoopImpl } from "./conversation-agent-loop.js";
@@ -430,6 +431,7 @@ export class Conversation {
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
       resolveSystemPromptCallback,
+      (name: string) => getTool(name),
     );
     this.contextWindowManager = new ContextWindowManager({
       provider,
