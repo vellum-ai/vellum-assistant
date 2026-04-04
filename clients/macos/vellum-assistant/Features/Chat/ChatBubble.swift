@@ -363,14 +363,10 @@ struct ChatBubble: View, Equatable {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
-                // For non-streaming, non-interleaved messages, flatten the render
-                // tree into a single compositing layer to reduce layout passes.
+                // Flatten the render tree into a single compositing layer to reduce
+                // the number of CALayers the WindowServer must composite per message.
                 // Skipped during streaming to avoid re-compositing on every token delta.
-                // Also skipped for interleaved messages (text + tool calls + images)
-                // where the complex view hierarchy makes re-compositing expensive —
-                // async task completions (markdown parsing, image decoding) would
-                // trigger full re-compositing of the entire message on every change.
-                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming && !cachedHasInterleavedContent))
+                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
 
             if !isUser { Spacer(minLength: 0) }
         }
