@@ -98,14 +98,14 @@ struct SettingsBillingReferralCard: View {
                                 .font(VFont.bodySmallDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                         }
-                        Text("$\(code.total_earned_usd)")
+                        Text("\(code.total_earned_usd) credits")
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentEmphasized)
                     }
                 }
 
                 // Earning cap note
-                Text("Earn up to $\(code.earning_cap_usd) in referral credits")
+                Text("Earn up to \(code.earning_cap_usd.replacingOccurrences(of: ".00", with: "")) referral credits")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }

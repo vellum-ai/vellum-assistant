@@ -34,7 +34,7 @@ struct DrawerMenuView: View {
             if let balance = effectiveBalance {
                 VMenuCustomRow {
                     HStack {
-                        Text("$\(balance) remaining")
+                        Text("\(balance) credits remaining")
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(
                                 isZeroBalance ? VColor.systemNegativeStrong :
@@ -43,7 +43,7 @@ struct DrawerMenuView: View {
                             )
                         Spacer()
                         if isBillingVisible {
-                            Button("Add funds") { onOpenBilling() }
+                            Button("Add credits") { onOpenBilling() }
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.primaryBase)
                                 .buttonStyle(.plain)

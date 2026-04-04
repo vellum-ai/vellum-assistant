@@ -59,7 +59,7 @@ struct SettingsBillingTab: View {
     // MARK: - Balance Card
 
     private var balanceCard: some View {
-        SettingsCard(title: "Balance") {
+        SettingsCard(title: "Credit Balance") {
             if isLoading {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     // Effective balance skeleton
@@ -109,10 +109,10 @@ struct SettingsBillingTab: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Effective balance — large display
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Effective Balance")
+                Text("Effective Credit Balance")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
-                Text("$\(summary.effective_balance_usd)")
+                Text("\(summary.effective_balance_usd) credits")
                     .font(VFont.titleMedium)
                     .foregroundStyle(VColor.contentEmphasized)
             }
@@ -137,18 +137,18 @@ struct SettingsBillingTab: View {
 
             HStack(spacing: VSpacing.xl) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Settled Balance")
+                    Text("Settled Credit Balance")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text("$\(summary.settled_balance_usd)")
+                    Text("\(summary.settled_balance_usd) credits")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
                 }
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(summary.is_degraded ? "Pending Charges (estimated)" : "Pending Charges")
+                    Text(summary.is_degraded ? "Pending Usage (estimated)" : "Pending Usage")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text("$\(summary.pending_compute_usd)")
+                    Text("\(summary.pending_compute_usd) credits")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
@@ -156,10 +156,10 @@ struct SettingsBillingTab: View {
         }
     }
 
-    // MARK: - Add Funds Skeleton
+    // MARK: - Add Credits Skeleton
 
     private var addFundsSkeleton: some View {
-        SettingsCard(title: "Add Funds") {
+        SettingsCard(title: "Add Credits") {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VSkeletonBone(width: 90, height: 12)
@@ -171,10 +171,10 @@ struct SettingsBillingTab: View {
         }
     }
 
-    // MARK: - Add Funds Card
+    // MARK: - Add Credits Card
 
     private var addFundsCard: some View {
-        SettingsCard(title: "Add Funds") {
+        SettingsCard(title: "Add Credits") {
             topUpContent
         }
     }
@@ -184,24 +184,27 @@ struct SettingsBillingTab: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 VDropdown(
-                    "Amount (USD)",
+                    "Amount",
                     placeholder: "",
                     selection: Binding(
                         get: { effectiveAmount },
                         set: { selectedAmount = $0 }
                     ),
-                    options: topUpAmounts.map { (label: "$\($0)", value: $0) }
+                    options: topUpAmounts.map { amount in
+                        let credits = amount.replacingOccurrences(of: ".00", with: "")
+                        return (label: "\(credits) ($\(amount))", value: amount)
+                    }
                 )
                 .frame(maxWidth: 200)
                 if let summary {
-                    Text("$\(summary.maximum_balance_usd) max balance. Credits expire 12 months after purchase.")
+                    Text("\(summary.maximum_balance_usd.replacingOccurrences(of: ".00", with: "")) max credit balance. Credits expire 12 months after purchase.")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }
             }
 
             VButton(
-                label: isProcessingTopUp ? "Processing..." : "Add funds",
+                label: isProcessingTopUp ? "Processing..." : "Add credits",
                 style: .primary,
                 isDisabled: isProcessingTopUp
             ) {
@@ -284,7 +287,7 @@ struct SettingsBillingTab: View {
            let maxBalance = Double(summary.maximum_balance_usd),
            let currentBalance = Double(summary.effective_balance_usd),
            currentBalance + amount > maxBalance {
-            topUpError = "This top-up would exceed the maximum balance of $\(summary.maximum_balance_usd)."
+            topUpError = "This top-up would exceed the maximum credit balance of \(summary.maximum_balance_usd.replacingOccurrences(of: ".00", with: ""))."
             return
         }
 
