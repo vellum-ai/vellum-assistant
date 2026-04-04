@@ -68,6 +68,7 @@ import {
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
+import { createLogExportHandler } from "./http/routes/log-export.js";
 import {
   createTrustRulesListHandler,
   createTrustRulesAddHandler,
@@ -288,6 +289,7 @@ async function main() {
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
+  const handleLogExport = createLogExportHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
@@ -931,6 +933,15 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handlePrivacyConfigPatch(req),
+    },
+
+    // ── Log export ──
+    {
+      path: "/v1/logs/export",
+      method: "POST",
+      auth: "edge",
+      handler: (req, params, getClientIp) =>
+        handleLogExport(req, params, getClientIp),
     },
 
     // ── Trust rules ──
