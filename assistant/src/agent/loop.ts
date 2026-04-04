@@ -31,6 +31,8 @@ export interface AgentLoopConfig {
     | { type: "tool"; name: string };
   /** Minimum interval (ms) between consecutive LLM calls to prevent spin when tools return instantly */
   minTurnIntervalMs?: number;
+  /** Override the default prompt cache TTL sent to the provider (e.g. "5m" for short-lived subagents). */
+  cacheTtl?: "5m" | "1h";
 }
 
 export interface CheckpointInfo {
@@ -250,6 +252,10 @@ export class AgentLoop {
 
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
+        }
+
+        if (this.config.cacheTtl) {
+          providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
         const preLlmResult = await getHookManager().trigger("pre-llm-call", {

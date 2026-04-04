@@ -579,6 +579,7 @@ export class AnthropicProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const { config, onEvent, signal } = options ?? {};
+    const cacheTtl: "5m" | "1h" = ((config as Record<string, unknown> | undefined)?.cacheTtl as "5m" | "1h") ?? "1h";
     let sentMessages: Anthropic.MessageParam[] | undefined;
     try {
       const formatted = messages
@@ -732,12 +733,12 @@ export class AnthropicProvider implements Provider {
             {
               type: "text" as const,
               text: staticBlock,
-              cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
+              cache_control: { type: "ephemeral" as const, ttl: cacheTtl },
             },
             {
               type: "text" as const,
               text: dynamicBlock,
-              cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
+              cache_control: { type: "ephemeral" as const, ttl: cacheTtl },
             },
           ];
         } else {
@@ -745,7 +746,7 @@ export class AnthropicProvider implements Provider {
             {
               type: "text" as const,
               text: systemPrompt,
-              cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
+              cache_control: { type: "ephemeral" as const, ttl: cacheTtl },
             },
           ];
         }
@@ -765,7 +766,7 @@ export class AnthropicProvider implements Provider {
               ? {
                   cache_control: {
                     type: "ephemeral" as const,
-                    ttl: "1h" as const,
+                    ttl: cacheTtl,
                   },
                 }
               : {}),
@@ -785,7 +786,7 @@ export class AnthropicProvider implements Provider {
               ? {
                   cache_control: {
                     type: "ephemeral" as const,
-                    ttl: "1h" as const,
+                    ttl: cacheTtl,
                   },
                 }
               : {}),
@@ -814,7 +815,7 @@ export class AnthropicProvider implements Provider {
         if (typeof lastBlock !== "string") {
           (lastBlock as unknown as Record<string, unknown>).cache_control = {
             type: "ephemeral",
-            ttl: "1h",
+            ttl: cacheTtl,
           };
         }
         turnStartIdx = i;
