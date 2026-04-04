@@ -515,6 +515,7 @@ public struct MemoryRecallData: Codable, Sendable, Equatable {
     public let reason: String?
     public let topCandidates: [MemoryRecallCandidate]
     public let injectedText: String?
+    public let queryContext: String?
 }
 
 /// A single LLM request/response log entry returned by the context endpoint.
