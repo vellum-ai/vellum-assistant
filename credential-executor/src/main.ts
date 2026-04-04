@@ -41,10 +41,12 @@ import { createLocalOAuthLookup } from "./materializers/local-oauth-lookup.js";
 import { createLocalTokenRefreshFn } from "./materializers/local-token-refresh.js";
 import { resolveLocalSubject } from "./subjects/local.js";
 import { checkCredentialPolicy } from "./subjects/policy.js";
+import { initLogger, getLogger } from "./logger.js";
 import {
   getCesAuditDir,
   getCesDataRoot,
   getCesGrantsDir,
+  getCesLogDir,
   getCesToolStoreDir,
 } from "./paths.js";
 import {
@@ -292,16 +294,16 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
 async function main(): Promise<void> {
   ensureDataDirs();
 
-  const log = (msg: string) =>
-    process.stderr.write(`[ces-local] ${msg}\n`);
+  initLogger({ dir: getCesLogDir(), retentionDays: 30 });
+  const log = getLogger("main");
 
-  log(`Starting CES v${CES_PROTOCOL_VERSION} (local mode, stdio transport)`);
+  log.info(`Starting CES v${CES_PROTOCOL_VERSION} (local mode, stdio transport)`);
 
   const controller = new AbortController();
 
   // Graceful shutdown on SIGTERM / SIGINT
   const shutdown = () => {
-    log("Shutting down...");
+    log.info("Shutting down...");
     controller.abort();
   };
   process.on("SIGTERM", shutdown);
@@ -313,17 +315,15 @@ async function main(): Promise<void> {
   const sessionIdRef: SessionIdRef = { current: `ces-local-${Date.now()}` };
   const handlers = buildHandlers(sessionIdRef);
 
+  const rpcLog = getLogger("rpc");
   const server = new CesRpcServer({
     input: process.stdin,
     output: process.stdout,
     handlers,
     logger: {
-      log: (msg: string, ...args: unknown[]) =>
-        process.stderr.write(`[ces-local] ${msg} ${args.map(String).join(" ")}\n`),
-      warn: (msg: string, ...args: unknown[]) =>
-        process.stderr.write(`[ces-local] WARN: ${msg} ${args.map(String).join(" ")}\n`),
-      error: (msg: string, ...args: unknown[]) =>
-        process.stderr.write(`[ces-local] ERROR: ${msg} ${args.map(String).join(" ")}\n`),
+      log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
+      warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
+      error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
     },
     signal: controller.signal,
     onHandshakeComplete: (hsSessionId) => {
@@ -334,10 +334,14 @@ async function main(): Promise<void> {
   });
 
   await server.serve();
-  log("Server stopped.");
+  log.info("Server stopped.");
 }
 
 main().catch((err) => {
-  process.stderr.write(`[ces-local] Fatal: ${err}\n`);
+  try {
+    getLogger("main").fatal({ err }, "Fatal error");
+  } catch {
+    process.stderr.write(`[ces-local] Fatal: ${err}\n`);
+  }
   process.exit(1);
 });

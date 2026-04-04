@@ -95,6 +95,11 @@ export function getCesToolStoreDir(mode?: CesMode): string {
   return join(getCesDataRoot(mode), "toolstore");
 }
 
+/** Directory for CES log files. */
+export function getCesLogDir(mode?: CesMode): string {
+  return join(getCesDataRoot(mode), "logs");
+}
+
 // ---------------------------------------------------------------------------
 // Bootstrap socket path (managed mode only)
 // ---------------------------------------------------------------------------
