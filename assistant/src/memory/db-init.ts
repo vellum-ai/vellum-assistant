@@ -858,8 +858,8 @@ export function initializeDb(): void {
     migrateMemoryRecallLogsQueryContext(database),
   );
 
-  safeMigrate("validateMigrationState", () => validateMigrationState(database));
-
+  // Log the migration failure summary before validation so it's visible even if
+  // validateMigrationState also throws.
   if (failures.length > 0) {
     const msg = `DB initialization completed with ${failures.length} failed migration(s)`;
     log.error({ failedMigrations: failures, count: failures.length }, msg);
@@ -868,6 +868,10 @@ export function initializeDb(): void {
     // summary while the log still contains per-migration detail.
     throw new Error(`${msg}: ${failures.join(", ")}`);
   }
+
+  // validateMigrationState intentionally throws IntegrityError when dependency
+  // violations are detected — keep it unwrapped so it blocks daemon startup.
+  validateMigrationState(database);
 
   if (process.env.BUN_TEST === "1") {
     saveTemplate();
