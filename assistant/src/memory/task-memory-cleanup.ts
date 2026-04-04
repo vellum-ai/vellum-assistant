@@ -100,9 +100,9 @@ export function invalidateAssistantInferredItemsForConversation(
 
 /**
  * Cancel all pending/running memory jobs referencing the given conversation.
- * Covers every job type: `graph_extract`, `embed_attachment` (keyed by messageId),
+ * Covers every job type: `embed_attachment` (keyed by messageId),
  * `embed_segment` (keyed by segmentId via memory_segments),
- * `build_conversation_summary` (keyed by conversationId),
+ * `graph_extract`, `build_conversation_summary` (keyed by conversationId),
  * and `embed_graph_node` (keyed by nodeId sourced from the conversation).
  */
 export function cancelPendingJobsForConversation(
@@ -112,7 +112,7 @@ export function cancelPendingJobsForConversation(
   const now = Date.now();
   let total = 0;
 
-  // Jobs keyed by messageId: graph_extract, embed_attachment
+  // Jobs keyed by messageId: embed_attachment
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
@@ -127,7 +127,7 @@ export function cancelPendingJobsForConversation(
     conversationId,
   );
 
-  // Jobs keyed by conversationId: build_conversation_summary
+  // Jobs keyed by conversationId: graph_extract, build_conversation_summary
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
