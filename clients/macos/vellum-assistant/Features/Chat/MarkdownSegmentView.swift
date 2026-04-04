@@ -472,6 +472,33 @@ struct MarkdownSegmentView: View, Equatable {
         font: NSFont,
         textColor: NSColor
     ) -> NSAttributedString {
+        // Pre-collect emphasis info from the source AttributedString.
+        // Reading inlinePresentationIntent directly from AttributedString.runs
+        // avoids relying on NSAttributedString attribute bridging, which can
+        // silently drop InlinePresentationIntent (a Swift struct / OptionSet)
+        // when it doesn't bridge to NSNumber during the conversion.
+        struct EmphasisRun {
+            let utf16Offset: Int
+            let utf16Length: Int
+            let intent: InlinePresentationIntent
+            let hasExplicitFont: Bool
+        }
+        var emphasisRuns: [EmphasisRun] = []
+        var utf16Offset = 0
+        for run in source.runs {
+            let runContent = source[run.range]
+            let utf16Length = String(runContent.characters).utf16.count
+            if let intent = runContent.inlinePresentationIntent {
+                emphasisRuns.append(EmphasisRun(
+                    utf16Offset: utf16Offset,
+                    utf16Length: utf16Length,
+                    intent: intent,
+                    hasExplicitFont: runContent.font != nil
+                ))
+            }
+            utf16Offset += utf16Length
+        }
+
         let ns = NSMutableAttributedString(source)
         let fullRange = NSRange(location: 0, length: ns.length)
 
@@ -496,21 +523,19 @@ struct MarkdownSegmentView: View, Equatable {
             CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
         ) as NSFont
 
-        ns.enumerateAttribute(.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
-            guard let rawValue = (value as? NSNumber)?.uintValue else { return }
-            let intent = InlinePresentationIntent(rawValue: rawValue)
-            guard !intent.contains(.code) else { return }
+        for emphRun in emphasisRuns {
+            guard !emphRun.intent.contains(.code) else { continue }
             // Skip runs that already have an explicit font (e.g. headings)
-            if ns.attribute(.font, at: range.location, effectiveRange: nil) != nil { return }
-
-            let isEmph = intent.contains(.emphasized)
-            let isBold = intent.contains(.stronglyEmphasized)
+            guard !emphRun.hasExplicitFont else { continue }
+            let nsRange = NSRange(location: emphRun.utf16Offset, length: emphRun.utf16Length)
+            let isEmph = emphRun.intent.contains(.emphasized)
+            let isBold = emphRun.intent.contains(.stronglyEmphasized)
             if isEmph && isBold {
-                ns.addAttribute(.font, value: boldItalicNS, range: range)
+                ns.addAttribute(.font, value: boldItalicNS, range: nsRange)
             } else if isEmph {
-                ns.addAttribute(.font, value: italicNS, range: range)
+                ns.addAttribute(.font, value: italicNS, range: nsRange)
             } else if isBold {
-                ns.addAttribute(.font, value: boldNS, range: range)
+                ns.addAttribute(.font, value: boldNS, range: nsRange)
             }
         }
 
