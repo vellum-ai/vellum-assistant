@@ -207,6 +207,7 @@ public enum PlatformAPIError: LocalizedError, Sendable {
     case serverError(statusCode: Int, detail: String?)
     case authenticationRequired
     case accessDenied(detail: String)
+    case notFound
 
     public var errorDescription: String? {
         switch self {
@@ -222,6 +223,8 @@ public enum PlatformAPIError: LocalizedError, Sendable {
             return "Authentication required"
         case .accessDenied(let detail):
             return detail
+        case .notFound:
+            return "Not found"
         }
     }
 }
@@ -322,4 +325,11 @@ public struct TopUpCheckoutRequest: Codable, Sendable {
 
 public struct TopUpCheckoutResponse: Codable, Sendable {
     public let checkout_url: String
+}
+
+public struct ReferralCodeResponse: Codable, Sendable {
+    public let referral_url: String
+    public let referred_count: Int
+    public let total_earned_usd: String
+    public let earning_cap_usd: String
 }

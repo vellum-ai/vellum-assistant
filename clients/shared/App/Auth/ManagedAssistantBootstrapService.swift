@@ -209,6 +209,8 @@ public final class ManagedAssistantBootstrapService {
             return .serverError(statusCode: 0, detail: "Invalid URL configuration")
         case .decodingError(let message):
             return .unexpectedResponse(message)
+        case .notFound:
+            return .serverError(statusCode: 404, detail: "Not found")
         }
     }
 }

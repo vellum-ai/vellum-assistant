@@ -161,6 +161,115 @@ public final class BillingService {
         }
     }
 
+    /// Fetch the current user's referral code.
+    /// Throws `PlatformAPIError.notFound` if the user has no referral code yet.
+    public func getReferralCode() async throws -> ReferralCodeResponse {
+        let urlString = "\(AuthService.shared.baseURL)/v1/referral-codes/me/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
+            throw PlatformAPIError.authenticationRequired
+        }
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request GET referral-codes/me/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        if statusCode == 404 {
+            throw PlatformAPIError.notFound
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(ReferralCodeResponse.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// Create a referral code for the current user.
+    public func createReferralCode() async throws -> ReferralCodeResponse {
+        let urlString = "\(AuthService.shared.baseURL)/v1/referral-codes/me/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = "{}".data(using: .utf8)
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
+            throw PlatformAPIError.authenticationRequired
+        }
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request POST referral-codes/me/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(ReferralCodeResponse.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
     /// Create a top-up checkout session and return the Stripe checkout URL.
     public func createTopUpCheckout(amountUsd: String) async throws -> URL {
         let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/top-ups/checkout-session/"
