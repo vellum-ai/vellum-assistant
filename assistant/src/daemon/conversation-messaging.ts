@@ -335,6 +335,9 @@ export async function persistUserMessage(
   //     this turn so the LLM sees the image without waiting for storage to complete.
   //     These get replaced with ref blocks after storage (see below).
   const inlineAttachmentInputs: MessageAttachmentInput[] = [];
+  // All attachments (pre-stored or inline) that have a filePath and are images
+  // — needed so enrichMessageWithSourcePaths can add disk-path annotations.
+  const sourcePathInputs: MessageAttachmentInput[] = [];
   const liveAttachmentBlocks: ContentBlock[] = [];
   for (const a of attachments) {
     if (a.id && attachmentExists(a.id)) {
@@ -347,6 +350,15 @@ export async function persistUserMessage(
           a.extractedText,
         ),
       );
+      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+        sourcePathInputs.push({
+          id: a.id,
+          filename: a.filename,
+          mimeType: a.mimeType,
+          data: "",
+          filePath: a.filePath,
+        });
+      }
     } else if (a.data) {
       const input: MessageAttachmentInput = {
         id: a.id,
@@ -357,6 +369,7 @@ export async function persistUserMessage(
         filePath: a.filePath,
       };
       inlineAttachmentInputs.push(input);
+      sourcePathInputs.push(input);
       const [block] = attachmentsToContentBlocks([input]);
       liveAttachmentBlocks.push(block);
     }
@@ -372,7 +385,7 @@ export async function persistUserMessage(
   };
   const llmMessage = enrichMessageWithSourcePaths(
     liveMessage,
-    inlineAttachmentInputs,
+    sourcePathInputs,
   );
   log.info(
     {
@@ -457,10 +470,16 @@ export async function persistUserMessage(
       const a = attachments[i];
       try {
         if (a.id && attachmentExists(a.id)) {
-          linkAttachmentToMessage(persistedUserMessage.id, a.id, i);
+          // Use the returned scoped ID — linkAttachmentToMessage may clone the
+          // attachment row when it's already linked to a different conversation.
+          const scopedId = linkAttachmentToMessage(
+            persistedUserMessage.id,
+            a.id,
+            i,
+          );
           storedRefBlocks.push(
             makeAttachmentRefBlock(
-              a.id,
+              scopedId,
               a.mimeType,
               a.filename,
               a.sizeBytes ?? 0,
@@ -529,7 +548,7 @@ export async function persistUserMessage(
     const refMessage: Message = { role: "user", content: persistedContent };
     ctx.messages[ctx.messages.length - 1] = enrichMessageWithSourcePaths(
       refMessage,
-      inlineAttachmentInputs,
+      sourcePathInputs,
     );
 
     // Sync the updated message (with attachment refs) to the disk view.
