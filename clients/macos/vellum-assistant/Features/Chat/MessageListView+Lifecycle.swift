@@ -168,6 +168,9 @@ extension MessageListView {
     func handleContainerWidthChanged() {
         guard containerWidth > 0, abs(containerWidth - scrollState.lastHandledContainerWidth) > 2 else { return }
         scrollState.lastHandledContainerWidth = containerWidth
+        // Cell heights are width-dependent (text reflows). Invalidate so cells
+        // re-measure at their natural height on the next layout pass.
+        scrollState.cellHeightCache.removeAll()
         resizeScrollTask?.cancel()
         resizeScrollTask = Task { @MainActor [scrollState] in
             scrollState.beginStabilization(.resize)

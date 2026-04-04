@@ -184,6 +184,18 @@ struct MessageListContentView: View, Equatable {
                 let cellActivePendingRequestId: String? =
                     (message.confirmation != nil || !message.toolCalls.isEmpty)
                     ? state.activePendingRequestId : nil
+                // A cell is height-cacheable when its rendered size is stable:
+                // not streaming, no pending confirmation, all tool calls done,
+                // not the latest assistant cell (may still grow), not highlighted.
+                // Exempt cells always re-measure; cached cells get a definite
+                // frame(height:) so LazyVStack.sizeThatFits returns immediately
+                // without recursing into the cell subtree.
+                let isCellHeightCacheable = !message.isStreaming
+                    && message.confirmation?.state != .pending
+                    && message.toolCalls.allSatisfy { $0.isComplete }
+                    && !isLatestAssistant
+                    && highlightedMessageId != message.id
+                let cachedHeight = isCellHeightCacheable ? scrollState.cellHeightCache[message.id] : nil
                 MessageCellView(
                     message: message,
                     showTimestamp: state.showTimestamp.contains(message.id),
@@ -226,6 +238,20 @@ struct MessageListContentView: View, Equatable {
                     providerCatalogHash: providerCatalogHash
                 )
                 .equatable()
+                // Measure natural content height BEFORE applying the cached frame
+                // so the cache is always updated from unconstrained layout, not
+                // from the pinned frame. This makes the cache self-correcting:
+                // if anything changes cell height (window resize, showTimestamp
+                // toggle, dismissedDocumentSurfaceIds) the next layout pass
+                // writes the correct height and the pinned frame updates on the
+                // following render.
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { height in
+                    guard isCellHeightCacheable, height > 0 else { return }
+                    scrollState.cellHeightCache[message.id] = height
+                }
+                .frame(height: cachedHeight)
             }
 
             ForEach(state.orphanSubagents) { subagent in
