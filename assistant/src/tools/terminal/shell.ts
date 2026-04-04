@@ -261,11 +261,9 @@ class ShellTool implements Tool {
       "Executing shell command",
     );
 
-    // Resolve sandbox config early - needed both for proxy env and command wrapping.
-    const sandboxConfig =
-      context.sandboxOverride != null
-        ? { ...config.sandbox, enabled: context.sandboxOverride }
-        : config.sandbox;
+    // The assistant runs exclusively in Docker or platform-managed
+    // environments where the container provides isolation.
+    const sandboxConfig = { enabled: false } as const;
 
     // Acquire proxy session if proxied mode is requested.
     // `getOrStartSession` serializes per-conversation so concurrent proxied
