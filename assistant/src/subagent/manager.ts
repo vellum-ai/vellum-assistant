@@ -226,6 +226,7 @@ export class SubagentManager {
     // Mark conversation as having no direct client — it routes through parent.
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
+    conversation.setIsSubagent(true);
 
     // Apply role-based tool filter if the role defines one.
     if (roleConfig.allowedTools) {

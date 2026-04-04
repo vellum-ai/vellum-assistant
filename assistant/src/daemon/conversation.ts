@@ -175,6 +175,7 @@ export class Conversation {
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
+  /** @internal */ isSubagent = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -545,6 +546,10 @@ export class Conversation {
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
     this.subagentAllowedTools = tools;
+  }
+
+  setIsSubagent(value: boolean): void {
+    this.isSubagent = value;
   }
 
   isProcessing(): boolean {
