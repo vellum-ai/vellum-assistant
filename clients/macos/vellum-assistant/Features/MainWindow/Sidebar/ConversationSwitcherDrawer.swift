@@ -78,6 +78,10 @@ struct ConversationSwitcherDrawer: View {
             onDragStart: {
                 sidebar.beginConversationDrag(conversation.id)
             },
+            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation && conversation.kind != .private ? {
+                selectConversation(conversation)
+                Task<Void, Never> { await conversationManager.analyzeActiveConversation() }
+            } : nil,
             onOpenInNewWindow: conversation.conversationId != nil ? {
                 AppDelegate.shared?.threadWindowManager?.openThread(
                     conversationLocalId: conversation.id,
