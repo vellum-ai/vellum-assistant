@@ -490,7 +490,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
 // ---------------------------------------------------------------------------
 
 describe("trust-gating via channel capabilities", () => {
-  test("vellum channel with macos interface skips injection (happy path)", () => {
+  test("vellum channel with macos interface injects macOS guidance", () => {
     const caps = resolveChannelCapabilities("vellum", "macos");
     const message: Message = {
       role: "user",
@@ -499,8 +499,14 @@ describe("trust-gating via channel capabilities", () => {
 
     const result = injectChannelCapabilityContext(message, caps);
 
-    // Happy path: message returned unchanged
-    expect(result).toBe(message);
+    // macOS clients now get osascript guidance injected
+    expect(result).not.toBe(message);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).toContain("client_is_macos: true");
+    expect(injected).toContain("osascript");
+    expect(injected).toContain("host_bash");
+    // No channel constraints — full desktop capabilities
+    expect(injected).not.toContain("CHANNEL CONSTRAINTS");
   });
 
   test("non-dashboard channel adds constraint rules preventing UI references", () => {
