@@ -25,9 +25,10 @@ let package = Package(
         // iOS executable product removed — use ios/vellum-assistant-ios.xcodeproj instead.
     ],
     dependencies: [
+        .package(url: "https://github.com/apple/containerization.git", from: "0.1.0"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.0.0"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.0.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
     ],
     targets: [
         .target(
@@ -56,9 +57,10 @@ let package = Package(
             name: "VellumAssistantLib",
             dependencies: [
                 "VellumAssistantShared",
-                "Sparkle",
+                .product(name: "Containerization", package: "containerization"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
+                "Sparkle",
             ],
             path: "macos/vellum-assistant",
             exclude: ["Resources/Info.plist", "Resources/VellumDocument.icns"],
