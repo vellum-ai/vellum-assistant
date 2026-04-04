@@ -231,10 +231,10 @@ struct ChatBubble: View, Equatable {
 
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
-        // Flattened modifier chain: single padding (was two), no inner frame
-        // (redundant with the outer), and background + border combined into
-        // one modifier so the border overlay lives in the background layer
-        // outside the content measurement path.
+        // Single padding, inner frame for error full-width expansion,
+        // and background + border combined into one modifier so the
+        // border lives in the background layer outside the content
+        // measurement path.
         return content()
             .padding(isPlainAssistant
                 ? EdgeInsets()
