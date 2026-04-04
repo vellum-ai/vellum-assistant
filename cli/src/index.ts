@@ -4,6 +4,7 @@ import cliPkg from "../package.json";
 import { backup } from "./commands/backup";
 import { clean } from "./commands/clean";
 import { client } from "./commands/client";
+import { events } from "./commands/events";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { message } from "./commands/message";
@@ -34,6 +35,7 @@ const commands = {
   backup,
   clean,
   client,
+  events,
   hatch,
   login,
   logout,
@@ -64,6 +66,7 @@ function printHelp(): void {
   console.log("  backup   Export a backup of a running assistant");
   console.log("  clean    Kill orphaned vellum processes");
   console.log("  client   Connect to a hatched assistant");
+  console.log("  events   Stream events from a running assistant");
   console.log("  hatch    Create a new assistant instance");
   console.log("  login    Log in to the Vellum platform");
   console.log("  logout   Log out of the Vellum platform");

@@ -40,6 +40,7 @@ export interface RequestOpts {
   timeout?: number;
   signal?: AbortSignal;
   headers?: Record<string, string>;
+  query?: Record<string, string>;
 }
 
 export class AssistantClient {
@@ -104,6 +105,61 @@ export class AssistantClient {
     return this.request("GET", urlPath, undefined, opts);
   }
 
+  /**
+   * Subscribe to an SSE endpoint and yield parsed JSON objects from `data:` lines.
+   * Automatically sets `Accept: text/event-stream` and skips heartbeat comments.
+   */
+  async *stream<T = unknown>(
+    urlPath: string,
+    opts?: RequestOpts,
+  ): AsyncGenerator<T> {
+    const response = await this.get(urlPath, {
+      ...opts,
+      headers: { Accept: "text/event-stream", ...opts?.headers },
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(
+        `HTTP ${response.status}: ${body || response.statusText}`,
+      );
+    }
+
+    if (!response.body) {
+      throw new Error("No response body received.");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    for await (const chunk of response.body) {
+      buffer += decoder.decode(chunk, { stream: true });
+
+      let boundary: number;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+
+        if (!frame.trim() || frame.startsWith(":")) continue;
+
+        let data: string | undefined;
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("data: ")) {
+            data = line.slice(6);
+          }
+        }
+
+        if (!data) continue;
+
+        try {
+          yield JSON.parse(data) as T;
+        } catch {
+          // Skip malformed JSON
+        }
+      }
+    }
+  }
+
   /** POST request to the gateway with a JSON body. Auth headers are added automatically. */
   async post(
     urlPath: string,
@@ -128,7 +184,10 @@ export class AssistantClient {
     body: unknown | undefined,
     opts?: RequestOpts,
   ): Promise<Response> {
-    const url = `${this.runtimeUrl}/v1/assistants/${this._assistantId}${urlPath}`;
+    const qs = opts?.query
+      ? `?${new URLSearchParams(opts.query).toString()}`
+      : "";
+    const url = `${this.runtimeUrl}/v1/assistants/${this._assistantId}${urlPath}${qs}`;
 
     const headers: Record<string, string> = { ...opts?.headers };
     if (this.token) {
