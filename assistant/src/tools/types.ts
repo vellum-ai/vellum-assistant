@@ -224,6 +224,16 @@ export interface ToolExecutionResult {
    * approval flow transparently.
    */
   cesApprovalRequired?: ApprovalRequired;
+  /**
+   * When present, requests the conversation layer to schedule a check-in
+   * after the specified delay. Used by background_tool_control to schedule
+   * periodic status checks on deferred tool executions.
+   */
+  scheduleCheckIn?: {
+    delayMs: number;
+    executionId: string;
+    reason: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +292,12 @@ export interface Tool {
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
+  /**
+   * When true, this tool is exempt from the deferral threshold — it will
+   * always block until completion rather than being sent to the background.
+   * Used for tools that must return a real result (e.g. background_tool_control).
+   */
+  deferralExempt?: boolean;
   getDefinition(): ToolDefinition;
   execute(
     input: Record<string, unknown>,
