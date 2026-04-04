@@ -230,12 +230,11 @@ export function requestReextract(
       )
       .run();
 
-    // Resolve scope and enqueue with fullReextract flag
+    // Resolve scope and enqueue re-extraction
     const scopeId = getConversationMemoryScopeId(conversationId);
     const jobId = enqueueMemoryJob("graph_extract", {
       conversationId,
       scopeId,
-      fullReextract: true,
     });
     jobIds.push(jobId);
 
