@@ -122,6 +122,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "referral-codes",
+      "scope": "macos",
+      "key": "referral-codes",
+      "label": "Referral Codes",
+      "description": "Show the referral invite link and stats panel on the Billing tab in Settings",
+      "defaultEnabled": false
+    },
+    {
       "id": "managed-sign-in",
       "scope": "macos",
       "key": "managed-sign-in",
