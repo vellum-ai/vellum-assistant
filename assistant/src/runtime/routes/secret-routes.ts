@@ -29,6 +29,7 @@ import {
   listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
+import { getInjectionRegistryEntry } from "../../tools/credentials/injection-registry.js";
 import {
   assertMetadataWritable,
   deleteCredentialMetadata,
@@ -259,7 +260,8 @@ export async function handleAddSecret(
             500,
           );
         }
-        upsertCredentialMetadata(service, field, {});
+        const registryEntry = getInjectionRegistryEntry(service, field);
+        upsertCredentialMetadata(service, field, registryEntry ?? {});
         await syncManualTokenConnection(service);
         if (service === "vellum" && field === "platform_base_url") {
           setPlatformBaseUrl(effectiveValue);
