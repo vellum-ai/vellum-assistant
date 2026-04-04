@@ -5,6 +5,7 @@
  * agent loop that produces a structured self-assessment.
  */
 
+import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   addMessage,
   createConversation,
@@ -12,7 +13,6 @@ import {
   getMessages,
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
