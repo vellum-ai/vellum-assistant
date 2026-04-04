@@ -150,7 +150,7 @@ describe("FileListTool", () => {
     const lines = result.content.split("\n");
     // Directory first with trailing /
     expect(lines[0]).toBe("src/");
-    // Files after, with size info
+    // Files after (alphabetical), with size info
     expect(lines[1]).toMatch(/^index\.ts\s+\d+\s*B$/);
     expect(lines[2]).toMatch(/^README\.md\s+\d+\s*B$/);
   });
