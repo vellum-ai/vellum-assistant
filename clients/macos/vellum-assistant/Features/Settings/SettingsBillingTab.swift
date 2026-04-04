@@ -21,9 +21,7 @@ struct SettingsBillingTab: View {
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
-    @State private var inviteCode: String = ""
     @State private var isReferralCodesEnabled: Bool = false
-    private var devModeManager: DevModeManager { DevModeManager.shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -32,9 +30,6 @@ struct SettingsBillingTab: View {
                 addFundsSkeleton
             } else if !topUpAmounts.isEmpty {
                 addFundsCard
-            }
-            if devModeManager.isDevMode {
-                inviteCodeCard
             }
             if isReferralCodesEnabled {
                 SettingsBillingReferralCard()
@@ -220,33 +215,6 @@ struct SettingsBillingTab: View {
                     Text(topUpError)
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.systemNegativeStrong)
-                }
-            }
-        }
-    }
-
-    // MARK: - Invite Code Card
-
-    private var inviteCodeCard: some View {
-        SettingsCard(title: "Invite Code") {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Code")
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    VTextField(
-                        placeholder: "Enter invite code",
-                        text: $inviteCode
-                    )
-                    .frame(maxWidth: 200)
-                }
-
-                VButton(
-                    label: "Submit",
-                    style: .primary,
-                    isDisabled: inviteCode.isEmpty
-                ) {
-                    // No backend connection yet
                 }
             }
         }
