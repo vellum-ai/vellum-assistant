@@ -2494,10 +2494,10 @@ jobs:
 
           if [ "$ARM_RESULT" = "success" ]; then
             HEADER="✅ Desktop DMG Ready — v${VERSION}"
-            BODY=$(printf 'The staging Desktop DMG has finished building and is available for testing.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s` (staging)\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
+            BODY=$(printf 'The staging Desktop DMG has finished building and is available for testing.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s`\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
           else
             HEADER="❌ Desktop DMG Build Failed — v${VERSION}"
-            BODY=$(printf 'The staging Desktop DMG build failed.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s` (staging)\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
+            BODY=$(printf 'The staging Desktop DMG build failed.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s`\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
           fi
 
           BLOCKS="[]"
@@ -2655,7 +2655,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
