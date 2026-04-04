@@ -359,10 +359,7 @@ struct ChatBubble: View, Equatable {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
-                // Flatten the render tree into a single compositing layer to reduce
-                // the number of CALayers the WindowServer must composite per message.
-                // Skipped during streaming to avoid re-compositing on every token delta.
-                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
+                .compositingGroup()
                 .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
         .onAppear { recomputeInterleavedContentCache() }
@@ -613,18 +610,6 @@ final class SegmentCacheEntry: NSObject {
     init(_ segments: [MarkdownSegment]) { self.segments = segments }
 }
 
-/// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.
-private struct ConditionalCompositingGroup: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content.compositingGroup()
-        } else {
-            content
-        }
-    }
-}
 
 // MARK: - Avatar Wiggle Modifier
 
