@@ -56,6 +56,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationClient: ConversationClientProtocol
     private let conversationForkClient: any ConversationForkClientProtocol
     private let conversationDetailClient: any ConversationDetailClientProtocol
+    private let conversationAnalysisClient: ConversationAnalysisClientProtocol
     private let conversationRestorer: ConversationRestorer
 
     // MARK: - Notification Catch-Up
@@ -158,6 +159,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationClient: ConversationClientProtocol = ConversationClient(),
         conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
+        conversationAnalysisClient: ConversationAnalysisClientProtocol = ConversationAnalysisClient(),
         isFirstLaunch: Bool = false
     ) {
         Self.migrateStorageKeysIfNeeded()
@@ -166,6 +168,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         self.conversationClient = conversationClient
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient
+        self.conversationAnalysisClient = conversationAnalysisClient
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         self.selectionStore = ConversationSelectionStore(listStore: listStore)
 
@@ -876,6 +879,33 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     private func latestPersistedTipDaemonMessageId(for conversationLocalId: UUID) -> String? {
         selectionStore.chatViewModels[conversationLocalId]?.latestPersistedTipDaemonMessageId
+    }
+
+    // MARK: - Analyze
+
+    func analyzeActiveConversation() async {
+        guard let conversation = activeConversation,
+              let conversationId = conversation.conversationId else {
+            activeViewModel?.errorText = "Send a message before analyzing this conversation."
+            return
+        }
+        guard conversation.kind != .private else {
+            activeViewModel?.errorText = "Private conversations cannot be analyzed."
+            return
+        }
+        activeViewModel?.errorText = nil
+        guard let analysisConversation = await conversationAnalysisClient.analyzeConversation(
+            conversationId: conversationId
+        ) else {
+            activeViewModel?.errorText = "Failed to create conversation analysis."
+            return
+        }
+        let resolved = await resolveConversationSummary(for: analysisConversation)
+        guard let localId = upsertConversation(from: resolved, isArchived: false) else {
+            activeViewModel?.errorText = "Failed to open analysis conversation."
+            return
+        }
+        selectConversation(id: localId)
     }
 
     // MARK: - Group CRUD (Delegated)
