@@ -374,7 +374,6 @@ extension MessageListView {
             subagentDetailStore: subagentDetailStore,
             assistantStatusText: assistantStatusText,
             scrollState: scrollState,
-            appearance: appearance,
             onConfirmationAllow: onConfirmationAllow,
             onConfirmationDeny: onConfirmationDeny,
             onAlwaysAllow: onAlwaysAllow,

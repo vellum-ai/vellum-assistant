@@ -71,7 +71,8 @@ final class MessageInspectorViewTests: XCTestCase {
             latencyMs: 42,
             reason: nil,
             topCandidates: [],
-            injectedText: nil
+            injectedText: nil,
+            queryContext: nil
         )
         state.finishLoading(with: .loaded(makeResponse(logs: [
             makeLog(id: "a", createdAt: 1_000)
@@ -103,7 +104,8 @@ final class MessageInspectorViewTests: XCTestCase {
             latencyMs: 5,
             reason: nil,
             topCandidates: [],
-            injectedText: nil
+            injectedText: nil,
+            queryContext: nil
         )
         state.finishLoading(with: .loaded(makeResponse(logs: [
             makeLog(id: "a", createdAt: 1_000)
