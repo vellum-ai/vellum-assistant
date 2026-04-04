@@ -98,45 +98,80 @@ async function downloadAndExtract(
  * Falls back to Homebrew if available (e.g. admin users who prefer it).
  */
 async function installDockerToolchain(): Promise<void> {
-  // Try Homebrew first if available — it handles updates and dependencies.
-  let hasBrew = false;
-  try {
-    await execOutput("brew", ["--version"]);
-    hasBrew = true;
-  } catch {
-    // brew not found
-  }
+  const isMac = platform() === "darwin";
+  const isLinux = platform() === "linux";
 
-  if (hasBrew) {
-    console.log("🐳 Docker not found. Installing via Homebrew...");
+  // Try Homebrew first if available (macOS only) — it handles updates and dependencies.
+  if (isMac) {
+    let hasBrew = false;
     try {
-      await exec("brew", ["install", "colima", "docker"]);
-      return;
+      await execOutput("brew", ["--version"]);
+      hasBrew = true;
     } catch {
-      console.log(
-        "  ⚠ Homebrew install failed, falling back to direct binary download...",
-      );
+      // brew not found
+    }
+
+    if (hasBrew) {
+      console.log("🐳 Docker not found. Installing via Homebrew...");
+      try {
+        await exec("brew", ["install", "colima", "docker"]);
+        return;
+      } catch {
+        console.log(
+          "  ⚠ Homebrew install failed, falling back to direct binary download...",
+        );
+      }
     }
   }
 
   // Direct binary install — no sudo required.
-  console.log(
-    "🐳 Docker not found. Installing Docker, Colima, and Lima to ~/.local/bin/...",
-  );
-
   mkdirSync(LOCAL_BIN_DIR, { recursive: true });
 
   const cpuArch = releaseArch();
-  const isMac = platform() === "darwin";
+
+  if (isLinux) {
+    // On Linux, Docker runs natively — only need the Docker CLI.
+    console.log(
+      "🐳 Docker not found. Installing Docker CLI to ~/.local/bin/...",
+    );
+
+    const dockerArch = cpuArch === "aarch64" ? "aarch64" : "x86_64";
+    const dockerTarUrl = `https://download.docker.com/linux/static/stable/${dockerArch}/docker-27.5.1.tgz`;
+    const dockerTmpDir = join(LOCAL_BIN_DIR, ".docker-tmp");
+    mkdirSync(dockerTmpDir, { recursive: true });
+    try {
+      await downloadAndExtract(dockerTarUrl, dockerTmpDir, "Docker CLI");
+      await exec("mv", [
+        join(dockerTmpDir, "docker", "docker"),
+        join(LOCAL_BIN_DIR, "docker"),
+      ]);
+      chmodSync(join(LOCAL_BIN_DIR, "docker"), 0o755);
+    } finally {
+      await exec("rm", ["-rf", dockerTmpDir]).catch(() => {});
+    }
+
+    if (!existsSync(join(LOCAL_BIN_DIR, "docker"))) {
+      throw new Error(
+        "docker binary not found after installation. Please install Docker manually: https://docs.docker.com/engine/install/",
+      );
+    }
+
+    console.log("  ✅ Docker CLI installed to ~/.local/bin/");
+    return;
+  }
 
   if (!isMac) {
     throw new Error(
-      "Automatic Docker installation is only supported on macOS. " +
+      "Automatic Docker installation is only supported on macOS and Linux. " +
         "Please install Docker manually: https://docs.docker.com/engine/install/",
     );
   }
 
-  // --- Docker CLI ---
+  console.log(
+    "🐳 Docker not found. Installing Docker, Colima, and Lima to ~/.local/bin/...",
+  );
+
+  // --- Docker CLI (macOS) ---
   // Docker publishes static binaries at download.docker.com.
   const dockerArch = cpuArch === "aarch64" ? "aarch64" : "x86_64";
   const dockerTarUrl = `https://download.docker.com/mac/static/stable/${dockerArch}/docker-27.5.1.tgz`;
@@ -223,13 +258,17 @@ async function ensureDockerInstalled(): Promise<void> {
   // Always add ~/.local/bin to PATH so previously installed binaries are found.
   ensureLocalBinOnPath();
 
-  // Check that docker, colima, and limactl are all available. If any is
-  // missing (e.g. partial install from a previous failure), re-run install.
+  const isLinux = platform() === "linux";
+
+  // On Linux, Docker runs natively — only need the docker CLI + daemon.
+  // On macOS, we also need Colima and Lima to provide a Linux VM.
   const toolchainComplete = await (async () => {
     try {
       await execOutput("docker", ["--version"]);
-      await execOutput("colima", ["version"]);
-      await execOutput("limactl", ["--version"]);
+      if (!isLinux) {
+        await execOutput("colima", ["version"]);
+        await execOutput("limactl", ["--version"]);
+      }
       return true;
     } catch {
       return false;
@@ -251,10 +290,19 @@ async function ensureDockerInstalled(): Promise<void> {
     }
   }
 
-  // Verify the Docker daemon is reachable; start Colima if it isn't.
+  // Verify the Docker daemon is reachable.
   try {
     await exec("docker", ["info"]);
   } catch {
+    // On Linux, the daemon must already be running (systemd, etc.).
+    if (isLinux) {
+      throw new Error(
+        "Docker daemon is not running. Please start it with 'sudo systemctl start docker' " +
+          "or ensure the Docker service is enabled.",
+      );
+    }
+
+    // On macOS, try starting Colima.
     let hasColima = false;
     try {
       await execOutput("colima", ["version"]);
@@ -700,11 +748,13 @@ export async function sleepContainers(
   }
 }
 
-/** Start existing stopped containers, starting Colima first if it isn't running. */
+/** Start existing stopped containers, starting Colima first if it isn't running (macOS only). */
 export async function wakeContainers(
   res: ReturnType<typeof dockerResourceNames>,
 ): Promise<void> {
-  await ensureColimaRunning();
+  if (platform() !== "linux") {
+    await ensureColimaRunning();
+  }
   for (const container of [
     res.assistantContainer,
     res.gatewayContainer,
