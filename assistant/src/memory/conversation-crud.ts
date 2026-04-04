@@ -108,7 +108,7 @@ export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 function cloneForkMessageMetadata(
   metadata: string | null,
-  sourceMessageId: string
+  sourceMessageId: string,
 ): string {
   if (!metadata) {
     return JSON.stringify({ forkSourceMessageId: sourceMessageId });
@@ -141,7 +141,7 @@ function cloneForkMessageMetadata(
  * callers with actual guardian trust should always supply a real context.
  */
 export function provenanceFromTrustContext(
-  ctx: TrustContext | null | undefined
+  ctx: TrustContext | null | undefined,
 ): Record<string, unknown> {
   if (!ctx) return { provenanceTrustClass: "unknown" };
   return {
@@ -241,18 +241,18 @@ export function createConversation(
     | string
     | {
         title?: string;
-        conversationType?: "standard" | "private" | "background";
+        conversationType?: "standard" | "private" | "background" | "scheduled";
         source?: string;
         scheduleJobId?: string;
         groupId?: string;
-      }
+      },
 ) {
   const db = getDb();
   const now = Date.now();
   const opts =
     typeof titleOrOpts === "string"
       ? { title: titleOrOpts }
-      : titleOrOpts ?? {};
+      : (titleOrOpts ?? {});
   const conversationType = opts.conversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
@@ -303,7 +303,7 @@ export function createConversation(
       ) {
         log.warn(
           { attempt, conversationId: id, code },
-          "createConversation: INSERT transient error, retrying"
+          "createConversation: INSERT transient error, retrying",
         );
         Bun.sleepSync(50 * (attempt + 1));
         continue;
@@ -320,7 +320,7 @@ export function createConversation(
         rawRun(
           "UPDATE conversations SET group_id = ? WHERE id = ?",
           groupId,
-          id
+          id,
         );
         break;
       } catch (err) {
@@ -331,7 +331,7 @@ export function createConversation(
         ) {
           log.warn(
             { attempt, conversationId: id, code },
-            "createConversation: group_id UPDATE transient error, retrying"
+            "createConversation: group_id UPDATE transient error, retrying",
           );
           Bun.sleepSync(50 * (attempt + 1));
           continue;
@@ -362,18 +362,18 @@ export function getConversation(id: string): ConversationRow | null {
  * (i.e. no other conversations still reference it).
  */
 export function countConversationsByScheduleJobId(
-  scheduleJobId: string
+  scheduleJobId: string,
 ): number {
   return (
     rawGet<{ c: number }>(
       "SELECT COUNT(*) AS c FROM conversations WHERE schedule_job_id = ?",
-      scheduleJobId
+      scheduleJobId,
     )?.c ?? 0
   );
 }
 
 export function getConversationType(
-  conversationId: string
+  conversationId: string,
 ): "standard" | "private" {
   const conv = getConversation(conversationId);
   const raw = conv?.conversationType;
@@ -394,7 +394,7 @@ export function getConversationGroupId(conversationId: string): string | null {
   ensureGroupMigration();
   const row = rawGet<{ group_id: string | null }>(
     "SELECT group_id FROM conversations WHERE id = ?",
-    conversationId
+    conversationId,
   );
   return row?.group_id ?? null;
 }
@@ -418,7 +418,7 @@ export function forkConversation(params: {
 
   if (sourceMessages.length === 0) {
     throw new UserError(
-      `Conversation ${conversationId} has no persisted messages to fork`
+      `Conversation ${conversationId} has no persisted messages to fork`,
     );
   }
 
@@ -429,7 +429,7 @@ export function forkConversation(params: {
 
   if (throughMessageId != null && copyBoundaryIndex === -1) {
     throw new UserError(
-      `Message ${throughMessageId} does not belong to conversation ${conversationId}`
+      `Message ${throughMessageId} does not belong to conversation ${conversationId}`,
     );
   }
 
@@ -437,8 +437,8 @@ export function forkConversation(params: {
     0,
     Math.min(
       sourceConversation.contextCompactedMessageCount,
-      sourceMessages.length
-    )
+      sourceMessages.length,
+    ),
   );
   const preserveSourceCompactionState =
     copyBoundaryIndex >= visibleWindowStartIndex;
@@ -532,7 +532,7 @@ export function forkConversation(params: {
         .orderBy(messageAttachments.position)
         .all();
       const uncachedAttachmentLinks = attachmentLinks.filter(
-        (link) => !attachmentIdMap.has(link.attachmentId)
+        (link) => !attachmentIdMap.has(link.attachmentId),
       );
       const stagingMessageId =
         uncachedAttachmentLinks.length > 0 ? uuid() : null;
@@ -568,7 +568,7 @@ export function forkConversation(params: {
         const scopedAttachmentId = linkAttachmentToMessage(
           stagingMessageId ?? forkedMessageId,
           link.attachmentId,
-          link.position
+          link.position,
         );
         attachmentIdMap.set(link.attachmentId, scopedAttachmentId);
       }
@@ -603,7 +603,7 @@ export function forkConversation(params: {
   const persistedFork = getConversation(forkedConversation.id);
   if (!persistedFork) {
     throw new Error(
-      `Failed to load forked conversation ${forkedConversation.id} after creation`
+      `Failed to load forked conversation ${forkedConversation.id} after creation`,
     );
   }
 
@@ -663,8 +663,8 @@ export function deleteConversation(id: string): DeletedMemoryIds {
           .where(
             and(
               eq(memoryEmbeddings.targetType, "segment"),
-              inArray(memoryEmbeddings.targetId, result.segmentIds)
-            )
+              inArray(memoryEmbeddings.targetId, result.segmentIds),
+            ),
           )
           .run();
       }
@@ -692,8 +692,8 @@ export function deleteConversation(id: string): DeletedMemoryIds {
           .where(
             and(
               eq(memoryEmbeddings.targetType, "summary"),
-              inArray(memoryEmbeddings.targetId, scopeSummaryIds)
-            )
+              inArray(memoryEmbeddings.targetId, scopeSummaryIds),
+            ),
           )
           .run();
         tx.delete(memorySummaries)
@@ -741,8 +741,8 @@ export function wipeConversation(id: string): WipeConversationResult {
     .where(
       and(
         eq(memorySummaries.scope, "conversation"),
-        eq(memorySummaries.scopeKey, id)
-      )
+        eq(memorySummaries.scopeKey, id),
+      ),
     )
     .all();
   const summaryIds = summaryRows.map((r) => r.id);
@@ -751,8 +751,8 @@ export function wipeConversation(id: string): WipeConversationResult {
       .where(
         and(
           eq(memoryEmbeddings.targetType, "summary"),
-          inArray(memoryEmbeddings.targetId, summaryIds)
-        )
+          inArray(memoryEmbeddings.targetId, summaryIds),
+        ),
       )
       .run();
     db.delete(memorySummaries)
@@ -826,7 +826,7 @@ export async function addMessage(
   role: string,
   content: string,
   metadata?: Record<string, unknown>,
-  opts?: { skipIndexing?: boolean }
+  opts?: { skipIndexing?: boolean },
 ) {
   const db = getDb();
   const messageId = uuid();
@@ -836,7 +836,7 @@ export async function addMessage(
     if (!result.success) {
       log.warn(
         { conversationId, messageId, issues: result.error.issues },
-        "Invalid message metadata, storing as-is"
+        "Invalid message metadata, storing as-is",
       );
     }
   }
@@ -871,8 +871,8 @@ export async function addMessage(
             .where(
               and(
                 eq(conversations.id, conversationId),
-                isNull(conversations.originChannel)
-              )
+                isNull(conversations.originChannel),
+              ),
             )
             .run();
         }
@@ -891,7 +891,7 @@ export async function addMessage(
       ) {
         log.warn(
           { attempt, conversationId, code: errCode },
-          "addMessage: transient SQLite error, retrying"
+          "addMessage: transient SQLite error, retrying",
         );
         await Bun.sleep(50 * (attempt + 1));
         continue;
@@ -930,12 +930,12 @@ export async function addMessage(
           provenanceTrustClass,
           automated,
         },
-        config.memory
+        config.memory,
       );
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
-        "Failed to index message for memory"
+        "Failed to index message for memory",
       );
     }
   }
@@ -950,7 +950,7 @@ export async function addMessage(
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
-        "Failed to project assistant message for attention tracking"
+        "Failed to project assistant message for attention tracking",
       );
     }
   }
@@ -977,7 +977,7 @@ export interface PaginatedMessagesResult {
 export function getMessagesPaginated(
   conversationId: string,
   limit: number | undefined,
-  beforeTimestamp?: number
+  beforeTimestamp?: number,
 ): PaginatedMessagesResult {
   const db = getDb();
 
@@ -1021,7 +1021,7 @@ export function getMessagesPaginated(
 
 export function getLastAssistantTimestampBefore(
   conversationId: string,
-  beforeTimestamp: number
+  beforeTimestamp: number,
 ): number {
   const db = getDb();
   const row = db
@@ -1031,8 +1031,8 @@ export function getLastAssistantTimestampBefore(
       and(
         eq(messages.conversationId, conversationId),
         eq(messages.role, "assistant"),
-        lt(messages.createdAt, beforeTimestamp)
-      )
+        lt(messages.createdAt, beforeTimestamp),
+      ),
     )
     .orderBy(desc(messages.createdAt))
     .limit(1)
@@ -1043,7 +1043,7 @@ export function getLastAssistantTimestampBefore(
 /** Fetch a single message by ID, optionally scoped to a specific conversation. */
 export function getMessageById(
   messageId: string,
-  conversationId?: string
+  conversationId?: string,
 ): MessageRow | null {
   const db = getDb();
   const conditions = [eq(messages.id, messageId)];
@@ -1061,7 +1061,7 @@ export function getMessageById(
 export function updateConversationTitle(
   id: string,
   title: string,
-  isAutoTitle?: number
+  isAutoTitle?: number,
 ): void {
   const db = getDb();
   const set: Record<string, unknown> = { title, updatedAt: Date.now() };
@@ -1079,7 +1079,7 @@ export function updateConversationUsage(
   id: string,
   totalInputTokens: number,
   totalOutputTokens: number,
-  totalEstimatedCost: number
+  totalEstimatedCost: number,
 ): void {
   const db = getDb();
   db.update(conversations)
@@ -1096,7 +1096,7 @@ export function updateConversationUsage(
 export function updateConversationContextWindow(
   id: string,
   contextSummary: string,
-  contextCompactedMessageCount: number
+  contextCompactedMessageCount: number,
 ): void {
   const db = getDb();
   db.update(conversations)
@@ -1146,7 +1146,7 @@ export function clearAll(): { conversations: number; messages: number } {
   } catch (err) {
     log.warn(
       { err },
-      "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed"
+      "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed",
     );
     rawExec("DROP TRIGGER IF EXISTS messages_fts_ai");
     rawExec("DROP TRIGGER IF EXISTS messages_fts_ad");
@@ -1162,7 +1162,7 @@ export function clearAll(): { conversations: number; messages: number } {
     `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
     uuid(),
     "conversations_clear_all",
-    Date.now()
+    Date.now(),
   );
 
   // Rebuild corrupted FTS tables and restore triggers after all base-table
@@ -1172,16 +1172,16 @@ export function clearAll(): { conversations: number; messages: number } {
   if (messagesFtsCorrupted) {
     rawExec("DROP TABLE IF EXISTS messages_fts");
     rawExec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, content)`
+      `CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, content)`,
     );
     rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`
+      `CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
     );
     rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`
+      `CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`,
     );
     rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`
+      `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
     );
   }
 
@@ -1206,8 +1206,8 @@ export function deleteLastExchange(conversationId: string): number {
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        eq(messages.role, "user")
-      )
+        eq(messages.role, "user"),
+      ),
     )
     .orderBy(sql`rowid DESC`)
     .limit(1)
@@ -1221,7 +1221,7 @@ export function deleteLastExchange(conversationId: string): number {
   const rowidSubquery = sql`(SELECT rowid FROM messages WHERE id = ${lastUserMsg.id})`;
   const condition = and(
     eq(messages.conversationId, conversationId),
-    sql`rowid >= ${rowidSubquery}`
+    sql`rowid >= ${rowidSubquery}`,
   );
 
   const [{ deleted }] = db
@@ -1258,7 +1258,10 @@ export function deleteLastExchange(conversationId: string): number {
       .where(eq(messages.conversationId, conversationId))
       .get();
     tx.update(conversations)
-      .set({ updatedAt: Date.now(), lastMessageAt: maxResult?.maxCreatedAt ?? null })
+      .set({
+        updatedAt: Date.now(),
+        lastMessageAt: maxResult?.maxCreatedAt ?? null,
+      })
       .where(eq(conversations.id, conversationId))
       .run();
   });
@@ -1288,7 +1291,7 @@ export interface WipeConversationResult extends DeletedMemoryIds {
  */
 export function updateMessageContent(
   messageId: string,
-  newContent: string
+  newContent: string,
 ): void {
   const db = getDb();
   db.update(messages)
@@ -1325,7 +1328,7 @@ export function updateMessageMetadata(
  */
 export function relinkAttachments(
   fromMessageIds: string[],
-  toMessageId: string
+  toMessageId: string,
 ): number {
   if (fromMessageIds.length === 0) return 0;
   const db = getDb();
@@ -1402,7 +1405,9 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     // Recalculate lastMessageAt after deletion.
     if (msgRow) {
       const maxResult = tx
-        .select({ maxCreatedAt: sql<number | null>`MAX(${messages.createdAt})` })
+        .select({
+          maxCreatedAt: sql<number | null>`MAX(${messages.createdAt})`,
+        })
         .from(messages)
         .where(eq(messages.conversationId, msgRow.conversationId))
         .get();
@@ -1418,8 +1423,8 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
         .where(
           and(
             eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds)
-          )
+            inArray(memoryEmbeddings.targetId, result.segmentIds),
+          ),
         )
         .run();
     }
@@ -1432,7 +1437,7 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
 
 export function setConversationOriginChannelIfUnset(
   conversationId: string,
-  channel: ChannelId
+  channel: ChannelId,
 ): void {
   const db = getDb();
   db.update(conversations)
@@ -1440,14 +1445,14 @@ export function setConversationOriginChannelIfUnset(
     .where(
       and(
         eq(conversations.id, conversationId),
-        isNull(conversations.originChannel)
-      )
+        isNull(conversations.originChannel),
+      ),
     )
     .run();
 }
 
 export function getConversationOriginChannel(
-  conversationId: string
+  conversationId: string,
 ): ChannelId | null {
   const db = getDb();
   const row = db
@@ -1460,7 +1465,7 @@ export function getConversationOriginChannel(
 
 export function setConversationOriginInterfaceIfUnset(
   conversationId: string,
-  interfaceId: InterfaceId
+  interfaceId: InterfaceId,
 ): void {
   const db = getDb();
   db.update(conversations)
@@ -1468,14 +1473,14 @@ export function setConversationOriginInterfaceIfUnset(
     .where(
       and(
         eq(conversations.id, conversationId),
-        isNull(conversations.originInterface)
-      )
+        isNull(conversations.originInterface),
+      ),
     )
     .run();
 }
 
 export function getConversationOriginInterface(
-  conversationId: string
+  conversationId: string,
 ): InterfaceId | null {
   const db = getDb();
   const row = db
@@ -1495,13 +1500,13 @@ export function getConversationOriginInterface(
  * conversation itself isn't a desktop-origin private conversation).
  */
 export function getConversationRecentProvenanceTrustClass(
-  conversationId: string
+  conversationId: string,
 ): "guardian" | "trusted_contact" | "unknown" | undefined {
   const row = rawGet<{ metadata: string | null }>(
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
      ORDER BY created_at DESC LIMIT 1`,
-    conversationId
+    conversationId,
   );
   if (!row?.metadata) return undefined;
   try {
@@ -1522,7 +1527,7 @@ export function batchSetDisplayOrders(
     displayOrder: number | null;
     isPinned: boolean;
     groupId?: string | null;
-  }>
+  }>,
 ): void {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
@@ -1539,7 +1544,7 @@ export function batchSetDisplayOrders(
           safeGroupId !== null &&
           !rawGet<{ id: string }>(
             "SELECT id FROM conversation_groups WHERE id = ?",
-            safeGroupId
+            safeGroupId,
           )
         ) {
           safeGroupId = null;
@@ -1549,7 +1554,7 @@ export function batchSetDisplayOrders(
           update.displayOrder,
           safeGroupId === "system:pinned" ? 1 : 0,
           safeGroupId,
-          update.id
+          update.id,
         );
       } else {
         // Old client: no groupId in payload
@@ -1560,7 +1565,7 @@ export function batchSetDisplayOrders(
           rawRun(
             "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
             update.displayOrder,
-            update.id
+            update.id,
           );
         } else {
           // Restore system group from source/conversationType when old clients
@@ -1577,7 +1582,7 @@ export function batchSetDisplayOrders(
              ELSE group_id END
              WHERE id = ?`,
             update.displayOrder,
-            update.id
+            update.id,
           );
         }
       }
@@ -1590,7 +1595,7 @@ export function batchSetDisplayOrders(
 }
 
 export function getDisplayMetaForConversations(
-  conversationIds: string[]
+  conversationIds: string[],
 ): Map<
   string,
   { displayOrder: number | null; isPinned: boolean; groupId: string | null }
@@ -1609,7 +1614,7 @@ export function getDisplayMetaForConversations(
       group_id: string | null;
     }>(
       "SELECT display_order, is_pinned, group_id FROM conversations WHERE id = ?",
-      id
+      id,
     );
     result.set(id, {
       displayOrder: row?.display_order ?? null,
@@ -1638,7 +1643,7 @@ function isToolResultMessage(role: string, content: string): boolean {
       (block: unknown) =>
         block != null &&
         typeof block === "object" &&
-        (block as Record<string, unknown>).type === "tool_result"
+        (block as Record<string, unknown>).type === "tool_result",
     );
   } catch {
     return false;
@@ -1658,7 +1663,7 @@ function isToolResultMessage(role: string, content: string): boolean {
  */
 export function getTurnTimeBounds(
   conversationId: string,
-  messageCreatedAt: number
+  messageCreatedAt: number,
 ): { startTime: number; endTime: number } | null {
   const db = getDb();
 
@@ -1680,8 +1685,8 @@ export function getTurnTimeBounds(
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        sql`rowid <= ${rowidSubquery}`
-      )
+        sql`rowid <= ${rowidSubquery}`,
+      ),
     )
     .orderBy(sql`rowid DESC`)
     .limit(50)
@@ -1712,8 +1717,8 @@ export function getTurnTimeBounds(
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        sql`rowid > ${forwardRowidSubquery}`
-      )
+        sql`rowid > ${forwardRowidSubquery}`,
+      ),
     )
     .orderBy(sql`rowid ASC`)
     .limit(50)
@@ -1754,8 +1759,8 @@ export function getTurnTimeBounds(
         and(
           eq(llmRequestLogs.conversationId, conversationId),
           gte(llmRequestLogs.createdAt, startTime),
-          lte(llmRequestLogs.createdAt, hardCeiling)
-        )
+          lte(llmRequestLogs.createdAt, hardCeiling),
+        ),
       )
       .orderBy(desc(llmRequestLogs.createdAt))
       .limit(1)
@@ -1803,8 +1808,8 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     .where(
       and(
         eq(messages.conversationId, target.conversationId),
-        lte(messages.createdAt, target.createdAt)
-      )
+        lte(messages.createdAt, target.createdAt),
+      ),
     )
     .orderBy(desc(messages.createdAt))
     .limit(50)
@@ -1841,8 +1846,8 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     .where(
       and(
         eq(messages.conversationId, target.conversationId),
-        gt(messages.createdAt, target.createdAt)
-      )
+        gt(messages.createdAt, target.createdAt),
+      ),
     )
     .orderBy(asc(messages.createdAt))
     .limit(50)
@@ -1878,8 +1883,8 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
         and(
           eq(messages.conversationId, target.conversationId),
           gt(messages.createdAt, boundaryCreatedAt),
-          lte(messages.createdAt, target.createdAt)
-        )
+          lte(messages.createdAt, target.createdAt),
+        ),
       )
       .orderBy(asc(messages.createdAt))
       .all();
@@ -1902,8 +1907,8 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     .where(
       and(
         eq(messages.conversationId, target.conversationId),
-        inArray(messages.id, [...idSet])
-      )
+        inArray(messages.id, [...idSet]),
+      ),
     )
     .orderBy(asc(messages.createdAt))
     .all();
