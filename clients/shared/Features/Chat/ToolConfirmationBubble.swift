@@ -315,7 +315,6 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private func codePreviewBlock(_ content: String, maxHeight: CGFloat) -> some View {
-        let lineCount = VCodeView.countLines(in: content)
         ScrollView {
             Text(content)
                 .font(VFont.bodySmallDefault)
@@ -323,12 +322,7 @@ public struct ToolConfirmationBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
-        // Definite height only for large content (>500 lines) so LazyVStack can
-        // skip scroll content measurement during cell sizing. Short previews use
-        // maxHeight so they collapse to content height rather than showing blank
-        // space. Matches the guard pattern in ToolCallChip / ToolCallProgressBar.
-        .frame(height: lineCount > 500 ? maxHeight : nil, alignment: .top)
-        .frame(maxHeight: lineCount > 500 ? nil : maxHeight)
+        .adaptiveScrollFrame(for: content, maxHeight: maxHeight)
         .padding(VSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(

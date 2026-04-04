@@ -243,27 +243,14 @@ public struct ToolCallProgressBar: View {
                                 .foregroundStyle(VColor.contentSecondary)
                         }
                     } else {
-                        let lineCount = ToolCallChip.countLines(in: result)
-                        if lineCount > 500 {
-                            // Definite height prevents LazyVStack content measurement
-                            // cascade for long outputs. Short outputs use fixedSize
-                            // so they collapse to content height without blank gaps.
-                            ScrollView {
-                                Text(result)
-                                    .font(VFont.bodySmallDefault)
-                                    .foregroundStyle(VColor.contentSecondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
-                            }
-                            .frame(height: 200)
-                        } else {
+                        ScrollView {
                             Text(result)
                                 .font(VFont.bodySmallDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        .adaptiveScrollFrame(for: result, maxHeight: 200)
                     }
                 }
             }
