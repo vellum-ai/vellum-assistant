@@ -503,12 +503,11 @@ export class SubagentManager {
       managed.hadEnqueuedMessages = true;
     }
     if (!result.queued) {
-      // Conversation is idle — send directly.  Fire-and-forget so we don't block.
-      const messageId = await managed.conversation.persistUserMessage(
-        trimmed,
-        [],
-      );
-      managed.conversation
+      // Capture conversation before the await — managed.conversation may be
+      // nulled by an external dispose() while persistUserMessage is awaited.
+      const conversation = managed.conversation;
+      const messageId = await conversation.persistUserMessage(trimmed, []);
+      conversation
         .runAgentLoop(trimmed, messageId, onEvent)
         .catch((err) => {
           log.error({ subagentId, err }, "Subagent message processing failed");
