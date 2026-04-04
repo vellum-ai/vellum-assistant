@@ -727,17 +727,17 @@ PROVIDER_ENV_VARS_REGISTRY="$SCRIPT_DIR/../../meta/provider-env-vars.json"
 if [ -f "$PROVIDER_ENV_VARS_REGISTRY" ]; then
     cp "$PROVIDER_ENV_VARS_REGISTRY" "$RESOURCES_DIR/provider-env-vars.json"
 fi
-# Bundle Dockerfiles into the .app root for debug builds so that the
-# CLI's findRepoRoot() can locate them when running from a packaged DMG.
-# This enables `vellum hatch --remote docker` to work without a full
-# source checkout (the CLI detects the missing source tree and falls
-# back to pulling pre-built images instead of building locally).
+# Bundle Dockerfiles into Contents/Resources/dockerfiles/ for debug builds
+# so that the CLI's findRepoRoot() can locate them when running from a
+# packaged DMG.  This enables `vellum hatch --remote docker` to work
+# without a full source checkout (the CLI detects the missing source tree
+# and falls back to pulling pre-built images instead of building locally).
 if [ "$CONFIG" = "debug" ]; then
     REPO_ROOT="$SCRIPT_DIR/../.."
     for svc in assistant credential-executor gateway; do
         if [ -f "$REPO_ROOT/$svc/Dockerfile" ]; then
-            mkdir -p "$APP_DIR/$svc"
-            cp "$REPO_ROOT/$svc/Dockerfile" "$APP_DIR/$svc/Dockerfile"
+            mkdir -p "$RESOURCES_DIR/dockerfiles/$svc"
+            cp "$REPO_ROOT/$svc/Dockerfile" "$RESOURCES_DIR/dockerfiles/$svc/Dockerfile"
         fi
     done
 fi

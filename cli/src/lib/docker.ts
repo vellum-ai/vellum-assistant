@@ -423,6 +423,20 @@ function findRepoRoot(): string {
     return execRoot;
   }
 
+  // Check the app bundle's Resources directory. Debug DMG builds bundle
+  // Dockerfiles at Contents/Resources/dockerfiles/{assistant,gateway,...}/Dockerfile.
+  // The CLI binary lives at Contents/MacOS/vellum-cli, so Resources is at
+  // ../Resources relative to the binary.
+  const bundledRoot = join(
+    dirname(process.execPath),
+    "..",
+    "Resources",
+    "dockerfiles",
+  );
+  if (existsSync(join(bundledRoot, "assistant", "Dockerfile"))) {
+    return bundledRoot;
+  }
+
   // Walk up from cwd as a final fallback
   const cwdRoot = walkUpForRepoRoot(process.cwd());
   if (cwdRoot) {
