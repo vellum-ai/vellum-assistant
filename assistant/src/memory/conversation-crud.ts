@@ -612,14 +612,13 @@ export function forkConversation(params: {
 
 /**
  * Delete a conversation and all its messages, cleaning up orphaned memory
- * artifacts (items, embeddings). Returns segment and orphaned item IDs so
- * callers can clean up the corresponding Qdrant vector entries.
+ * artifacts (embeddings). Returns segment IDs so callers can clean up
+ * the corresponding Qdrant vector entries.
  */
 export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
     segmentIds: [],
-    orphanedItemIds: [],
     deletedSummaryIds: [],
   };
 
@@ -729,7 +728,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
  */
 export function wipeConversation(id: string): WipeConversationResult {
   const db = getDb();
-  const unsupersededItemIds: string[] = [];
   const deletedSummaryIds: string[] = [];
 
   // Step A — Cancel pending memory jobs (before deleting messages, since
@@ -771,7 +769,6 @@ export function wipeConversation(id: string): WipeConversationResult {
   // Step E — Return the combined result.
   return {
     ...deletedMemoryIds,
-    unsupersededItemIds,
     deletedSummaryIds: [
       ...deletedSummaryIds,
       ...deletedMemoryIds.deletedSummaryIds,
@@ -801,20 +798,17 @@ export function purgePrivateConversations(): {
       count: 0,
       deletedMemory: {
         segmentIds: [],
-        orphanedItemIds: [],
         deletedSummaryIds: [],
       },
     };
   }
 
   const allSegmentIds: string[] = [];
-  const allOrphanedItemIds: string[] = [];
   const allDeletedSummaryIds: string[] = [];
 
   for (const conv of privateConvs) {
     const deleted = deleteConversation(conv.id);
     allSegmentIds.push(...deleted.segmentIds);
-    allOrphanedItemIds.push(...deleted.orphanedItemIds);
     allDeletedSummaryIds.push(...deleted.deletedSummaryIds);
   }
 
@@ -822,7 +816,6 @@ export function purgePrivateConversations(): {
     count: privateConvs.length,
     deletedMemory: {
       segmentIds: allSegmentIds,
-      orphanedItemIds: allOrphanedItemIds,
       deletedSummaryIds: allDeletedSummaryIds,
     },
   };
@@ -1282,12 +1275,10 @@ export function deleteLastExchange(conversationId: string): number {
  */
 export interface DeletedMemoryIds {
   segmentIds: string[];
-  orphanedItemIds: string[];
   deletedSummaryIds: string[];
 }
 
 export interface WipeConversationResult extends DeletedMemoryIds {
-  unsupersededItemIds: string[];
   cancelledJobCount: number;
 }
 
@@ -1369,7 +1360,6 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
     segmentIds: [],
-    orphanedItemIds: [],
     deletedSummaryIds: [],
   };
 

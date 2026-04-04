@@ -41,7 +41,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   deleteMessageById: (messageId: string) => {
     deletedMessageIds.push(messageId);
     dbMessages = dbMessages.filter((m) => m.id !== messageId);
-    return { segmentIds: [], orphanedItemIds: [] };
+    return { segmentIds: [], deletedSummaryIds: [] };
   },
   updateMessageContent: (messageId: string, content: string) => {
     updatedMessages.push({ id: messageId, content });

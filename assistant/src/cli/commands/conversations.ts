@@ -375,12 +375,6 @@ Examples:
           targetId: segId,
         });
       }
-      for (const itemId of result.orphanedItemIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "item",
-          targetId: itemId,
-        });
-      }
       for (const summaryId of result.deletedSummaryIds) {
         enqueueMemoryJob("delete_qdrant_vectors", {
           targetType: "summary",
@@ -390,8 +384,7 @@ Examples:
 
       log.info(
         `Wiped conversation "${conversation.title ?? "Untitled"}". ` +
-          `Restored ${result.unsupersededItemIds.length} memory items, ` +
-          `deleted ${result.deletedSummaryIds.length} summaries, ` +
+          `Deleted ${result.deletedSummaryIds.length} summaries, ` +
           `cancelled ${result.cancelledJobCount} jobs.`,
       );
     });

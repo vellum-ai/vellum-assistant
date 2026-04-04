@@ -135,8 +135,6 @@ describe("wipeConversation", () => {
 
     expect(getConversation(conv.id)).toBeNull();
     expect(result.segmentIds).toEqual([]);
-    expect(result.orphanedItemIds).toEqual([]);
-    expect(result.unsupersededItemIds).toEqual([]);
     expect(result.deletedSummaryIds).toEqual([]);
     expect(result.cancelledJobCount).toBe(0);
   });

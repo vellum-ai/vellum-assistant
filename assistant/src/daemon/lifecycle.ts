@@ -355,12 +355,6 @@ export async function runDaemon(): Promise<void> {
           targetId: segId,
         });
       }
-      for (const itemId of deletedMemory.orphanedItemIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "item",
-          targetId: itemId,
-        });
-      }
       for (const summaryId of deletedMemory.deletedSummaryIds) {
         enqueueMemoryJob("delete_qdrant_vectors", {
           targetType: "summary",
@@ -369,13 +363,11 @@ export async function runDaemon(): Promise<void> {
       }
       if (
         deletedMemory.segmentIds.length > 0 ||
-        deletedMemory.orphanedItemIds.length > 0 ||
         deletedMemory.deletedSummaryIds.length > 0
       ) {
         log.info(
           {
             segments: deletedMemory.segmentIds.length,
-            orphanedItems: deletedMemory.orphanedItemIds.length,
             deletedSummaries: deletedMemory.deletedSummaryIds.length,
           },
           "Enqueued Qdrant vector cleanup jobs for purged private conversations",
