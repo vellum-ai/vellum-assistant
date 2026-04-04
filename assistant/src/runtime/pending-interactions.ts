@@ -121,6 +121,42 @@ export function removeByConversation(conversation: Conversation): void {
   }
 }
 
+/**
+ * Remove a single pending interaction by requestId. Idempotent — safe to call
+ * even if the request has already been resolved or dropped elsewhere.
+ */
+export function drop(requestId: string): void {
+  pending.delete(requestId);
+}
+
+/**
+ * Remove all pending interactions for a conversation by conversationId.
+ *
+ * By default, host_bash, host_file, host_cu, and acp_confirmation interactions
+ * are skipped (same as `removeByConversation`). Pass `{ includeHostTools: true }`
+ * to drop everything — use this only when the conversation is being disposed
+ * and the host-tool results can no longer be delivered.
+ */
+export function dropByConversationId(
+  conversationId: string,
+  options?: { includeHostTools?: boolean },
+): void {
+  const includeHostTools = options?.includeHostTools ?? false;
+  for (const [requestId, interaction] of pending) {
+    if (interaction.conversationId !== conversationId) continue;
+    if (
+      !includeHostTools &&
+      (interaction.kind === "host_bash" ||
+        interaction.kind === "host_file" ||
+        interaction.kind === "host_cu" ||
+        interaction.kind === "acp_confirmation")
+    ) {
+      continue;
+    }
+    pending.delete(requestId);
+  }
+}
+
 /** Clear all pending interactions. Useful for testing. */
 export function clear(): void {
   pending.clear();
