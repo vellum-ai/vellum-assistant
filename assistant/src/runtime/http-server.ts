@@ -127,6 +127,7 @@ import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
 } from "./routes/contact-routes.js";
+import { conversationAnalysisRouteDefinitions } from "./routes/conversation-analysis-routes.js";
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import {
   type ConversationManagementDeps,
@@ -1082,6 +1083,14 @@ export class RuntimeHttpServer {
 
       ...(conversationManagementDeps
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
+        : []),
+
+      ...(this.sendMessageDeps
+        ? conversationAnalysisRouteDefinitions({
+            sendMessageDeps: this.sendMessageDeps,
+            buildConversationDetailResponse: (id) =>
+              this.buildConversationDetailResponse(id),
+          })
         : []),
 
       ...groupRouteDefinitions(),
