@@ -268,7 +268,7 @@ public struct ToolCallProgressBar: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
                             }
-                            .vAdaptiveScrollFrame(isLong: true, maxHeight: 200)
+                            .vAdaptiveScrollFrame(maxHeight: 200)
                         } else {
                             Text(result)
                                 .font(VFont.bodySmallDefault)

@@ -230,7 +230,7 @@ public struct ToolCallChip: View {
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .textSelection(.enabled)
                                     }
-                                    .vAdaptiveScrollFrame(isLong: true, maxHeight: 400)
+                                    .vAdaptiveScrollFrame(maxHeight: 400)
                                 } else {
                                     Text(result)
                                         .font(VFont.bodySmallDefault)

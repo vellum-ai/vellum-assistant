@@ -9,12 +9,7 @@ extension View {
     /// that can hang for tens of seconds on very long text.
     ///
     /// - Parameter maxHeight: The fixed height applied to the ScrollView.
-    func vAdaptiveScrollFrame(
-        isLong: Bool,
-        maxHeight: CGFloat
-    ) -> some View {
-        self
-            .frame(height: isLong ? maxHeight : nil)
-            .frame(maxHeight: isLong ? nil : maxHeight)
+    func vAdaptiveScrollFrame(maxHeight: CGFloat) -> some View {
+        self.frame(height: maxHeight)
     }
 }

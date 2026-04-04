@@ -325,7 +325,7 @@ public struct ToolConfirmationBubble: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                 }
-                .vAdaptiveScrollFrame(isLong: true, maxHeight: maxHeight)
+                .vAdaptiveScrollFrame(maxHeight: maxHeight)
             } else {
                 Text(content)
                     .font(VFont.bodySmallDefault)
