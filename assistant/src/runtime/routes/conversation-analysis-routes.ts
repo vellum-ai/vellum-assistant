@@ -154,9 +154,15 @@ If you identify insights worth remembering for future conversations, use your me
           });
 
         // l. Return the new conversation detail
-        return Response.json({
-          conversation: deps.buildConversationDetailResponse(newConv.id),
-        });
+        const detail = deps.buildConversationDetailResponse(newConv.id);
+        if (!detail) {
+          return httpError(
+            "NOT_FOUND",
+            `Analysis conversation ${newConv.id} could not be loaded`,
+            404,
+          );
+        }
+        return Response.json(detail);
       },
     },
   ];

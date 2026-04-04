@@ -50,7 +50,7 @@ export function listConversations(
   ensureGroupMigration();
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} = 'background'`
+    ? sql`${conversations.conversationType} = 'background' AND ${conversations.source} != 'subagent'`
     : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const query = db
     .select()
@@ -82,7 +82,7 @@ export function listPinnedConversations(): ConversationRow[] {
 export function countConversations(backgroundOnly = false): number {
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} = 'background'`
+    ? sql`${conversations.conversationType} = 'background' AND ${conversations.source} != 'subagent'`
     : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const [{ total }] = db
     .select({ total: count() })
