@@ -3511,7 +3511,7 @@ public final class SettingsStore: ObservableObject {
 
     /// Watch workspace config.json for external changes (e.g. model set via chat).
     /// Follows the same `DispatchSource` pattern as `SoundManager.watchConfigFile()`
-    /// and `AvatarAppearanceManager.watchAvatarFile()`.
+    /// and the standard DispatchSource file-watcher pattern.
     private func watchConfigFile() {
         configFileMonitor?.cancel()
         configFileMonitor = nil

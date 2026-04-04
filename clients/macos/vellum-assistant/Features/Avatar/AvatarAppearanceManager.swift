@@ -99,37 +99,6 @@ final class AvatarAppearanceManager {
 
     private var identityObserver: NSObjectProtocol?
 
-    /// File-system watcher for the avatar image so external changes (e.g. CLI writes) trigger a reload.
-    @ObservationIgnored private var avatarFileWatcher: DispatchSourceFileSystemObject?
-    /// Directory watcher to detect avatar file creation/deletion.
-    @ObservationIgnored private var avatarDirWatcher: DispatchSourceFileSystemObject?
-
-    /// Workspace path for custom avatar -- canonical storage location.
-    nonisolated static func workspaceCustomAvatarURL(homeDirectory: String = NSHomeDirectory()) -> URL {
-        URL(fileURLWithPath: homeDirectory)
-            .appendingPathComponent(".vellum/workspace/data/avatar/avatar-image.png")
-    }
-
-    /// Legacy Application Support path (pre-workspace migration). Retained for one-time migration on first launch after upgrade.
-    nonisolated static func legacyAppSupportCustomAvatarURL() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport
-            .appendingPathComponent("vellum-assistant", isDirectory: true)
-            .appendingPathComponent("custom-avatar.png")
-    }
-
-    var customAvatarURL: URL {
-        // Resolve from the connected assistant's workspace dir so multi-instance
-        // setups (e.g. XDG-based paths) find the correct avatar file.
-        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-           let assistant = LockfileAssistant.loadByName(assistantId),
-           let workspace = assistant.workspaceDir {
-            return URL(fileURLWithPath: workspace)
-                .appendingPathComponent("data/avatar/avatar-image.png")
-        }
-        return Self.workspaceCustomAvatarURL()
-    }
-
     /// The assistant's display name, loaded once from IDENTITY.md to avoid repeated disk I/O.
     private var assistantName: String = "V"
     /// Tracked identity-load task so resetForDisconnect can cancel in-flight loads.
@@ -146,8 +115,6 @@ final class AvatarAppearanceManager {
         // confirmed ready. Fetching here would race the daemon startup and
         // clear the avatar to nil on connection-refused, falling back to the
         // bundled Vellum logo.
-
-        startAvatarFileWatcher()
 
         // Refresh assistantName and invalidate cached fallback avatars when
         // the user renames their assistant so the initial-letter avatar
@@ -170,135 +137,6 @@ final class AvatarAppearanceManager {
         }
     }
 
-    // MARK: - Avatar File Watcher
-
-    /// Sets up watchers so that external writes to avatar-image.png
-    /// (e.g. the CLI) are picked up automatically.
-    ///
-    /// Strategy:
-    /// - Watch the **file** for `.write` to catch in-place overwrites (cp).
-    /// - Watch the **directory** for `.write` to catch file creation/deletion
-    ///   (atomic rename pattern, or first-time creation). When the directory
-    ///   changes, re-establish the file watcher in case the fd went stale.
-    private func startAvatarFileWatcher() {
-        avatarFileWatcher?.cancel()
-        avatarFileWatcher = nil
-        avatarDirWatcher?.cancel()
-        avatarDirWatcher = nil
-
-        let avatarPath = customAvatarURL.path
-        let avatarDir = customAvatarURL.deletingLastPathComponent().path
-
-        // Ensure the directory exists.
-        try? FileManager.default.createDirectory(
-            atPath: avatarDir,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-
-        // Watch the file itself for in-place overwrites.
-        watchAvatarFile(at: avatarPath)
-
-        // Watch the directory for file creation/deletion/rename.
-        let dirFd = open(avatarDir, O_EVTONLY)
-        guard dirFd >= 0 else { return }
-
-        let dirSource = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: dirFd,
-            eventMask: [.write],
-            queue: .global(qos: .utility)
-        )
-        dirSource.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                log.info("Avatar directory changed — re-establishing file watcher")
-                self.watchAvatarFile(at: avatarPath)
-                self.reloadAvatarFromDisk()
-            }
-        }
-        dirSource.setCancelHandler {
-            close(dirFd)
-        }
-        dirSource.resume()
-        avatarDirWatcher = dirSource
-    }
-
-    /// Watch a specific file path for `.write` events.
-    private func watchAvatarFile(at path: String) {
-        avatarFileWatcher?.cancel()
-        avatarFileWatcher = nil
-
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename],
-            queue: .global(qos: .utility)
-        )
-        source.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                log.info("Avatar file changed on disk — reloading")
-                self.reloadAvatarFromDisk()
-            }
-        }
-        source.setCancelHandler {
-            close(fd)
-        }
-        source.resume()
-        avatarFileWatcher = source
-    }
-
-    /// Reloads the avatar directly from disk without an HTTP round-trip.
-    /// Used by the file watcher so that local changes are picked up immediately
-    /// and not overwritten by a potentially stale gateway response.
-    private func reloadAvatarFromDisk() {
-        cachedChatAvatar = nil
-        cachedFallbackAvatar = nil
-        cachedFallbackName = nil
-        cachedFullFallbackAvatar = nil
-        cachedFullFallbackName = nil
-
-        // Always try loading character traits first. If traits exist,
-        // the avatar is a character and the PNG is just a daemon rendering.
-        loadCharacterTraitsFromDisk()
-
-        if characterBodyShape == nil {
-            // No character traits — load the PNG as a custom upload.
-            let path = customAvatarURL.path
-            if let image = NSImage(contentsOfFile: path) {
-                customAvatarImage = image
-            } else {
-                customAvatarImage = nil
-            }
-        }
-        updateDockIcon()
-    }
-
-    /// Loads character-traits.json from the avatar directory on disk
-    /// and populates the character avatar properties.
-    private func loadCharacterTraitsFromDisk() {
-        let traitsURL = customAvatarURL.deletingLastPathComponent()
-            .appendingPathComponent("character-traits.json")
-        guard let data = try? Data(contentsOf: traitsURL),
-              let components = try? JSONDecoder().decode(AvatarComponents.self, from: data) else {
-            characterBodyShape = nil
-            characterEyeStyle = nil
-            characterColor = nil
-            return
-        }
-        characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
-        characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
-        characterColor = AvatarColor(rawValue: components.color)
-        // Character traits found — clear the custom image since the PNG
-        // is a daemon rendering, not a user upload.
-        customAvatarImage = nil
-        cachedChatAvatar = nil
-        cachedFallbackAvatar = nil
-        cachedFullFallbackAvatar = nil
-    }
-
     // MARK: - Component Fetch
 
     /// Fetches the canonical character component definitions via the gateway
@@ -310,10 +148,10 @@ final class AvatarAppearanceManager {
         }
     }
 
-    // MARK: - Remote Avatar Fetch (Docker/remote instances)
+    // MARK: - Avatar Fetch via Gateway
 
-    /// Fetches the avatar image via HTTP through the gateway for Docker/remote instances.
-    private func fetchAvatarViaHTTP(skipClearOnFailure: Bool = false) async {
+    /// Fetches the avatar image via HTTP through the gateway.
+    private func fetchAvatarViaHTTP() async {
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/workspace/file/content",
@@ -321,11 +159,9 @@ final class AvatarAppearanceManager {
                 timeout: 10
             )
             guard response.isSuccess, !response.data.isEmpty else {
-                if !skipClearOnFailure {
-                    if customAvatarImage != nil { customAvatarImage = nil }
-                    cachedChatAvatar = nil
-                    updateDockIcon()
-                }
+                if customAvatarImage != nil { customAvatarImage = nil }
+                cachedChatAvatar = nil
+                updateDockIcon()
                 return
             }
             cachedChatAvatar = nil
@@ -333,19 +169,14 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch avatar via HTTP: \(error.localizedDescription)")
-            if !skipClearOnFailure {
-                if customAvatarImage != nil { customAvatarImage = nil }
-                cachedChatAvatar = nil
-                updateDockIcon()
-            }
+            if customAvatarImage != nil { customAvatarImage = nil }
+            cachedChatAvatar = nil
+            updateDockIcon()
         }
     }
 
-    /// Fetches character-traits.json via HTTP through the gateway for Docker/remote instances.
-    /// - Parameter skipClearOnFailure: When `true`, a failed HTTP fetch preserves
-    ///   locally-loaded character traits instead of clearing them. Mirrors the
-    ///   same guard on ``fetchAvatarViaHTTP(skipClearOnFailure:)``.
-    private func fetchTraitsViaHTTP(skipClearOnFailure: Bool = false) async {
+    /// Fetches character-traits.json via HTTP through the gateway.
+    private func fetchTraitsViaHTTP() async {
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/workspace/file/content",
@@ -353,14 +184,12 @@ final class AvatarAppearanceManager {
                 timeout: 10
             )
             guard response.isSuccess, !response.data.isEmpty else {
-                if !skipClearOnFailure {
-                    if characterBodyShape != nil { characterBodyShape = nil }
-                    if characterEyeStyle != nil { characterEyeStyle = nil }
-                    if characterColor != nil { characterColor = nil }
-                    cachedFallbackAvatar = nil
-                    cachedFullFallbackAvatar = nil
-                    updateDockIcon()
-                }
+                if characterBodyShape != nil { characterBodyShape = nil }
+                if characterEyeStyle != nil { characterEyeStyle = nil }
+                if characterColor != nil { characterColor = nil }
+                cachedFallbackAvatar = nil
+                cachedFullFallbackAvatar = nil
+                updateDockIcon()
                 return
             }
             guard let components = try? JSONDecoder().decode(AvatarComponents.self, from: response.data) else {
@@ -369,9 +198,9 @@ final class AvatarAppearanceManager {
             characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
             characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
             characterColor = AvatarColor(rawValue: components.color)
-            // Character traits loaded — the PNG on disk is just a daemon
-            // rendering of the character, not a user upload. Clear it so
-            // the animated path is used.
+            // Character traits loaded — the PNG is just a daemon rendering
+            // of the character, not a user upload. Clear it so the animated
+            // path is used.
             customAvatarImage = nil
             cachedChatAvatar = nil
             cachedFallbackAvatar = nil
@@ -379,31 +208,24 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch character traits via HTTP: \(error.localizedDescription)")
-            if !skipClearOnFailure {
-                if characterBodyShape != nil { characterBodyShape = nil }
-                if characterEyeStyle != nil { characterEyeStyle = nil }
-                if characterColor != nil { characterColor = nil }
-                cachedFallbackAvatar = nil
-                cachedFullFallbackAvatar = nil
-                updateDockIcon()
-            }
+            if characterBodyShape != nil { characterBodyShape = nil }
+            if characterEyeStyle != nil { characterEyeStyle = nil }
+            if characterColor != nil { characterColor = nil }
+            cachedFallbackAvatar = nil
+            cachedFullFallbackAvatar = nil
+            updateDockIcon()
         }
     }
 
     // MARK: - Custom Avatar
 
     func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil) {
-        let url = customAvatarURL
-        let dir = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-
         let isCharacter = bodyShape != nil
 
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
 
-        try? pngData.write(to: url)
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
@@ -423,27 +245,29 @@ final class AvatarAppearanceManager {
             characterEyeStyle = nil
             characterColor = nil
         }
-        saveAvatarComponents()
         updateDockIcon()
+
+        // Persist to the assistant's workspace via the gateway.
+        Task {
+            let workspaceClient = WorkspaceClient()
+            _ = await workspaceClient.createWorkspaceDirectory(path: "data/avatar")
+            _ = await workspaceClient.writeWorkspaceFile(path: "data/avatar/avatar-image.png", content: pngData)
+            saveAvatarComponentsViaGateway()
+        }
     }
 
-    /// Reloads the custom avatar and refreshes the assistant name.
-    /// Called when the daemon notifies that the avatar image has been
-    /// regenerated (via `avatar_updated` event), after reconnection
-    /// (`proceedToApp`), and after assistant switches.
+    /// Reloads the avatar by fetching the latest state from the assistant
+    /// daemon via the gateway. Called on `avatar_updated` events, after
+    /// reconnection, and after assistant switches.
     /// Invalidates all cached images so SwiftUI views pick up the new avatar,
     /// and re-reads the identity so the dock label reflects the current assistant.
-    /// Fetches via HTTP through the gateway for consistency across all instance types.
     func reloadAvatar() {
-        reloadAvatar(avatarPath: customAvatarURL.path)
+        reloadAvatar(avatarPath: nil)
     }
 
-    /// Reloads the avatar, optionally using a local file path for an immediate
-    /// dock-icon update before the HTTP round-trip completes.
-    /// - Parameter avatarPath: Absolute path to the updated avatar image
-    ///   (from the daemon's `avatar_updated` event). When non-nil and the file
-    ///   is readable, the dock icon updates immediately; the subsequent HTTP
-    ///   fetch still runs to keep all cached state consistent.
+    /// Reloads the avatar. The `avatarPath` parameter is accepted for
+    /// backward compatibility with the daemon's `avatar_updated` event
+    /// payload but is not used — all data is fetched via the gateway.
     func reloadAvatar(avatarPath: String?) {
         identityLoadTask?.cancel()
         identityLoadTask = Task {
@@ -458,26 +282,10 @@ final class AvatarAppearanceManager {
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
 
-        // Load character traits from disk first to determine if this
-        // is a character avatar or a custom upload.
-        loadCharacterTraitsFromDisk()
-
-        // Fast path: load the image directly from disk so the dock icon
-        // reflects the new avatar immediately, without waiting for the
-        // HTTP round-trip through the gateway. Only set customAvatarImage
-        // if this is NOT a character avatar (traits would be nil).
-        if characterBodyShape == nil, let avatarPath, let image = NSImage(contentsOfFile: avatarPath) {
-            customAvatarImage = image
-            updateDockIcon()
-        }
-
-        let diskLoadSucceeded = customAvatarImage != nil
-        let traitsLoadedFromDisk = characterBodyShape != nil
-
         Task { [weak self] in
             await self?.fetchComponents()
-            await self?.fetchAvatarViaHTTP(skipClearOnFailure: diskLoadSucceeded)
-            await self?.fetchTraitsViaHTTP(skipClearOnFailure: traitsLoadedFromDisk)
+            await self?.fetchAvatarViaHTTP()
+            await self?.fetchTraitsViaHTTP()
         }
     }
 
@@ -531,9 +339,6 @@ final class AvatarAppearanceManager {
     }
 
     func clearCustomAvatar() {
-        try? FileManager.default.removeItem(at: customAvatarURL)
-        try? FileManager.default.removeItem(at: Self.legacyAppSupportCustomAvatarURL())
-        try? FileManager.default.removeItem(at: avatarComponentsURL)
         customAvatarImage = nil
         characterBodyShape = nil
         characterEyeStyle = nil
@@ -542,13 +347,16 @@ final class AvatarAppearanceManager {
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
         updateDockIcon()
+
+        // Remove files from the assistant's workspace via the gateway.
+        Task {
+            let workspaceClient = WorkspaceClient()
+            _ = await workspaceClient.deleteWorkspaceItem(path: "data/avatar/avatar-image.png")
+            _ = await workspaceClient.deleteWorkspaceItem(path: "data/avatar/character-traits.json")
+        }
     }
 
     // MARK: - Avatar Components Persistence
-
-    private var avatarComponentsURL: URL {
-        customAvatarURL.deletingLastPathComponent().appendingPathComponent("character-traits.json")
-    }
 
     private struct AvatarComponents: Codable {
         let bodyShape: String
@@ -556,14 +364,21 @@ final class AvatarAppearanceManager {
         let color: String
     }
 
-    private func saveAvatarComponents() {
+    /// Persists character traits to the assistant's workspace via the gateway.
+    private func saveAvatarComponentsViaGateway() {
         guard let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor else {
-            try? FileManager.default.removeItem(at: avatarComponentsURL)
+            Task {
+                let workspaceClient = WorkspaceClient()
+                _ = await workspaceClient.deleteWorkspaceItem(path: "data/avatar/character-traits.json")
+            }
             return
         }
         let components = AvatarComponents(bodyShape: body.rawValue, eyeStyle: eyes.rawValue, color: color.rawValue)
         guard let data = try? JSONEncoder().encode(components) else { return }
-        try? data.write(to: avatarComponentsURL)
+        Task {
+            let workspaceClient = WorkspaceClient()
+            _ = await workspaceClient.writeWorkspaceFile(path: "data/avatar/character-traits.json", content: data)
+        }
     }
 
     // MARK: - Dock Icon

@@ -35,7 +35,7 @@ final class SoundManager {
     // MARK: - Sounds Directory Path
 
     /// Resolve the sounds directory for the currently connected assistant.
-    /// Mirrors the pattern used by `AvatarAppearanceManager.customAvatarURL`.
+    /// Resolves the sounds directory for the currently connected assistant.
     private var soundsDirectoryURL: URL {
         if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
            let assistant = LockfileAssistant.loadByName(assistantId),
@@ -262,7 +262,7 @@ final class SoundManager {
     // MARK: - FSEvents File Watcher
 
     /// Watch config.json for external changes. Follows the same pattern as
-    /// `AvatarAppearanceManager.watchAvatarFile()`.
+    /// the standard DispatchSource file-watcher pattern.
     private func watchConfigFile() {
         fileMonitor?.cancel()
         fileMonitor = nil

@@ -550,8 +550,7 @@ extension AppDelegate {
         // that depend on connectedAssistantId).
         featureFlagStore.reloadFromDisk()
 
-        // Reload avatar for the new assistant (customAvatarURL now resolves
-        // to the new assistant's path after connectedAssistantId was updated).
+        // Reload avatar for the new assistant via the gateway.
         AvatarAppearanceManager.shared.reloadAvatar()
 
         showMainWindow()
