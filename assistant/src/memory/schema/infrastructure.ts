@@ -147,6 +147,7 @@ export const memoryRecallLogs = sqliteTable(
     topCandidatesJson: text("top_candidates_json").notNull(),
     injectedText: text("injected_text"),
     reason: text("reason"),
+    queryContext: text("query_context"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [

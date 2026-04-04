@@ -152,6 +152,7 @@ export { migrateCreateConversationGraphMemoryState } from "./207-conversation-gr
 export { migrateConversationsLastMessageAt } from "./208-conversations-last-message-at.js";
 export { migrateStripThinkingFromConsolidated } from "./209-strip-thinking-from-consolidated.js";
 export { migrateScheduleReuseConversation } from "./210-schedule-reuse-conversation.js";
+export { migrateMemoryRecallLogsQueryContext } from "./211-memory-recall-logs-query-context.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

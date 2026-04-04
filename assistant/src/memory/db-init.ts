@@ -99,6 +99,7 @@ import {
   migrateLlmRequestLogProvider,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
+  migrateMemoryRecallLogsQueryContext,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -603,6 +604,9 @@ export function initializeDb(): void {
 
   // 109. Add reuse_conversation flag to schedule jobs
   migrateScheduleReuseConversation(database);
+
+  // 110. Add query_context column to memory_recall_logs for inspector query display
+  migrateMemoryRecallLogsQueryContext(database);
 
   validateMigrationState(database);
 
