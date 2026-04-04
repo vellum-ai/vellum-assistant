@@ -273,8 +273,6 @@ export interface Tool {
   description: string;
   category: string;
   defaultRiskLevel: RiskLevel;
-  /** When true, the agent loop should not apply the deferral threshold to this tool. */
-  deferralExempt?: boolean;
   /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
   executionMode?: "local" | "proxy";
   /** Whether this tool is a core built-in, provided by a skill, or from an MCP server. */
@@ -290,6 +288,12 @@ export interface Tool {
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
+  /**
+   * When true, this tool is exempt from the deferral threshold — it will
+   * always block until completion rather than being sent to the background.
+   * Used for tools that must return a real result (e.g. background_tool_control).
+   */
+  deferralExempt?: boolean;
   getDefinition(): ToolDefinition;
   execute(
     input: Record<string, unknown>,
