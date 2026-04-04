@@ -17,7 +17,7 @@ export type LogFileConfig = {
 
 const LOG_FILE_PREFIX = "gateway-";
 const LOG_FILE_SUFFIX = ".log";
-const LOG_FILE_PATTERN = /^gateway-(\d{4}-\d{2}-\d{2})\.log$/;
+export const LOG_FILE_PATTERN = /^gateway-(\d{4}-\d{2}-\d{2})\.log$/;
 
 function formatDate(date: Date): string {
   const y = date.getUTCFullYear();
