@@ -120,8 +120,6 @@ jobs:
     timeout-minutes: 30
     env:
       APP_DISPLAY_NAME: Vellum
-    permissions:
-      contents: write
     steps:
       - name: Generate GitHub App token
         id: app-token
