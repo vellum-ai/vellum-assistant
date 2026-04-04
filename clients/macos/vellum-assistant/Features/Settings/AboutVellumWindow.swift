@@ -50,9 +50,7 @@ struct AboutVellumView: View {
               let appParsed = VersionCompat.parse(appVersion) else {
             return false
         }
-        return sgParsed.major == appParsed.major
-            && sgParsed.minor == appParsed.minor
-            && sgParsed.patch == appParsed.patch
+        return sgParsed.coreEquals(appParsed)
     }
 
     var body: some View {

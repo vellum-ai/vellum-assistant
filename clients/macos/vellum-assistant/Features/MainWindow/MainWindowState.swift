@@ -359,10 +359,12 @@ public final class MainWindowState: ObservableObject {
             base64Data: base64Data,
             lazyAttachmentId: lazyAttachmentId,
             fullResImage: nil,
-            isLoadingFullRes: lazyAttachmentId != nil
+            isLoadingFullRes: lazyAttachmentId != nil || base64Data != nil
         )
         if lazyAttachmentId != nil {
             fetchFullResLightboxImage()
+        } else if let base64Data, !base64Data.isEmpty {
+            decodeBase64LightboxImage(base64Data)
         }
     }
 
@@ -378,8 +380,26 @@ public final class MainWindowState: ObservableObject {
             guard !Task.isCancelled else { return }
             if let data, let fullRes = NSImage(data: data) {
                 self?.imageLightbox?.fullResImage = fullRes
-                // Update base64Data so toolbar actions (copy, save) use full-res
-                // We don't have a direct setter, but fullResImage is preferred by displayImage
+            }
+            self?.imageLightbox?.isLoadingFullRes = false
+        }
+    }
+
+    /// Decode base64 image data off the main thread using thread-safe ImageIO
+    /// APIs and set `fullResImage` once complete.
+    private func decodeBase64LightboxImage(_ base64Data: String) {
+        lightboxFetchTask = Task { @MainActor [weak self] in
+            let decoded: NSImage? = await Task.detached(priority: .userInitiated) {
+                guard let data = Data(base64Encoded: base64Data) else { return nil }
+                guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                      let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                    return nil
+                }
+                return NSImage(cgImage: cgImage, size: .zero)
+            }.value
+            guard !Task.isCancelled else { return }
+            if let decoded {
+                self?.imageLightbox?.fullResImage = decoded
             }
             self?.imageLightbox?.isLoadingFullRes = false
         }

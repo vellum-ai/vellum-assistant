@@ -484,12 +484,11 @@ private extension KeyedEncodingContainer where Key == LLMContextCodingKey {
 }
 
 public struct MemoryRecallCandidate: Codable, Sendable, Equatable {
-    public let key: String
+    public let nodeId: String
     public let type: String
-    public let kind: String
-    public let finalScore: Double
-    public let semantic: Double
-    public let recency: Double
+    public let score: Double
+    public let semanticSimilarity: Double
+    public let recencyBoost: Double
 }
 
 public struct MemoryRecallDegradation: Codable, Sendable, Equatable {
@@ -516,17 +515,27 @@ public struct MemoryRecallData: Codable, Sendable, Equatable {
     public let reason: String?
     public let topCandidates: [MemoryRecallCandidate]
     public let injectedText: String?
+    public let queryContext: String?
 }
 
 /// A single LLM request/response log entry returned by the context endpoint.
+/// `requestPayload` and `responsePayload` are nil in the initial response and
+/// fetched on demand via the dedicated payload endpoint.
 public struct LLMRequestLogEntry: Codable, Identifiable, Sendable {
     public let id: String
-    public let requestPayload: AnyCodable
-    public let responsePayload: AnyCodable
+    public let requestPayload: AnyCodable?
+    public let responsePayload: AnyCodable?
     public let createdAt: Int
     public let summary: LLMCallSummary?
     public let requestSections: [LLMContextSection]?
     public let responseSections: [LLMContextSection]?
+}
+
+/// Response from the dedicated log payload endpoint.
+public struct LLMLogPayloadResponse: Codable, Sendable {
+    public let id: String
+    public let requestPayload: AnyCodable
+    public let responsePayload: AnyCodable
 }
 
 /// Response wrapper for the LLM context endpoint.
@@ -548,6 +557,7 @@ public enum LLMContextFetchResult: Sendable {
 public protocol LLMContextClientProtocol {
     func fetchContext(messageId: String) async -> LLMContextResponse?
     func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult
+    func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse?
 }
 
 /// Gateway-backed implementation of ``LLMContextClientProtocol``.
@@ -571,28 +581,81 @@ public struct LLMContextClient: LLMContextClientProtocol {
     }
 
     public func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult {
+        let response: GatewayHTTPClient.Response
         do {
             try Task.checkCancellation()
-            let response = try await GatewayHTTPClient.get(
+            response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/messages/\(messageId)/llm-context",
                 timeout: 15
             )
             try Task.checkCancellation()
-            guard response.isSuccess else {
-                log.error("fetchContext failed (HTTP \(response.statusCode))")
-                return .failed
-            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            log.error("fetchContext network error: \(error.localizedDescription)")
+            return .failed
+        }
+
+        guard response.isSuccess else {
+            log.error("fetchContext failed (HTTP \(response.statusCode))")
+            return .failed
+        }
+
+        do {
             let decoded = try JSONDecoder().decode(LLMContextResponse.self, from: response.data)
             try Task.checkCancellation()
             return decoded.logs.isEmpty ? .empty : .loaded(decoded)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            if Task.isCancelled {
-                throw CancellationError()
-            }
-            log.error("fetchContext error: \(error.localizedDescription)")
+            if Task.isCancelled { throw CancellationError() }
+            log.error("fetchContext decode error: \(Self.describeDecodingError(error))")
+            let snippet = String(data: response.data.prefix(2048), encoding: .utf8) ?? "<non-utf8>"
+            log.error("fetchContext body prefix (\(response.data.count) bytes): \(snippet)")
             return .failed
+        }
+    }
+
+    private static func describeDecodingError(_ error: Error) -> String {
+        guard let decodingError = error as? DecodingError else {
+            return error.localizedDescription
+        }
+        let path: String
+        let detail: String
+        switch decodingError {
+        case .typeMismatch(let type, let context):
+            path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            detail = "typeMismatch(\(type)) — \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            detail = "valueNotFound(\(type)) — \(context.debugDescription)"
+        case .keyNotFound(let key, let context):
+            path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            detail = "keyNotFound(\(key.stringValue)) — \(context.debugDescription)"
+        case .dataCorrupted(let context):
+            path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            detail = "dataCorrupted — \(context.debugDescription)"
+        @unknown default:
+            return decodingError.localizedDescription
+        }
+        return "at \(path.isEmpty ? "<root>" : path): \(detail)"
+    }
+
+    public func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/llm-request-logs/\(logId)/payload",
+                timeout: 30
+            )
+            guard response.isSuccess else {
+                log.error("fetchLogPayload failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(LLMLogPayloadResponse.self, from: response.data)
+        } catch {
+            log.error("fetchLogPayload error: \(error.localizedDescription)")
+            return nil
         }
     }
 }
@@ -604,5 +667,9 @@ public extension LLMContextClientProtocol {
         }
 
         return response.logs.isEmpty ? .empty : .loaded(response)
+    }
+
+    func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse? {
+        nil
     }
 }

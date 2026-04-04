@@ -7,6 +7,7 @@ import { getSqlite, resetDb } from "../memory/db.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
+import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
 import type { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
@@ -105,6 +106,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     if (deps.runtimeHttp) await deps.runtimeHttp.stop();
     await browserManager.closeAllPages();
+    cleanupShellOutputTempFiles();
     deps.scheduler.stop();
     deps.getMemoryWorker()?.stop();
 

@@ -11,7 +11,6 @@ import { dirname, join } from "node:path";
 
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { getDb, getSqlite } from "./db-connection.js";
-import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   addCoreColumns,
   createActorRefreshTokenRecordsTable,
@@ -57,7 +56,10 @@ import {
   migrateContactsRolePrincipal,
   migrateContactsUserFileColumn,
   migrateConversationForkLineage,
+  migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
+  migrateCreateConversationGraphMemoryState,
+  migrateCreateMemoryGraphNodeEdits,
   migrateCreateMemoryGraphTables,
   migrateCreateMemoryRecallLogs,
   migrateCreateThreadStartersTable,
@@ -96,6 +98,7 @@ import {
   migrateLlmRequestLogProvider,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
+  migrateMemoryRecallLogsQueryContext,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -127,8 +130,11 @@ import {
   migrateRenameVoiceToPhone,
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
+  migrateScheduleReuseConversation,
   migrateSchemaIndexesAndColumns,
+  migrateScrubCorruptedImageAttachments,
   migrateStripIntegrationPrefixFromProviderKeys,
+  migrateStripThinkingFromConsolidated,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
@@ -155,15 +161,15 @@ function getTemplateDbPath(): string {
       hash.update(readFileSync(join(migrationsDir, name), "utf-8"));
     }
   }
-  // Include the bootstrap migration (migrateToolCreatedItems) which also runs
-  // during initializeDb but lives outside the migrations/ directory.
+  // Include bootstrap.ts which contains cleanup migrations (cleanupStaleItemVectors)
+  // that run during initializeDb but live outside the migrations/ directory.
   const bootstrapFile = join(dirname(thisFile), "graph", "bootstrap.ts");
   if (existsSync(bootstrapFile)) {
     hash.update(readFileSync(bootstrapFile, "utf-8"));
   }
   return join(
     tmpdir(),
-    `vellum-test-db-template-${hash.digest("hex").slice(0, 12)}.db`
+    `vellum-test-db-template-${hash.digest("hex").slice(0, 12)}.db`,
   );
 }
 
@@ -563,9 +569,8 @@ export function initializeDb(): void {
   // 101. Memory graph tables (nodes, edges, triggers)
   migrateCreateMemoryGraphTables(database);
 
-  // 101b. Migrate tool-created items from legacy memory_items → graph nodes
-  // MUST run before migration 102 drops memory_items so data is preserved.
-  migrateToolCreatedItems();
+  // 101a. Add nullable image_refs TEXT column to memory_graph_nodes
+  migrateMemoryGraphImageRefs(database);
 
   // 102. Drop legacy memory_items and memory_item_sources tables (migrated to memory_graph_nodes)
   migrateDropMemoryItemsTables(database);
@@ -573,8 +578,28 @@ export function initializeDb(): void {
   // 103. Rename legacy memory graph node type values: style → behavioral, relationship → semantic
   migrateRenameMemoryGraphTypeValues(database);
 
-  // 104. Add nullable image_refs TEXT column to memory_graph_nodes
-  migrateMemoryGraphImageRefs(database);
+  // 104. Memory graph node edit history
+  migrateCreateMemoryGraphNodeEdits(database);
+
+  // 105. Remove image attachments containing HTML error pages instead of image data
+  migrateScrubCorruptedImageAttachments(database);
+
+  // 106. Persist graph memory tracker state across conversation eviction
+  migrateCreateConversationGraphMemoryState(database);
+
+  // 107. Add last_message_at denormalized column for message-based sorting
+  migrateConversationsLastMessageAt(database);
+
+  // 108. Strip thinking/redacted_thinking from consolidated assistant messages
+  // so the Anthropic provider no longer needs to mutate historical messages,
+  // enabling append-only conversation history for prefix caching.
+  migrateStripThinkingFromConsolidated(database);
+
+  // 109. Add reuse_conversation flag to schedule jobs
+  migrateScheduleReuseConversation(database);
+
+  // 110. Add query_context column to memory_recall_logs for inspector query display
+  migrateMemoryRecallLogsQueryContext(database);
 
   validateMigrationState(database);
 

@@ -88,7 +88,7 @@ mock.module("../../../../platform/client.js", () => ({
 }));
 
 mock.module("../../../../util/browser.js", () => ({
-  openInBrowser: (url: string) => {
+  openInHostBrowser: async (url: string) => {
     mockOpenInBrowserCalls.push(url);
   },
 }));

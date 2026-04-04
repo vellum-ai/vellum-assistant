@@ -13,34 +13,38 @@ public struct VAppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
     @State private var dragStartAvailableWidth: CGFloat?
     @State private var isDragging: Bool = false
     @State private var isDividerHovered: Bool = false
+    @State private var availableWidth: CGFloat = 0
     private let dragCoordinateSpaceName = "AppWorkspaceDockDragCoordinateSpace"
 
     // MARK: - Body
 
     public var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                if showDock {
-                    dock
-                        .frame(width: dockWidth)
-                        .animation(nil, value: dockWidth)
-                        .background(dockBackground ?? VColor.surfaceBase)
-                        .clipShape(RoundedRectangle(cornerRadius: dockCornerRadius ?? VRadius.lg))
-                        .padding([.bottom, .leading], VSpacing.xs)
-                        .transition(.move(edge: .leading))
+        HStack(spacing: 0) {
+            if showDock {
+                dock
+                    .frame(width: dockWidth)
+                    .animation(nil, value: dockWidth)
+                    .background(dockBackground ?? VColor.surfaceBase)
+                    .clipShape(RoundedRectangle(cornerRadius: dockCornerRadius ?? VRadius.lg))
+                    .padding([.bottom, .leading], VSpacing.xs)
+                    .transition(.move(edge: .leading))
 
-                    dragDivider(availableWidth: geometry.size.width)
-                }
-
-                workspace
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(VColor.surfaceBase)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    .padding(.leading, showDock ? 0 : VSpacing.xs)
-                    .padding([.bottom, .trailing], VSpacing.xs)
+                dragDivider(availableWidth: availableWidth)
             }
-            .coordinateSpace(name: dragCoordinateSpaceName)
-            .animation(isDragging ? nil : VAnimation.standard, value: showDock)
+
+            workspace
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(VColor.surfaceBase)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .padding(.leading, showDock ? 0 : VSpacing.xs)
+                .padding([.bottom, .trailing], VSpacing.xs)
+        }
+        .coordinateSpace(name: dragCoordinateSpaceName)
+        .animation(isDragging ? nil : VAnimation.standard, value: showDock)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { newWidth in
+            availableWidth = newWidth
         }
     }
 

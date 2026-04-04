@@ -7,85 +7,159 @@ extension MemoryItemDetailSheet {
 
     @ViewBuilder
     var viewModeContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Statement")
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentTertiary)
-            Text(displayItem.statement)
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentDefault)
-                .textSelection(.enabled)
+        // Skill/procedural banner
+        if displayItem.kind == MemoryKind.procedural.rawValue {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.zap, size: 14)
+                    .foregroundStyle(VColor.funRed)
+                Text("Capability — not a personal memory")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.funRed)
+            }
+            .padding(VSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(VColor.funRed.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         }
 
+        // Statement — no label, the VModal title already shows the subject
+        Text(displayItem.statement)
+            .font(VFont.bodyMediumLighter)
+            .foregroundStyle(VColor.contentDefault)
+            .textSelection(.enabled)
+
+        // Classification group
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Details")
-                .font(VFont.bodyMediumDefault)
+            Text("Classification")
+                .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentTertiary)
-
-            HStack(spacing: VSpacing.xs) {
-                Text("Kind")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .frame(width: 110, alignment: .leading)
+            HStack(spacing: VSpacing.sm) {
                 kindBadge
+                Text("·").foregroundStyle(VColor.contentTertiary)
+                Text(displayItem.status.capitalized)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
             }
-            metadataRow(label: "Status", value: displayItem.status.capitalized)
-            metadataRow(label: "Confidence", value: "\(Int((displayItem.confidence ?? 0) * 100))%")
-            if let importance = displayItem.importance {
-                metadataRow(label: "Importance", value: "\(Int(importance * 100))%")
-            }
-
             if let sourceType = displayItem.sourceType {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Source")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .frame(width: 110, alignment: .leading)
-                    switch sourceType {
-                    case "direct":
-                        VIconView(.circleCheck, size: 13)
-                            .foregroundStyle(VColor.systemPositiveStrong)
-                        Text("Told directly")
-                    case "observed":
-                        VIconView(.eye, size: 13)
-                            .foregroundStyle(VColor.contentSecondary)
-                        Text("Observed pattern")
-                    default:
-                        VIconView(.sparkles, size: 13)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Text("Inferred")
-                    }
-                }
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentSecondary)
-            }
-
-            if let scopeLabel = displayItem.scopeLabel {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Scope")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .frame(width: 110, alignment: .leading)
-                    VIconView(.lock, size: 12)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text(scopeLabel)
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
-            }
-
-            metadataRow(label: "First seen", value: formattedDate(displayItem.firstSeenDate))
-            metadataRow(label: "Last seen", value: formattedDate(displayItem.lastSeenDate))
-            if let lastUsedDate = displayItem.lastUsedDate {
-                metadataRow(label: "Last used", value: formattedDate(lastUsedDate))
-            }
-            if let fidelity = displayItem.fidelity {
-                metadataRow(label: "Fidelity", value: fidelity.capitalized)
-            }
-            if let reinforcementCount = displayItem.reinforcementCount, reinforcementCount > 0 {
-                metadataRow(label: "Reinforced", value: "\(reinforcementCount) time\(reinforcementCount == 1 ? "" : "s")")
+                sourceTypeIndicator(sourceType)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
             }
         }
+        .padding(VSpacing.md)
+        .background(VColor.surfaceActive.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+        // Strength group
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Strength")
+                .font(VFont.bodySmallEmphasised)
+                .foregroundStyle(VColor.contentTertiary)
+            if let confidence = displayItem.confidence {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Confidence")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .frame(width: 90, alignment: .leading)
+                    metricBar(value: confidence,
+                              color: confidenceColor(confidence))
+                    Text("\(Int(confidence * 100))%")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+            if let importance = displayItem.importance {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Importance")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .frame(width: 90, alignment: .leading)
+                    metricBar(value: importance, color: VColor.primaryBase)
+                    Text("\(Int(importance * 100))%")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+            if let count = displayItem.reinforcementCount, count > 0 {
+                metadataRow(label: "Reinforced", value: "\(count) time\(count == 1 ? "" : "s")")
+            }
+        }
+        .padding(VSpacing.md)
+        .background(VColor.surfaceActive.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+        // Timeline group (collapsed by default)
+        VDisclosureSection(
+            title: "Timeline",
+            icon: VIcon.clock.rawValue,
+            isExpanded: $isTimelineExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                metadataRow(label: "First seen", value: formattedDate(displayItem.firstSeenDate))
+                metadataRow(label: "Last seen", value: formattedDate(displayItem.lastSeenDate))
+                if let lastUsedDate = displayItem.lastUsedDate {
+                    metadataRow(label: "Last used", value: formattedDate(lastUsedDate))
+                }
+                if let fidelity = displayItem.fidelity {
+                    metadataRow(label: "Fidelity", value: fidelity.capitalized)
+                }
+                if let scopeLabel = displayItem.scopeLabel {
+                    metadataRow(label: "Scope", value: scopeLabel)
+                }
+            }
+        }
+
+        // Possibly Related section
+        let related = relatedItems
+        if !related.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Possibly Related")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentTertiary)
+                ForEach(related) { relatedItem in
+                    Button {
+                        onNavigate?(relatedItem)
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            Circle()
+                                .fill(MemoryKind(rawValue: relatedItem.kind)?.color ?? VColor.contentTertiary)
+                                .frame(width: 6, height: 6)
+                            Text(relatedItem.subject)
+                                .font(VFont.bodySmallDefault)
+                                .foregroundStyle(VColor.contentSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var relatedItems: [MemoryItemPayload] {
+        let stopWords: Set<String> = ["the", "and", "that", "this", "with", "from", "have", "been", "was", "were", "are", "for", "not"]
+        let words = Set(
+            displayItem.subject
+                .lowercased()
+                .split(separator: " ")
+                .map { $0.filter(\.isLetter) }
+                .filter { $0.count > 3 && !stopWords.contains($0) }
+        )
+        guard !words.isEmpty else { return [] }
+
+        return store.allLoadedItems
+            .filter { $0.id != displayItem.id && $0.kind == displayItem.kind }
+            .filter { candidate in
+                let candidateWords = Set(
+                    candidate.subject.lowercased()
+                        .split(separator: " ")
+                        .map { $0.filter(\.isLetter) }
+                        .filter { $0.count > 3 && !stopWords.contains($0) }
+                )
+                return !words.isDisjoint(with: candidateWords)
+            }
+            .prefix(3)
+            .map { $0 }
     }
 }
 

@@ -35,7 +35,13 @@ import {
   evaluateTemporalTriggers,
   type TriggeredResult,
 } from "./triggers.js";
-import type { MemoryEdge, MemoryNode, ScoredNode } from "./types.js";
+import type {
+  MemoryEdge,
+  MemoryNode,
+  RetrievalMetrics,
+  ScoredNode,
+} from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
 
@@ -77,7 +83,7 @@ async function rerankAndDedup(
     const provider = await getConfiguredProvider();
     if (!provider) return candidates.slice(0, maxNodes);
 
-    // Compact listing for the LLM: numbered index + age + first 100 chars
+    // Numbered listing for the LLM: index + age + full content
     const now = Date.now();
     const listing = candidates
       .map((s, i) => {
@@ -86,11 +92,7 @@ async function rerankAndDedup(
           ageDays < 1
             ? `${Math.floor(ageDays * 24)}h`
             : `${Math.floor(ageDays)}d`;
-        const preview =
-          s.node.content.length > 100
-            ? s.node.content.slice(0, 100) + "…"
-            : s.node.content;
-        return `${i + 1}. (${age}) ${preview}`;
+        return `${i + 1}. (${age}) ${s.node.content}`;
       })
       .join("\n");
 
@@ -188,11 +190,7 @@ async function dedupForTurn(
           ageDays < 1
             ? `${Math.floor(ageDays * 24)}h`
             : `${Math.floor(ageDays)}d`;
-        const preview =
-          s.node.content.length > 150
-            ? s.node.content.slice(0, 150) + "…"
-            : s.node.content;
-        return `${i + 1}. (${age}) ${preview}`;
+        return `${i + 1}. (${age}) ${s.node.content}`;
       })
       .join("\n");
 
@@ -239,6 +237,96 @@ async function dedupForTurn(
 }
 
 // ---------------------------------------------------------------------------
+// Cross-category dedup — dedup-only (no relevance filtering)
+// ---------------------------------------------------------------------------
+
+const DEDUP_ITEMS_TOOL = {
+  name: "select_items",
+  description:
+    "Select ALL items that survive deduplication. When multiple items describe the same event/fact, keep only the richest version. Do not filter by relevance — keep everything that is not a duplicate.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      items: {
+        type: "array" as const,
+        description:
+          "Item numbers to keep (1-indexed). Remove duplicates — when multiple entries describe the same event/fact, keep ONLY the richest version. Keep all non-duplicate items.",
+        items: { type: "number" as const },
+      },
+    },
+    required: ["items"] as const,
+  },
+};
+
+/**
+ * Dedup-only pass for cross-category duplicate removal. Unlike `dedupForTurn`,
+ * this does NOT filter by relevance to a query — it ONLY removes duplicates
+ * and keeps everything else. Used after context load to catch topic-level
+ * duplicates across reserved categories and serendipity.
+ */
+async function dedupCrossCategory(
+  candidates: ScoredNode[],
+  maxNodes: number,
+): Promise<ScoredNode[]> {
+  try {
+    const provider = await getConfiguredProvider();
+    if (!provider) return candidates.slice(0, maxNodes);
+
+    const now = Date.now();
+    const listing = candidates
+      .map((s, i) => {
+        const ageDays = (now - s.node.created) / (1000 * 60 * 60 * 24);
+        const age =
+          ageDays < 1
+            ? `${Math.floor(ageDays * 24)}h`
+            : `${Math.floor(ageDays)}d`;
+        return `${i + 1}. (${age}) ${s.node.content}`;
+      })
+      .join("\n");
+
+    const response = await provider.sendMessage(
+      [userMessage(listing)],
+      [DEDUP_ITEMS_TOOL],
+      `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
+      {
+        config: {
+          modelIntent: "latency-optimized" as const,
+          tool_choice: { type: "tool" as const, name: "select_items" },
+          thinking: { type: "disabled" },
+          temperature: 0,
+        },
+      },
+    );
+
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock) return candidates.slice(0, maxNodes);
+
+    const input = toolBlock.input as { items?: number[] };
+    if (!input.items?.length) return candidates.slice(0, maxNodes);
+
+    const reranked: ScoredNode[] = [];
+    const seen = new Set<number>();
+    for (const num of input.items) {
+      const idx = num - 1;
+      if (idx >= 0 && idx < candidates.length && !seen.has(idx)) {
+        reranked.push(candidates[idx]);
+        seen.add(idx);
+      }
+    }
+
+    return reranked.length > 0
+      ? reranked.slice(0, maxNodes)
+      : candidates.slice(0, maxNodes);
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Cross-category dedup failed, using original order",
+    );
+    return candidates.slice(0, maxNodes);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Context load — conversation start
 // ---------------------------------------------------------------------------
 
@@ -262,6 +350,7 @@ export interface ContextLoadResult {
   serendipityNodes: ScoredNode[];
   triggeredNodes: TriggeredResult[];
   latencyMs: number;
+  metrics: RetrievalMetrics;
 }
 
 /**
@@ -286,15 +375,21 @@ export async function loadContextMemory(
 
   // 1. Embed recent conversation summaries as retrieval queries
   let queryVector: number[] | null = null;
+  let embeddingProvider: string | null = null;
+  let embeddingModel: string | null = null;
+  let contextQueryText: string | null = null;
   if (opts.recentSummaries.length > 0) {
     try {
       const queryText = opts.recentSummaries.join("\n\n");
       const truncated =
         queryText.length > 3000 ? queryText.slice(0, 3000) : queryText;
+      contextQueryText = truncated;
       const result = await embedWithRetry(opts.config, [truncated], {
         signal: opts.signal,
       });
       queryVector = result.vectors[0] ?? null;
+      embeddingProvider = result.provider;
+      embeddingModel = result.model;
     } catch (err) {
       log.warn({ err }, "Failed to embed summaries for context load");
     }
@@ -302,7 +397,9 @@ export async function loadContextMemory(
 
   // 2. Hybrid retrieval from Qdrant (dense search on graph_node points)
   const semanticCandidateIds = new Map<string, number>(); // nodeId → score
+  let hybridSearchLatencyMs = 0;
   if (queryVector) {
+    const searchStart = Date.now();
     try {
       const results = await searchGraphNodes(queryVector, maxNodes * 3, [
         opts.scopeId,
@@ -312,8 +409,11 @@ export async function loadContextMemory(
       }
     } catch (err) {
       log.warn({ err }, "Qdrant search failed for context load");
+    } finally {
+      hybridSearchLatencyMs = Date.now() - searchStart;
     }
   }
+  const pureSemanticHits = semanticCandidateIds.size;
 
   // Also include top-significance nodes as a fallback
   const topSignificance = queryNodes({
@@ -337,7 +437,7 @@ export async function loadContextMemory(
     limit: maxNodes,
   });
   for (const node of recentNodes) {
-    if (node.type === "procedural") continue;
+    if (isCapabilityNode(node)) continue;
     if (!semanticCandidateIds.has(node.id)) {
       semanticCandidateIds.set(node.id, 0);
     }
@@ -445,12 +545,29 @@ export async function loadContextMemory(
   // SQLite — no Qdrant vectors needed — so capabilities surface even on
   // fresh assistants whose embedding jobs haven't completed yet.
   const CAPABILITY_RESERVE = 5;
-  const capabilityNodes = queryNodes({
+  const rawCapabilityNodes = queryNodes({
     scopeId: opts.scopeId,
     types: ["procedural"],
     fidelityNot: ["gone"],
-    limit: CAPABILITY_RESERVE * 2,
+    limit: CAPABILITY_RESERVE * 4,
   });
+
+  // Dedup: both seeding systems may create nodes for the same capability.
+  // Extract capability ID from content and keep only the first node per ID.
+  const seenCapabilityIds = new Set<string>();
+  const capabilityNodes = rawCapabilityNodes
+    .filter(isCapabilityNode)
+    .filter((node) => {
+      const match = node.content.match(
+        /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+      );
+      const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+      if (capId) {
+        if (seenCapabilityIds.has(capId)) return false;
+        seenCapabilityIds.add(capId);
+      }
+      return true;
+    });
 
   // Rank by semantic similarity when a query vector exists
   let selectedCapabilities: MemoryNode[];
@@ -464,7 +581,6 @@ export async function loadContextMemory(
     selectedCapabilities = capabilityNodes.slice(0, CAPABILITY_RESERVE);
   }
 
-  const capabilityIds = new Set(selectedCapabilities.map((n) => n.id));
   const reservedCapabilities: ScoredNode[] = selectedCapabilities.map(
     (node) => {
       const existing = scored.find((s) => s.node.id === node.id);
@@ -483,7 +599,7 @@ export async function loadContextMemory(
 
   // 6. Reserve slots for recent prospective nodes (commitments, tasks, plans).
   //    These MUST surface at conversation start regardless of score — if the user
-  //    said "I have a doctor appointment tomorrow," Velissa must remember it.
+  //    said "I have a doctor appointment tomorrow," the assistant must remember it.
   const PROSPECTIVE_RESERVE = 10;
   const recentProspective = queryNodes({
     scopeId: opts.scopeId,
@@ -564,12 +680,14 @@ export async function loadContextMemory(
     });
   });
 
-  // Remove reserved nodes from the main pool (they have guaranteed slots)
+  // Remove reserved nodes and all procedural nodes from the main pool.
+  // Procedural nodes have dedicated reserved slots — any that didn't make
+  // the cut shouldn't compete with organic memories for general slots.
   const mainPool = scored.filter(
     (s) =>
+      !isCapabilityNode(s.node) &&
       !prospectiveIds.has(s.node.id) &&
-      !upcomingIds.has(s.node.id) &&
-      !capabilityIds.has(s.node.id),
+      !upcomingIds.has(s.node.id),
   );
   const mainSlots = Math.max(
     0,
@@ -594,7 +712,10 @@ export async function loadContextMemory(
     ...reservedCapabilities,
     ...reranked,
   ].slice(0, maxNodes - serendipitySlots);
-  const serendipityPicks = sampleSerendipity(scored, serendipitySlots);
+  // Exclude procedural nodes from serendipity — they have reserved slots
+  // and shouldn't appear as random wildcard picks.
+  const serendipityPool = scored.filter((s) => !isCapabilityNode(s.node));
+  const serendipityPicks = sampleSerendipity(serendipityPool, serendipitySlots);
 
   // Deduplicate serendipity against deterministic
   const deterministicIds = new Set(deterministic.map((s) => s.node.id));
@@ -602,11 +723,56 @@ export async function loadContextMemory(
     (s) => !deterministicIds.has(s.node.id),
   );
 
+  // 9. Cross-category dedup: catch topic-level duplicates across reserved
+  //    categories (prospective, upcoming, capabilities) and serendipity.
+  //    Only runs when the combined set is large enough to warrant an LLM call.
+  const CROSS_DEDUP_THRESHOLD = 15;
+  const combined = [...deterministic, ...uniqueSerendipity];
+  let dedupedDeterministic = deterministic;
+  let dedupedSerendipity = uniqueSerendipity;
+
+  if (combined.length > CROSS_DEDUP_THRESHOLD) {
+    const deduped = await dedupCrossCategory(
+      combined,
+      combined.length, // preserve all non-duplicate nodes
+    );
+
+    // Re-split into deterministic vs serendipity by checking original membership
+    dedupedDeterministic = deduped.filter((s) =>
+      deterministicIds.has(s.node.id),
+    );
+    dedupedSerendipity = deduped.filter(
+      (s) => !deterministicIds.has(s.node.id),
+    );
+  }
+
+  const TOP_N = 20;
+  const topCandidates = scored.slice(0, TOP_N).map((s) => ({
+    nodeId: s.node.id,
+    type: s.node.type,
+    score: s.score,
+    semanticSimilarity: s.scoreBreakdown.semanticSimilarity,
+    recencyBoost: s.scoreBreakdown.recencyBoost,
+  }));
+
   return {
-    nodes: deterministic,
-    serendipityNodes: uniqueSerendipity,
+    nodes: dedupedDeterministic,
+    serendipityNodes: dedupedSerendipity,
     triggeredNodes: allTriggered,
     latencyMs: Date.now() - start,
+    metrics: {
+      semanticHits: pureSemanticHits,
+      mergedCount: scored.length,
+      selectedCount: dedupedDeterministic.length + dedupedSerendipity.length,
+      tier1Count: reservedNodes.length + reservedUpcoming.length,
+      tier2Count: reservedCapabilities.length,
+      hybridSearchLatencyMs,
+      sparseVectorUsed: false,
+      embeddingProvider,
+      embeddingModel,
+      queryContext: contextQueryText,
+      topCandidates,
+    },
   };
 }
 
@@ -630,9 +796,12 @@ export interface TurnRetrievalOpts {
 export interface TurnRetrievalResult {
   /** New nodes to inject (not already in context). */
   nodes: ScoredNode[];
+  /** Serendipity picks included in nodes. */
+  serendipityNodes: ScoredNode[];
   /** Triggers that fired this turn. */
   triggeredNodes: TriggeredResult[];
   latencyMs: number;
+  metrics: RetrievalMetrics;
 }
 
 /**
@@ -650,6 +819,24 @@ export async function retrieveForTurn(
   const now = new Date();
   const nowMs = now.getTime();
 
+  let embeddingProvider: string | null = null;
+  let embeddingModel: string | null = null;
+  let hybridSearchLatencyMs = 0;
+
+  const ZERO_METRICS: RetrievalMetrics = {
+    semanticHits: 0,
+    mergedCount: 0,
+    selectedCount: 0,
+    tier1Count: 0,
+    tier2Count: 0,
+    hybridSearchLatencyMs: 0,
+    sparseVectorUsed: false,
+    embeddingProvider: null,
+    embeddingModel: null,
+    queryContext: null,
+    topCandidates: [],
+  };
+
   // 1. Build query from last exchange
   const queryText = [opts.assistantLastMessage, opts.userLastMessage]
     .filter((m) => m.length > 0)
@@ -661,6 +848,7 @@ export async function retrieveForTurn(
     (b): b is ImageContent => b.type === "image",
   );
   const allCandidateIds = new Map<string, number>(); // nodeId → best score
+  const searchStart = Date.now();
 
   if (imageBlocks.length > 0) {
     try {
@@ -681,6 +869,10 @@ export async function retrieveForTurn(
           const imgResult = await embedWithRetry(opts.config, [imageInput], {
             signal: opts.signal,
           });
+          if (!embeddingProvider) {
+            embeddingProvider = imgResult.provider;
+            embeddingModel = imgResult.model;
+          }
           const imgVector = imgResult.vectors[0];
           if (imgVector) {
             const imgResults = await searchGraphNodes(imgVector, 40, [
@@ -699,7 +891,20 @@ export async function retrieveForTurn(
   }
 
   if (queryText.trim().length === 0 && allCandidateIds.size === 0) {
-    return { nodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
+    return {
+      nodes: [],
+      serendipityNodes: [],
+      triggeredNodes: [],
+      latencyMs: Date.now() - start,
+      metrics: {
+        ...ZERO_METRICS,
+        hybridSearchLatencyMs:
+          imageBlocks.length > 0 ? Date.now() - searchStart : 0,
+        embeddingProvider,
+        embeddingModel,
+        queryContext: queryText || null,
+      },
+    };
   }
 
   // Chunk if too large (8k token ≈ 32k chars conservative estimate)
@@ -740,6 +945,8 @@ export async function retrieveForTurn(
       const embedResults = await embedWithRetry(opts.config, chunks, {
         signal: opts.signal,
       });
+      embeddingProvider = embedResults.provider;
+      embeddingModel = embedResults.model;
       queryEmbeddings = embedResults.vectors;
 
       const searchPromises = queryEmbeddings.map((vec) =>
@@ -753,13 +960,34 @@ export async function retrieveForTurn(
           allCandidateIds.set(r.nodeId, Math.max(current, r.score));
         }
       }
+      hybridSearchLatencyMs = Date.now() - searchStart;
     } catch (err) {
       log.warn({ err }, "Embedding/search failed for turn retrieval");
       if (allCandidateIds.size === 0) {
-        return { nodes: [], triggeredNodes: [], latencyMs: Date.now() - start };
+        return {
+          nodes: [],
+          serendipityNodes: [],
+          triggeredNodes: [],
+          latencyMs: Date.now() - start,
+          metrics: {
+            ...ZERO_METRICS,
+            hybridSearchLatencyMs: Date.now() - searchStart,
+            embeddingProvider,
+            embeddingModel,
+            queryContext: queryText || null,
+          },
+        };
       }
     }
   }
+
+  // Capture search latency for image-only searches (text path sets it inside its try block)
+  if (hybridSearchLatencyMs === 0 && allCandidateIds.size > 0) {
+    hybridSearchLatencyMs = Date.now() - searchStart;
+  }
+
+  // Snapshot pure vector-search results before triggers inflate the set
+  const pureSemanticHits = allCandidateIds.size;
 
   // 3. Evaluate semantic triggers
   const semanticTriggers = getActiveTriggersByType("semantic", opts.scopeId);
@@ -789,8 +1017,17 @@ export async function retrieveForTurn(
   if (newCandidateIds.length === 0) {
     return {
       nodes: [],
+      serendipityNodes: [],
       triggeredNodes: triggeredSemantic,
       latencyMs: Date.now() - start,
+      metrics: {
+        ...ZERO_METRICS,
+        semanticHits: pureSemanticHits,
+        hybridSearchLatencyMs,
+        embeddingProvider,
+        embeddingModel,
+        queryContext: queryText || null,
+      },
     };
   }
 
@@ -800,6 +1037,9 @@ export async function retrieveForTurn(
 
   for (const node of nodes) {
     if (node.fidelity === "gone") continue;
+    // Capability nodes (auto-seeded skills/CLI) are excluded from the general
+    // scoring pool — they compete in the dedicated procedural reserve below.
+    if (isCapabilityNode(node)) continue;
 
     const semanticSim = allCandidateIds.get(node.id) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);
@@ -826,11 +1066,71 @@ export async function retrieveForTurn(
     );
   }
 
+  // 5b. Reserve slots for procedural memories (how-to knowledge + capabilities).
+  // Queried from SQLite — no additional Qdrant call — then ranked by the
+  // semantic similarity scores already computed from vector search.
+  const PROCEDURAL_RESERVE = 3;
+  const rawProceduralNodes = queryNodes({
+    scopeId: opts.scopeId,
+    types: ["procedural"],
+    fidelityNot: ["gone"],
+    limit: PROCEDURAL_RESERVE * 4,
+  });
+
+  const proceduralCandidates = rawProceduralNodes.filter(
+    (node) => !opts.tracker.isInContext(node.id),
+  );
+
+  // Rank by similarity first, then dedup capability nodes by capability ID
+  // so we keep the highest-similarity node per capId rather than an arbitrary
+  // first-seen node that might fail PROCEDURAL_SIM_FLOOR.
+  const rankedProceduralAll = proceduralCandidates
+    .map((node) => ({ node, sim: allCandidateIds.get(node.id) ?? 0 }))
+    .sort((a, b) => b.sim - a.sim);
+
+  const seenProcCapIds = new Set<string>();
+  const rankedProcedural = rankedProceduralAll
+    .filter(({ node }) => {
+      if (!isCapabilityNode(node)) return true; // organic procedural — keep
+      const match = node.content.match(
+        /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+      );
+      const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+      if (capId) {
+        if (seenProcCapIds.has(capId)) return false;
+        seenProcCapIds.add(capId);
+      }
+      return true;
+    })
+    .slice(0, PROCEDURAL_RESERVE);
+
+  const proceduralScored: ScoredNode[] = rankedProcedural.map(({ node, sim }) =>
+    scoreCandidate(
+      node,
+      {
+        semanticSimilarity: sim,
+        effectiveSignificance: computeEffectiveSignificance(node, nowMs),
+        emotionalIntensity: node.emotionalCharge.intensity,
+        temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
+        recencyBoost: computeRecencyBoost(node, nowMs),
+        triggerBoost: triggerBoostMap.get(node.id) ?? 0,
+        activationBoost: 0,
+      },
+      PER_TURN_WEIGHTS,
+    ),
+  );
+
+  const PROCEDURAL_SIM_FLOOR = 0.15;
+  const proceduralInjected = proceduralScored.filter(
+    (s) => s.scoreBreakdown.semanticSimilarity >= PROCEDURAL_SIM_FLOOR,
+  );
+  const proceduralIds = new Set(proceduralInjected.map((s) => s.node.id));
+
   // Sort and apply threshold — pull a wider pool for dedup, then trim
   scored.sort((a, b) => b.score - a.score);
   const INJECTION_THRESHOLD = 0.3;
-  const PRE_DEDUP_POOL = 40;
-  const MAX_INJECTED = 8;
+  const PRE_DEDUP_POOL = 20;
+  const MAX_INJECTED = 4;
   const pool = scored
     .filter((s) => s.score >= INJECTION_THRESHOLD)
     .slice(0, PRE_DEDUP_POOL);
@@ -841,140 +1141,61 @@ export async function retrieveForTurn(
       ? await dedupForTurn(pool, MAX_INJECTED, opts.userLastMessage)
       : pool;
 
+  // Remove procedural-reserved nodes from general set to avoid double-counting
+  const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
+
+  // Backfill vacated general slots from the remaining pool so we always
+  // return up to MAX_INJECTED general memories when eligible candidates exist.
+  // Only backfill when LLM dedup was NOT applied — otherwise the pool contains
+  // items that dedupForTurn intentionally rejected as duplicates/irrelevant.
+  if (generalInjected.length < MAX_INJECTED && pool.length <= MAX_INJECTED) {
+    const usedIds = new Set([
+      ...generalInjected.map((s) => s.node.id),
+      ...proceduralIds,
+    ]);
+    const backfillCandidates = pool.filter((s) => !usedIds.has(s.node.id));
+    const needed = MAX_INJECTED - generalInjected.length;
+    for (let i = 0; i < Math.min(needed, backfillCandidates.length); i++) {
+      generalInjected.push(backfillCandidates[i]);
+    }
+  }
+
+  const allDeterministic = [...generalInjected, ...proceduralInjected];
+  const deterministicIds = new Set(allDeterministic.map((n) => n.node.id));
+
+  // Reserve 1 serendipity slot from scored candidates not in the deterministic set
+  const serendipityPool = scored.filter(
+    (s) => s.score >= INJECTION_THRESHOLD && !deterministicIds.has(s.node.id),
+  );
+  const serendipityPicks = sampleSerendipity(serendipityPool, 1);
+  const allInjected = [...allDeterministic, ...serendipityPicks];
+
+  const TOP_N = 20;
+  const topCandidates = scored.slice(0, TOP_N).map((s) => ({
+    nodeId: s.node.id,
+    type: s.node.type,
+    score: s.score,
+    semanticSimilarity: s.scoreBreakdown.semanticSimilarity,
+    recencyBoost: s.scoreBreakdown.recencyBoost,
+  }));
+
   return {
-    nodes: injected,
+    nodes: allInjected,
+    serendipityNodes: serendipityPicks,
     triggeredNodes: triggeredSemantic,
     latencyMs: Date.now() - start,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Periodic refresh — every N turns, replenish memory context
-// ---------------------------------------------------------------------------
-
-export interface RefreshOpts {
-  /** Recent turns (last 5-6) concatenated as text. */
-  recentTurnsText: string;
-  scopeId: string;
-  config: AssistantConfig;
-  tracker: InContextTracker;
-  signal?: AbortSignal;
-  /** Max new nodes to inject (default 10). */
-  maxNodes?: number;
-}
-
-export interface RefreshResult {
-  nodes: ScoredNode[];
-  latencyMs: number;
-}
-
-/** Default interval between refresh cycles. */
-export const REFRESH_INTERVAL_TURNS = 5;
-
-/**
- * Periodic context refresh. Runs every N turns to catch memories that
- * the per-turn injection missed due to its high threshold.
- *
- * Uses a wider window (recent 5-6 turns) as the query to capture the
- * evolved conversational vibe. No LLM re-ranking — pure embedding +
- * scoring for speed (~200ms).
- *
- * Also runs after compaction to replenish lost memory context.
- */
-export async function refreshContextMemory(
-  opts: RefreshOpts,
-): Promise<RefreshResult> {
-  const start = Date.now();
-  const now = new Date();
-  const nowMs = now.getTime();
-  const maxNodes = opts.maxNodes ?? 10;
-
-  if (opts.recentTurnsText.trim().length === 0) {
-    return { nodes: [], latencyMs: Date.now() - start };
-  }
-
-  // 1. Embed recent turns window
-  const queryText =
-    opts.recentTurnsText.length > 6000
-      ? opts.recentTurnsText.slice(-6000)
-      : opts.recentTurnsText;
-
-  let queryVector: number[] | null = null;
-  try {
-    const result = await embedWithRetry(opts.config, [queryText], {
-      signal: opts.signal,
-    });
-    queryVector = result.vectors[0] ?? null;
-  } catch (err) {
-    log.warn({ err }, "Embedding failed for context refresh");
-    return { nodes: [], latencyMs: Date.now() - start };
-  }
-
-  if (!queryVector) {
-    return { nodes: [], latencyMs: Date.now() - start };
-  }
-
-  // 2. Search — cast a wider net than per-turn
-  let candidates: Array<{ nodeId: string; score: number }>;
-  try {
-    candidates = await searchGraphNodes(queryVector, maxNodes * 3, [
-      opts.scopeId,
-    ]);
-  } catch (err) {
-    log.warn({ err }, "Qdrant search failed for context refresh");
-    return { nodes: [], latencyMs: Date.now() - start };
-  }
-
-  // 3. Filter to nodes NOT already in context
-  const newCandidates = candidates.filter(
-    (c) => !opts.tracker.isInContext(c.nodeId),
-  );
-
-  if (newCandidates.length === 0) {
-    return { nodes: [], latencyMs: Date.now() - start };
-  }
-
-  // 4. Hydrate and score
-  const nodes = getNodesByIds(newCandidates.map((c) => c.nodeId));
-  const candidateScoreMap = new Map(
-    newCandidates.map((c) => [c.nodeId, c.score]),
-  );
-
-  const scored: ScoredNode[] = [];
-  for (const node of nodes) {
-    if (node.fidelity === "gone") continue;
-
-    const semanticSim = candidateScoreMap.get(node.id) ?? 0;
-    const effectiveSig = computeEffectiveSignificance(node, nowMs);
-    const temporal = computeTemporalBoost(node, now);
-    const recency = computeRecencyBoost(node, nowMs);
-
-    scored.push(
-      scoreCandidate(
-        node,
-        {
-          semanticSimilarity: semanticSim,
-          effectiveSignificance: effectiveSig,
-          emotionalIntensity: node.emotionalCharge.intensity,
-          temporalBoost: (temporal + 1) / 2,
-          recencyBoost: recency,
-          triggerBoost: 0,
-          activationBoost: 0,
-        },
-        PER_TURN_WEIGHTS,
-      ),
-    );
-  }
-
-  // 5. Return top N — lower threshold than per-turn since this is a periodic refresh
-  scored.sort((a, b) => b.score - a.score);
-  const REFRESH_THRESHOLD = 0.15;
-  const refreshed = scored
-    .filter((s) => s.score >= REFRESH_THRESHOLD)
-    .slice(0, maxNodes);
-
-  return {
-    nodes: refreshed,
-    latencyMs: Date.now() - start,
+    metrics: {
+      semanticHits: pureSemanticHits,
+      mergedCount: scored.length,
+      selectedCount: allInjected.length,
+      tier1Count: 0,
+      tier2Count: 0,
+      hybridSearchLatencyMs,
+      sparseVectorUsed: false,
+      embeddingProvider,
+      embeddingModel,
+      queryContext: queryText || null,
+      topCandidates,
+    },
   };
 }

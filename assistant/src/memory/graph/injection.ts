@@ -6,14 +6,14 @@ import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { getLogger } from "../../util/logger.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import type { MemoryNode, ScoredNode } from "./types.js";
+import { isCapabilityNode } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Image injection budgets
 // ---------------------------------------------------------------------------
 
 export const MAX_CONTEXT_LOAD_IMAGES = 3;
-export const MAX_PER_TURN_IMAGES = 1;
-export const MAX_REFRESH_IMAGES = 2;
+export const MAX_PER_TURN_IMAGES = 2;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,9 +29,15 @@ export interface ResolvedImage {
 // InContextTracker — tracks which node IDs are visible to the LLM
 // ---------------------------------------------------------------------------
 
-interface InjectionLogEntry {
+export interface InjectionLogEntry {
   nodeId: string;
   turn: number;
+}
+
+export interface InContextTrackerSnapshot {
+  inContext: string[];
+  log: InjectionLogEntry[];
+  currentTurn: number;
 }
 
 /**
@@ -106,6 +112,22 @@ export class InContextTracker {
   getTurn(): number {
     return this.currentTurn;
   }
+
+  /** Serialize tracker state for persistence across eviction. */
+  toJSON(): InContextTrackerSnapshot {
+    return {
+      inContext: [...this.inContext],
+      log: [...this.log],
+      currentTurn: this.currentTurn,
+    };
+  }
+
+  /** Restore tracker state from a persisted snapshot. Replaces current state. */
+  restoreFrom(snapshot: InContextTrackerSnapshot): void {
+    this.inContext = new Set(snapshot.inContext);
+    this.log = [...snapshot.log];
+    this.currentTurn = snapshot.currentTurn;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -165,8 +187,13 @@ export function formatEventDate(epochMs: number): string {
   const monthName = monthNames[date.getMonth()];
   const dayOfMonth = date.getDate();
 
-  // Include time only when hours/minutes are non-zero (midnight = date-only event)
-  const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+  // Heuristic: date-only events are stored as midnight UTC, so we treat
+  // midnight-UTC epochs as "no time component".  This is lossy — a timed event
+  // genuinely scheduled at 00:00 UTC will have its time display silently dropped.
+  // Fixing this properly requires the event storage layer to carry an explicit
+  // `hasTime` flag; until then this is the best available approximation.
+  // Use UTC methods so west-of-UTC local offsets don't defeat the check.
+  const hasTime = date.getUTCHours() !== 0 || date.getUTCMinutes() !== 0;
   let datePart = `${dayName} ${monthName} ${dayOfMonth}`;
   if (hasTime) {
     const hours = date.getHours();
@@ -274,14 +301,14 @@ export function assembleContextBlock(
       upcoming.push(scored);
     } else if (node.type === "prospective") {
       threads.push(scored);
+    } else if (isCapabilityNode(node)) {
+      capabilities.push(scored);
     } else if (node.type === "emotional" && isRecent(node)) {
       // Recent emotional nodes go in "Right Now" — present-tense state
       rightNow.push(scored);
     } else if (isVeryRecent(node)) {
       // Very recent nodes (last few hours) are "right now" context
       rightNow.push(scored);
-    } else if (node.type === "procedural") {
-      capabilities.push(scored);
     } else {
       onMyMind.push(scored);
     }
@@ -311,8 +338,11 @@ export function assembleContextBlock(
   // --- Skills You Can Use ---
   if (capabilities.length > 0) {
     const entries = capabilities.slice(0, 5).map((scored) => {
-      const content = scored.node.content.replace(/^skill:\S+\n/, "");
-      return `- ${content} → use skill_load to activate`;
+      const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
+      const suffix = /skill \(/.test(content)
+        ? " → use skill_load to activate"
+        : "";
+      return `- ${content}${suffix}`;
     });
     parts.push(`### Skills You Can Use\n${entries.join("\n")}`);
   }
@@ -366,9 +396,12 @@ export function assembleInjectionBlock(nodes: ScoredNode[]): string {
   if (nodes.length === 0) return "";
   return nodes
     .map((scored) => {
-      if (scored.node.type === "procedural") {
-        const content = scored.node.content.replace(/^skill:\S+\n/, "");
-        return `- [skill] ${content} → use skill_load to activate`;
+      if (isCapabilityNode(scored.node)) {
+        const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
+        if (/skill \(/.test(content)) {
+          return `- [skill] ${content} → use skill_load to activate`;
+        }
+        return `- ${content}`;
       }
       if (scored.node.eventDate != null) {
         return formatUpcomingEntry(scored);

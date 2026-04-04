@@ -36,6 +36,7 @@ export interface ScheduleJob {
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
   quiet: boolean;
+  reuseConversation: boolean;
   status: ScheduleStatus;
   createdAt: number;
   updatedAt: number;
@@ -93,6 +94,7 @@ export function createSchedule(params: {
   routingIntent?: RoutingIntent;
   routingHints?: Record<string, unknown>;
   quiet?: boolean;
+  reuseConversation?: boolean;
 }): ScheduleJob {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
@@ -121,6 +123,7 @@ export function createSchedule(params: {
   const routingIntent = params.routingIntent ?? "all_channels";
   const routingHints = params.routingHints ?? {};
   const quiet = params.quiet ?? false;
+  const reuseConversation = params.reuseConversation ?? false;
 
   let nextRunAt: number;
   if (isOneShot) {
@@ -148,6 +151,7 @@ export function createSchedule(params: {
     routingIntent,
     routingHintsJson: JSON.stringify(routingHints),
     quiet,
+    reuseConversation,
     status: "active" as ScheduleStatus,
     createdAt: now,
     updatedAt: now,
@@ -220,6 +224,7 @@ export function updateSchedule(
     routingIntent?: RoutingIntent;
     routingHints?: Record<string, unknown>;
     quiet?: boolean;
+    reuseConversation?: boolean;
   },
 ): ScheduleJob | null {
   const db = getDb();
@@ -275,6 +280,8 @@ export function updateSchedule(
   if (updates.routingHints !== undefined)
     set.routingHintsJson = JSON.stringify(updates.routingHints);
   if (updates.quiet !== undefined) set.quiet = updates.quiet;
+  if (updates.reuseConversation !== undefined)
+    set.reuseConversation = updates.reuseConversation;
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
@@ -563,6 +570,28 @@ export function completeScheduleRun(
   }
 }
 
+/**
+ * Return the conversation ID from the most recent successful run
+ * for a given schedule, or null if none exists.
+ */
+export function getLastScheduleConversationId(jobId: string): string | null {
+  const db = getDb();
+  const row = db
+    .select({ conversationId: scheduleRuns.conversationId })
+    .from(scheduleRuns)
+    .where(
+      and(
+        eq(scheduleRuns.jobId, jobId),
+        eq(scheduleRuns.status, "ok"),
+        sql`${scheduleRuns.conversationId} IS NOT NULL`,
+      ),
+    )
+    .orderBy(desc(scheduleRuns.createdAt))
+    .limit(1)
+    .get();
+  return row?.conversationId ?? null;
+}
+
 export function getScheduleRuns(jobId: string, limit?: number): ScheduleRun[] {
   const db = getDb();
   const rows = db
@@ -757,6 +786,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     routingIntent: (row.routingIntent ?? "all_channels") as RoutingIntent,
     routingHints: safeParseJson(row.routingHintsJson),
     quiet: row.quiet ?? false,
+    reuseConversation: row.reuseConversation ?? false,
     status: (row.status ?? "active") as ScheduleStatus,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

@@ -17,7 +17,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - The same resolver is used by:
   - `/channels/inbound` (Telegram/WhatsApp path) before run orchestration.
   - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
-- Runtime channel runs pass this as `trustContext`, and conversation runtime assembly injects `<inbound_actor_context>` (via `inboundActorContextFromTrustContext()`) into provider-facing prompts.
+- Runtime channel runs pass this as `trustContext`, and conversation runtime assembly includes actor context in the unified `<turn_context>` block (via `buildUnifiedTurnContextBlock()`) injected into provider-facing prompts.
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
@@ -634,14 +634,14 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 **Skill-gating guarantee:** Skill feature-flag gating is **opt-in**: only skills whose SKILL.md frontmatter contains a `featureFlag` field are gated. Skills without the field are always available regardless of feature flag state. For skills that declare a `featureFlag`, when the corresponding flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at six independent points:
 
-| Enforcement Point                  | Module                                                        | Effect                                                                                                                                                                                                      |
-| ---------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Client skill list**           | `resolveSkillStates()` in `config/skill-state.ts`             | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
-| **2. Capability memory seeding**   | `seedCatalogSkillMemories()` in `skills/skill-memory.ts`      | Skills with flag OFF are excluded from capability memory seeding. The model cannot discover them via semantic recall.                                                                                        |
-| **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`                | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
-| **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/conversation-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
-| **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`                | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
-| **6. Skill install gate**          | `installSkill()` in `daemon/handlers/skills.ts`               | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
+| Enforcement Point                | Module                                                        | Effect                                                                                                                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. Client skill list**         | `resolveSkillStates()` in `config/skill-state.ts`             | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
+| **2. Capability memory seeding** | `seedSkillGraphNodes()` in `memory/graph/capability-seed.ts`  | Skills with flag OFF are excluded from capability memory seeding. The model cannot discover them via semantic recall.                                                                                       |
+| **3. `skill_load` tool**         | `executeSkillLoad()` in `tools/skills/load.ts`                | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
+| **4. Runtime tool projection**   | `projectSkillTools()` in `daemon/conversation-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
+| **5. Included child skills**     | `executeSkillLoad()` in `tools/skills/load.ts`                | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
+| **6. Skill install gate**        | `installSkill()` in `daemon/handlers/skills.ts`               | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
@@ -653,7 +653,7 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader                                                               |
 | `src/config/skill-state.ts`                     | `skillFlagKey(skill)` — returns canonical flag key for skills with a `featureFlag` frontmatter field, `undefined` otherwise; `resolveSkillStates()` — enforcement point 1 |
-| `src/skills/skill-memory.ts`                    | `seedCatalogSkillMemories()` — enforcement point 2                                                                                                                        |
+| `src/memory/graph/capability-seed.ts`           | `seedSkillGraphNodes()` — enforcement point 2                                                                                                                             |
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
 | `src/daemon/conversation-skill-tools.ts`        | `projectSkillTools()` — enforcement point 4                                                                                                                               |
 | `src/config/schema.ts`                          | `AssistantConfig` Zod schema definition (feature flag values are no longer stored here)                                                                                   |
@@ -868,12 +868,12 @@ The session loop implements a deterministic overflow convergence pipeline that r
 
 The reducer (`context-overflow-reducer.ts`) applies four monotonically more aggressive tiers, each idempotent:
 
-| Tier                      | Reduction                                                                  | Effect                                                                                       |
-| ------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 1. Forced compaction      | Emergency `maybeCompact()` with `force: true`, `minKeepRecentUserTurns: 0` | Summarizes older history more aggressively than normal compaction                            |
-| 2. Tool-result truncation | `truncateToolResultsAcrossHistory()` at 4,000 chars per result             | Shrinks verbose tool outputs (shell, file reads) across all retained messages                |
+| Tier                      | Reduction                                                                  | Effect                                                                                                                                                                     |
+| ------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Forced compaction      | Emergency `maybeCompact()` with `force: true`, `minKeepRecentUserTurns: 0` | Summarizes older history more aggressively than normal compaction                                                                                                          |
+| 2. Tool-result truncation | `truncateToolResultsAcrossHistory()` at 4,000 chars per result             | Shrinks verbose tool outputs (shell, file reads) across all retained messages                                                                                              |
 | 3. Media/file stubbing    | `stripMediaPayloadsForRetry()`                                             | Replaces image and file content blocks with lightweight text stubs; media in the latest user message is retained based on available token budget rather than a fixed count |
-| 4. Injection downgrade    | Sets `injectionMode` to `"minimal"`                                        | Drops runtime injections (workspace listing, temporal context, memory recall) to minimal set |
+| 4. Injection downgrade    | Sets `injectionMode` to `"minimal"`                                        | Drops runtime injections (workspace listing, temporal context, memory recall) to minimal set                                                                               |
 
 After each tier, the reducer re-estimates tokens. If the estimate is within budget, the loop breaks and the provider call proceeds. The loop is bounded by `maxAttempts` (default 3).
 
@@ -2025,3 +2025,56 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 | `src/runtime/channel-retry-sweep.ts`          | Strict `trustClass` parser for retry sweep            |
 | `src/memory/channel-verification-sessions.ts` | `GuardianBinding` with required `guardianPrincipalId` |
 | `src/__tests__/trust-context-guards.test.ts`  | Guard tests enforcing trust-context type invariants   |
+
+### Managed Profiler Runtime
+
+Managed cloud assistants use Bun's built-in CPU and heap profiling to capture runtime performance data. The profiler subsystem consists of a persistent on-disk run store, a retention/pruning sweep, and HTTP routes for remote management.
+
+**Bun profiler flags:** Managed containers activate profiling by setting `VELLUM_PROFILER_MODE` (e.g. `cpu`, `heap`, `cpu+heap`) and `VELLUM_PROFILER_RUN_ID` environment variables before boot. Bun writes profiler artifacts (`.cpuprofile`, `.heapsnapshot`, markdown summaries) into the run directory.
+
+**Directory contract:**
+
+```
+<workspace>/data/profiler/
+  runs/
+    <runId>/
+      manifest.json          — run metadata (status, timestamps, byte count)
+      profile.cpuprofile     — Bun CPU profile output
+      profile-summary.md     — Bun-generated markdown summary
+      *.heapsnapshot          — Bun heap profile output (when heap mode active)
+```
+
+Each profiler run lives in its own sub-directory under `<workspace>/data/profiler/runs/<runId>/`. A `manifest.json` in each run directory records metadata: status (`active` or `completed`), creation/update timestamps, and total byte count. The active run (identified by `VELLUM_PROFILER_RUN_ID`) is never pruned.
+
+**Retention budgets:** On daemon startup and after explicit cleanup operations, the profiler sweep enforces three budgets:
+
+| Budget                                | Env var                       | Default |
+| ------------------------------------- | ----------------------------- | ------- |
+| Max total bytes across all runs       | `VELLUM_PROFILER_MAX_BYTES`   | 500 MB  |
+| Max number of completed runs retained | `VELLUM_PROFILER_MAX_RUNS`    | 10      |
+| Minimum free disk space               | `VELLUM_PROFILER_MIN_FREE_MB` | 200 MB  |
+
+Completed runs are pruned oldest-first until all budgets are satisfied. The active run is never deleted, even if it alone exceeds the byte budget.
+
+**Runtime HTTP endpoints (gateway-only, `internal.write` scope):**
+
+| Method   | Endpoint                          | Description                                                                      |
+| -------- | --------------------------------- | -------------------------------------------------------------------------------- |
+| `GET`    | `/v1/profiler/runs`               | List all profiler runs with manifest metadata, sorted newest-first               |
+| `GET`    | `/v1/profiler/runs/:runId`        | Detail view: manifest metadata, Bun markdown summary, active/retention state     |
+| `POST`   | `/v1/profiler/runs/:runId/export` | Package a single run directory as a tar.gz bundle (same size cap as log exports) |
+| `DELETE` | `/v1/profiler/runs/:runId`        | Delete a completed run; rejects active run deletion; recalculates disk budget    |
+
+These endpoints allow the platform (via vembda proxy) to enumerate, inspect, export, and clean up profiler runs without opening a shell on the assistant pod.
+
+**Key files:**
+
+| File                                       | Purpose                                                                  |
+| ------------------------------------------ | ------------------------------------------------------------------------ |
+| `src/daemon/profiler-run-store.ts`         | Manifest management, rescan, retention sweep                             |
+| `src/runtime/routes/profiler-routes.ts`    | HTTP route handlers for profiler run management                          |
+| `src/runtime/routes/archive-utils.ts`      | Shared tar.gz creation and size-cap utilities                            |
+| `src/config/env-registry.ts`               | Profiler env var accessors (`getProfilerRunId`, `getProfilerMode`, etc.) |
+| `src/util/platform.ts`                     | Profiler directory path helpers                                          |
+| `src/__tests__/profiler-run-store.test.ts` | Profiler store unit tests                                                |
+| `src/__tests__/profiler-routes.test.ts`    | Profiler HTTP route tests                                                |

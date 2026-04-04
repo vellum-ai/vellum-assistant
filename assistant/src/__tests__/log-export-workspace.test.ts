@@ -52,11 +52,13 @@ initializeDb();
 const routes = logExportRouteDefinitions();
 const exportRoute = routes.find((r) => r.endpoint === "export")!;
 
-async function callExport(): Promise<Response> {
+async function callExport(
+  body: Record<string, unknown> = {},
+): Promise<Response> {
   const req = new Request("http://localhost/v1/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify(body),
   });
   const url = new URL(req.url);
   return exportRoute.handler({
@@ -153,6 +155,38 @@ try {
   // Symlink creation may fail on some platforms; tests will still pass
 }
 
+// Symlinked skipped directory: bin/ → outside dir (should NOT get a manifest)
+const outsideBinDir = join(testDir, "outside-bin");
+mkdirSync(outsideBinDir, { recursive: true });
+writeFileSync(join(outsideBinDir, "bun"), "fake bun binary");
+try {
+  symlinkSync(outsideBinDir, join(testWorkspaceDir, "bin"));
+} catch {
+  // Symlink creation may fail on some platforms; tests will still pass
+}
+
+// Daemon log files — used for date filtering tests
+const logsDir = join(testWorkspaceDir, "data", "logs");
+mkdirSync(logsDir, { recursive: true });
+writeFileSync(
+  join(logsDir, "assistant-2025-01-10.log"),
+  "log entry from Jan 10\n",
+);
+writeFileSync(
+  join(logsDir, "assistant-2025-01-15.log"),
+  "log entry from Jan 15\n",
+);
+writeFileSync(
+  join(logsDir, "assistant-2025-01-20.log"),
+  "log entry from Jan 20\n",
+);
+writeFileSync(
+  join(logsDir, "assistant-2025-01-25.log"),
+  "log entry from Jan 25\n",
+);
+// Non-dated log file — should always be included regardless of time filter
+writeFileSync(join(logsDir, "vellum.log"), "non-dated log content\n");
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -220,17 +254,42 @@ describe("POST /v1/export — tar.gz archive", () => {
     }
   });
 
-  test("archive excludes embedding-models/ and data/qdrant/", async () => {
+  test("archive excludes embedding-models/ and data/qdrant/ data but includes redacted manifests", async () => {
     const res = await callExport();
     const dir = await extractArchive(res);
     try {
       const files = listFiles(join(dir, "workspace"));
-      const embeddingFiles = files.filter((f) =>
-        f.startsWith("embedding-models/"),
+
+      // Original data files are excluded
+      expect(files).not.toContain("embedding-models/model.bin");
+      expect(files).not.toContain("data/qdrant/index.bin");
+
+      // Redacted manifests show entry counts and sizes, not filenames
+      const embeddingManifest = readFileSync(
+        join(dir, "workspace", "embedding-models", "_manifest.txt"),
+        "utf-8",
       );
-      const qdrantFiles = files.filter((f) => f.startsWith("data/qdrant/"));
-      expect(embeddingFiles).toHaveLength(0);
-      expect(qdrantFiles).toHaveLength(0);
+      expect(embeddingManifest).toContain("1 file(s)");
+
+      const qdrantManifest = readFileSync(
+        join(dir, "workspace", "data", "qdrant", "_manifest.txt"),
+        "utf-8",
+      );
+      expect(qdrantManifest).toContain("1 file(s)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("archive skips manifest for symlinked skipped directories", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const files = listFiles(join(dir, "workspace"));
+
+      // bin/ is a symlink to an outside directory — no manifest should be emitted
+      const binFiles = files.filter((f) => f.startsWith("bin/"));
+      expect(binFiles).toHaveLength(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -269,6 +328,85 @@ describe("POST /v1/export — tar.gz archive", () => {
       );
       const parsed = JSON.parse(configContent);
       expect(parsed.provider).toBe("anthropic");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("POST /v1/export — daemon log date filtering", () => {
+  test("excludes log files before startTime", async () => {
+    // startTime = Jan 14 — should exclude assistant-2025-01-10.log
+    const startTime = new Date("2025-01-14T00:00:00.000Z").getTime();
+    const res = await callExport({ startTime });
+    const dir = await extractArchive(res);
+    try {
+      const logFiles = readdirSync(join(dir, "daemon-logs"));
+      expect(logFiles).not.toContain("assistant-2025-01-10.log");
+      expect(logFiles).toContain("assistant-2025-01-15.log");
+      expect(logFiles).toContain("assistant-2025-01-20.log");
+      expect(logFiles).toContain("assistant-2025-01-25.log");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("excludes log files after endTime", async () => {
+    // endTime = Jan 22 — should exclude assistant-2025-01-25.log
+    const endTime = new Date("2025-01-22T00:00:00.000Z").getTime();
+    const res = await callExport({ endTime });
+    const dir = await extractArchive(res);
+    try {
+      const logFiles = readdirSync(join(dir, "daemon-logs"));
+      expect(logFiles).toContain("assistant-2025-01-10.log");
+      expect(logFiles).toContain("assistant-2025-01-15.log");
+      expect(logFiles).toContain("assistant-2025-01-20.log");
+      expect(logFiles).not.toContain("assistant-2025-01-25.log");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("filters log files by both startTime and endTime", async () => {
+    // startTime = Jan 14, endTime = Jan 22 — should only include Jan 15 and Jan 20
+    const startTime = new Date("2025-01-14T00:00:00.000Z").getTime();
+    const endTime = new Date("2025-01-22T00:00:00.000Z").getTime();
+    const res = await callExport({ startTime, endTime });
+    const dir = await extractArchive(res);
+    try {
+      const logFiles = readdirSync(join(dir, "daemon-logs"));
+      expect(logFiles).not.toContain("assistant-2025-01-10.log");
+      expect(logFiles).toContain("assistant-2025-01-15.log");
+      expect(logFiles).toContain("assistant-2025-01-20.log");
+      expect(logFiles).not.toContain("assistant-2025-01-25.log");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("always includes non-dated log files regardless of time filter", async () => {
+    const startTime = new Date("2025-01-14T00:00:00.000Z").getTime();
+    const endTime = new Date("2025-01-22T00:00:00.000Z").getTime();
+    const res = await callExport({ startTime, endTime });
+    const dir = await extractArchive(res);
+    try {
+      const logFiles = readdirSync(join(dir, "daemon-logs"));
+      expect(logFiles).toContain("vellum.log");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("includes all log files when no time filter is specified", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const logFiles = readdirSync(join(dir, "daemon-logs"));
+      expect(logFiles).toContain("assistant-2025-01-10.log");
+      expect(logFiles).toContain("assistant-2025-01-15.log");
+      expect(logFiles).toContain("assistant-2025-01-20.log");
+      expect(logFiles).toContain("assistant-2025-01-25.log");
+      expect(logFiles).toContain("vellum.log");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

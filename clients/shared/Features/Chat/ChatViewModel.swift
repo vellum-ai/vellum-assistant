@@ -149,6 +149,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// send-in-progress indicator gets stuck.
     @ObservationIgnored private var sendingWatchdogTask: Task<Void, Never>?
 
+    /// Per-requestId safety-net timeouts that clear the submitting spinner if
+    /// a guardian decision HTTP response takes longer than 15 seconds.  Keyed
+    /// by requestId so concurrent submissions each get an independent timeout.
+    @ObservationIgnored private var guardianDecisionTimeoutTasks: [String: Task<Void, Never>] = [:]
+
     // MARK: - Observation compatibility
 
     /// No-op — retained for protocol conformance (MessageSendCoordinatorDelegate).
@@ -242,15 +247,26 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.isCompacting = false
                     self.contextWindowTokens = nil
                     self.contextWindowMaxTokens = nil
-                    // Streaming message state
-                    if let existingId = self.currentAssistantMessageId,
-                       let index = self.messages.firstIndex(where: { $0.id == existingId }) {
-                        self.messages[index].isStreaming = false
-                        self.messages[index].streamingCodePreview = nil
-                        self.messages[index].streamingCodeToolName = nil
-                        for j in self.messages[index].toolCalls.indices where !self.messages[index].toolCalls[j].isComplete {
-                            self.messages[index].toolCalls[j].isComplete = true
-                            self.messages[index].toolCalls[j].completedAt = Date()
+                    // Streaming message state + queued/processing resets batched
+                    // to emit a single Combine notification.
+                    let assistantId = self.currentAssistantMessageId
+                    self.messageManager.batchUpdateMessages { msgs in
+                        if let existingId = assistantId,
+                           let index = msgs.firstIndex(where: { $0.id == existingId }) {
+                            msgs[index].isStreaming = false
+                            msgs[index].streamingCodePreview = nil
+                            msgs[index].streamingCodeToolName = nil
+                            for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
+                                msgs[index].toolCalls[j].isComplete = true
+                                msgs[index].toolCalls[j].completedAt = Date()
+                            }
+                        }
+                        for i in msgs.indices {
+                            if case .queued = msgs[i].status, msgs[i].role == .user {
+                                msgs[i].status = .sent
+                            } else if msgs[i].role == .user && msgs[i].status == .processing {
+                                msgs[i].status = .sent
+                            }
                         }
                     }
                     self.currentAssistantMessageId = nil
@@ -274,14 +290,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.requestIdToMessageId.removeAll()
                     self.activeRequestIdToMessageId.removeAll()
                     self.pendingLocalDeletions.removeAll()
-                    // Reset queued/processing user messages to .sent
-                    for i in self.messages.indices {
-                        if case .queued = self.messages[i].status, self.messages[i].role == .user {
-                            self.messages[i].status = .sent
-                        } else if self.messages[i].role == .user && self.messages[i].status == .processing {
-                            self.messages[i].status = .sent
-                        }
-                    }
                     // Cancel stale cancel-timeout task
                     self.cancelTimeoutTask?.cancel()
                     self.cancelTimeoutTask = nil
@@ -347,7 +355,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         messageManager.latestPersistedTipDaemonMessageId
     }
     public var hasPendingConfirmation: Bool {
-        messages.contains(where: { $0.confirmation?.state == .pending })
+        messageManager.hasPendingConfirmation
     }
     public var pendingQueuedCount: Int {
         get { messageManager.pendingQueuedCount }
@@ -751,9 +759,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             // Full recompute from the live messages array — not just the
             // paginated suffix — because callers often mutate `messages` and
             // `displayedMessageCount` in the same synchronous block (e.g.
-            // trimOldMessagesIfNeeded, populateFromHistory). The async
-            // Combine bridge hasn't delivered the new messages yet, so the
-            // cached `displayedMessages` would be stale if we only called
+            // trimOldMessagesIfNeeded, populateFromHistory). The Combine
+            // subscriber fires after the batch completes, so the cached
+            // `displayedMessages` would be stale if we only called
             // recomputePaginatedSuffix().
             paginationState.recomputeVisibleMessages(from: messageManager.messages)
         }
@@ -854,12 +862,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     /// Persist a captured preview image into the ChatMessage model so it survives conversation switches.
     public func updateSurfacePreviewImage(appId: String, base64: String) {
-        for msgIdx in messages.indices {
-            for surfIdx in messages[msgIdx].inlineSurfaces.indices {
-                if case .dynamicPage(var dpData) = messages[msgIdx].inlineSurfaces[surfIdx].data,
-                   dpData.appId == appId {
-                    dpData.preview?.previewImage = base64
-                    messages[msgIdx].inlineSurfaces[surfIdx].data = .dynamicPage(dpData)
+        messageManager.batchUpdateMessages { msgs in
+            for msgIdx in msgs.indices {
+                for surfIdx in msgs[msgIdx].inlineSurfaces.indices {
+                    if case .dynamicPage(var dpData) = msgs[msgIdx].inlineSurfaces[surfIdx].data,
+                       dpData.appId == appId {
+                        dpData.preview?.previewImage = base64
+                        msgs[msgIdx].inlineSurfaces[surfIdx].data = .dynamicPage(dpData)
+                    }
                 }
             }
         }
@@ -868,54 +878,58 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Handle a `message_content_response` from the daemon, updating the matching
     /// message with full (untruncated) text and tool call results.
     public func handleMessageContentResponse(_ response: MessageContentResponse) {
-        guard let idx = messages.firstIndex(where: { $0.daemonMessageId == response.messageId }) else { return }
+        let responseMessageId = response.messageId
+        let responseCopy = response
+        messageManager.batchUpdateMessages { msgs in
+            guard let idx = msgs.firstIndex(where: { $0.daemonMessageId == responseMessageId }) else { return }
 
-        // Only update text when the message has a single segment (non-interleaved).
-        // Interleaved messages have multiple text segments separated by tool calls;
-        // collapsing them into one destroys the contentOrder interleaving, which
-        // causes separate tool groups to merge into one massive progress view.
-        // Text is already displayed correctly from the original segments — rehydration
-        // is primarily needed for tool call details (inputs, results, images).
-        if let fullText = response.text {
-            let hasInterleavedText = messages[idx].textSegments.count > 1
-            if !hasInterleavedText {
-                messages[idx].textSegments = fullText.isEmpty ? [] : [fullText]
-            }
-        }
-
-        // Update tool call results with full content.
-        // Use positional matching first — when a message has multiple tool calls
-        // with the same name (e.g. two `bash` calls), name-based lookup always
-        // overwrites the first match. Fall back to name-based only when the
-        // positional index is out of bounds or the name doesn't match.
-        if let fullToolCalls = response.toolCalls {
-            for (i, fullTC) in fullToolCalls.enumerated() {
-                let tcIdx: Int
-                if i < messages[idx].toolCalls.count && messages[idx].toolCalls[i].toolName == fullTC.name {
-                    tcIdx = i
-                } else if let fallback = messages[idx].toolCalls.firstIndex(where: { $0.toolName == fullTC.name }) {
-                    tcIdx = fallback
-                } else {
-                    continue
-                }
-                if let result = fullTC.result {
-                    messages[idx].toolCalls[tcIdx].result = result
-                    messages[idx].toolCalls[tcIdx].resultLength = result.count
-                }
-                if let input = fullTC.input {
-                    let formatted = ToolCallData.formatAllToolInput(input)
-                    messages[idx].toolCalls[tcIdx].inputFull = formatted
-                    messages[idx].toolCalls[tcIdx].inputFullLength = formatted.count
-                    messages[idx].toolCalls[tcIdx].inputRawDict = input
+            // Only update text when the message has a single segment (non-interleaved).
+            // Interleaved messages have multiple text segments separated by tool calls;
+            // collapsing them into one destroys the contentOrder interleaving, which
+            // causes separate tool groups to merge into one massive progress view.
+            // Text is already displayed correctly from the original segments — rehydration
+            // is primarily needed for tool call details (inputs, results, images).
+            if let fullText = responseCopy.text {
+                let hasInterleavedText = msgs[idx].textSegments.count > 1
+                if !hasInterleavedText {
+                    msgs[idx].textSegments = fullText.isEmpty ? [] : [fullText]
                 }
             }
-        }
 
-        // Clear unconditionally — even when text replacement was skipped for
-        // interleaved messages, tool call data has been rehydrated. Leaving
-        // wasTruncated true would cause infinite rehydration requests.
-        messages[idx].wasTruncated = false
-        messages[idx].isContentStripped = false
+            // Update tool call results with full content.
+            // Use positional matching first — when a message has multiple tool calls
+            // with the same name (e.g. two `bash` calls), name-based lookup always
+            // overwrites the first match. Fall back to name-based only when the
+            // positional index is out of bounds or the name doesn't match.
+            if let fullToolCalls = responseCopy.toolCalls {
+                for (i, fullTC) in fullToolCalls.enumerated() {
+                    let tcIdx: Int
+                    if i < msgs[idx].toolCalls.count && msgs[idx].toolCalls[i].toolName == fullTC.name {
+                        tcIdx = i
+                    } else if let fallback = msgs[idx].toolCalls.firstIndex(where: { $0.toolName == fullTC.name }) {
+                        tcIdx = fallback
+                    } else {
+                        continue
+                    }
+                    if let result = fullTC.result {
+                        msgs[idx].toolCalls[tcIdx].result = result
+                        msgs[idx].toolCalls[tcIdx].resultLength = result.count
+                    }
+                    if let input = fullTC.input {
+                        let formatted = ToolCallData.formatAllToolInput(input)
+                        msgs[idx].toolCalls[tcIdx].inputFull = formatted
+                        msgs[idx].toolCalls[tcIdx].inputFullLength = formatted.count
+                        msgs[idx].toolCalls[tcIdx].inputRawDict = input
+                    }
+                }
+            }
+
+            // Clear unconditionally — even when text replacement was skipped for
+            // interleaved messages, tool call data has been rehydrated. Leaving
+            // wasTruncated true would cause infinite rehydration requests.
+            msgs[idx].wasTruncated = false
+            msgs[idx].isContentStripped = false
+        }
     }
 
     // MARK: - Message Trimming
@@ -935,12 +949,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         let count = messages.count
         guard count > Self.trimThreshold else { return }
         let trimEnd = count - Self.trimKeepRecent
-        // Strip heavy content first (safety net for any references that linger)
-        for i in 0..<trimEnd {
-            messages[i].stripHeavyContent()
+        // Batch the strip + delete into a single Combine publish so downstream
+        // pipelines (pagination, cached derived values) evaluate only once.
+        messageManager.batchUpdateMessages { msgs in
+            for i in 0..<trimEnd {
+                msgs[i].stripHeavyContent()
+            }
+            msgs.removeSubrange(0..<trimEnd)
         }
-        // Hard-delete the stripped messages so ChatMessage objects are freed entirely.
-        messages.removeSubrange(0..<trimEnd)
         // After deleting the oldest messages, advance the history cursor to the oldest
         // retained message and mark that older pages are available from the daemon so
         // the user can paginate back to re-fetch the trimmed messages.
@@ -958,11 +974,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// pagination so re-activation fetches fresh history from the daemon.
     public func trimForBackground() {
         let pageSize = Self.messagePageSize
-        if messages.count > pageSize {
-            messages = Array(messages.suffix(pageSize))
-        }
-        for i in messages.indices {
-            messages[i].stripHeavyContent()
+        // Batch the suffix + strip into a single Combine publish.
+        messageManager.batchUpdateMessages { msgs in
+            if msgs.count > pageSize {
+                msgs = Array(msgs.suffix(pageSize))
+            }
+            for i in msgs.indices {
+                msgs[i].stripHeavyContent()
+            }
         }
         displayedMessageCount = Self.messagePageSize
         // Only mark history as unloaded if there's a conversation to reload from.
@@ -2168,6 +2187,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
+        guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -2214,7 +2234,28 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
         Task {
             let response = await guardianClient.submitDecision(requestId: requestId, action: action, conversationId: conversationId)
-            if response == nil {
+
+            // Cancel the safety-net timeout for this specific requestId — we have an HTTP response.
+            guardianDecisionTimeoutTasks[requestId]?.cancel()
+            guardianDecisionTimeoutTasks[requestId] = nil
+
+            if let response {
+                if response.applied {
+                    // Real server decision — route to the handler for resolved state.
+                    handleGuardianActionDecisionResponse(response)
+                } else {
+                    // Transport failure (HTTP error, network timeout) or server
+                    // explicitly said stale/not-found. GuardianClient synthesizes
+                    // applied=false for HTTP errors — don't mark the prompt as
+                    // .stale on a transient 5xx. Instead, revert submitting state
+                    // and let the user retry.
+                    pendingGuardianActions.removeValue(forKey: requestId)
+                    if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }) {
+                        messages[idx].guardianDecision?.isSubmitting = false
+                    }
+                    refreshGuardianPrompts()
+                }
+            } else {
                 log.error("Failed to submit guardian decision for requestId \(requestId)")
                 pendingGuardianActions.removeValue(forKey: requestId)
                 // Revert submitting state on failure
@@ -2222,6 +2263,25 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     messages[idx].guardianDecision?.isSubmitting = false
                 }
             }
+        }
+
+        // Safety-net timeout: if the decision is still submitting after 15s,
+        // clear the spinner and re-sync with the server. Don't remove from
+        // pendingGuardianActions — let the main response handler or refresh
+        // handle the cleanup so the action label is preserved.
+        // Cancel any previous timeout for the SAME requestId only — other
+        // in-flight submissions keep their own independent timeouts.
+        guardianDecisionTimeoutTasks[requestId]?.cancel()
+        guardianDecisionTimeoutTasks[requestId] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if let idx = self.messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }),
+               self.messages[idx].guardianDecision?.isSubmitting == true {
+                log.warning("Guardian decision submit timed out for requestId \(requestId, privacy: .public)")
+                self.messages[idx].guardianDecision?.isSubmitting = false
+                self.refreshGuardianPrompts()
+            }
+            self.guardianDecisionTimeoutTasks[requestId] = nil
         }
     }
 

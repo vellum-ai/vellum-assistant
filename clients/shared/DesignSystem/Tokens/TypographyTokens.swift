@@ -90,6 +90,7 @@ public enum VFont {
 
     public static let brandMedium = instrumentSerif(weight: 400, size: adaptiveSize(32))
     public static let brandSmall  = instrumentSerif(weight: 400, size: adaptiveSize(22))
+    public static let brandMini   = instrumentSerif(weight: 400, size: adaptiveSize(16))
 
     // MARK: - Display
 
@@ -192,6 +193,7 @@ public enum VFont {
         // SwiftUI Font tokens
         _ = brandMedium
         _ = brandSmall
+        _ = brandMini
         _ = displayLarge
         _ = titleLarge
         _ = titleMedium

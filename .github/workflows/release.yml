@@ -35,6 +35,7 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
+          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
       - name: Extract version from branch name
@@ -122,8 +123,17 @@ jobs:
           - linux/arm64
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -201,6 +211,13 @@ jobs:
         environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Fail if image build failed
         if: needs.push-assistant-image.result != 'success'
         run: |
@@ -209,6 +226,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get release SHA
         id: release-sha
@@ -321,8 +340,17 @@ jobs:
           - linux/arm64
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -401,8 +429,17 @@ jobs:
           - linux/arm64
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -477,6 +514,13 @@ jobs:
         environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Fail if image build failed
         if: needs.push-gateway-image.result != 'success'
         run: |
@@ -485,6 +529,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get release SHA
         id: release-sha
@@ -595,6 +641,13 @@ jobs:
         environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
     environment: ${{ matrix.environment }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Fail if image build failed
         if: needs.push-credential-executor-image.result != 'success'
         run: |
@@ -603,6 +656,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Get release SHA
         id: release-sha
@@ -730,8 +785,17 @@ jobs:
             dockerfile: credential-executor/Dockerfile
             feature_flag_path: ""
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -1006,6 +1070,66 @@ jobs:
           npm publish --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ── Staging: pack CLI tarball and dispatch QA to platform repo ──────
+  pack-cli:
+    needs: [extract-version, ci-cli]
+    if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Install dependencies
+        run: |
+          cd cli
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+
+      - name: Pack CLI tarball
+        run: |
+          cd cli
+          npm pack
+          TARBALL=$(ls vellumai-cli-*.tgz)
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "Packed: $TARBALL"
+        id: pack
+
+      - name: Upload CLI tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-tarball
+          path: cli/${{ steps.pack.outputs.tarball }}
+          retention-days: 7
+
+  trigger-platform-qa:
+    needs: [extract-version, pack-cli]
+    if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: vellum-assistant-platform
+
+      - name: Trigger platform QA
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh workflow run qa-cli-staging.yaml \
+            --repo vellum-ai/vellum-assistant-platform \
+            --field version="${{ needs.extract-version.outputs.version }}" \
+            --field run_id="${{ github.run_id }}"
 
   publish-meta:
     needs: [extract-version, publish-npm]
@@ -2322,10 +2446,91 @@ jobs:
             sleep 30
           done
 
+  notify-staging-dmg:
+    name: Slack Notification (Staging DMG Ready)
+    needs: [extract-version, build-macos-arm64, build-macos-x64]
+    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Build Slack payload
+        env:
+          SLACK_USER_ID: ${{ inputs.slack_user_id }}
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          ARM_RESULT="${{ needs.build-macos-arm64.result }}"
+          X64_RESULT="${{ needs.build-macos-x64.result }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ -n "$SLACK_USER_ID" ]; then
+            TRIGGERED_BY="<@${SLACK_USER_ID}>"
+          else
+            TRIGGERED_BY="${{ github.actor }}"
+          fi
+
+          ci_icon() { if [ "$1" = "success" ]; then printf '✅'; elif [ "$1" = "skipped" ]; then printf '⏭️'; else printf '❌'; fi; }
+
+          if [ "$ARM_RESULT" = "success" ]; then
+            HEADER="✅ Desktop DMG Ready — v${VERSION}"
+            BODY=$(printf 'The staging Desktop DMG has finished building and is available for testing.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s` (staging)\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
+          else
+            HEADER="❌ Desktop DMG Build Failed — v${VERSION}"
+            BODY=$(printf 'The staging Desktop DMG build failed.\n\n*Builds:*\n• %s arm64\n• %s x64\n\n*Version:* `%s` (staging)\n*Triggered by:* %s' "$(ci_icon "$ARM_RESULT")" "$(ci_icon "$X64_RESULT")" "$VERSION" "$TRIGGERED_BY")
+          fi
+
+          BLOCKS="[]"
+          BLOCKS=$(echo "$BLOCKS" | jq --arg header "$HEADER" '. + [{ type: "header", text: { type: "plain_text", text: $header } }]')
+          BLOCKS=$(echo "$BLOCKS" | jq --arg body "$BODY" '. + [{ type: "section", text: { type: "mrkdwn", text: $body } }]')
+
+          ARTIFACTS_URL="${RUN_URL}#artifacts"
+
+          if [ "$ARM_RESULT" = "success" ]; then
+            DOWNLOAD_BTN=$(jq -n --arg url "$ARTIFACTS_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "Download DMG" },
+              url: $url,
+              style: "primary"
+            }')
+          else
+            DOWNLOAD_BTN=$(jq -n --arg url "$RUN_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "View Run" },
+              url: $url,
+              style: "danger"
+            }')
+          fi
+
+          BLOCKS=$(echo "$BLOCKS" | jq --argjson btn "$DOWNLOAD_BTN" '. + [{ type: "actions", elements: [$btn] }]')
+
+          jq -n --argjson blocks "$BLOCKS" '{
+            unfurl_links: false,
+            unfurl_media: false,
+            blocks: $blocks
+          }' > /tmp/slack-payload.json
+
+      - name: Notify Slack
+        id: slack
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload-file-path: /tmp/slack-payload.json
+          errors: true
+
+      - name: Log Slack notification result
+        if: always()
+        run: |
+          echo "Slack step outcome: ${{ steps.slack.outcome }}"
+          if [ "${{ steps.slack.outcome }}" != "success" ]; then
+            echo "::warning::Staging DMG Slack notification failed to send."
+          fi
+
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2406,6 +2611,8 @@ jobs:
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
           DH=$(ci_icon "${{ needs.push-dockerhub-image.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
+          PC=$(ci_icon "${{ needs.pack-cli.result }}")
+          TQ=$(ci_icon "${{ needs.trigger-platform-qa.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PLAYWRIGHT_LINE=""
@@ -2418,7 +2625,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"

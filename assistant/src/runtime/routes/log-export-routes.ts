@@ -31,7 +31,7 @@ import {
   messages,
   toolInvocations,
 } from "../../memory/schema.js";
-import { getLogger } from "../../util/logger.js";
+import { getLogger, LOG_FILE_PATTERN } from "../../util/logger.js";
 import {
   getDaemonStderrLogPath,
   getDataDir,
@@ -41,14 +41,16 @@ import {
 import { APP_VERSION, COMMIT_SHA } from "../../version.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+import {
+  createTarGz,
+  findLargestSubdirectory,
+  formatBytes,
+} from "./archive-utils.js";
 
 const log = getLogger("log-export-routes");
 
 /** Maximum total payload size for log file contents (10 MB). */
 const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
-
-/** Maximum compressed archive size before pruning workspace directories (50 MB). */
-const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
 
 interface ExportRequestBody {
   auditLimit?: number;
@@ -167,9 +169,19 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
 
     const logsDir = join(getDataDir(), "logs");
     const collectedLogFiles: string[] = [];
+    const startDate = startTime ? new Date(startTime) : undefined;
+    const endDate = endTime ? new Date(endTime) : undefined;
     if (existsSync(logsDir)) {
       const entries = readdirSync(logsDir);
       for (const entry of entries) {
+        // Filter dated log files by time range
+        const dateMatch = entry.match(LOG_FILE_PATTERN);
+        if (dateMatch && (startDate || endDate)) {
+          const fileDate = new Date(dateMatch[1] + "T23:59:59.999Z"); // end of day
+          const fileDateStart = new Date(dateMatch[1] + "T00:00:00.000Z");
+          if (startDate && fileDate < startDate) continue; // entire day is before range
+          if (endDate && fileDateStart > endDate) continue; // entire day is after range
+        }
         const filePath = join(logsDir, entry);
         try {
           const stat = statSync(filePath);
@@ -371,86 +383,14 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
   }
 }
 
-/**
- * Attempts to create a tar.gz archive of `staging` into a Buffer.
- * Returns the Buffer on success, or `undefined` if the archive exceeds
- * the size limit or tar otherwise fails.
- */
-function createTarGz(staging: string): ArrayBuffer | undefined {
-  const proc = spawnSync("tar", ["czf", "-", "-C", staging, "."], {
-    maxBuffer: MAX_ARCHIVE_BYTES,
-    timeout: 30_000,
-  });
-  if (proc.status !== 0) return undefined;
-  const buf = Buffer.isBuffer(proc.stdout)
-    ? proc.stdout
-    : Buffer.from(proc.stdout);
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-}
-
-/**
- * Returns the name and total byte size of the largest top-level subdirectory
- * inside `dir`, or `undefined` if `dir` has no subdirectories.
- */
-function findLargestSubdirectory(
-  dir: string,
-): { name: string; bytes: number } | undefined {
-  if (!existsSync(dir)) return undefined;
-
-  let largest: { name: string; bytes: number } | undefined;
-
-  for (const entry of readdirSync(dir)) {
-    const fullPath = join(dir, entry);
-    try {
-      if (!statSync(fullPath).isDirectory()) continue;
-    } catch {
-      continue;
-    }
-    const bytes = directorySize(fullPath);
-    if (!largest || bytes > largest.bytes) {
-      largest = { name: entry, bytes };
-    }
-  }
-
-  return largest;
-}
-
-/** Recursively sums the byte size of all files in `dir`. */
-function directorySize(dir: string): number {
-  let total = 0;
-  try {
-    for (const entry of readdirSync(dir)) {
-      const fullPath = join(dir, entry);
-      try {
-        const stat = statSync(fullPath);
-        if (stat.isDirectory()) {
-          total += directorySize(fullPath);
-        } else if (stat.isFile()) {
-          total += stat.size;
-        }
-      } catch {
-        // skip
-      }
-    }
-  } catch {
-    // skip
-  }
-  return total;
-}
-
-/** Formats a byte count as a human-readable string (e.g. "12.3 MB"). */
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /** Directory prefixes to skip when collecting workspace files. */
 const WORKSPACE_SKIP_DIRS = new Set([
+  "bin",
   "embedding-models",
   "data/qdrant",
   "data/attachments",
   "data/sounds",
+  "data/profiler",
   "conversations",
   "signals",
   "deprecated",
@@ -561,7 +501,64 @@ function collectWorkspaceFiles(): Record<string, string> {
   }
 
   walk(wsDir);
+
+  // For each skipped directory that exists, emit a lightweight manifest
+  // showing entry counts and sizes so diagnostics show what was excluded.
+  for (const prefix of WORKSPACE_SKIP_DIRS) {
+    const dirPath = join(wsDir, prefix);
+    if (!existsSync(dirPath)) continue;
+    try {
+      // Skip symlinks — they could point outside the workspace boundary
+      if (lstatSync(dirPath).isSymbolicLink()) continue;
+      const manifest = buildSkippedDirManifest(dirPath);
+      if (manifest) {
+        result[`${prefix}/_manifest.txt`] = manifest;
+      }
+    } catch {
+      // Best-effort — skip if unreadable
+    }
+  }
+
   return result;
+}
+
+/**
+ * Build a redacted summary manifest for a skipped workspace directory.
+ * Reports entry counts and shallow size totals without disclosing
+ * individual filenames (which may contain user-sensitive data).
+ * Only uses stat.size on direct children — no recursive walks.
+ */
+function buildSkippedDirManifest(dirPath: string): string | undefined {
+  const entries = readdirSync(dirPath);
+  if (entries.length === 0) return undefined;
+
+  let fileCount = 0;
+  let dirCount = 0;
+  let totalFileBytes = 0;
+
+  for (const entry of entries) {
+    try {
+      const stat = lstatSync(join(dirPath, entry));
+      if (stat.isDirectory()) {
+        dirCount++;
+      } else if (stat.isFile()) {
+        fileCount++;
+        totalFileBytes += stat.size;
+      }
+    } catch {
+      // Skip unreadable entries
+    }
+  }
+
+  const lines: string[] = [];
+  if (fileCount > 0) {
+    lines.push(`${fileCount} file(s), ${formatBytes(totalFileBytes)}`);
+  }
+  if (dirCount > 0) {
+    lines.push(`${dirCount} subdirectory(ies)`);
+  }
+
+  return lines.length > 0 ? lines.join("\n") + "\n" : undefined;
 }
 
 /**

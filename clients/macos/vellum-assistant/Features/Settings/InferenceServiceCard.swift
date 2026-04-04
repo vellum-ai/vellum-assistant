@@ -92,7 +92,9 @@ struct InferenceServiceCard: View {
     var body: some View {
         ServiceModeCard(
             title: "Inference",
-            subtitle: "Configure which LLM provider and model to use to power your assistant",
+            subtitle: draftMode == "managed"
+                ? "Configure which model to use to power your assistant"
+                : "Configure which LLM provider and model to use to power your assistant",
             draftMode: $draftMode,
             managedContent: {
                 if isLoggedIn {

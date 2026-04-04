@@ -340,9 +340,7 @@ struct SettingsDeveloperTab: View {
               let appParsed = VersionCompat.parse(appVersion) else {
             return false
         }
-        if assistantParsed.major != appParsed.major { return assistantParsed.major < appParsed.major }
-        if assistantParsed.minor != appParsed.minor { return assistantParsed.minor < appParsed.minor }
-        return assistantParsed.patch < appParsed.patch
+        return assistantParsed < appParsed
     }
 
     @ViewBuilder
@@ -673,7 +671,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func performManagedRestart() async {
-        _ = try? await GatewayHTTPClient.post(path: "assistants/restart")
+        _ = try? await GatewayHTTPClient.post(path: "assistants/\(selectedAssistantId)/restart")
     }
 
     private func performLocalRestart() async {

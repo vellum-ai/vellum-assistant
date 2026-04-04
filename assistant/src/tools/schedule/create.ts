@@ -42,6 +42,7 @@ export async function executeScheduleCreate(
     | Record<string, unknown>
     | undefined;
   const quiet = (input.quiet as boolean) ?? false;
+  const reuseConversation = (input.reuse_conversation as boolean) ?? false;
 
   if (!name || typeof name !== "string") {
     return {
@@ -114,6 +115,7 @@ export async function executeScheduleCreate(
         routingIntent: routingIntent as RoutingIntent | undefined,
         routingHints,
         quiet,
+        reuseConversation,
       });
 
       const fireDate = formatLocalDate(job.nextRunAt);
@@ -190,6 +192,7 @@ export async function executeScheduleCreate(
       routingIntent: routingIntent as RoutingIntent | undefined,
       routingHints,
       quiet,
+      reuseConversation,
     });
 
     const scheduleDescription =

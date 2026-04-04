@@ -16,6 +16,7 @@ import {
   AttachmentValidationError,
   uploadAttachment,
 } from "../../runtime/client.js";
+import { ContentMismatchError } from "../../download-validation.js";
 import {
   handleCircuitBreakerError,
   handleNewCommand,
@@ -287,6 +288,7 @@ export function createWhatsAppWebhookHandler(
 
       // Download and upload attachments if present
       let attachmentIds: string[] | undefined;
+      const failedAttachmentNames: string[] = [];
       const eventAttachments = event.message.attachments;
       if (eventAttachments && eventAttachments.length > 0) {
         try {
@@ -343,7 +345,8 @@ export function createWhatsAppWebhookHandler(
                 return uploadAttachment(config, downloaded);
               }),
             );
-            for (const result of results) {
+            for (let j = 0; j < results.length; j++) {
+              const result = results[j];
               if (result.status === "fulfilled") {
                 attachmentIds.push(result.value.id);
               } else if (result.reason instanceof AttachmentValidationError) {
@@ -351,10 +354,24 @@ export function createWhatsAppWebhookHandler(
                   { err: result.reason },
                   "Skipping WhatsApp attachment with validation error",
                 );
+                failedAttachmentNames.push(
+                  batch[j].fileName || batch[j].fileId,
+                );
+              } else if (result.reason instanceof ContentMismatchError) {
+                tlog.warn(
+                  { err: result.reason },
+                  "Skipping WhatsApp attachment with content mismatch",
+                );
+                failedAttachmentNames.push(
+                  batch[j].fileName || batch[j].fileId,
+                );
               } else if (result.reason instanceof WhatsAppNonRetryableError) {
                 tlog.warn(
                   { err: result.reason },
                   "Skipping WhatsApp attachment with non-retryable error",
+                );
+                failedAttachmentNames.push(
+                  batch[j].fileName || batch[j].fileId,
                 );
               } else {
                 // Transient failure — propagate so the webhook returns 500 and
@@ -372,6 +389,16 @@ export function createWhatsAppWebhookHandler(
           dedupCache.unreserve(whatsappMessageId);
           hasFailure = true;
           continue;
+        }
+      }
+
+      // Inject context about failed attachments into the message
+      if (failedAttachmentNames.length > 0) {
+        const failureNotice = `[The user attached file(s) that could not be retrieved: ${failedAttachmentNames.map((n) => `"${n}"`).join(", ")}. Ask them to re-send if the content is important.]`;
+        if (event.message.content.length > 0) {
+          event.message.content += `\n\n${failureNotice}`;
+        } else {
+          event.message.content = failureNotice;
         }
       }
 

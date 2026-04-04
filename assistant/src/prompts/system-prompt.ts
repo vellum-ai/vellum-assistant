@@ -8,8 +8,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
+import { loadConfig } from "../config/loader.js";
 import { listConnections } from "../oauth/oauth-store.js";
+import { getMode } from "../permissions/permission-mode-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -86,6 +89,26 @@ export function ensurePromptFiles(): void {
         );
       }
     }
+
+    // Also seed BOOTSTRAP-REFERENCE.md (ui_show payloads read on-demand)
+    const refDest = getWorkspacePromptPath("BOOTSTRAP-REFERENCE.md");
+    if (!existsSync(refDest)) {
+      const refSrc = join(templatesDir, "BOOTSTRAP-REFERENCE.md");
+      try {
+        if (existsSync(refSrc)) {
+          copyFileSync(refSrc, refDest);
+          log.info(
+            { file: "BOOTSTRAP-REFERENCE.md", dest: refDest },
+            "Created BOOTSTRAP-REFERENCE.md for first-run onboarding",
+          );
+        }
+      } catch (err) {
+        log.warn(
+          { err, file: "BOOTSTRAP-REFERENCE.md" },
+          "Failed to create BOOTSTRAP-REFERENCE.md from template",
+        );
+      }
+    }
   }
 
   // Auto-delete stale BOOTSTRAP.md at startup.  The model is instructed to
@@ -100,6 +123,20 @@ export function ensurePromptFiles(): void {
       if (existsSync(convDir) && readdirSync(convDir).length > 0) {
         unlinkSync(bootstrapCleanup);
         log.info("Auto-deleted stale BOOTSTRAP.md — prior conversations exist");
+
+        // Also clean up the reference file
+        const refCleanup = getWorkspacePromptPath("BOOTSTRAP-REFERENCE.md");
+        if (existsSync(refCleanup)) {
+          try {
+            unlinkSync(refCleanup);
+            log.info("Auto-deleted stale BOOTSTRAP-REFERENCE.md");
+          } catch (err) {
+            log.warn(
+              { err },
+              "Failed to auto-delete stale BOOTSTRAP-REFERENCE.md",
+            );
+          }
+        }
       }
     } catch (err) {
       log.warn({ err }, "Failed to auto-delete stale BOOTSTRAP.md");
@@ -277,6 +314,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // Journal entries are extracted into graph nodes by the memory pipeline.
   // Journal files remain writable on disk.
 
+  const askBeforeActingSection = buildAskBeforeActingSection();
+  if (askBeforeActingSection) dynamicParts.push(askBeforeActingSection);
+
   const dynamic = dynamicParts.join("\n\n");
 
   return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
@@ -356,6 +396,25 @@ function buildIntegrationSection(): string {
   }
 
   return lines.join("\n");
+}
+
+function buildAskBeforeActingSection(): string | null {
+  try {
+    const config = loadConfig();
+    if (!isAssistantFeatureFlagEnabled("permission-controls-v2", config)) {
+      return null;
+    }
+    const mode = getMode();
+    if (!mode.askBeforeActing) return null;
+
+    return [
+      "## Action Confirmation Mode",
+      "",
+      'You are in "Ask before acting" mode. Use your judgment about when to check in with the user before proceeding. You should ask for confirmation before actions that are costly, time-consuming, or hard to reverse — for example: sending emails or messages, deleting files or data, making purchases, posting publicly, modifying permissions, or taking actions with significant real-world consequences. You do NOT need to ask before routine low-stakes actions like reading files, searching, running safe shell commands, or making code edits — just do those.',
+    ].join("\n");
+  } catch {
+    return null;
+  }
 }
 
 function buildContainerizedSection(): string {

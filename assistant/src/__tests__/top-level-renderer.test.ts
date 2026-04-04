@@ -15,11 +15,11 @@ describe("renderWorkspaceTopLevelContext", () => {
     const result = renderWorkspaceTopLevelContext(snapshot);
     expect(result).toBe(
       [
-        "<workspace_top_level>",
+        "<workspace>",
         "Root: /sandbox",
         "Directories: lib, src, tests",
         "Files: README.md, package.json",
-        "</workspace_top_level>",
+        "</workspace>",
       ].join("\n"),
     );
   });
@@ -61,11 +61,11 @@ describe("renderWorkspaceTopLevelContext", () => {
     const result = renderWorkspaceTopLevelContext(snapshot);
     expect(result).toBe(
       [
-        "<workspace_top_level>",
+        "<workspace>",
         "Root: /empty",
         "Directories: ",
         "Files: ",
-        "</workspace_top_level>",
+        "</workspace>",
       ].join("\n"),
     );
   });
@@ -92,8 +92,8 @@ describe("renderWorkspaceTopLevelContext", () => {
     };
 
     const result = renderWorkspaceTopLevelContext(snapshot);
-    expect(result.startsWith("<workspace_top_level>")).toBe(true);
-    expect(result.endsWith("</workspace_top_level>")).toBe(true);
+    expect(result.startsWith("<workspace>")).toBe(true);
+    expect(result.endsWith("</workspace>")).toBe(true);
   });
 
   test("includes hidden directories", () => {
@@ -124,7 +124,7 @@ describe("renderWorkspaceTopLevelContext", () => {
     expect(result).toContain("Files: a.txt, b.txt");
   });
 
-  test("renders current conversation and attachment paths when provided", () => {
+  test("renders attachment path when provided", () => {
     const snapshot: TopLevelSnapshot = {
       rootPath: "/sandbox",
       directories: ["src"],
@@ -133,16 +133,13 @@ describe("renderWorkspaceTopLevelContext", () => {
     };
 
     const result = renderWorkspaceTopLevelContext(snapshot, {
-      currentConversationPath: "conversations/2026-03-19T12-00-00.000Z_conv-1/",
-      currentConversationAttachmentsPath:
+      conversationAttachmentsPath:
         "conversations/2026-03-19T12-00-00.000Z_conv-1/attachments/",
     });
 
     expect(result).toContain(
-      "Current conversation folder: conversations/2026-03-19T12-00-00.000Z_conv-1/",
+      "Current conversation attachments: conversations/2026-03-19T12-00-00.000Z_conv-1/attachments/",
     );
-    expect(result).toContain(
-      "Attachment files: conversations/2026-03-19T12-00-00.000Z_conv-1/attachments/",
-    );
+    expect(result).not.toContain("Current conversation folder");
   });
 });

@@ -132,10 +132,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Text that was in the chat input before PTT voice recording started,
     /// so we can prepend it to partial/final transcriptions instead of overwriting.
     var preVoiceInputText: String?
-    var statusIconCancellable: AnyCancellable?
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
-    var conversationBadgeCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
@@ -148,6 +146,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cancelled before creating a new subscription (e.g. on reconnection or
     /// assistant switch), preventing duplicate event processing.
     var eventSubscriptionTask: Task<Void, Never>?
+    /// In-flight managed-assistant switch task. Cancelled when a new switch
+    /// begins so a stale bootstrap cannot reconnect the wrong assistant.
+    var managedSwitchTask: Task<Void, Never>?
     /// Pending fallback notification tokens, keyed by conversationId.
     /// Used to avoid duplicate native alerts when notification_intent arrives.
     var pendingFallbackNotifications: [String: UUID] = [:]
@@ -361,6 +362,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // thread as early as possible so it completes before proceedToApp()
         // sets up voice input monitors.
         PTTActivator.warmCache()
+
+        // Seed the IdentityInfo in-memory cache so that hot paths (menu bar,
+        // command palette, session overlay) never perform synchronous file I/O
+        // on the main thread. The cache is refreshed asynchronously and also
+        // on workspace/assistant changes via the connectedAssistantId publisher.
+        IdentityInfo.warmCache()
 
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
@@ -741,6 +748,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // the quit sequence so the new version launches after termination.
         updateManager.installDeferredUpdateIfAvailable()
 
+        // Restore the Vellum logo so the pinned dock tile caches the
+        // correct icon instead of whatever avatar was showing at quit time.
+        AvatarAppearanceManager.shared.restoreBundleIcon()
+
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -761,13 +772,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = appMenuActivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        statusIconCancellable?.cancel()
-        conversationBadgeCancellable?.cancel()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusCancellable?.cancel()
         pulseTimer?.invalidate()
         pulseTimer = nil
         threadWindowManager?.closeAll()
+        voiceInput?.prepareForTermination()
         voiceInput?.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()
@@ -813,6 +823,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
               let color = onboardingState?.hatchAvatarColor else {
             onboardingState = nil
             return
+        }
+        // Eagerly apply onboarding avatar traits so the ComingAliveOverlay
+        // (and any other UI) can render the character avatar immediately
+        // instead of falling back to the bundled green V logo while the
+        // async daemon sync completes.
+        if AvatarAppearanceManager.shared.customAvatarImage == nil,
+           AvatarAppearanceManager.shared.characterBodyShape == nil {
+            let image = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
+            AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: body, eyeStyle: eyes, color: color)
         }
         Task {
             await AvatarAppearanceManager.shared.syncTraitsToDaemon(

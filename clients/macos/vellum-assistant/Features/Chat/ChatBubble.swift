@@ -76,7 +76,8 @@ struct ChatBubble: View, Equatable {
     var processingStatusText: String?
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
-    /// When true, hide the inline avatar (e.g. thinking indicator is showing it instead).
+    /// When true, suppress the inline avatar on this bubble because
+    /// `thinkingAvatarRow` is rendering one below the thinking indicator.
     var hideInlineAvatar: Bool = false
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
@@ -220,7 +221,7 @@ struct ChatBubble: View, Equatable {
 
     private var bubbleFill: AnyShapeStyle {
         if isUser {
-            AnyShapeStyle(VColor.surfaceActive)
+            AnyShapeStyle(VColor.surfaceLift)
         } else if message.isError {
             AnyShapeStyle(VColor.systemNegativeStrong.opacity(0.1))
         } else {
@@ -363,14 +364,10 @@ struct ChatBubble: View, Equatable {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
-                // For non-streaming, non-interleaved messages, flatten the render
-                // tree into a single compositing layer to reduce layout passes.
+                // Flatten the render tree into a single compositing layer to reduce
+                // the number of CALayers the WindowServer must composite per message.
                 // Skipped during streaming to avoid re-compositing on every token delta.
-                // Also skipped for interleaved messages (text + tool calls + images)
-                // where the complex view hierarchy makes re-compositing expensive —
-                // async task completions (markdown parsing, image decoding) would
-                // trigger full re-compositing of the entire message on every change.
-                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming && !cachedHasInterleavedContent))
+                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
 
             if !isUser { Spacer(minLength: 0) }
         }

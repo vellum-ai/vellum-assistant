@@ -23,7 +23,10 @@ import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
-import { buildDecisionActions } from "../guardian-decision-types.js";
+import {
+  buildDecisionActions,
+  GUARDIAN_DECISION_ACTIONS,
+} from "../guardian-decision-types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -190,13 +193,15 @@ export function listGuardianDecisionPrompts(params: {
  * Map a canonical guardian request to the client-facing prompt format.
  *
  * Generates kind-specific questionText and action sets:
- * - `tool_approval`: "Approve tool: <name>" with approve/reject actions
- * - `pending_question`: voice-originated question with approve/reject actions
- * - `access_request`: explicit "Access Request" label with approve/reject actions
- *   and text fallback instructions (request code + "open invite flow")
+ * - `tool_approval`: temporal modes (approve_once, approve_10m, approve_conversation) + reject
+ * - `pending_question`: approve_once + reject only
+ * - `access_request`: approve_once + reject only, with text fallback instructions
+ *   (request code + "open invite flow")
+ * - `tool_grant_request`: approve_once + reject only
  *
- * All kinds use `forGuardianOnBehalf: true` (no approve_always) since the
- * guardian is acting on behalf of a requester.
+ * Only `tool_approval` receives temporal modes because time-scoped grants
+ * are meaningful only for tool execution. All other kinds get a simple
+ * approve_once/reject pair.
  */
 function mapCanonicalRequestToPrompt(
   req: CanonicalGuardianRequest,
@@ -204,9 +209,15 @@ function mapCanonicalRequestToPrompt(
 ): GuardianDecisionPrompt {
   const questionText = buildKindAwareQuestionText(req);
 
-  // Guardian-on-behalf prompts include approve_once, temporal modes
-  // (approve_10m, approve_conversation), and reject — but not approve_always.
-  const actions = buildDecisionActions({ forGuardianOnBehalf: true });
+  // Only tool_approval gets temporal modes (approve_10m, approve_conversation);
+  // all other kinds get a simple approve_once + reject pair.
+  const actions =
+    req.kind === "tool_approval"
+      ? buildDecisionActions({ forGuardianOnBehalf: true })
+      : [
+          GUARDIAN_DECISION_ACTIONS.approve_once,
+          GUARDIAN_DECISION_ACTIONS.reject,
+        ];
 
   const expiresAt = req.expiresAt
     ? new Date(req.expiresAt).getTime()

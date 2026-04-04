@@ -124,9 +124,10 @@ mock.module("../skills/managed-store.js", () => ({
   removeSkillsIndexEntry: () => {},
   validateManagedSkillId: () => null,
 }));
-mock.module("../skills/skill-memory.js", () => ({
-  deleteSkillCapabilityMemory: () => {},
-  seedCatalogSkillMemories: () => {},
+mock.module("../memory/graph/capability-seed.js", () => ({
+  deleteSkillCapabilityNode: () => {},
+  seedSkillGraphNodes: () => {},
+  seedUninstalledCatalogSkillMemories: async () => {},
 }));
 mock.module("../util/platform.js", () => ({
   getWorkspaceSkillsDir: () => "/tmp/test-skills",
@@ -412,10 +413,10 @@ describe("searchSkills (unified)", () => {
     expect(skill.kind).toBe("catalog");
     expect(skill.origin).toBe("skillssh");
     expect(skill.status).toBe("available");
-    expect(skill.skillssh).toEqual({
-      slug: "org/repo/test-skill",
-      sourceRepo: "org/repo",
-      installs: 99,
-    });
+    if (skill.origin === "skillssh") {
+      expect(skill.slug).toBe("org/repo/test-skill");
+      expect(skill.sourceRepo).toBe("org/repo");
+      expect(skill.installs).toBe(99);
+    }
   });
 });

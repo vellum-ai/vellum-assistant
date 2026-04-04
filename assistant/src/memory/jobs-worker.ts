@@ -355,13 +355,6 @@ async function processJob(
     case "embed_segment":
       await embedSegmentJob(job, config);
       return;
-    case "embed_item":
-    case "extract_items":
-    case "batch_extract":
-    case "extract_entities":
-    case "cleanup_stale_superseded_items":
-      // Old extraction pipeline replaced by memory graph — silently drop
-      return;
     case "embed_summary":
       await embedSummaryJob(job, config);
       return;
@@ -373,13 +366,6 @@ async function processJob(
       return;
     case "backfill":
       await backfillJob(job, config);
-      return;
-    case "backfill_entity_relations":
-      // Entity relation backfill has been removed — silently drop legacy jobs
-      return;
-    case "refresh_weekly_summary":
-    case "refresh_monthly_summary":
-      // Global summary rollups have been removed — silently drop legacy jobs
       return;
     case "rebuild_index":
       await rebuildIndexJob();
@@ -395,9 +381,6 @@ async function processJob(
       return;
     case "embed_attachment":
       await embedAttachmentJob(job, config);
-      return;
-    case "journal_carry_forward":
-      // Journal carry-forward replaced by graph extraction — silently drop
       return;
     case "embed_graph_node":
       await embedGraphNodeJob(job, config);
@@ -422,12 +405,6 @@ async function processJob(
       return;
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);
-      return;
-    case "generate_capability_cards":
-      // Capability cards were removed — silently drop legacy jobs.
-      return;
-    case "generate_thread_starters":
-      // Thread starters renamed to conversation starters — silently drop legacy jobs
       return;
     default:
       throw new Error(

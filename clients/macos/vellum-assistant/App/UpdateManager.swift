@@ -220,11 +220,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
                 return
             }
 
-            let isNewer: Bool = {
-                if latestParsed.major != currentParsed.major { return latestParsed.major > currentParsed.major }
-                if latestParsed.minor != currentParsed.minor { return latestParsed.minor > currentParsed.minor }
-                return latestParsed.patch > currentParsed.patch
-            }()
+            let isNewer = latestParsed > currentParsed
 
             if isNewer {
                 log.info("Service group update available: \(latestRelease.version, privacy: .public) (current: \(currentVersion, privacy: .public))")

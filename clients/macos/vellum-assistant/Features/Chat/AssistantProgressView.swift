@@ -993,11 +993,12 @@ private struct StepDetailRow: View {
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 if lineCount > 500 {
-                    // Long outputs get a height-bounded ScrollView
+                    // Content at 500+ lines always exceeds 400pt, so a fixed
+                    // height lets sizeThatFits return without measuring content.
                     ScrollView {
                         outputTextView(text: text, attributedText: attributedText)
                     }
-                    .frame(maxHeight: 400)
+                    .frame(height: 400)
                 } else if let attrText = attributedText {
                     Text(attrText)
                         .font(VFont.bodySmallDefault)

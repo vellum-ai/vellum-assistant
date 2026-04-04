@@ -274,4 +274,11 @@ export interface RuntimeMessagePayload {
   textSegments?: string[];
   thinkingSegments?: string[];
   contentOrder?: string[];
+  subagentNotification?: {
+    subagentId: string;
+    label: string;
+    status: string;
+    error?: string;
+    conversationId?: string;
+  };
 }

@@ -46,6 +46,7 @@ public final class GatewayConnectionManager: ObservableObject {
     @Published public var isTrustRulesSheetOpen: Bool = false
     @Published public var currentModel: String?
     @Published public var latestModelInfo: ModelInfoMessage?
+    @Published public var permissionMode: PermissionModeUpdateMessage?
 
     /// Whether the transport has authenticated successfully.
     var isAuthenticated = false
@@ -53,14 +54,14 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - Connection State (internal)
 
     /// Whether auto-wake should be attempted on disconnect.
-    /// Only applies to local assistants (not remote, Docker, or managed).
+    /// Applies to local and Docker assistants (not remote or managed).
     private var isLocal: Bool {
         #if os(macOS)
         guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"),
               let assistant = LockfileAssistant.loadByName(id) else {
             return false
         }
-        return !assistant.isRemote && !assistant.isManaged
+        return (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged
         #else
         return false
         #endif
@@ -89,6 +90,7 @@ public final class GatewayConnectionManager: ObservableObject {
     /// Number of consecutive successful health checks. Used to suppress
     /// repetitive "Health check passed" logs after the first three passes.
     private var consecutiveHealthCheckSuccesses = 0
+    private let permissionModeClient: any PermissionModeClientProtocol = PermissionModeClient()
 
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = isUpdateInProgress
@@ -273,6 +275,8 @@ public final class GatewayConnectionManager: ObservableObject {
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
+        latestModelInfo = nil
+        permissionMode = nil
     }
 
     /// Clears the last update outcome after the UI has consumed it.
@@ -376,9 +380,7 @@ public final class GatewayConnectionManager: ObservableObject {
               let parsedB = VersionCompat.parse(b) else {
             return a == b
         }
-        return parsedA.major == parsedB.major
-            && parsedA.minor == parsedB.minor
-            && parsedA.patch == parsedB.patch
+        return parsedA.coreEquals(parsedB)
     }
 
     // MARK: - Version Change Handling
@@ -482,6 +484,8 @@ public final class GatewayConnectionManager: ObservableObject {
             latestModelInfo = msg
         case .memoryStatus(let msg):
             latestMemoryStatus = msg
+        case .permissionModeUpdate(let msg):
+            permissionMode = msg
         case .authResult(let result):
             isAuthenticated = result.success
         default:
@@ -733,12 +737,26 @@ public final class GatewayConnectionManager: ObservableObject {
             #if os(macOS)
             handlePostSparkleUpdate()
             #endif
+            fetchInitialPermissionMode()
         }
         #if os(macOS)
         if !connected {
             autoWakeIfAssistantDied()
         }
         #endif
+    }
+
+    // MARK: - Permission Mode
+
+    /// Fetches the initial permission mode state from the daemon on connection.
+    private func fetchInitialPermissionMode() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let mode = await permissionModeClient.fetchPermissionMode() {
+                self.permissionMode = mode
+            }
+            // Non-critical — SSE events will sync state once available.
+        }
     }
 
     // MARK: - Errors

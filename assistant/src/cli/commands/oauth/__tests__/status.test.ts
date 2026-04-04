@@ -71,7 +71,7 @@ mock.module("../../../../platform/client.js", () => ({
 }));
 
 mock.module("../../../../util/browser.js", () => ({
-  openInBrowser: () => {},
+  openInHostBrowser: async () => {},
 }));
 
 mock.module("../../../../util/logger.js", () => ({

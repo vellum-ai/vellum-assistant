@@ -52,10 +52,11 @@ extension MainWindowView {
     }
 
     /// Unread count in the Scheduled section, used to trigger auto-expand.
+    /// Filters `conversations` directly instead of calling `visibleConversations` to avoid
+    /// an unnecessary O(N log N) sort — only the count is needed.
     private var scheduledUnreadCount: Int {
-        conversationManager.visibleConversations
-            .filter { $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
-            .count
+        conversationManager.conversations
+            .count { !$0.isArchived && $0.kind != .private && $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
     }
 
     var displayedApps: [AppListManager.AppItem] {
@@ -119,6 +120,7 @@ extension MainWindowView {
     /// Builds a `SidebarSectionView` for a group. Extracted from the ForEach body
     /// to reduce type-checker pressure (the init has many parameters).
     private func makeSectionView(group: ConversationGroup, conversations: [ConversationModel]) -> SidebarSectionView {
+        let isPinned = group.id == ConversationGroup.pinned.id
         let isScheduled = group.id == ConversationGroup.scheduled.id
         let isBackground = group.id == ConversationGroup.background.id
         let countMode: SidebarSectionView.CountMode = isScheduled
@@ -139,7 +141,7 @@ extension MainWindowView {
             conversations: conversations,
             isExpanded: sidebar.expandedSections.contains(group.id),
             showAll: sidebar.showAllInSection.contains(group.id),
-            maxCollapsed: 5,
+            maxCollapsed: isPinned ? .max : 5,
             isDropTarget: sidebar.dropTargetSectionId == group.id,
             countMode: countMode,
             isRenaming: sidebar.renamingGroupId == group.id,
@@ -159,7 +161,11 @@ extension MainWindowView {
                 sidebar.renamingGroupId = nil
             },
             onDelete: group.isSystemGroup ? nil : {
-                groupToDelete = group
+                if conversations.isEmpty {
+                    Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+                } else {
+                    groupToDelete = group
+                }
             },
             selectedConversationId: conversationManager.activeConversationId,
             onToggleExpand: { sidebar.toggleSection(group.id) },
@@ -204,6 +210,10 @@ extension MainWindowView {
             onDragStart: {
                 sidebar.beginConversationDrag(conversation.id)
             },
+            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation && conversation.kind != .private ? {
+                selectConversation(conversation)
+                Task<Void, Never> { await conversationManager.analyzeActiveConversation() }
+            } : nil,
             onOpenInNewWindow: conversation.conversationId != nil ? {
                 AppDelegate.shared?.threadWindowManager?.openThread(
                     conversationLocalId: conversation.id,
@@ -325,7 +335,11 @@ extension MainWindowView {
                     style: .ghost,
                     size: .compact
                 ) {
+                    let wasCollapsed = !sidebar.showAllInSection.contains("ungrouped")
                     withAnimation(VAnimation.fast) { sidebar.toggleShowAll("ungrouped") }
+                    if wasCollapsed {
+                        conversationManager.loadAllRemainingConversations()
+                    }
                 }
                 Spacer()
             }
@@ -592,7 +606,7 @@ extension MainWindowView {
 
     @ViewBuilder
     func sidebarSectionDivider() -> some View {
-        VColor.surfaceBase
+        VColor.surfaceActive
             .frame(height: 1)
             .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
     }

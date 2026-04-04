@@ -206,11 +206,13 @@ mock.module("../daemon/conversation-memory.js", () => ({
 let mockApplyRuntimeInjections: (msgs: Message[]) => Message[] = (msgs) => msgs;
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: (msgs: Message[]) => mockApplyRuntimeInjections(msgs),
-  stripInjectedContext: (msgs: Message[]) => msgs,
+  stripInjectionsForCompaction: (msgs: Message[]) => msgs,
+  findLastInjectedNowContent: () => null,
+  readNowScratchpad: () => null,
 }));
 
 mock.module("../daemon/date-context.js", () => ({
-  buildTemporalContext: () => null,
+  formatTurnTimestamp: () => "2026-01-01 (Thu) 00:00:00 +00:00 (UTC)",
 }));
 
 mock.module("../daemon/history-repair.js", () => ({
@@ -224,10 +226,6 @@ mock.module("../daemon/history-repair.js", () => ({
     },
   }),
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
-}));
-
-mock.module("../daemon/conversation-history.js", () => ({
-  consolidateAssistantMessages: () => {},
 }));
 
 const recordUsageMock = mock(() => {});

@@ -9,14 +9,27 @@ const log = getLogger("task-memory-cleanup");
  * so the check survives daemon restarts.
  */
 export function isConversationFailed(conversationId: string): boolean {
+  // For reused schedule conversations the same conversation_id appears in
+  // multiple cron_runs. A single failed run should NOT mark the conversation
+  // as permanently failed — only the *most recent* run for that conversation
+  // matters. We therefore check whether the latest cron_run (by created_at,
+  // which is a monotonically increasing epoch timestamp) has an error status.
+  // Note: cron_runs.id is a UUID v4 (random), so we cannot use MAX(id).
   const row = rawGet<{ found: number }>(
     `SELECT 1 AS found
        FROM (
          SELECT 1 FROM task_runs WHERE conversation_id = ? AND status = 'failed'
          UNION ALL
-         SELECT 1 FROM cron_runs WHERE conversation_id = ? AND status = 'error'
+         SELECT 1 FROM cron_runs
+          WHERE conversation_id = ?
+            AND status = 'error'
+            AND id = (
+              SELECT id FROM cron_runs WHERE conversation_id = ?
+              ORDER BY created_at DESC LIMIT 1
+            )
        )
       LIMIT 1`,
+    conversationId,
     conversationId,
     conversationId,
   );
@@ -57,9 +70,17 @@ export function invalidateAssistantInferredItemsForConversation(
                   AND tr.status = 'failed'
              )
              AND NOT EXISTS (
+               -- Check only the most recent cron_run for each conversation
+               -- so reused conversations with historical errors but recent
+               -- successes are still treated as valid corroborators.
                SELECT 1 FROM cron_runs cr
                 WHERE cr.conversation_id = jc2.value
                   AND cr.status = 'error'
+                  AND cr.id = (
+                    SELECT cr2.id FROM cron_runs cr2
+                     WHERE cr2.conversation_id = jc2.value
+                     ORDER BY cr2.created_at DESC LIMIT 1
+                  )
              )
         )`,
     Date.now(),
@@ -79,9 +100,9 @@ export function invalidateAssistantInferredItemsForConversation(
 
 /**
  * Cancel all pending/running memory jobs referencing the given conversation.
- * Covers every job type: `extract_items`, `embed_attachment` (keyed by messageId),
+ * Covers every job type: `embed_attachment` (keyed by messageId),
  * `embed_segment` (keyed by segmentId via memory_segments),
- * `build_conversation_summary` (keyed by conversationId),
+ * `graph_extract`, `build_conversation_summary` (keyed by conversationId),
  * and `embed_graph_node` (keyed by nodeId sourced from the conversation).
  */
 export function cancelPendingJobsForConversation(
@@ -91,7 +112,7 @@ export function cancelPendingJobsForConversation(
   const now = Date.now();
   let total = 0;
 
-  // Jobs keyed by messageId: extract_items, embed_attachment
+  // Jobs keyed by messageId: embed_attachment
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
@@ -106,7 +127,7 @@ export function cancelPendingJobsForConversation(
     conversationId,
   );
 
-  // Jobs keyed by conversationId: build_conversation_summary
+  // Jobs keyed by conversationId: graph_extract, build_conversation_summary
   total += rawRun(
     `UPDATE memory_jobs
         SET status = 'failed',
@@ -162,8 +183,8 @@ export function cancelPendingJobsForConversation(
 }
 
 /**
- * Cancel only pending/running `extract_items` jobs for messages in the
- * given conversation. Used by the task-failure path where we want to
+ * Cancel only pending/running `graph_extract` jobs for the given
+ * conversation. Used by the task-failure path where we want to
  * stop new extractions but must NOT cancel `embed_graph_node` jobs —
  * those nodes may be multi-sourced and still valid.
  */
@@ -177,10 +198,8 @@ function cancelPendingExtractionJobsForConversation(
             last_error = 'conversation_failed',
             updated_at = ?
       WHERE status IN ('pending', 'running')
-        AND type = 'extract_items'
-        AND json_extract(payload, '$.messageId') IN (
-          SELECT id FROM messages WHERE conversation_id = ?
-        )`,
+        AND type = 'graph_extract'
+        AND json_extract(payload, '$.conversationId') = ?`,
     now,
     conversationId,
   );

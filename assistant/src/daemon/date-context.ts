@@ -290,31 +290,14 @@ function formatLocalDate(date: Date, timeZone: string): string {
 }
 
 /**
- * Format HH:MM and UTC offset for the given instant in the given timezone.
+ * Format time as HH:MM:SS with UTC offset and timezone name.
+ *
+ * Uses the timezone resolution cascade:
+ * explicit override → configured user tz → profile user tz → host fallback.
+ *
+ * Returns format: `2026-04-02 (Thu) 01:52:33 -05:00 (America/Chicago)`
  */
-function formatCompactTimeAndOffset(
-  date: Date,
-  timeZone: string,
-): { time: string; offset: string } {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-    timeZoneName: "shortOffset",
-  });
-  const parts = fmt.formatToParts(date);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const hour = get("hour");
-  const minute = get("minute");
-  const offset = normalizeOffsetToken(get("timeZoneName"));
-  return { time: `${hour}:${minute}`, offset };
-}
-
-/**
- * Build a compact temporal context string for model injection.
- */
-export function buildTemporalContext(
+export function formatTurnTimestamp(
   options: TemporalContextOptions = {},
 ): string {
   const now = new Date(options.nowMs ?? Date.now());
@@ -336,36 +319,26 @@ export function buildTemporalContext(
     resolvedConfiguredUserTimeZone ??
     resolvedUserTimeZone ??
     resolvedHostTimeZone;
-  const userTimeZone = resolvedConfiguredUserTimeZone ?? resolvedUserTimeZone;
-  const timeZoneSource = resolvedTimeZone
-    ? "explicit_override"
-    : resolvedConfiguredUserTimeZone
-      ? "user_settings"
-      : resolvedUserTimeZone
-        ? "user_profile_memory"
-        : "assistant_host_fallback";
+
+  const dateStr = formatLocalDate(now, timeZone);
   const todayParts = localDateParts(now, timeZone);
-  const todayStr = formatLocalDate(now, timeZone);
-  const todayWeekday = WEEKDAY_SHORT[todayParts.weekday];
-  const { time, offset } = formatCompactTimeAndOffset(now, timeZone);
+  const dayName = WEEKDAY_SHORT[todayParts.weekday];
 
-  const tzSuffix =
-    timeZoneSource === "assistant_host_fallback" ? " (host fallback)" : "";
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "shortOffset",
+  });
+  const parts = fmt.formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const hour = get("hour");
+  const minute = get("minute");
+  const second = get("second");
+  const offset = normalizeOffsetToken(get("timeZoneName"));
 
-  const lines = [
-    `<temporal_context>`,
-    `Today: ${todayStr} (${todayWeekday}) ${time} ${offset}`,
-    `TZ: ${timeZone}${tzSuffix}`,
-  ];
-
-  if (userTimeZone && userTimeZone !== timeZone) {
-    lines.push(`User TZ: ${userTimeZone}`);
-  }
-  if (resolvedHostTimeZone !== timeZone) {
-    lines.push(`Host TZ: ${resolvedHostTimeZone}`);
-  }
-
-  lines.push(`</temporal_context>`);
-
-  return lines.join("\n");
+  return `${dateStr} (${dayName}) ${hour}:${minute}:${second} ${offset} (${timeZone})`;
 }
+

@@ -14,16 +14,8 @@ const log = getLogger("memory-jobs-store");
 
 export type MemoryJobType =
   | "embed_segment"
-  | "embed_item"
   | "embed_summary"
-  | "extract_items"
-  | "extract_entities"
-  | "batch_extract"
-  | "cleanup_stale_superseded_items" // legacy compat — silently dropped by worker (memory_items table dropped)
   | "prune_old_conversations"
-  | "backfill_entity_relations"
-  | "refresh_weekly_summary"
-  | "refresh_monthly_summary"
   | "build_conversation_summary"
   | "backfill"
   | "rebuild_index"
@@ -32,7 +24,6 @@ export type MemoryJobType =
   | "embed_media"
   | "embed_attachment"
   | "generate_conversation_starters"
-  | "journal_carry_forward"
   | "embed_graph_node"
   | "graph_extract"
   | "graph_decay"
@@ -40,13 +31,10 @@ export type MemoryJobType =
   | "graph_pattern_scan"
   | "graph_narrative_refine"
   | "graph_trigger_embed"
-  | "graph_bootstrap"
-  | "generate_capability_cards" // legacy compat — silently dropped by worker (capability cards removed)
-  | "generate_thread_starters"; // legacy compat — silently dropped by worker (renamed to generate_conversation_starters)
+  | "graph_bootstrap";
 
 const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",
-  "embed_item",
   "embed_summary",
   "embed_media",
   "embed_attachment",
@@ -136,32 +124,6 @@ export function upsertDebouncedJob(
   } else {
     enqueueMemoryJob(type, payload, runAfter, dbOverride);
   }
-}
-
-/**
- * Check whether a pending or running `journal_carry_forward` job already
- * exists for the given filename + userSlug.  Used to prevent duplicate
- * enqueues while a carry-forward job is still in flight.
- */
-export function hasActiveCarryForwardJob(
-  filename: string,
-  userSlug: string
-): boolean {
-  const db = getDb();
-  return (
-    db
-      .select({ id: memoryJobs.id })
-      .from(memoryJobs)
-      .where(
-        and(
-          eq(memoryJobs.type, "journal_carry_forward"),
-          inArray(memoryJobs.status, ["pending", "running"]),
-          sql`json_extract(${memoryJobs.payload}, '$.filename') = ${filename}`,
-          sql`json_extract(${memoryJobs.payload}, '$.userSlug') = ${userSlug}`
-        )
-      )
-      .get() != null
-  );
 }
 
 /**

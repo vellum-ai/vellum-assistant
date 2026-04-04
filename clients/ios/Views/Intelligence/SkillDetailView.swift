@@ -21,55 +21,17 @@ struct SkillDetailView: View {
                 headerSection
             }
 
-            // Details section
+            // Details section with origin-specific metadata via originMeta
             Section("Details") {
-                if let clawhub = skill.clawhub {
-                    if !clawhub.author.isEmpty {
-                        detailRow(label: "Author", value: clawhub.author)
-                    }
-                    if clawhub.stars > 0 {
-                        detailRow(label: "Stars", value: "\(clawhub.stars)")
-                    }
-                } else if let skillssh = skill.skillssh, !skillssh.sourceRepo.isEmpty {
-                    detailRow(label: "Source Repo", value: skillssh.sourceRepo)
-                }
+                detailsSection
                 detailRow(label: "Origin", value: originLabel(skill.origin))
                 detailRow(label: "Status", value: skill.status.capitalized)
             }
 
-            // Inspect data section (loaded from ClaWHub)
-            if let inspected = skillsStore.inspectedSkill {
-                Section("About") {
-                    if !inspected.skill.summary.isEmpty {
-                        Text(inspected.skill.summary)
-                            .font(VFont.bodyMediumLighter)
-                            .foregroundStyle(VColor.contentSecondary)
-                    }
-
-                    if let owner = inspected.owner {
-                        detailRow(label: "Owner", value: owner.displayName)
-                    }
-
-                    if let stats = inspected.stats {
-                        detailRow(label: "Stars", value: "\(stats.stars)")
-                        detailRow(label: "Installs", value: "\(stats.installs)")
-                    }
-
-                    if let latestVersion = inspected.latestVersion {
-                        detailRow(label: "Latest Version", value: latestVersion.version)
-                        if let changelog = latestVersion.changelog, !changelog.isEmpty {
-                            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                                Text("Changelog")
-                                    .font(VFont.labelDefault)
-                                    .foregroundStyle(VColor.contentTertiary)
-                                Text(changelog)
-                                    .font(VFont.bodyMediumLighter)
-                                    .foregroundStyle(VColor.contentSecondary)
-                            }
-                        }
-                    }
-                }
-            } else if skillsStore.isInspecting {
+            // Enrichment data from skill detail endpoint
+            if let detail = skillsStore.selectedSkillDetail {
+                enrichmentSection(detail)
+            } else if skillsStore.isLoadingSkillDetail {
                 Section("About") {
                     HStack {
                         Spacer()
@@ -78,7 +40,7 @@ struct SkillDetailView: View {
                         Spacer()
                     }
                 }
-            } else if let error = skillsStore.inspectError {
+            } else if let error = skillsStore.skillDetailError {
                 Section("About") {
                     Text(error)
                         .font(VFont.bodyMediumLighter)
@@ -152,14 +114,15 @@ struct SkillDetailView: View {
         .navigationTitle(skill.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            // Inspect the skill if it has a clawhub origin
-            if skill.clawhub != nil {
-                skillsStore.inspectSkill(slug: skill.id)
+            // Only fetch detail and files for locally available skills (bundled or installed).
+            // Remote catalog search results are not in the local resolved catalog, so
+            // GET /skills/:id and GET /skills/:id/files would 404 for them.
+            if skill.isInstalled {
+                skillsStore.fetchSkillDetail(skillId: skill.id)
+                skillsStore.fetchSkillFiles(skillId: skill.id)
             }
-            skillsStore.fetchSkillFiles(skillId: skill.id)
         }
         .onDisappear {
-            skillsStore.clearInspection()
             skillsStore.clearSkillDetail()
             expandedFilePath = nil
         }
@@ -178,7 +141,7 @@ struct SkillDetailView: View {
 
     private var headerSection: some View {
         VStack(spacing: VSpacing.sm) {
-            Text(skill.vellum?.emoji ?? "")
+            Text(skill.emoji ?? "")
                 .font(.system(size: 48))
                 .accessibilityHidden(true)
 
@@ -193,7 +156,7 @@ struct SkillDetailView: View {
                     .multilineTextAlignment(.center)
             }
 
-            VSkillTypePill(origin: skill.origin, status: skill.status)
+            VSkillTypePill(origin: skill.origin)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.sm)
@@ -271,6 +234,59 @@ struct SkillDetailView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(file.path), \(formatFileSize(file.size))\(file.isBinary ? ", binary" : "")")
+    }
+
+    // MARK: - Details Section (origin-specific metadata via originMeta)
+
+    @ViewBuilder
+    private var detailsSection: some View {
+        switch skill.originMeta {
+        case .clawhub(let meta):
+            if !meta.author.isEmpty {
+                detailRow(label: "Author", value: meta.author)
+            }
+            if meta.stars > 0 {
+                detailRow(label: "Stars", value: "\(meta.stars)")
+            }
+        case .skillssh(let meta):
+            if !meta.sourceRepo.isEmpty {
+                detailRow(label: "Source Repo", value: meta.sourceRepo)
+            }
+        case .vellum, .custom:
+            EmptyView()
+        }
+    }
+
+    // MARK: - Enrichment Section (from skill detail endpoint)
+
+    @ViewBuilder
+    private func enrichmentSection(_ detail: SkillDetailHTTPResponse) -> some View {
+        if detail.owner != nil || detail.stats != nil || detail.latestVersion != nil {
+            Section("About") {
+                if let owner = detail.owner {
+                    detailRow(label: "Owner", value: owner.displayName)
+                }
+
+                if let stats = detail.stats {
+                    detailRow(label: "Stars", value: "\(stats.stars)")
+                    detailRow(label: "Installs", value: "\(stats.installs)")
+                }
+
+                if let latestVersion = detail.latestVersion {
+                    detailRow(label: "Latest Version", value: latestVersion.version)
+                    if let changelog = latestVersion.changelog, !changelog.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Changelog")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                            Text(changelog)
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundStyle(VColor.contentSecondary)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Origin Label

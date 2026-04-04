@@ -16,6 +16,7 @@ import { manageSecureCommandTool } from "./credential-execution/manage-secure-co
 import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
 import { credentialStoreTool } from "./credentials/vault.js";
 import { fileEditTool } from "./filesystem/edit.js";
+import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { fileWriteTool } from "./filesystem/write.js";
 import { recallTool, rememberTool } from "./memory/register.js";
@@ -23,6 +24,7 @@ import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
 import { skillExecuteTool } from "./skills/execute.js";
 import { skillLoadTool } from "./skills/load.js";
+import { notifyParentTool } from "./subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
 import type { Tool } from "./types.js";
@@ -56,11 +58,13 @@ export const eagerModuleToolNames: string[] = [
   "file_read",
   "file_write",
   "file_edit",
+  "file_list",
   "web_search",
   "web_fetch",
   "skill_execute",
   "skill_load",
   "request_system_permission",
+  "notify_parent",
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
@@ -76,6 +80,7 @@ export const explicitTools: Tool[] = [
   fileReadTool,
   fileWriteTool,
   fileEditTool,
+  fileListTool,
   webFetchTool,
   webSearchTool,
   skillExecuteTool,
@@ -85,6 +90,7 @@ export const explicitTools: Tool[] = [
   rememberTool,
   recallTool,
   credentialStoreTool,
+  notifyParentTool,
 ];
 
 // ── CES tools (feature-flag gated) ──────────────────────────────────

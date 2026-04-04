@@ -41,6 +41,7 @@ import {
 } from "./http/routes/twilio-relay-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
+import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
@@ -238,6 +239,11 @@ async function main() {
     credentials: credentialCache,
     configFile: configFileCache,
   });
+  const { handler: handleEmailWebhook, dedupCache: emailDedupCache } =
+    createEmailWebhookHandler(config, {
+      credentials: credentialCache,
+      configFile: configFileCache,
+    });
   // Map: "channel:threadTs" -> { messageTs, expiresAt } for replacing approval
   // messages with the bot's follow-up content after an approval button click.
   const pendingApprovalReplacements = new Map<
@@ -350,6 +356,10 @@ async function main() {
       path: "/webhooks/whatsapp",
       precondition: requireWhatsApp,
       handler: (req) => handleWhatsAppWebhook(req),
+    },
+    {
+      path: "/webhooks/email/inbound",
+      handler: (req) => handleEmailWebhook(req),
     },
 
     // ── Audio serving (unauthenticated — Twilio fetches these URLs directly) ──
@@ -1161,6 +1171,7 @@ async function main() {
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
   whatsappDedupCache.startCleanup();
+  emailDedupCache.startCleanup();
 
   const telegramCaches = {
     credentials: credentialCache,
@@ -1240,6 +1251,7 @@ async function main() {
               !isCallback
             ) {
               attachmentIds = [];
+              const failedAttachmentNames: string[] = [];
               const maxBytes =
                 config.maxAttachmentBytes.slack ??
                 config.maxAttachmentBytes.default;
@@ -1290,23 +1302,35 @@ async function main() {
                     });
                   }),
                 );
-                for (const result of results) {
+                for (let j = 0; j < results.length; j++) {
+                  const result = results[j];
                   if (result.status === "fulfilled") {
                     attachmentIds.push(result.value.id);
                   } else if (
                     result.reason instanceof AttachmentValidationError
                   ) {
+                    const att = batch[j];
+                    failedAttachmentNames.push(att.fileName || att.fileId);
                     log.warn(
                       { err: result.reason },
                       "Skipping Slack attachment with validation error",
                     );
                   } else {
+                    const att = batch[j];
+                    failedAttachmentNames.push(att.fileName || att.fileId);
                     log.warn(
                       { err: result.reason },
                       "Skipping Slack attachment due to download/upload failure",
                     );
                   }
                 }
+              }
+
+              if (failedAttachmentNames.length > 0) {
+                const nameList = failedAttachmentNames
+                  .map((n) => `"${n}"`)
+                  .join(", ");
+                normalized.event.message.content += `\n\n[The user attached file(s) that could not be retrieved: ${nameList}. Ask them to re-send if the content is important.]`;
               }
             }
 
@@ -1508,6 +1532,7 @@ async function main() {
     remoteFeatureFlagSync.stop();
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
+    emailDedupCache.stopCleanup();
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;

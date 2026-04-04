@@ -216,6 +216,8 @@ export function generateAppDirName(
 
 /** Cache of id -> dirName mappings to avoid repeated filesystem scans. */
 const idToDirNameCache = new Map<string, string>();
+/** Reverse cache: dirName -> id. */
+const dirNameToIdCache = new Map<string, string>();
 
 /**
  * Resolve an app's directory name and path from its ID.
@@ -265,12 +267,79 @@ export function getAppDirPath(appId: string): string {
   return resolveAppDir(appId).appDir;
 }
 
+/**
+ * Resolve an app ID from its directory name (slug).
+ * Checks caches first, then reads the JSON definition file directly.
+ */
+export function resolveAppIdByDirName(dirName: string): string | null {
+  const cached = dirNameToIdCache.get(dirName);
+  if (cached) return cached;
+
+  // Check forward cache (reverse iteration)
+  for (const [id, dn] of idToDirNameCache) {
+    if (dn === dirName) {
+      dirNameToIdCache.set(dirName, id);
+      return id;
+    }
+  }
+
+  // Read the JSON definition file directly
+  const dir = getAppsDir();
+  const jsonPath = join(dir, `${dirName}.json`);
+  if (existsSync(jsonPath)) {
+    try {
+      const raw = readFileSync(jsonPath, "utf-8");
+      const parsed = JSON.parse(raw) as { id?: string; dirName?: string };
+      if (parsed.id) {
+        dirNameToIdCache.set(dirName, parsed.id);
+        idToDirNameCache.set(parsed.id, dirName);
+        return parsed.id;
+      }
+    } catch {
+      // skip malformed files
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract app ID from an absolute file path if it falls within the apps
+ * directory and targets a source file (not records/ or dist/).
+ */
+export function resolveAppIdFromPath(filePath: string): string | null {
+  let appsDir: string;
+  try {
+    appsDir = getAppsDir();
+  } catch {
+    return null;
+  }
+  if (!filePath.startsWith(appsDir + "/")) return null;
+
+  const relPath = filePath.slice(appsDir.length + 1);
+  const slashIdx = relPath.indexOf("/");
+  if (slashIdx === -1) return null; // file directly in apps/ (e.g. the .json definition)
+
+  const dirName = relPath.slice(0, slashIdx);
+  const innerPath = relPath.slice(slashIdx + 1);
+
+  // Skip non-source directories
+  if (innerPath.startsWith("records/") || innerPath.startsWith("dist/")) {
+    return null;
+  }
+
+  return resolveAppIdByDirName(dirName);
+}
+
 /** Invalidate the id->dirName cache for a specific app or all apps. */
 function invalidateDirNameCache(appId?: string): void {
   if (appId) {
+    const dirName = idToDirNameCache.get(appId);
     idToDirNameCache.delete(appId);
+    if (dirName) dirNameToIdCache.delete(dirName);
   } else {
     idToDirNameCache.clear();
+    dirNameToIdCache.clear();
   }
 }
 

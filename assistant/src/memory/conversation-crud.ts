@@ -70,7 +70,7 @@ const interfaceIdSchema = z.enum(INTERFACE_IDS);
 const subagentNotificationSchema = z.object({
   subagentId: z.string(),
   label: z.string(),
-  status: z.enum(["completed", "failed", "aborted"]),
+  status: z.enum(["running", "completed", "failed", "aborted"]),
   error: z.string().optional(),
   conversationId: z.string().optional(),
 });
@@ -172,6 +172,7 @@ export interface ConversationRow {
   forkParentMessageId: string | null;
   isAutoTitle: number;
   scheduleJobId: string | null;
+  lastMessageAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -197,6 +198,7 @@ export const parseConversation = createRowMapper<
   forkParentMessageId: "forkParentMessageId",
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
+  lastMessageAt: "lastMessageAt",
 });
 
 export interface MessageRow {
@@ -610,14 +612,13 @@ export function forkConversation(params: {
 
 /**
  * Delete a conversation and all its messages, cleaning up orphaned memory
- * artifacts (items, embeddings). Returns segment and orphaned item IDs so
- * callers can clean up the corresponding Qdrant vector entries.
+ * artifacts (embeddings). Returns segment IDs so callers can clean up
+ * the corresponding Qdrant vector entries.
  */
 export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
     segmentIds: [],
-    orphanedItemIds: [],
     deletedSummaryIds: [],
   };
 
@@ -723,14 +724,10 @@ export function deleteConversation(id: string): DeletedMemoryIds {
  *
  * Extends `deleteConversation` with:
  * - Cancelling pending memory jobs before deletion
- * - Restoring memory items that were explicitly superseded by items from this conversation
- * - Restoring orphaned subject-match superseded items after deletion
  * - Deleting conversation-scoped memory summaries and their embeddings
- * - Enqueuing `embed_item` jobs for all restored items
  */
 export function wipeConversation(id: string): WipeConversationResult {
   const db = getDb();
-  const unsupersededItemIds: string[] = [];
   const deletedSummaryIds: string[] = [];
 
   // Step A — Cancel pending memory jobs (before deleting messages, since
@@ -772,7 +769,6 @@ export function wipeConversation(id: string): WipeConversationResult {
   // Step E — Return the combined result.
   return {
     ...deletedMemoryIds,
-    unsupersededItemIds,
     deletedSummaryIds: [
       ...deletedSummaryIds,
       ...deletedMemoryIds.deletedSummaryIds,
@@ -802,20 +798,17 @@ export function purgePrivateConversations(): {
       count: 0,
       deletedMemory: {
         segmentIds: [],
-        orphanedItemIds: [],
         deletedSummaryIds: [],
       },
     };
   }
 
   const allSegmentIds: string[] = [];
-  const allOrphanedItemIds: string[] = [];
   const allDeletedSummaryIds: string[] = [];
 
   for (const conv of privateConvs) {
     const deleted = deleteConversation(conv.id);
     allSegmentIds.push(...deleted.segmentIds);
-    allOrphanedItemIds.push(...deleted.orphanedItemIds);
     allDeletedSummaryIds.push(...deleted.deletedSummaryIds);
   }
 
@@ -823,7 +816,6 @@ export function purgePrivateConversations(): {
     count: privateConvs.length,
     deletedMemory: {
       segmentIds: allSegmentIds,
-      orphanedItemIds: allOrphanedItemIds,
       deletedSummaryIds: allDeletedSummaryIds,
     },
   };
@@ -885,7 +877,7 @@ export async function addMessage(
             .run();
         }
         tx.update(conversations)
-          .set({ updatedAt: now })
+          .set({ updatedAt: now, lastMessageAt: now })
           .where(eq(conversations.id, conversationId))
           .run();
       });
@@ -1260,8 +1252,13 @@ export function deleteLastExchange(conversationId: string): number {
 
   db.transaction((tx) => {
     tx.delete(messages).where(condition).run();
+    const maxResult = tx
+      .select({ maxCreatedAt: sql<number | null>`MAX(${messages.createdAt})` })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .get();
     tx.update(conversations)
-      .set({ updatedAt: Date.now() })
+      .set({ updatedAt: Date.now(), lastMessageAt: maxResult?.maxCreatedAt ?? null })
       .where(eq(conversations.id, conversationId))
       .run();
   });
@@ -1278,12 +1275,10 @@ export function deleteLastExchange(conversationId: string): number {
  */
 export interface DeletedMemoryIds {
   segmentIds: string[];
-  orphanedItemIds: string[];
   deletedSummaryIds: string[];
 }
 
 export interface WipeConversationResult extends DeletedMemoryIds {
-  unsupersededItemIds: string[];
   cancelledJobCount: number;
 }
 
@@ -1365,7 +1360,6 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
     segmentIds: [],
-    orphanedItemIds: [],
     deletedSummaryIds: [],
   };
 
@@ -1378,6 +1372,13 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     .all()
     .map((r) => r.attachmentId)
     .filter((id): id is string => id !== undefined);
+
+  // Look up the conversation before the transaction so we can recalculate lastMessageAt.
+  const msgRow = db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
 
   db.transaction((tx) => {
     // Collect memory segment IDs linked to this message before cascade.
@@ -1397,6 +1398,19 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     // Now safe to delete — NOT NULL cascades remove memory_segments
     // and message_attachments.
     tx.delete(messages).where(eq(messages.id, messageId)).run();
+
+    // Recalculate lastMessageAt after deletion.
+    if (msgRow) {
+      const maxResult = tx
+        .select({ maxCreatedAt: sql<number | null>`MAX(${messages.createdAt})` })
+        .from(messages)
+        .where(eq(messages.conversationId, msgRow.conversationId))
+        .get();
+      tx.update(conversations)
+        .set({ lastMessageAt: maxResult?.maxCreatedAt ?? null })
+        .where(eq(conversations.id, msgRow.conversationId))
+        .run();
+    }
 
     // Clean up segment embeddings from SQLite (Qdrant cleanup is the caller's job).
     if (result.segmentIds.length > 0) {

@@ -342,7 +342,10 @@ final class AvatarAppearanceManager {
     }
 
     /// Fetches character-traits.json via HTTP through the gateway for Docker/remote instances.
-    private func fetchTraitsViaHTTP() async {
+    /// - Parameter skipClearOnFailure: When `true`, a failed HTTP fetch preserves
+    ///   locally-loaded character traits instead of clearing them. Mirrors the
+    ///   same guard on ``fetchAvatarViaHTTP(skipClearOnFailure:)``.
+    private func fetchTraitsViaHTTP(skipClearOnFailure: Bool = false) async {
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/workspace/file/content",
@@ -350,12 +353,14 @@ final class AvatarAppearanceManager {
                 timeout: 10
             )
             guard response.isSuccess, !response.data.isEmpty else {
-                if characterBodyShape != nil { characterBodyShape = nil }
-                if characterEyeStyle != nil { characterEyeStyle = nil }
-                if characterColor != nil { characterColor = nil }
-                cachedFallbackAvatar = nil
-                cachedFullFallbackAvatar = nil
-                updateDockIcon()
+                if !skipClearOnFailure {
+                    if characterBodyShape != nil { characterBodyShape = nil }
+                    if characterEyeStyle != nil { characterEyeStyle = nil }
+                    if characterColor != nil { characterColor = nil }
+                    cachedFallbackAvatar = nil
+                    cachedFullFallbackAvatar = nil
+                    updateDockIcon()
+                }
                 return
             }
             guard let components = try? JSONDecoder().decode(AvatarComponents.self, from: response.data) else {
@@ -374,12 +379,14 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch character traits via HTTP: \(error.localizedDescription)")
-            if characterBodyShape != nil { characterBodyShape = nil }
-            if characterEyeStyle != nil { characterEyeStyle = nil }
-            if characterColor != nil { characterColor = nil }
-            cachedFallbackAvatar = nil
-            cachedFullFallbackAvatar = nil
-            updateDockIcon()
+            if !skipClearOnFailure {
+                if characterBodyShape != nil { characterBodyShape = nil }
+                if characterEyeStyle != nil { characterEyeStyle = nil }
+                if characterColor != nil { characterColor = nil }
+                cachedFallbackAvatar = nil
+                cachedFullFallbackAvatar = nil
+                updateDockIcon()
+            }
         }
     }
 
@@ -465,11 +472,12 @@ final class AvatarAppearanceManager {
         }
 
         let diskLoadSucceeded = customAvatarImage != nil
+        let traitsLoadedFromDisk = characterBodyShape != nil
 
         Task { [weak self] in
             await self?.fetchComponents()
             await self?.fetchAvatarViaHTTP(skipClearOnFailure: diskLoadSucceeded)
-            await self?.fetchTraitsViaHTTP()
+            await self?.fetchTraitsViaHTTP(skipClearOnFailure: traitsLoadedFromDisk)
         }
     }
 
@@ -563,9 +571,33 @@ final class AvatarAppearanceManager {
     /// Posted whenever the avatar changes so other components (e.g. menu bar icon) can update.
     static let avatarDidChangeNotification = Notification.Name("AvatarAppearanceManager.avatarDidChange")
 
+    /// The original bundle icon resolved from the `.app` bundle on disk.
+    /// Uses `NSWorkspace` so the result is independent of whatever
+    /// `applicationIconImage` is set at runtime and already includes all
+    /// system-resolved representations.
+    ///
+    /// Reference: https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
+    private static let bundledAppIcon: NSImage = {
+        NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+    }()
+
+    /// Restores the dock icon to the default Vellum logo.
+    ///
+    /// Per Apple docs, setting `applicationIconImage` to `nil` should
+    /// restore the bundle icon, but this is unreliable after activation-
+    /// policy transitions (`.accessory` ↔ `.regular`) — macOS can show a
+    /// generic blank squircle instead.  Setting the bundle icon explicitly
+    /// avoids the issue.
+    ///
+    /// Reference: https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage
+    func restoreBundleIcon() {
+        NSApplication.shared.applicationIconImage = Self.bundledAppIcon
+        NSApp.dockTile.display()
+    }
+
     /// Updates the application dock icon to match the current avatar.
     /// Uses the custom avatar PNG when available, falls back to a character
-    /// avatar rendered from saved traits, then reverts to the default bundle icon.
+    /// avatar rendered from saved traits, then restores the bundled Vellum logo.
     private func updateDockIcon() {
         NotificationCenter.default.post(name: Self.avatarDidChangeNotification, object: nil)
 
@@ -576,8 +608,7 @@ final class AvatarAppearanceManager {
         } else if let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor {
             avatar = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color, size: 512)
         } else {
-            NSApplication.shared.applicationIconImage = nil
-            NSApp.dockTile.display()
+            restoreBundleIcon()
             return
         }
 

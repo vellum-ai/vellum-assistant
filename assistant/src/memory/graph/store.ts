@@ -2,12 +2,13 @@
 // Memory Graph — Data access layer
 // ---------------------------------------------------------------------------
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db.js";
 import {
   memoryGraphEdges,
+  memoryGraphNodeEdits,
   memoryGraphNodes,
   memoryGraphTriggers,
 } from "../schema.js";
@@ -116,14 +117,71 @@ function rowToTrigger(
 }
 
 // ---------------------------------------------------------------------------
+// Paragraph deduplication
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove repeated paragraphs and bullet items from memory node content.
+ * Paragraphs are separated by `\n\n`. Within each paragraph, lines starting
+ * with `- ` are treated as bullet items and individually deduplicated.
+ */
+export function deduplicateParagraphs(content: string): string {
+  if (!content) return content;
+
+  const paragraphs = content.split("\n\n");
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const paragraph of paragraphs) {
+    // Deduplicate bullet items within the paragraph
+    const lines = paragraph.split("\n");
+    const isBulletList = lines.some((l) => l.trimStart().startsWith("- "));
+
+    let processed: string;
+    if (isBulletList) {
+      const seenBullets = new Set<string>();
+      const uniqueLines: string[] = [];
+      for (const line of lines) {
+        if (line.trimStart().startsWith("- ")) {
+          const normalized = line.trim().replace(/\s+/g, " ");
+          if (!seenBullets.has(normalized)) {
+            seenBullets.add(normalized);
+            uniqueLines.push(line);
+          }
+        } else {
+          uniqueLines.push(line);
+        }
+      }
+      processed = uniqueLines.join("\n");
+    } else {
+      processed = paragraph;
+    }
+
+    const normalized = processed.trim().replace(/\s+/g, " ");
+    if (normalized === "") {
+      // Preserve empty paragraphs (whitespace-only) as separators
+      unique.push(processed);
+    } else if (!seen.has(normalized)) {
+      seen.add(normalized);
+      unique.push(processed);
+    }
+  }
+
+  return unique.join("\n\n");
+}
+
+// ---------------------------------------------------------------------------
 // Node CRUD
 // ---------------------------------------------------------------------------
 
 export function createNode(node: NewNode): MemoryNode {
   const db = getDb();
   const id = uuid();
-  db.insert(memoryGraphNodes).values(nodeToInsertValues(node, id)).run();
-  return { ...node, id };
+  const cleanContent = deduplicateParagraphs(node.content);
+  db.insert(memoryGraphNodes)
+    .values(nodeToInsertValues({ ...node, content: cleanContent }, id))
+    .run();
+  return { ...node, content: cleanContent, id };
 }
 
 export function getNode(id: string): MemoryNode | null {
@@ -154,7 +212,8 @@ export function updateNode(
   const db = getDb();
   const updates: Record<string, unknown> = {};
 
-  if (changes.content !== undefined) updates.content = changes.content;
+  if (changes.content !== undefined)
+    updates.content = deduplicateParagraphs(changes.content);
   if (changes.type !== undefined) updates.type = changes.type;
   if (changes.created !== undefined) updates.created = changes.created;
   if (changes.lastAccessed !== undefined)
@@ -180,7 +239,9 @@ export function updateNode(
   if (changes.partOfStory !== undefined)
     updates.partOfStory = changes.partOfStory;
   if (changes.imageRefs !== undefined)
-    updates.imageRefs = changes.imageRefs ? JSON.stringify(changes.imageRefs) : null;
+    updates.imageRefs = changes.imageRefs
+      ? JSON.stringify(changes.imageRefs)
+      : null;
   if (changes.scopeId !== undefined) updates.scopeId = changes.scopeId;
   if (changes.eventDate !== undefined) updates.eventDate = changes.eventDate;
 
@@ -382,9 +443,7 @@ export function createTrigger(trigger: NewTrigger): MemoryTrigger {
 
 export function deleteTrigger(id: string): void {
   const db = getDb();
-  db.delete(memoryGraphTriggers)
-    .where(eq(memoryGraphTriggers.id, id))
-    .run();
+  db.delete(memoryGraphTriggers).where(eq(memoryGraphTriggers.id, id)).run();
 }
 
 export function updateTrigger(
@@ -534,7 +593,13 @@ export function supersedeNode(
 /**
  * Apply a MemoryDiff atomically. All operations run in a single transaction.
  */
-export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
+export function applyDiff(
+  diff: MemoryDiff,
+  opts?: {
+    conversationId?: string;
+    source?: "extraction" | "consolidation" | "manual";
+  },
+): ApplyDiffResult {
   const db = getDb();
   const result: ApplyDiffResult = {
     nodesCreated: 0,
@@ -558,7 +623,10 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
     // Create nodes
     for (const node of diff.createNodes) {
       const id = uuid();
-      tx.insert(memoryGraphNodes).values(nodeToInsertValues(node, id)).run();
+      const cleanContent = deduplicateParagraphs(node.content);
+      tx.insert(memoryGraphNodes)
+        .values(nodeToInsertValues({ ...node, content: cleanContent }, id))
+        .run();
       result.nodesCreated++;
       result.createdNodeIds.push(id);
     }
@@ -567,7 +635,8 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
     for (const update of diff.updateNodes) {
       const updates: Record<string, unknown> = {};
       const c = update.changes;
-      if (c.content !== undefined) updates.content = c.content;
+      if (c.content !== undefined)
+        updates.content = deduplicateParagraphs(c.content as string);
       if (c.type !== undefined) updates.type = c.type;
       if (c.emotionalCharge !== undefined)
         updates.emotionalCharge = JSON.stringify(c.emotionalCharge);
@@ -583,6 +652,28 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
       if (c.sourceConversations !== undefined)
         updates.sourceConversations = JSON.stringify(c.sourceConversations);
       if (c.eventDate !== undefined) updates.eventDate = c.eventDate;
+
+      // Record edit history when content changes
+      if (updates.content !== undefined) {
+        const current = tx
+          .select({ content: memoryGraphNodes.content })
+          .from(memoryGraphNodes)
+          .where(eq(memoryGraphNodes.id, update.id))
+          .get();
+        if (current && current.content !== updates.content) {
+          tx.insert(memoryGraphNodeEdits)
+            .values({
+              id: uuid(),
+              nodeId: update.id,
+              previousContent: current.content,
+              newContent: updates.content as string,
+              source: opts?.source ?? "extraction",
+              conversationId: opts?.conversationId ?? null,
+              created: Date.now(),
+            })
+            .run();
+        }
+      }
 
       if (Object.keys(updates).length > 0) {
         tx.update(memoryGraphNodes)
@@ -696,4 +787,52 @@ export function applyDiff(diff: MemoryDiff): ApplyDiffResult {
   });
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Node edit history
+// ---------------------------------------------------------------------------
+
+/** Record a content change to a memory node for edit chain tracking. */
+export function recordNodeEdit(opts: {
+  nodeId: string;
+  previousContent: string;
+  newContent: string;
+  source: "extraction" | "consolidation" | "manual";
+  conversationId?: string;
+}): void {
+  const db = getDb();
+  db.insert(memoryGraphNodeEdits)
+    .values({
+      id: uuid(),
+      nodeId: opts.nodeId,
+      previousContent: opts.previousContent,
+      newContent: opts.newContent,
+      source: opts.source,
+      conversationId: opts.conversationId ?? null,
+      created: Date.now(),
+    })
+    .run();
+}
+
+/** Retrieve the edit history for a memory node, newest first. */
+export function getNodeEditHistory(
+  nodeId: string,
+  limit = 20,
+): Array<{
+  id: string;
+  previousContent: string;
+  newContent: string;
+  source: string;
+  conversationId: string | null;
+  created: number;
+}> {
+  const db = getDb();
+  return db
+    .select()
+    .from(memoryGraphNodeEdits)
+    .where(eq(memoryGraphNodeEdits.nodeId, nodeId))
+    .orderBy(desc(memoryGraphNodeEdits.created))
+    .limit(limit)
+    .all();
 }

@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct SettingsArchivedConversationsTab: View {
-    @ObservedObject var conversationManager: ConversationManager
+    var conversationManager: ConversationManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -29,7 +29,7 @@ struct SettingsArchivedConversationsTab: View {
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

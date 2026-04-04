@@ -79,15 +79,23 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertTrue(state.isFollowingBottom)
     }
 
+    /// Verifies that rapid transitions coalesce into a single UI sync.
     func testRapidTransitionsDoNotAccumulate() async throws {
+        // GIVEN 100 rapid transitions to freeBrowsing
         for _ in 0..<100 {
             state.transition(to: .freeBrowsing)
         }
+
+        // WHEN the debounced sync fires
         XCTAssertFalse(state.isFollowingBottom)
         XCTAssertFalse(state.showScrollToLatest)
         try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertTrue(state.showScrollToLatest)
-        XCTAssertEqual(state.uiVersion, 1, "Only one uiVersion bump despite 100 transition calls")
+
+        // THEN only one property update occurs
+        XCTAssertTrue(state.showScrollToLatest,
+                      "showScrollToLatest should be true after debounced sync")
+        XCTAssertEqual(state.uiVersion, 1,
+                       "Only one internal uiVersion bump despite 100 transition calls")
     }
 
     // MARK: - Pin Gating
@@ -352,18 +360,25 @@ final class MessageListScrollStateTests: XCTestCase {
 
     // MARK: - Computed Properties
 
+    /// Verifies that showScrollToLatest tracks mode transitions independently.
     func testShowScrollToLatest() async throws {
+        // GIVEN initial state
         XCTAssertFalse(state.showScrollToLatest,
                        "Should be false when following bottom")
 
+        // WHEN transitioning to freeBrowsing
         state.transition(to: .freeBrowsing)
         try await Task.sleep(nanoseconds: 50_000_000)
+
+        // THEN showScrollToLatest becomes true
         XCTAssertTrue(state.showScrollToLatest,
                       "Should be true when in freeBrowsing mode")
-        XCTAssertGreaterThan(state.uiVersion, 0)
 
+        // WHEN transitioning back to followingBottom
         state.transition(to: .followingBottom)
         try await Task.sleep(nanoseconds: 50_000_000)
+
+        // THEN showScrollToLatest becomes false again
         XCTAssertFalse(state.showScrollToLatest,
                        "Should be false again after transitioning to followingBottom")
     }
@@ -389,28 +404,94 @@ final class MessageListScrollStateTests: XCTestCase {
                        "Should be 0 when viewport height is not finite")
     }
 
-    // MARK: - uiVersion Coalescing
+    // MARK: - Property-Level Tracking
 
-    func testUIVersionCoalescesMultipleChanges() async throws {
-        let vBefore = state.uiVersion
+    /// Verifies that each UI property reflects the final mode state after
+    /// multiple transitions and a debounced sync.
+    func testUIPropertiesReflectFinalState() async throws {
+        // GIVEN multiple mode transitions ending in pushToTop
         state.transition(to: .freeBrowsing)
         state.enterPushToTop(messageId: UUID())
+
+        // AND a scroll indicator change that requires a debounced sync
         state.hideScrollIndicators = true
+
+        // WHEN the debounced sync fires
         try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertEqual(state.uiVersion, vBefore + 1,
-                       "Multiple changes coalesce into one uiVersion bump")
-        XCTAssertTrue(state.showScrollToLatest)
-        XCTAssertTrue(state.showTailSpacer)
-        XCTAssertTrue(state.scrollIndicatorsHidden)
+
+        // THEN each property reflects the final mode (.pushToTop)
+        XCTAssertFalse(state.showScrollToLatest,
+                       "pushToTop mode does not show scroll-to-latest")
+        XCTAssertTrue(state.showTailSpacer,
+                      "pushToTop mode shows tail spacer")
+        XCTAssertTrue(state.scrollIndicatorsHidden,
+                      "scroll indicators should be hidden")
     }
 
+    /// Verifies that syncUIImmediately bypasses debounce and updates all
+    /// properties immediately.
     func testSyncUIImmediately() {
-        state.transition(to: .freeBrowsing)
+        // GIVEN pushToTop mode (enterPushToTop already calls syncUIImmediately)
         state.enterPushToTop(messageId: UUID())
+
+        // THEN properties reflect the current mode (.pushToTop)
+        XCTAssertFalse(state.showScrollToLatest,
+                       "pushToTop mode does not show scroll-to-latest")
+        XCTAssertTrue(state.showTailSpacer,
+                      "pushToTop mode shows tail spacer")
+    }
+
+    /// Verifies that consumePendingPushToTop fires a scroll when a pending
+    /// target exists and mode is pushToTop.
+    func testConsumePendingPushToTop() {
+        // GIVEN push-to-top mode with a pending target
+        let messageId = UUID()
+        state.enterPushToTop(messageId: messageId)
+
+        // WHEN consuming the pending target
+        state.consumePendingPushToTop()
+
+        // THEN a scroll-to call was made for the target
+        XCTAssertFalse(scrollToCalls.isEmpty,
+                       "consumePendingPushToTop should trigger a scrollTo call")
+        XCTAssertEqual(scrollToCalls.last?.id, messageId as AnyHashable)
+
+        // AND the pending target is cleared
+        XCTAssertNil(state.pendingPushToTopTarget)
+    }
+
+    /// Verifies that consumePendingPushToTop is a no-op when not in pushToTop mode.
+    func testConsumePendingPushToTopNoopWhenNotPushToTop() {
+        // GIVEN followingBottom mode (no pending target)
+        state.transition(to: .followingBottom)
+
+        // WHEN consuming
+        state.consumePendingPushToTop()
+
+        // THEN no scroll call is made
+        XCTAssertTrue(scrollToCalls.isEmpty)
+    }
+
+    /// Verifies that re-entering pushToTop when the tail spacer is already
+    /// showing consumes the target immediately via syncUISnapshots.
+    func testReEnterPushToTopConsumesImmediately() {
+        // GIVEN an initial push-to-top that renders the tail spacer
+        let firstId = UUID()
+        state.enterPushToTop(messageId: firstId)
         state.syncUIImmediately()
-        XCTAssertTrue(state.showScrollToLatest)
         XCTAssertTrue(state.showTailSpacer)
-        XCTAssertGreaterThan(state.uiVersion, 0)
+        state.consumePendingPushToTop()
+        scrollToCalls.removeAll()
+
+        // WHEN entering push-to-top again (tail spacer already showing)
+        let secondId = UUID()
+        state.enterPushToTop(messageId: secondId)
+
+        // THEN the target is consumed immediately (re-enter path)
+        XCTAssertFalse(scrollToCalls.isEmpty,
+                       "Re-enter push-to-top should consume target immediately")
+        XCTAssertEqual(scrollToCalls.last?.id, secondId as AnyHashable)
+        XCTAssertNil(state.pendingPushToTopTarget)
     }
 
     // MARK: - Circuit Breaker

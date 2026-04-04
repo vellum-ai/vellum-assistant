@@ -22,6 +22,10 @@ public struct VNavItem<Trailing: View>: View {
     public var subtitle: String?
     public var isActive: Bool
     public var isExpanded: Bool
+    /// When `true`, applies the keyboard-focus highlight background (same as hover).
+    /// Managed by `VMenuCoordinator` via the Observation framework.
+    /// On iOS this property is always `false` (no-op).
+    public var isKeyboardFocused: Bool
     public let action: () -> Void
     public let trailing: Trailing
 
@@ -36,6 +40,7 @@ public struct VNavItem<Trailing: View>: View {
         subtitle: String? = nil,
         isActive: Bool = false,
         isExpanded: Bool = true,
+        isKeyboardFocused: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder trailing: () -> Trailing
     ) {
@@ -44,12 +49,13 @@ public struct VNavItem<Trailing: View>: View {
         self.subtitle = subtitle
         self.isActive = isActive
         self.isExpanded = isExpanded
+        self.isKeyboardFocused = isKeyboardFocused
         self.action = action
         self.trailing = trailing()
     }
 
     private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
+        isActive ? VColor.contentDefault : VColor.contentTertiary
     }
 
     private var textColor: Color {
@@ -91,11 +97,7 @@ public struct VNavItem<Trailing: View>: View {
         .padding(.vertical, VSpacing.xs)
         .frame(minHeight: Self.rowMinHeight)
         .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
-        .background(
-            isActive ? VColor.surfaceActive :
-            isHovered ? VColor.surfaceBase :
-            Color.clear
-        )
+        .background(navItemBackground)
         .animation(VAnimation.fast, value: isHovered)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .contentShape(Rectangle())
@@ -103,6 +105,18 @@ public struct VNavItem<Trailing: View>: View {
         .padding(.horizontal, 0)
         .help(isExpanded ? "" : label)
         .pointerCursor(onHover: { isHovered = $0 })
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isActive ? [.isSelected] : [])
+        .accessibilityAction { action() }
+    }
+
+    private var navItemBackground: Color {
+        if isActive { return VColor.surfaceActive }
+        if isKeyboardFocused { return VColor.systemPositiveWeak }
+        if isHovered { return VColor.surfaceBase }
+        return .clear
     }
 }
 
@@ -116,9 +130,18 @@ public extension VNavItem where Trailing == EmptyView {
         subtitle: String? = nil,
         isActive: Bool = false,
         isExpanded: Bool = true,
+        isKeyboardFocused: Bool = false,
         action: @escaping () -> Void
     ) {
-        self.init(icon: icon, label: label, subtitle: subtitle, isActive: isActive, isExpanded: isExpanded, action: action) {
+        self.init(
+            icon: icon,
+            label: label,
+            subtitle: subtitle,
+            isActive: isActive,
+            isExpanded: isExpanded,
+            isKeyboardFocused: isKeyboardFocused,
+            action: action
+        ) {
             EmptyView()
         }
     }
@@ -137,7 +160,15 @@ public extension VNavItem where Trailing == VNavItemTrailingIcon {
         action: @escaping () -> Void
     ) {
         let active = isActive
-        self.init(icon: icon, label: label, subtitle: subtitle, isActive: isActive, isExpanded: isExpanded, action: action) {
+        self.init(
+            icon: icon,
+            label: label,
+            subtitle: subtitle,
+            isActive: isActive,
+            isExpanded: isExpanded,
+            isKeyboardFocused: false,
+            action: action
+        ) {
             VNavItemTrailingIcon(
                 icon: trailingIcon,
                 rotation: trailingIconRotation,
@@ -154,7 +185,7 @@ public struct VNavItemTrailingIcon: View {
     var isActive: Bool = false
 
     private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
+        isActive ? VColor.contentDefault : VColor.contentTertiary
     }
 
     public var body: some View {

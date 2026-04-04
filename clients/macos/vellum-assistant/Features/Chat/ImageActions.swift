@@ -143,25 +143,28 @@ enum ImageActions {
         }
     }
 
+    /// Wraps `[NSSharingService]` for transfer across isolation boundaries.
+    /// Instances are freshly created by the class method and used exclusively on MainActor.
+    private struct UncheckedServices: @unchecked Sendable {
+        let value: [NSSharingService]
+    }
+
     /// Cache of sharing services by file extension. Services depend on file type,
     /// not content, so one discovery per extension per app session is sufficient.
-    private static var sharingServicesCache: [String: [NSSharingService]] = [:]
+    @MainActor private static var sharingServicesCache: [String: [NSSharingService]] = [:]
 
-    /// Returns cached sharing services for the given filename's extension.
-    /// On first call per extension, writes a minimal valid image file and calls
-    /// `NSSharingService.sharingServices(forItems:)` once, caching the result.
-    /// A real (non-empty) probe file is used because some services validate
-    /// media content and return fewer results for zero-byte placeholders.
-    @available(macOS, deprecated: 13.0)
-    private static func cachedSharingServices(for filename: String) -> [NSSharingService] {
-        let ext = (filename as NSString).pathExtension.lowercased()
-        let key = ext.isEmpty ? "png" : ext
-        if let cached = sharingServicesCache[key] { return cached }
+    /// In-flight discovery tasks keyed by extension. Prevents duplicate XPC calls
+    /// when multiple `.task` modifiers race through the same cache miss due to
+    /// MainActor reentrancy at the `await` suspension point.
+    @MainActor private static var inFlightLoads: [String: Task<UncheckedServices, Never>] = [:]
+
+    /// Returns a probe file URL for the given extension key, creating the file
+    /// if it doesn't already exist. The probe is a minimal 1x1 image encoded in
+    /// the format matching the extension so that sharing services that validate
+    /// media content return accurate results.
+    @MainActor private static func ensureProbeFile(for key: String) -> URL {
         let probeURL = FileManager.default.temporaryDirectory.appendingPathComponent("vellum-share-probe.\(key)")
         if !FileManager.default.fileExists(atPath: probeURL.path) {
-            // Write a minimal 1x1 PNG so services that validate content see a real image.
-            // NSImage(size:) without drawing produces no representations, so use
-            // init(size:flipped:drawingHandler:) to create actual pixel data.
             let tiny = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in
                 NSColor.clear.set()
                 NSRect(x: 0, y: 0, width: 1, height: 1).fill()
@@ -172,12 +175,40 @@ enum ImageActions {
                let data = rep.representation(using: bitmapFileType(for: key), properties: [:]) {
                 try? data.write(to: probeURL)
             } else {
-                // Fallback: create the file with empty data so the path exists.
                 FileManager.default.createFile(atPath: probeURL.path, contents: Data())
             }
         }
-        let services = NSSharingService.sharingServices(forItems: [probeURL])
+        return probeURL
+    }
+
+    /// Asynchronously loads sharing services for the given filename's extension,
+    /// moving the potentially expensive XPC discovery off the main thread via
+    /// `Task.detached` to escape MainActor isolation.
+    ///
+    /// Results are cached per extension for the lifetime of the app session.
+    /// Callers should invoke this from a `.task` modifier and store the result
+    /// in `@State`, then pass the loaded services to `contextMenuItems()`.
+    @available(macOS, deprecated: 13.0)
+    @MainActor static func loadSharingServices(for filename: String) async -> [NSSharingService] {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        let key = ext.isEmpty ? "png" : ext
+        if let cached = sharingServicesCache[key] { return cached }
+
+        // Coalesce concurrent callers that hit the same cache miss due to
+        // MainActor reentrancy at the await suspension point.
+        if let existing = inFlightLoads[key] {
+            return await existing.value.value
+        }
+
+        let probeURL = ensureProbeFile(for: key)
+        let detached = Task.detached(priority: .userInitiated) {
+            UncheckedServices(value: NSSharingService.sharingServices(forItems: [probeURL]))
+        }
+        inFlightLoads[key] = detached
+
+        let services = await detached.value.value
         sharingServicesCache[key] = services
+        inFlightLoads[key] = nil
         return services
     }
 
@@ -187,16 +218,18 @@ enum ImageActions {
         return try? await AttachmentContentClient.fetchContent(attachmentId: attachmentId)
     }
 
-    /// Builds a SwiftUI context menu with Copy, Save As, and Open in Preview actions.
-    /// When `lazyAttachmentId` is provided and `base64Data` is nil, actions will
-    /// fetch full-res data from the server on demand.
+    /// Builds a SwiftUI context menu with Copy, Save As, Open in Preview, and
+    /// optionally a Share submenu. The `sharingServices` parameter should be
+    /// pre-loaded asynchronously via `loadSharingServices(for:)` in a `.task`
+    /// modifier — never call sharing service discovery during body evaluation.
     @available(macOS, deprecated: 13.0)
     @ViewBuilder
     static func contextMenuItems(
         image: NSImage,
         filename: String,
         base64Data: String? = nil,
-        lazyAttachmentId: String? = nil
+        lazyAttachmentId: String? = nil,
+        sharingServices: [NSSharingService] = []
     ) -> some View {
         Button {
             if base64Data != nil {
@@ -243,17 +276,13 @@ enum ImageActions {
             Label { Text("Open in Preview") } icon: { VIconView(.eye, size: 12) }
         }
 
-        // Sharing services are cached per file extension to avoid synchronous
-        // XPC roundtrips on every render. Temp file writes are deferred to
-        // click time so the view builder stays fast.
         // NSSharingService.sharingServices is deprecated in macOS 13 but has
         // no functional replacement for custom share UI (see AppSharePanelView).
         // Silenced via @available on this method; see AppSharePanelView for the same pattern.
-        let services = cachedSharingServices(for: filename)
-        if !services.isEmpty {
+        if !sharingServices.isEmpty {
             Divider()
             Menu {
-                ForEach(Array(services.enumerated()), id: \.offset) { _, service in
+                ForEach(Array(sharingServices.enumerated()), id: \.offset) { _, service in
                     Button {
                         if let lazyAttachmentId, base64Data == nil {
                             Task {

@@ -2,6 +2,7 @@ import { fileTypeFromBuffer } from "file-type";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
+import { validateDownloadedContent } from "../download-validation.js";
 import { fetchImpl } from "../fetch.js";
 import { callTelegramApi } from "./api.js";
 
@@ -71,6 +72,8 @@ export async function downloadTelegramFile(
     detected?.mime ||
     response.headers.get("Content-Type")?.split(";")[0].trim() ||
     "application/octet-stream";
+
+  await validateDownloadedContent(new Uint8Array(buffer), mimeType, fileId);
 
   const data = Buffer.from(buffer).toString("base64");
 

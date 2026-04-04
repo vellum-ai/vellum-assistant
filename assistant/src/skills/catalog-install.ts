@@ -14,10 +14,10 @@ import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { getPlatformBaseUrl } from "../config/env.js";
+import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir, readPlatformToken } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
-import { deleteSkillCapabilityMemory } from "./skill-memory.js";
 
 const log = getLogger("catalog-install");
 
@@ -264,7 +264,7 @@ export function uninstallSkillLocally(skillId: string): void {
 
   rmSync(skillDir, { recursive: true, force: true });
   removeSkillsIndexEntry(skillId);
-  deleteSkillCapabilityMemory(skillId);
+  deleteSkillCapabilityNode(skillId);
 }
 
 export async function installSkillLocally(
@@ -390,6 +390,14 @@ export async function autoInstallFromCatalog(
   const entry = skills.find((s) => s.id === skillId);
   if (!entry) {
     return false;
+  }
+
+  // If the skill already exists on disk (stale index), re-index it instead
+  // of attempting a fresh install that would fail.
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+  if (existsSync(join(skillDir, "SKILL.md"))) {
+    upsertSkillsIndex(skillId);
+    return true;
   }
 
   // installSkillLocally handles dependency installation and SKILLS.md indexing.

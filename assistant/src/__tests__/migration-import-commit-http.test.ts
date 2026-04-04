@@ -355,10 +355,10 @@ describe("handleMigrationImport", () => {
     expect(writtenData).toEqual(newDbData);
   });
 
-  test("workspace is cleared before restore — files are created fresh", async () => {
-    // Only new-format bundles (workspace/ prefix) trigger workspace clearing.
-    // With clearing, existing files are removed before writing, so all files
-    // in the bundle are "created" (not "overwritten") and no backups are made.
+  test("workspace is cleared before restore — preserved dirs are overwritten", async () => {
+    // New-format bundles (workspace/ prefix) trigger workspace clearing, but
+    // data/db/ is preserved during clearing to avoid destroying the database
+    // if the import fails partway. The DB file is overwritten (with backup).
     const newDbData = new Uint8Array([0x01, 0x02, 0x03]);
     const vbundle = createValidVBundle([
       { path: "workspace/data/db/assistant.db", data: newDbData },
@@ -373,17 +373,18 @@ describe("handleMigrationImport", () => {
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.success).toBe(true);
-    expect(body.summary.backups_created).toBe(0);
+    expect(body.summary.backups_created).toBe(1);
 
     const dbFile = body.files.find(
       (f) => f.path === "workspace/data/db/assistant.db",
     );
     expect(dbFile).toBeDefined();
-    expect(dbFile!.action).toBe("created");
+    expect(dbFile!.action).toBe("overwritten");
   });
 
-  test("reports all files as created after workspace clear", async () => {
-    // New-format workspace/ paths trigger clearing — both files are fresh.
+  test("workspace clear: preserved dirs overwritten, cleared dirs created", async () => {
+    // data/db/ is preserved during workspace clearing → DB is "overwritten".
+    // config.json lives at the workspace root which IS cleared → "created".
     const newDbData = new Uint8Array([0xaa, 0xbb]);
     const newConfigData = new TextEncoder().encode('{"provider":"openai"}');
     const vbundle = createValidVBundle([
@@ -408,8 +409,8 @@ describe("handleMigrationImport", () => {
       (f) => f.path === "workspace/config.json",
     );
 
-    // Both are "created" because workspace was cleared before writing
-    expect(dbFile!.action).toBe("created");
+    // data/db/ preserved during clearing → overwritten; config.json cleared → created
+    expect(dbFile!.action).toBe("overwritten");
     expect(configFile!.action).toBe("created");
   });
 

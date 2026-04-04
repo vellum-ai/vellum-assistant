@@ -484,7 +484,7 @@ extension AppDelegate {
             CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "Library", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.showPanel(.apps)
             },
-            CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant"), shortcutHint: nil) { [weak self] in
+            CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: AssistantDisplayName.resolve(IdentityInfo.current?.name, fallback: "Your Assistant"), shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.showPanel(.intelligence)
             },
             CommandPaletteAction(id: "navigate-back", icon: VIcon.chevronLeft.rawValue, label: "Back", shortcutHint: "\u{2318}[") { [weak self] in
@@ -669,7 +669,7 @@ extension AppDelegate {
     func handleQuickInputSelectConversation(_ conversationId: UUID) {
         showMainWindow()
         guard let mainWindow else { return }
-        mainWindow.conversationManager.activeConversationId = conversationId
+        mainWindow.conversationManager.activateConversation(conversationId)
     }
 
     /// Tears down and re-registers the global "Open Vellum" hotkey based on

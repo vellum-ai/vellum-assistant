@@ -17,7 +17,6 @@ import {
 import type { ServiceName } from "../lib/docker";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import {
-  fetchOrganizationId,
   readPlatformToken,
   rollbackPlatformAssistant,
 } from "../lib/platform-client.js";
@@ -35,7 +34,7 @@ import {
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
-import { parseVersion } from "../lib/version-compat.js";
+import { compareVersions } from "../lib/version-compat.js";
 
 function parseArgs(): { name: string | null; version: string | null } {
   const args = process.argv.slice(3);
@@ -153,21 +152,12 @@ async function rollbackPlatformViaEndpoint(
 
   // Step 1 — Version validation (only if version provided)
   if (version && currentVersion) {
-    const current = parseVersion(currentVersion);
-    const target = parseVersion(version);
-    if (current && target) {
-      const isOlder =
-        target.major < current.major ||
-        (target.major === current.major && target.minor < current.minor) ||
-        (target.major === current.major &&
-          target.minor === current.minor &&
-          target.patch < current.patch);
-      if (!isOlder) {
-        const msg = `Target version ${version} is not older than the current version ${currentVersion}. Use \`vellum upgrade --version ${version}\` to upgrade.`;
-        console.error(msg);
-        emitCliError("VERSION_DIRECTION", msg);
-        process.exit(1);
-      }
+    const cmp = compareVersions(version, currentVersion);
+    if (cmp !== null && cmp >= 0) {
+      const msg = `Target version ${version} is not older than the current version ${currentVersion}. Use \`vellum upgrade --version ${version}\` to upgrade.`;
+      console.error(msg);
+      emitCliError("VERSION_DIRECTION", msg);
+      process.exit(1);
     }
   }
 
@@ -181,20 +171,6 @@ async function rollbackPlatformViaEndpoint(
     process.exit(1);
   }
 
-  let orgId: string;
-  try {
-    orgId = await fetchOrganizationId(token, entry.runtimeUrl);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("401") || msg.includes("403")) {
-      console.error("Authentication failed. Run 'vellum login' to refresh.");
-    } else {
-      console.error(`Error: ${msg}`);
-    }
-    emitCliError("AUTH_FAILED", "Failed to authenticate with platform", msg);
-    process.exit(1);
-  }
-
   // Step 3 — Call rollback endpoint
   if (version) {
     console.log(`Rolling back to ${version}...`);
@@ -204,12 +180,7 @@ async function rollbackPlatformViaEndpoint(
 
   let result: { detail: string; version: string | null };
   try {
-    result = await rollbackPlatformAssistant(
-      token,
-      orgId,
-      version,
-      entry.runtimeUrl,
-    );
+    result = await rollbackPlatformAssistant(token, version, entry.runtimeUrl);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
 

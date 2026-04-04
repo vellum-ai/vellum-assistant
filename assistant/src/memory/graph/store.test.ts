@@ -7,6 +7,7 @@ import {
   createEdge,
   createNode,
   createTrigger,
+  deduplicateParagraphs,
   deleteEdge,
   deleteNode,
   deleteTrigger,
@@ -1046,5 +1047,52 @@ describe("updateNode event trigger sync", () => {
     const triggers = getTriggersForNode(node.id);
     expect(triggers).toHaveLength(1);
     expect(triggers[0].eventDate).toBe(eventDate);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Paragraph deduplication
+// ---------------------------------------------------------------------------
+
+describe("deduplicateParagraphs", () => {
+  test("content with no duplicates passes through unchanged", () => {
+    const input = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
+    expect(deduplicateParagraphs(input)).toBe(input);
+  });
+
+  test("two identical paragraphs separated by \\n\\n collapses to one", () => {
+    const input = "Hello world.\n\nHello world.";
+    expect(deduplicateParagraphs(input)).toBe("Hello world.");
+  });
+
+  test("paragraphs that differ only in trailing whitespace are treated as duplicates", () => {
+    const input = "Hello world.  \n\nHello world.";
+    expect(deduplicateParagraphs(input)).toBe("Hello world.  ");
+  });
+
+  test("bullet lists with repeated items are deduped", () => {
+    const input = "- item one\n- item two\n- item one\n- item three";
+    expect(deduplicateParagraphs(input)).toBe(
+      "- item one\n- item two\n- item three",
+    );
+  });
+
+  test("empty content returns empty string", () => {
+    expect(deduplicateParagraphs("")).toBe("");
+  });
+
+  test("multiple duplicate paragraphs with different content", () => {
+    const input = "Alpha.\n\nBeta.\n\nAlpha.\n\nGamma.\n\nBeta.";
+    expect(deduplicateParagraphs(input)).toBe("Alpha.\n\nBeta.\n\nGamma.");
+  });
+
+  test("bullet dedup within a paragraph preserves non-bullet lines", () => {
+    const input = "Header:\n- item A\n- item B\n- item A";
+    expect(deduplicateParagraphs(input)).toBe("Header:\n- item A\n- item B");
+  });
+
+  test("paragraphs differing only in internal whitespace are treated as duplicates", () => {
+    const input = "hello   world\n\nhello world";
+    expect(deduplicateParagraphs(input)).toBe("hello   world");
   });
 });

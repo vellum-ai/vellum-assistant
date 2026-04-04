@@ -91,7 +91,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
   updateConversationContextWindow: () => {},
-  deleteMessageById: () => ({ segmentIds: [], orphanedItemIds: [] }),
+  deleteMessageById: () => ({ segmentIds: [], deletedSummaryIds: [] }),
   deleteLastExchange: () => 0,
 }));
 
@@ -227,16 +227,13 @@ describe("Conversation workspace cache state", () => {
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
     expect(conversation.getWorkspaceTopLevelContext()).not.toBeNull();
     expect(conversation.getWorkspaceTopLevelContext()!).toContain(
-      "<workspace_top_level>",
+      "<workspace>",
     );
     expect(conversation.getWorkspaceTopLevelContext()!).toContain(
-      "</workspace_top_level>",
+      "</workspace>",
     );
     expect(conversation.getWorkspaceTopLevelContext()!).toContain(
-      `Current conversation folder: ${conversationPath}`,
-    );
-    expect(conversation.getWorkspaceTopLevelContext()!).toContain(
-      `Attachment files: ${conversationAttachmentsPath}`,
+      `Current conversation attachments: ${conversationAttachmentsPath}`,
     );
   });
 
@@ -267,7 +264,7 @@ describe("Conversation workspace cache state", () => {
 
     expect(conversation.getWorkspaceTopLevelContext()).not.toBeNull();
     expect(conversation.getWorkspaceTopLevelContext()!).toContain(
-      "<workspace_top_level>",
+      "<workspace>",
     );
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
   });
@@ -286,10 +283,7 @@ describe("Conversation workspace cache state", () => {
       tempConversation.refreshWorkspaceTopLevelContextIfNeeded();
 
       expect(tempConversation.getWorkspaceTopLevelContext()!).toContain(
-        `Current conversation folder: conversations/${legacyDirName}/`,
-      );
-      expect(tempConversation.getWorkspaceTopLevelContext()!).toContain(
-        `Attachment files: conversations/${legacyDirName}/attachments/`,
+        `Current conversation attachments: conversations/${legacyDirName}/attachments/`,
       );
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });

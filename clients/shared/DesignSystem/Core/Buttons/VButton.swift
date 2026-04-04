@@ -22,8 +22,14 @@ public struct VButton: View {
     public var tintColor: Color? = nil
     public let action: () -> Void
 
+    @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
+
+    /// Whether the button is effectively disabled, considering both the
+    /// explicit `isDisabled` property and the SwiftUI environment's `isEnabled`
+    /// state (set by external `.disabled()` modifiers up the view hierarchy).
+    private var effectivelyDisabled: Bool { isDisabled || !isEnabled }
 
     public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, iconColor: Color? = nil, iconRotation: Angle? = nil, tintColor: Color? = nil, action: @escaping () -> Void) {
         self.label = label
@@ -82,12 +88,12 @@ public struct VButton: View {
             tintColor: tintColor
         ))
         .onHover { hovering in
-            isHovered = isDisabled ? false : hovering
+            isHovered = effectivelyDisabled ? false : hovering
         }
         .pointerCursor()
         .disabled(isDisabled)
         .accessibilityLabel(label)
-        .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
+        .accessibilityHint(effectivelyDisabled ? "Button is currently disabled" : "")
         .optionalAccessibilityIdentifier(accessibilityID)
         .modifier(OptionalHelpModifier(tooltip: tooltip))
     }
@@ -95,14 +101,17 @@ public struct VButton: View {
     private var textIconSize: CGFloat { 13 }
 
     private var iconOnlyForegroundColor: Color {
+        if effectivelyDisabled { return VColor.contentDisabled }
         switch style {
-        case .primary, .danger:
+        case .primary:
+            return VColor.contentInset
+        case .danger:
             return VColor.auxWhite
         case .contrast:
             return VColor.contentInset
         case .ghost, .outlined:
             if isActive { return VColor.primaryActive }
-            return VColor.primaryBase
+            return VColor.contentDefault
         case .dangerOutline, .dangerGhost:
             return VColor.systemNegativeStrong
         }
@@ -169,7 +178,7 @@ public struct VButtonStyle: ButtonStyle {
 
     private var borderLineWidth: CGFloat {
         switch style {
-        case .outlined, .dangerOutline: return 2
+        case .outlined, .dangerOutline: return 1
         case .ghost, .dangerGhost:
             return isEnabled && isFocused ? 1.25 : 1
         default: return 0
@@ -188,11 +197,17 @@ public struct VButtonStyle: ButtonStyle {
             if isPressed { return VColor.systemNegativeHover }
             if isHovered { return VColor.systemNegativeHover }
             return VColor.systemNegativeStrong
-        case .outlined, .dangerOutline:
+        case .outlined:
+            guard isEnabled else { return .clear }
             if isIconOnly {
                 if isPressed { return VColor.surfaceActive }
                 if isHovered { return VColor.surfaceBase }
+                return .clear
             }
+            if isPressed { return VColor.primarySecondHover.opacity(0.2) }
+            if isHovered { return VColor.primarySecondHover.opacity(0.15) }
+            return .clear
+        case .dangerOutline:
             return .clear
         case .ghost:
             guard isEnabled else {
@@ -225,14 +240,14 @@ public struct VButtonStyle: ButtonStyle {
         if let tintColor { return tintColor }
 
         switch style {
-        case .primary: return VColor.auxWhite
+        case .primary: return VColor.contentInset
         case .danger: return VColor.auxWhite
         case .contrast: return VColor.contentInset
-        case .outlined: return isHovered ? VColor.primaryHover : VColor.primaryBase
+        case .outlined: return isHovered ? VColor.primaryActive : VColor.contentDefault
         case .dangerOutline: return isHovered ? VColor.systemNegativeHover : VColor.systemNegativeStrong
         case .ghost:
             if isHovered { return VColor.primaryActive }
-            return VColor.primaryBase
+            return VColor.contentDefault
         case .dangerGhost:
             if isHovered { return VColor.systemNegativeHover }
             return VColor.systemNegativeStrong
@@ -243,12 +258,12 @@ public struct VButtonStyle: ButtonStyle {
         switch style {
         case .outlined:
             if isIconOnly {
-                return VColor.borderActive
+                return VColor.borderElement
             }
-            guard isEnabled else { return VColor.primaryDisabled }
-            if isPressed { return VColor.primaryActive }
-            if isHovered { return VColor.primaryHover }
-            return VColor.primaryBase
+            guard isEnabled else { return VColor.borderDisabled }
+            if isPressed { return VColor.borderElement }
+            if isHovered { return VColor.borderElement }
+            return VColor.borderElement
         case .dangerOutline:
             guard isEnabled else { return VColor.primaryDisabled }
             if isPressed { return VColor.systemNegativeHover }

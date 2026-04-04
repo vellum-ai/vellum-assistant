@@ -6,6 +6,8 @@ struct DisplayGallerySection: View {
 
     @State private var waveformAmplitude: Float = 0.5
     @State private var waveformActive: Bool = true
+    @State private var basicSectionExpanded: Bool = true
+    @State private var subtitleSectionExpanded: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -157,26 +159,26 @@ struct DisplayGallerySection: View {
 
                 VDisclosureSection(
                     title: "Basic Section",
-                    isExpanded: .constant(true)
+                    isExpanded: $basicSectionExpanded
                 ) {
                     Text("Expanded content is visible")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
 
                 VDisclosureSection(
                     title: "With Subtitle",
                     subtitle: "Additional context shown below the title",
-                    isExpanded: .constant(false)
+                    isExpanded: $subtitleSectionExpanded
                 ) {
-                    Text("This content is hidden")
+                    Text("This content is hidden when collapsed")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
 
             }
 

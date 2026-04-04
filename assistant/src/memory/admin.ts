@@ -69,10 +69,6 @@ export function requestMemoryRebuildIndex(): string {
   return id;
 }
 
-export function requestMemoryCleanup(_retentionMs?: number): void {
-  log.info("Memory cleanup requested (legacy items table dropped — no-op)");
-}
-
 export async function queryMemory(
   query: string,
   _conversationId: string,
@@ -204,7 +200,7 @@ export function findReextractTarget(
 /**
  * Queue re-extraction for a set of conversations.
  * Resets extraction checkpoints and clears extraction summaries so the
- * batch extraction handler processes all messages from scratch with
+ * graph extraction handler processes all messages from scratch with
  * expanded supersession context.
  */
 export function requestReextract(
@@ -216,12 +212,12 @@ export function requestReextract(
   for (const target of targets) {
     const { conversationId } = target;
 
-    // Reset batch extraction checkpoints
+    // Reset graph extraction checkpoints
     deleteMemoryCheckpoint(
-      `batch_extract:${conversationId}:last_message_id`,
+      `graph_extract:${conversationId}:last_ts`,
     );
     deleteMemoryCheckpoint(
-      `batch_extract:${conversationId}:pending_count`,
+      `graph_extract:${conversationId}:pending_count`,
     );
 
     // Clear the extraction summary so it starts fresh
@@ -234,12 +230,11 @@ export function requestReextract(
       )
       .run();
 
-    // Resolve scope and enqueue with fullReextract flag
+    // Resolve scope and enqueue re-extraction
     const scopeId = getConversationMemoryScopeId(conversationId);
-    const jobId = enqueueMemoryJob("batch_extract", {
+    const jobId = enqueueMemoryJob("graph_extract", {
       conversationId,
       scopeId,
-      fullReextract: true,
     });
     jobIds.push(jobId);
 

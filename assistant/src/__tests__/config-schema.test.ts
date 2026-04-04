@@ -421,6 +421,8 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.permissions).toEqual({
       mode: "workspace",
+      askBeforeActing: true,
+      hostAccess: false,
     });
   });
 
@@ -1128,6 +1130,8 @@ describe("loadConfig with schema validation", () => {
     const config = loadConfig();
     expect(config.permissions).toEqual({
       mode: "workspace",
+      askBeforeActing: true,
+      hostAccess: false,
     });
   });
 

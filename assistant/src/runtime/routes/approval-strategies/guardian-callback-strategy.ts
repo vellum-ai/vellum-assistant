@@ -5,6 +5,7 @@
  */
 import { applyGuardianDecision } from "../../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../../channels/types.js";
+import { findContactChannel } from "../../../contacts/contact-store.js";
 import {
   getAllPendingApprovalsByGuardianChat,
   getApprovalRequestById,
@@ -804,6 +805,25 @@ async function handleAccessRequestApproval(
     return { handled: true, type: "stale_ignored" };
   }
 
+  // Resolve display names from the contacts database for enriched payloads
+  const requesterContactResult = approval.requesterExternalUserId
+    ? findContactChannel({
+        channelType: approval.channel,
+        externalUserId: approval.requesterExternalUserId,
+      })
+    : null;
+  const requesterDisplayName =
+    requesterContactResult?.contact.displayName ?? null;
+
+  const decidedByContactResult = decidedByExternalUserId
+    ? findContactChannel({
+        channelType: approval.channel,
+        externalUserId: decidedByExternalUserId,
+      })
+    : null;
+  const decidedByDisplayName =
+    decidedByContactResult?.contact.displayName ?? null;
+
   if (decisionResult.type === "denied") {
     await notifyRequesterOfDenial({
       replyCallbackUrl,
@@ -821,6 +841,8 @@ async function handleAccessRequestApproval(
       requesterExternalUserId: approval.requesterExternalUserId,
       requesterChatId: approval.requesterChatId,
       decidedByExternalUserId,
+      requesterDisplayName,
+      decidedByDisplayName,
       decision: "denied" as const,
     };
 
@@ -952,6 +974,8 @@ async function handleAccessRequestApproval(
         requesterExternalUserId: approval.requesterExternalUserId,
         requesterChatId: approval.requesterChatId,
         decidedByExternalUserId,
+        requesterDisplayName,
+        decidedByDisplayName,
         decision: "approved",
       },
       dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
@@ -977,6 +1001,8 @@ async function handleAccessRequestApproval(
         sourceChannel: approval.channel as NotificationSourceChannel,
         requesterExternalUserId: approval.requesterExternalUserId,
         requesterChatId: approval.requesterChatId,
+        requesterDisplayName,
+        decidedByDisplayName,
         verificationSessionId: decisionResult.verificationSessionId,
       },
       dedupeKey: `trusted-contact:verification-sent:${decisionResult.verificationSessionId}`,

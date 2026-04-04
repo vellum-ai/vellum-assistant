@@ -82,10 +82,6 @@ import {
   setCesClient,
   setCesReconnect,
 } from "../security/secure-keys.js";
-import {
-  seedCatalogSkillMemories,
-  seedUninstalledCatalogSkillMemories,
-} from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
@@ -127,6 +123,7 @@ import {
 } from "./handlers/conversations.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import type { ServerMessage } from "./message-protocol.js";
+import { runProfilerSweep } from "./profiler-run-store.js";
 import {
   initializeProvidersAndTools,
   registerMessagingProviders,
@@ -290,6 +287,26 @@ export async function runDaemon(): Promise<void> {
     await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
     log.info("Daemon startup: workspace migrations complete");
 
+    // Profiler retention sweep — prune completed profiler runs to stay
+    // within configured byte-count, run-count, and free-space budgets.
+    // Runs on every startup and is safe to call from explicit cleanup routes.
+    try {
+      const sweepResult = runProfilerSweep();
+      if (sweepResult.prunedCount > 0 || sweepResult.activeRunOverBudget) {
+        log.info(
+          {
+            prunedCount: sweepResult.prunedCount,
+            freedBytes: sweepResult.freedBytes,
+            activeRunOverBudget: sweepResult.activeRunOverBudget,
+            remainingRuns: sweepResult.remainingRuns,
+          },
+          "Profiler retention sweep completed on startup",
+        );
+      }
+    } catch (err) {
+      log.warn({ err }, "Profiler retention sweep failed — continuing startup");
+    }
+
     // Backfill oauth_connection rows for manual-token providers (Telegram,
     // Slack channel) that already have stored credentials from before the
     // oauth_connection migration. Safe to call on every startup.
@@ -338,12 +355,6 @@ export async function runDaemon(): Promise<void> {
           targetId: segId,
         });
       }
-      for (const itemId of deletedMemory.orphanedItemIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "item",
-          targetId: itemId,
-        });
-      }
       for (const summaryId of deletedMemory.deletedSummaryIds) {
         enqueueMemoryJob("delete_qdrant_vectors", {
           targetType: "summary",
@@ -352,13 +363,11 @@ export async function runDaemon(): Promise<void> {
       }
       if (
         deletedMemory.segmentIds.length > 0 ||
-        deletedMemory.orphanedItemIds.length > 0 ||
         deletedMemory.deletedSummaryIds.length > 0
       ) {
         log.info(
           {
             segments: deletedMemory.segmentIds.length,
-            orphanedItems: deletedMemory.orphanedItemIds.length,
             deletedSummaries: deletedMemory.deletedSummaryIds.length,
           },
           "Enqueued Qdrant vector cleanup jobs for purged private conversations",
@@ -645,23 +654,6 @@ export async function runDaemon(): Promise<void> {
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
 
-      // Seed capability memories for all enabled skills so the memory
-      // pipeline can surface relevant skills via semantic search.
-      try {
-        seedCatalogSkillMemories();
-      } catch (err) {
-        log.warn({ err }, "Catalog skill memory seeding failed — continuing");
-      }
-
-      // Seed memories for catalog skills not yet installed so they're
-      // discoverable via memory injection and can be auto-installed.
-      void seedUninstalledCatalogSkillMemories().catch((err) =>
-        log.warn(
-          { err },
-          "Uninstalled catalog skill memory seeding failed — continuing",
-        ),
-      );
-
       try {
         seedCliCommandMemories();
       } catch (err) {
@@ -670,10 +662,19 @@ export async function runDaemon(): Promise<void> {
 
       // Seed capability graph nodes (new memory graph system)
       try {
-        const { seedSkillGraphNodes, seedCliGraphNodes } =
-          await import("../memory/graph/capability-seed.js");
+        const {
+          seedSkillGraphNodes,
+          seedCliGraphNodes,
+          seedUninstalledCatalogSkillMemories,
+        } = await import("../memory/graph/capability-seed.js");
         seedSkillGraphNodes();
         seedCliGraphNodes();
+        void seedUninstalledCatalogSkillMemories().catch((err) =>
+          log.warn(
+            { err },
+            "Uninstalled catalog skill memory seeding failed — continuing",
+          ),
+        );
       } catch (err) {
         log.warn({ err }, "Graph capability seeding failed — continuing");
       }
@@ -682,10 +683,8 @@ export async function runDaemon(): Promise<void> {
       // segments exist, enqueue a one-time graph_bootstrap job to populate the
       // graph from conversation history and journal files.
       try {
-        const {
-          maybeEnqueueGraphBootstrap,
-          cleanupStaleItemVectors,
-        } = await import("../memory/graph/bootstrap.js");
+        const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
+          await import("../memory/graph/bootstrap.js");
         maybeEnqueueGraphBootstrap();
         // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
         void cleanupStaleItemVectors().catch((err) =>

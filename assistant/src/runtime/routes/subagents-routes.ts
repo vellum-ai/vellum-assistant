@@ -34,15 +34,17 @@ export interface SubagentDetailResult {
   }>;
 }
 
-export function getSubagentDetail(
+/**
+ * Parse raw message rows into subagent detail events. Extracted as a pure
+ * function so it can be unit-tested without a database.
+ */
+export function parseSubagentMessages(
   subagentId: string,
-  conversationId: string,
+  messages: Array<{ role: string; content: string }>,
 ): SubagentDetailResult {
-  const subagentMsgs = getMessages(conversationId);
-
   // Extract objective from the first user message
   let objective: string | undefined;
-  const firstUser = subagentMsgs.find((m) => m.role === "user");
+  const firstUser = messages.find((m) => m.role === "user");
   if (firstUser) {
     try {
       const parsed = JSON.parse(firstUser.content);
@@ -67,7 +69,7 @@ export function getSubagentDetail(
     isError?: boolean;
   }> = [];
   const pendingTools = new Map<string, string>();
-  for (const m of subagentMsgs) {
+  for (const m of messages) {
     if (m.role !== "assistant" && m.role !== "user") continue;
     let content: unknown[];
     try {
@@ -101,7 +103,19 @@ export function getSubagentDetail(
         const toolUseId =
           typeof block.tool_use_id === "string" ? block.tool_use_id : "";
         const resultContent =
-          typeof block.content === "string" ? block.content : "";
+          typeof block.content === "string"
+            ? block.content
+            : Array.isArray(block.content)
+              ? (block.content as unknown[])
+                  .filter(
+                    (b): b is Record<string, unknown> =>
+                      isRecord(b) &&
+                      (b as Record<string, unknown>).type === "text" &&
+                      typeof (b as Record<string, unknown>).text === "string",
+                  )
+                  .map((b) => b.text as string)
+                  .join("\n")
+              : "";
         const isError = block.is_error === true;
         const toolName = toolUseId ? pendingTools.get(toolUseId) : undefined;
         events.push({
@@ -115,6 +129,13 @@ export function getSubagentDetail(
   }
 
   return { subagentId, objective, events };
+}
+
+export function getSubagentDetail(
+  subagentId: string,
+  conversationId: string,
+): SubagentDetailResult {
+  return parseSubagentMessages(subagentId, getMessages(conversationId));
 }
 
 // ---------------------------------------------------------------------------

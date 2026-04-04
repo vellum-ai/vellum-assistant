@@ -344,12 +344,6 @@ export function conversationManagementRouteDefinitions(
             targetId: segId,
           });
         }
-        for (const itemId of result.orphanedItemIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "item",
-            targetId: itemId,
-          });
-        }
         for (const summaryId of result.deletedSummaryIds) {
           enqueueMemoryJob("delete_qdrant_vectors", {
             targetType: "summary",
@@ -359,7 +353,6 @@ export function conversationManagementRouteDefinitions(
         log.info(
           {
             conversationId: resolvedId,
-            unsuperseded: result.unsupersededItemIds.length,
             summariesDeleted: result.deletedSummaryIds.length,
             jobsCancelled: result.cancelledJobCount,
           },
@@ -367,7 +360,6 @@ export function conversationManagementRouteDefinitions(
         );
         return Response.json({
           wiped: true,
-          unsupersededItems: result.unsupersededItemIds.length,
           deletedSummaries: result.deletedSummaryIds.length,
           cancelledJobs: result.cancelledJobCount,
         });
@@ -415,12 +407,6 @@ export function conversationManagementRouteDefinitions(
           enqueueMemoryJob("delete_qdrant_vectors", {
             targetType: "segment",
             targetId: segId,
-          });
-        }
-        for (const itemId of deleted.orphanedItemIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "item",
-            targetId: itemId,
           });
         }
         for (const summaryId of deleted.deletedSummaryIds) {

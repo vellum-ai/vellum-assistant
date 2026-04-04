@@ -46,6 +46,13 @@ import Foundation
 // │                                 │ not a wire type                         │
 // │ SkillOperationResult            │ Client-only result wrapper for skill    │
 // │                                 │ operations; not a wire type             │
+// │ SkillOriginMeta (enum)         │ Discriminated union over `origin`;     │
+// │                                 │ custom Decodable init dispatches on    │
+// │                                 │ origin string                          │
+// │ ClawhubOriginMeta              │ Payload struct for clawhub origin;     │
+// │                                 │ decoded from flat fields               │
+// │ SkillsshOriginMeta             │ Payload struct for skillssh origin;    │
+// │                                 │ decoded from flat fields               │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -914,7 +921,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `status`, preserving all other fields including `id`.
     public func withStatus(_ newStatus: String) -> Self {
-        Self(id: id, name: name, description: description, kind: kind, origin: origin, status: newStatus, vellum: vellum, clawhub: clawhub, skillssh: skillssh)
+        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, sourceRepo: sourceRepo)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.
@@ -931,11 +938,6 @@ extension SkillsListResponseSkill {
 
     /// Whether the skill is currently disabled.
     public var isDisabled: Bool { status == "disabled" }
-
-    // MARK: - Convenience accessors
-
-    /// Reads emoji from the `vellum` sub-object for display.
-    public var emoji: String? { vellum?.emoji }
 }
 
 /// Response containing the list of available skills.
@@ -1020,6 +1022,88 @@ public struct SkillOperationResult: Sendable {
     public init(success: Bool, error: String? = nil) {
         self.success = success
         self.error = error
+    }
+}
+
+// MARK: - Skill Origin Meta
+
+/// Origin-specific metadata for a skill sourced from ClaWHub.
+public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
+    public let slug: String
+    public let author: String
+    public let stars: Int
+    public let installs: Int
+    public let reports: Int
+    public let publishedAt: String?
+}
+
+/// Origin-specific metadata for a skill sourced from Skills.sh.
+public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
+    public let slug: String
+    public let sourceRepo: String
+    public let installs: Int
+}
+
+/// Discriminated union over the `origin` field of a skill.
+/// Constructed via the `originMeta` computed property, which dispatches on origin.
+public enum SkillOriginMeta: Sendable, Equatable {
+    case vellum
+    case clawhub(ClawhubOriginMeta)
+    case skillssh(SkillsshOriginMeta)
+    case custom
+}
+
+extension SkillsListResponseSkill {
+    /// Decoded origin-specific metadata. Lazily parses from the flat fields.
+    public var originMeta: SkillOriginMeta {
+        switch origin {
+        case "clawhub":
+            return .clawhub(ClawhubOriginMeta(
+                slug: slug ?? id,
+                author: author ?? "",
+                stars: stars ?? 0,
+                installs: installs ?? 0,
+                reports: reports ?? 0,
+                publishedAt: publishedAt
+            ))
+        case "skillssh":
+            return .skillssh(SkillsshOriginMeta(
+                slug: slug ?? id,
+                sourceRepo: sourceRepo ?? "",
+                installs: installs ?? 0
+            ))
+        case "vellum":
+            return .vellum
+        default:
+            return .custom
+        }
+    }
+}
+
+extension SkillDetailHTTPResponse {
+    /// Decoded origin-specific metadata. Lazily parses from the flat fields.
+    public var originMeta: SkillOriginMeta {
+        switch origin {
+        case "clawhub":
+            return .clawhub(ClawhubOriginMeta(
+                slug: slug ?? id,
+                author: author ?? "",
+                stars: stars ?? 0,
+                installs: installs ?? 0,
+                reports: reports ?? 0,
+                publishedAt: publishedAt
+            ))
+        case "skillssh":
+            return .skillssh(SkillsshOriginMeta(
+                slug: slug ?? id,
+                sourceRepo: sourceRepo ?? "",
+                installs: installs ?? 0
+            ))
+        case "vellum":
+            return .vellum
+        default:
+            return .custom
+        }
     }
 }
 
@@ -2028,6 +2112,7 @@ public enum ServerMessage: Decodable, Sendable {
     case conversationListResponse(ConversationListResponseMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
+    case memoryRecalled(MemoryRecalledMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
@@ -2134,7 +2219,6 @@ public enum ServerMessage: Decodable, Sendable {
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
     case guardianActionsPendingResponse(GuardianActionsPendingResponseMessage)
-    case guardianActionDecisionResponse(GuardianActionDecisionResponseMessage)
     case recordingPause(RecordingPause)
     case recordingResume(RecordingResume)
     case recordingStart(RecordingStart)
@@ -2157,6 +2241,7 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileCancel(HostFileCancelRequest)
     case hostCuRequest(HostCuRequest)
     case hostCuCancel(HostCuCancelRequest)
+    case permissionModeUpdate(PermissionModeUpdateMessage)
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
@@ -2210,6 +2295,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "memory_status":
             let message = try MemoryStatusMessage(from: decoder)
             self = .memoryStatus(message)
+        case "memory_recalled":
+            let message = try MemoryRecalledMessage(from: decoder)
+            self = .memoryRecalled(message)
         case "dictation_response":
             let message = try DictationResponseMessage(from: decoder)
             self = .dictationResponse(message)
@@ -2532,9 +2620,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "guardian_actions_pending_response":
             let message = try GuardianActionsPendingResponseMessage(from: decoder)
             self = .guardianActionsPendingResponse(message)
-        case "guardian_action_decision_response":
-            let message = try GuardianActionDecisionResponseMessage(from: decoder)
-            self = .guardianActionDecisionResponse(message)
         case "recording_pause":
             let message = try RecordingPause(from: decoder)
             self = .recordingPause(message)
@@ -2601,6 +2686,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_cancel":
             let message = try HostCuCancelRequest(from: decoder)
             self = .hostCuCancel(message)
+        case "permission_mode_update":
+            let message = try PermissionModeUpdateMessage(from: decoder)
+            self = .permissionModeUpdate(message)
         case "usage_update":
             let message = try UsageUpdate(from: decoder)
             self = .usageUpdate(message)
@@ -2621,6 +2709,14 @@ public enum ServerMessage: Decodable, Sendable {
     }
 }
 
+
+// MARK: - Permission Mode
+
+/// Two-axis permission mode state broadcast via SSE or returned by GET /v1/permission-mode.
+public struct PermissionModeUpdateMessage: Decodable, Sendable {
+    public let askBeforeActing: Bool
+    public let hostAccess: Bool
+}
 
 // MARK: - Token Rotation
 

@@ -147,7 +147,7 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      "https://env-platform.example.com/v1/assistants/asst-123/feature-flags/",
+      "https://env-platform.example.com/v1/feature-flags/assistant-flag-values/",
     );
   });
 
@@ -210,7 +210,7 @@ describe("RemoteFeatureFlagSync", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0];
-    expect(url).toContain("/v1/assistants/env-asst-456/feature-flags/");
+    expect(url).toContain("/v1/feature-flags/assistant-flag-values/");
   });
 
   test("fetches and caches flags on successful response", async () => {
@@ -345,7 +345,7 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      "https://platform.example.com/v1/assistants/asst-abc-999/feature-flags/",
+      "https://platform.example.com/v1/feature-flags/assistant-flag-values/",
     );
   });
 
@@ -424,8 +424,45 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      "https://platform.example.com/v1/assistants/asst-123/feature-flags/",
+      "https://platform.example.com/v1/feature-flags/assistant-flag-values/",
     );
+  });
+
+  test("ignores remote false for GA flags (defaultEnabled: true in registry)", async () => {
+    // The platform sends false for all flags it knows about (blanket-deny).
+    // GA flags (defaultEnabled: true in the registry) should not be disabled
+    // by remote overrides — only local persisted overrides can do that.
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: {
+          // GA flag (defaultEnabled: true) — remote false should be dropped
+          "conversation-starters": false,
+          // Gated flag (defaultEnabled: false) — remote false is kept
+          "email-channel": false,
+          // GA flag set to true — should be kept (redundant but harmless)
+          browser: true,
+          // Unknown flag — remote false is kept (not in registry)
+          "unknown-flag": false,
+        },
+      }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
+    await sync.start();
+    sync.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    const cached = readRemoteFeatureFlags();
+    // conversation-starters (GA, remote false) should be absent
+    expect(cached["conversation-starters"]).toBeUndefined();
+    // email-channel (gated, remote false) should be present
+    expect(cached["email-channel"]).toBe(false);
+    // browser (GA, remote true) should be present
+    expect(cached.browser).toBe(true);
+    // unknown-flag (not in registry, remote false) should be present
+    expect(cached["unknown-flag"]).toBe(false);
   });
 
   test("trims whitespace from credential values", async () => {
@@ -445,7 +482,7 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      "https://platform.example.com/v1/assistants/asst-trimmed/feature-flags/",
+      "https://platform.example.com/v1/feature-flags/assistant-flag-values/",
     );
     const headers = init?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Api-Key trimmed-key");

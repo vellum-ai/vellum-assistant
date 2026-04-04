@@ -68,14 +68,13 @@ export function findLastUndoableUserMessageIndex(messages: Message[]): number {
 // ── Qdrant Vector Cleanup ────────────────────────────────────────────
 
 /**
- * Delete Qdrant vector entries for the given segment and item IDs.
+ * Delete Qdrant vector entries for the given segment IDs.
  * Individual deletion failures are logged and enqueued as retry jobs
  * to prevent silently orphaned vectors.
  */
 export async function cleanupQdrantVectors(
   conversationId: string,
   segmentIds: string[],
-  orphanedItemIds: string[],
 ): Promise<void> {
   let qdrant: ReturnType<typeof getQdrantClient>;
   try {
@@ -84,14 +83,11 @@ export async function cleanupQdrantVectors(
     return; // Qdrant not initialized — nothing to clean up.
   }
 
-  if (segmentIds.length === 0 && orphanedItemIds.length === 0) return;
+  if (segmentIds.length === 0) return;
 
   const targets: Array<{ targetType: string; targetId: string }> = [];
   for (const segId of segmentIds) {
     targets.push({ targetType: "segment", targetId: segId });
-  }
-  for (const itemId of orphanedItemIds) {
-    targets.push({ targetType: "item", targetId: itemId });
   }
 
   const results = await Promise.allSettled(
@@ -124,7 +120,6 @@ export async function cleanupQdrantVectors(
         succeeded,
         failed,
         segments: segmentIds.length,
-        items: orphanedItemIds.length,
       },
       "Cleaned up Qdrant vectors after regenerate",
     );
@@ -187,20 +182,17 @@ export function consolidateAssistantMessages(
     // Still delete internal tool_result messages even if only one assistant message,
     // and collect IDs for vector cleanup
     const allSegmentIds: string[] = [];
-    const allOrphanedItemIds: string[] = [];
     for (const id of messagesToDelete) {
       const deleted = deleteMessageById(id);
       didMutate = true;
       allSegmentIds.push(...deleted.segmentIds);
-      allOrphanedItemIds.push(...deleted.orphanedItemIds);
     }
 
     // Clean up Qdrant vectors (fire-and-forget)
-    if (allSegmentIds.length > 0 || allOrphanedItemIds.length > 0) {
+    if (allSegmentIds.length > 0) {
       cleanupQdrantVectors(
         conversationId,
         allSegmentIds,
-        allOrphanedItemIds,
       ).catch((err) => {
         log.warn(
           { err, conversationId },
@@ -322,24 +314,20 @@ export function consolidateAssistantMessages(
   // Delete the other assistant messages and internal tool_result messages,
   // and collect IDs for vector cleanup
   const allSegmentIds: string[] = [];
-  const allOrphanedItemIds: string[] = [];
   for (let i = 1; i < messagesToConsolidate.length; i++) {
     const deleted = deleteMessageById(messagesToConsolidate[i].id);
     allSegmentIds.push(...deleted.segmentIds);
-    allOrphanedItemIds.push(...deleted.orphanedItemIds);
   }
   for (const id of messagesToDelete) {
     const deleted = deleteMessageById(id);
     allSegmentIds.push(...deleted.segmentIds);
-    allOrphanedItemIds.push(...deleted.orphanedItemIds);
   }
 
   // Clean up Qdrant vectors (fire-and-forget)
-  if (allSegmentIds.length > 0 || allOrphanedItemIds.length > 0) {
+  if (allSegmentIds.length > 0) {
     cleanupQdrantVectors(
       conversationId,
       allSegmentIds,
-      allOrphanedItemIds,
     ).catch((err) => {
       log.warn(
         { err, conversationId },
@@ -539,18 +527,15 @@ export async function regenerate(
 
   // Delete each message via deleteMessageById and collect IDs for Qdrant cleanup.
   const allSegmentIds: string[] = [];
-  const allOrphanedItemIds: string[] = [];
   for (const msg of messagesToDelete) {
     const deleted = deleteMessageById(msg.id);
     allSegmentIds.push(...deleted.segmentIds);
-    allOrphanedItemIds.push(...deleted.orphanedItemIds);
   }
 
   // Clean up Qdrant vectors (fire-and-forget).
   cleanupQdrantVectors(
     conversation.conversationId,
     allSegmentIds,
-    allOrphanedItemIds,
   ).catch((err) => {
     log.warn(
       { err, conversationId: conversation.conversationId },
