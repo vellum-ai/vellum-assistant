@@ -224,15 +224,11 @@ export interface ToolExecutionResult {
    * approval flow transparently.
    */
   cesApprovalRequired?: ApprovalRequired;
-  /**
-   * When present, requests the conversation layer to schedule a check-in
-   * after the specified delay. Used by background_tool_control to schedule
-   * periodic status checks on deferred tool executions.
-   */
+  /** When set, the agent loop should schedule a deferred check-in for a background execution. */
   scheduleCheckIn?: {
-    delayMs: number;
+    afterSeconds: number;
     executionId: string;
-    reason: string;
+    conversationId: string;
   };
 }
 

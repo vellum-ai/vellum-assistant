@@ -6,11 +6,13 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import {
   isCesSecureInstallEnabled,
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
+import { backgroundToolControlTool } from "./background-tool-control.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
@@ -105,6 +107,31 @@ export const cesTools: Tool[] = [
   runAuthenticatedCommandTool,
   manageSecureCommandTool,
 ];
+
+// ── Tool deferral tools (feature-flag gated) ───────────────────────
+// The background_tool_control tool is a core infrastructure tool that
+// requires deep integration with the agent loop (similar to CES tools).
+// It is only registered when the `tool-deferral` feature flag is enabled.
+
+/** Stable reference for the manifest snapshot. */
+export const toolDeferralTools: Tool[] = [backgroundToolControlTool];
+
+/**
+ * Return tool-deferral tools only if the `tool-deferral` feature flag is
+ * enabled. Returns an empty array when the flag is disabled so callers
+ * can unconditionally iterate the result.
+ */
+export function getToolDeferralToolsIfEnabled(): Tool[] {
+  try {
+    const config = getConfig();
+    if (isAssistantFeatureFlagEnabled("tool-deferral", config)) {
+      return toolDeferralTools;
+    }
+  } catch {
+    // Config not yet loaded (e.g. during test setup) - tool deferral stays off.
+  }
+  return [];
+}
 
 /**
  * Return CES tools only if the CES feature flag is enabled.

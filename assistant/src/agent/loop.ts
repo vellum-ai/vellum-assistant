@@ -131,9 +131,9 @@ const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
  * calls this when a tool result contains `scheduleCheckIn`.
  */
 export type ScheduleCheckInCallback = (checkIn: {
-  delayMs: number;
+  afterSeconds: number;
   executionId: string;
-  reason: string;
+  conversationId: string;
 }) => void;
 
 export interface ResolvedSystemPrompt {
@@ -171,9 +171,9 @@ export class AgentLoop {
         sensitiveBindings?: SensitiveOutputBinding[];
         yieldToUser?: boolean;
         scheduleCheckIn?: {
-          delayMs: number;
+          afterSeconds: number;
           executionId: string;
-          reason: string;
+          conversationId: string;
         };
       }>)
     | null;
@@ -204,9 +204,9 @@ export class AgentLoop {
       sensitiveBindings?: SensitiveOutputBinding[];
       yieldToUser?: boolean;
       scheduleCheckIn?: {
-        delayMs: number;
+        afterSeconds: number;
         executionId: string;
-        reason: string;
+        conversationId: string;
       };
     }>,
     resolveTools?: (history: Message[]) => ToolDefinition[],
