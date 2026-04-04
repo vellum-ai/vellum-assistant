@@ -5,6 +5,7 @@ import SwiftUI
 public struct ToolCallProgressBar: View {
     public let toolCalls: [ToolCallData]
     @State private var expandedStepId: UUID?
+    @State private var cachedResultLineCount: Int?
 
     public init(toolCalls: [ToolCallData]) {
         self.toolCalls = toolCalls
@@ -49,6 +50,14 @@ public struct ToolCallProgressBar: View {
                         insertion: .scale(scale: 0.95).combined(with: .opacity),
                         removal: .opacity
                     ))
+            }
+        }
+        .onChange(of: expandedStepId) { _, newId in
+            if let newId, let call = toolCalls.first(where: { $0.id == newId }),
+               let result = call.result {
+                cachedResultLineCount = VCodeView.countLines(in: result)
+            } else {
+                cachedResultLineCount = nil
             }
         }
     }
@@ -243,14 +252,24 @@ public struct ToolCallProgressBar: View {
                                 .foregroundStyle(VColor.contentSecondary)
                         }
                     } else {
-                        ScrollView {
+                        let lineCount = cachedResultLineCount ?? VCodeView.countLines(in: result)
+                        if lineCount > 500 {
+                            ScrollView {
+                                Text(result)
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
+                            .vAdaptiveScrollFrame(isLong: true, maxHeight: 200)
+                        } else {
                             Text(result)
                                 .font(VFont.bodySmallDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .adaptiveScrollFrame(for: result, maxHeight: 200)
                     }
                 }
             }
@@ -264,6 +283,11 @@ public struct ToolCallProgressBar: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
+        .onAppear {
+            if cachedResultLineCount == nil, let result = toolCall.result {
+                cachedResultLineCount = VCodeView.countLines(in: result)
+            }
+        }
     }
 
     // MARK: - Colors

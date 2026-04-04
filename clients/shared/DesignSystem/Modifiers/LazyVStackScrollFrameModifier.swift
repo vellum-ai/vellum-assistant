@@ -3,22 +3,21 @@ import SwiftUI
 extension View {
     /// Applies an adaptive height constraint to a `ScrollView` inside a `LazyVStack` cell.
     ///
-    /// For content exceeding `lineThreshold` lines, a definite `frame(height:)` is used so
-    /// `LazyVStack` can skip scroll-content measurement during cell sizing. For shorter content
-    /// `frame(maxHeight:)` is used so the view collapses to its natural height instead of
-    /// rendering with blank space.
+    /// When `isLong` is `true`, a definite `frame(height:)` is applied so `LazyVStack` can
+    /// skip scroll-content measurement during cell sizing. When `false`, `frame(maxHeight:)`
+    /// lets the view collapse to its natural height instead of rendering with blank space.
+    ///
+    /// Callers are responsible for computing and caching the `isLong` decision (e.g. via
+    /// `@State` or a cached line count) to avoid redundant O(n) string scans on every render.
     ///
     /// - Parameters:
-    ///   - text: The string whose line count determines which constraint is applied.
+    ///   - isLong: Whether the content exceeds the threshold for fixed-height treatment.
     ///   - maxHeight: The height cap applied in both branches.
-    ///   - lineThreshold: Line count above which the fixed height is used. Default: 500.
-    func adaptiveScrollFrame(
-        for text: String,
-        maxHeight: CGFloat,
-        lineThreshold: Int = 500
+    func vAdaptiveScrollFrame(
+        isLong: Bool,
+        maxHeight: CGFloat
     ) -> some View {
-        let isLong = VCodeView.countLines(in: text) > lineThreshold
-        return self
+        self
             .frame(height: isLong ? maxHeight : nil)
             .frame(maxHeight: isLong ? nil : maxHeight)
     }

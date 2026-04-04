@@ -988,7 +988,7 @@ private struct StepDetailRow: View {
         copyText: String,
         copyLabel: String
     ) -> some View {
-        let lineCount = copyText.components(separatedBy: "\n").count
+        let lineCount = VCodeView.countLines(in: copyText)
 
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {

@@ -315,14 +315,26 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private func codePreviewBlock(_ content: String, maxHeight: CGFloat) -> some View {
-        ScrollView {
-            Text(content)
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+        let lineCount = VCodeView.countLines(in: content)
+        Group {
+            if lineCount > 500 {
+                ScrollView {
+                    Text(content)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .vAdaptiveScrollFrame(isLong: true, maxHeight: maxHeight)
+            } else {
+                Text(content)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .adaptiveScrollFrame(for: content, maxHeight: maxHeight)
         .padding(VSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
