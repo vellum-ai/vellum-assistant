@@ -654,6 +654,7 @@ export async function runAgentLoopImpl(
           })),
           injectedText: graphResult.injectedBlockText ?? undefined,
           reason: `graph:${graphResult.mode}`,
+          queryContext: m?.queryContext ?? undefined,
         });
       } catch (err) {
         log.warn({ err }, "Failed to persist memory recall log (non-fatal)");

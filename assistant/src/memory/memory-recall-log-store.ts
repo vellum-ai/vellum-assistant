@@ -23,6 +23,7 @@ export interface RecordMemoryRecallLogParams {
   topCandidatesJson: unknown;
   injectedText?: string;
   reason?: string;
+  queryContext?: string;
 }
 
 export function recordMemoryRecallLog(
@@ -53,6 +54,7 @@ export function recordMemoryRecallLog(
       topCandidatesJson: JSON.stringify(params.topCandidatesJson),
       injectedText: params.injectedText ?? null,
       reason: params.reason ?? null,
+      queryContext: params.queryContext ?? null,
       createdAt: Date.now(),
     })
     .run();
@@ -92,6 +94,7 @@ export interface MemoryRecallLog {
   topCandidates: unknown;
   injectedText: string | null;
   reason: string | null;
+  queryContext: string | null;
 }
 
 /**
@@ -164,5 +167,6 @@ export function getMemoryRecallLogByMessageIds(
     topCandidates: normalizeTopCandidates(JSON.parse(row.topCandidatesJson)),
     injectedText: row.injectedText,
     reason: row.reason,
+    queryContext: row.queryContext,
   };
 }
