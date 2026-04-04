@@ -6,6 +6,9 @@ metadata:
   emoji: "🤖"
   vellum:
     display-name: "Subagent"
+    activation-hints:
+      - "Run tasks in parallel, delegate work to background agents, or do multiple things at once"
+      - "Spawn a researcher, coder, or planner agent for independent work"
 ---
 
 Subagent orchestration -- spawn background agents to work on tasks in parallel.
