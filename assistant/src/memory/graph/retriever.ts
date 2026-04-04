@@ -377,11 +377,13 @@ export async function loadContextMemory(
   let queryVector: number[] | null = null;
   let embeddingProvider: string | null = null;
   let embeddingModel: string | null = null;
+  let contextQueryText: string | null = null;
   if (opts.recentSummaries.length > 0) {
     try {
       const queryText = opts.recentSummaries.join("\n\n");
       const truncated =
         queryText.length > 3000 ? queryText.slice(0, 3000) : queryText;
+      contextQueryText = truncated;
       const result = await embedWithRetry(opts.config, [truncated], {
         signal: opts.signal,
       });
@@ -768,7 +770,7 @@ export async function loadContextMemory(
       sparseVectorUsed: false,
       embeddingProvider,
       embeddingModel,
-      queryContext: null,
+      queryContext: contextQueryText,
       topCandidates,
     },
   };
@@ -900,6 +902,7 @@ export async function retrieveForTurn(
           imageBlocks.length > 0 ? Date.now() - searchStart : 0,
         embeddingProvider,
         embeddingModel,
+        queryContext: queryText || null,
       },
     };
   }
@@ -971,6 +974,7 @@ export async function retrieveForTurn(
             hybridSearchLatencyMs: Date.now() - searchStart,
             embeddingProvider,
             embeddingModel,
+            queryContext: queryText || null,
           },
         };
       }
@@ -1022,6 +1026,7 @@ export async function retrieveForTurn(
         hybridSearchLatencyMs,
         embeddingProvider,
         embeddingModel,
+        queryContext: queryText || null,
       },
     };
   }
@@ -1189,7 +1194,7 @@ export async function retrieveForTurn(
       sparseVectorUsed: false,
       embeddingProvider,
       embeddingModel,
-      queryContext: null,
+      queryContext: queryText || null,
       topCandidates,
     },
   };
