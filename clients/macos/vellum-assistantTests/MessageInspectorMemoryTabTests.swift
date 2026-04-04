@@ -227,7 +227,8 @@ final class MessageInspectorMemoryTabTests: XCTestCase {
         latencyMs: Int = 0,
         reason: String? = nil,
         topCandidates: [MemoryRecallCandidate] = [],
-        injectedText: String? = nil
+        injectedText: String? = nil,
+        queryContext: String? = nil
     ) -> MemoryRecallData {
         MemoryRecallData(
             enabled: enabled,
@@ -246,7 +247,8 @@ final class MessageInspectorMemoryTabTests: XCTestCase {
             latencyMs: latencyMs,
             reason: reason,
             topCandidates: topCandidates,
-            injectedText: injectedText
+            injectedText: injectedText,
+            queryContext: queryContext
         )
     }
 }
