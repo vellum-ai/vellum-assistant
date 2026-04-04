@@ -47,7 +47,7 @@ struct MainWindowView: View {
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     let sidebarExpandedWidth: CGFloat = 240
     let sidebarCollapsedWidth: CGFloat = 52
-    @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
+    @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 500
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
     @AppStorage("appChatDockWidth") var appChatDockWidth: Double = -1
     let connectionManager: GatewayConnectionManager
