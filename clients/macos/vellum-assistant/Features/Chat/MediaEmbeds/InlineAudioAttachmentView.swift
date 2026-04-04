@@ -62,8 +62,7 @@ struct InlineAudioAttachmentView: View {
     @State private var hasRetriedOnce = false
     @State private var isSaving = false
     @State private var isHovering = false
-    /// Width of the progress bar track, measured via `.onGeometryChange()` to
-    /// avoid a synchronous `GeometryReader` layout dependency inside the LazyVStack.
+    /// Width of the progress bar track, measured via `.onGeometryChange()`.
     @State private var trackWidth: CGFloat = 0
 
     /// Coordinator object that acts as AVAudioPlayerDelegate to detect playback
