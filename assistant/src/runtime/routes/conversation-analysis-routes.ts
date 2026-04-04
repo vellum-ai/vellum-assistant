@@ -90,9 +90,8 @@ export function conversationAnalysisRouteDefinitions(
         }
 
         // e. Build the analysis transcript
-        const { buildAnalysisTranscript } = await import(
-          "../../export/transcript-formatter.js"
-        );
+        const { buildAnalysisTranscript } =
+          await import("../../export/transcript-formatter.js");
         const transcript = buildAnalysisTranscript(resolvedId);
 
         // f. Create a new conversation for the analysis
@@ -132,11 +131,7 @@ If you identify insights worth remembering for future conversations, use your me
         // j. Build onEvent using inline hub publisher
         const onEvent = (msg: ServerMessage) => {
           deps.sendMessageDeps.assistantEventHub.publish(
-            buildAssistantEvent(
-              DAEMON_INTERNAL_ASSISTANT_ID,
-              msg,
-              newConv.id,
-            ),
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, newConv.id),
           );
         };
 

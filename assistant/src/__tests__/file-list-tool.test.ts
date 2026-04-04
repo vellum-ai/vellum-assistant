@@ -11,8 +11,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   isToolActiveForContext,
-  SUBAGENT_ONLY_TOOL_NAMES,
   type SkillProjectionContext,
+  SUBAGENT_ONLY_TOOL_NAMES,
 } from "../daemon/conversation-tool-setup.js";
 import { fileListTool } from "../tools/filesystem/list.js";
 import {
