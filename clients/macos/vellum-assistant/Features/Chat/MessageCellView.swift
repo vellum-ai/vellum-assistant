@@ -9,13 +9,10 @@ import VellumAssistantShared
 struct MessageCellView: View, Equatable {
     static func == (lhs: MessageCellView, rhs: MessageCellView) -> Bool {
         lhs.message == rhs.message
-            && lhs.index == rhs.index
             && lhs.showTimestamp == rhs.showTimestamp
             && lhs.nextDecidedConfirmation == rhs.nextDecidedConfirmation
             && lhs.isConfirmationRenderedInline == rhs.isConfirmationRenderedInline
             && lhs.hasPrecedingAssistant == rhs.hasPrecedingAssistant
-            && lhs.hasUserMessage == rhs.hasUserMessage
-            && lhs.hasEverSentMessage == rhs.hasEverSentMessage
             && lhs.activePendingRequestId == rhs.activePendingRequestId
             && lhs.subagentsByParent[lhs.message.id] == rhs.subagentsByParent[rhs.message.id]
             && lhs.isLatestAssistantMessage == rhs.isLatestAssistantMessage
@@ -36,13 +33,10 @@ struct MessageCellView: View, Equatable {
     }
 
     let message: ChatMessage
-    let index: Int
     let showTimestamp: Bool
     let nextDecidedConfirmation: ToolConfirmationData?
     let isConfirmationRenderedInline: Bool
     let hasPrecedingAssistant: Bool
-    let hasUserMessage: Bool
-    let hasEverSentMessage: Bool
     let activePendingRequestId: String?
     let subagentsByParent: [UUID: [SubagentInfo]]
     let isLatestAssistantMessage: Bool

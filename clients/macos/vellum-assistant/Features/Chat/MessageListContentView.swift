@@ -150,18 +150,15 @@ struct MessageListContentView: View, Equatable {
                 ? "Waking up..."
                 : (state.effectiveStatusText ?? "Thinking")
             ForEach(state.displayMessages, id: \.id) { message in
-                let index = state.messageIndexById[message.id] ?? 0
                 let isLatestAssistant = message.role == .assistant && message.id == state.latestAssistantId
-                let isAnchored = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == index
+                let messageIndex = state.messageIndexById[message.id] ?? 0
+                let isAnchored = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == messageIndex
                 MessageCellView(
                     message: message,
-                    index: index,
                     showTimestamp: state.showTimestamp.contains(message.id),
-                    nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
-                    isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
-                    hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
-                    hasUserMessage: state.hasUserMessage,
-                    hasEverSentMessage: hasEverSentMessage,
+                    nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[messageIndex],
+                    isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(messageIndex),
+                    hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(messageIndex),
                     activePendingRequestId: state.activePendingRequestId,
                     subagentsByParent: state.subagentsByParent,
                     isLatestAssistantMessage: isLatestAssistant,
