@@ -358,8 +358,6 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
     "## External Service Access",
     "",
     "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
-    // macOS-specific osascript guidance is injected per-turn via
-    // injectChannelCapabilityContext, which reflects the client's platform.
   ].join("\n");
 }
 

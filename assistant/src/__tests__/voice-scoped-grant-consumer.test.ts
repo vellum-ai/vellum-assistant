@@ -69,7 +69,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     supportsRichText: false,
     supportsDynamicUi: false,
     supportsVoiceInput: true,
-    clientIsMacOS: false,
   }),
 }));
 

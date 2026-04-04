@@ -29,8 +29,8 @@ export interface ChannelCapabilities {
   supportsDynamicUi: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
-  /** Whether the connected client is running on macOS (or iOS). */
-  clientIsMacOS: boolean;
+  /** The client OS/interface identifier (e.g. "macos", "ios", "vellum"). */
+  clientOS?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel", "im", "mpim"). */
   chatType?: string;
 }
@@ -200,8 +200,6 @@ export function resolveChannelCapabilities(
 
   const resolvedChatType = chatType ?? undefined;
 
-  const clientIsMacOS = iface === "macos" || iface === "ios";
-
   switch (channel) {
     case "vellum": {
       const supportsDesktopUi = iface === "macos";
@@ -210,7 +208,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi || iface === "vellum",
         supportsVoiceInput: supportsDesktopUi,
-        clientIsMacOS,
+        clientOS: iface ?? undefined,
         chatType: resolvedChatType,
       };
     }
@@ -224,7 +222,6 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsVoiceInput: false,
-        clientIsMacOS: false,
         chatType: resolvedChatType,
       };
     default:
@@ -233,7 +230,6 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsVoiceInput: false,
-        clientIsMacOS: false,
         chatType: resolvedChatType,
       };
   }
@@ -547,7 +543,7 @@ export function injectChannelCapabilityContext(
     caps.supportsDynamicUi &&
     caps.supportsVoiceInput &&
     !isGroupChatType(caps.chatType) &&
-    !caps.clientIsMacOS
+    caps.clientOS !== "macos"
   ) {
     return message;
   }
@@ -557,9 +553,11 @@ export function injectChannelCapabilityContext(
   lines.push(`dashboard_capable: ${caps.dashboardCapable}`);
   lines.push(`supports_dynamic_ui: ${caps.supportsDynamicUi}`);
   lines.push(`supports_voice_input: ${caps.supportsVoiceInput}`);
-  lines.push(`client_is_macos: ${caps.clientIsMacOS}`);
+  if (caps.clientOS) {
+    lines.push(`client_os: ${caps.clientOS}`);
+  }
 
-  if (caps.clientIsMacOS) {
+  if (caps.clientOS === "macos") {
     lines.push("");
     lines.push(
       "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",

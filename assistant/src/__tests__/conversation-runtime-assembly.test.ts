@@ -157,7 +157,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: true,
       supportsDynamicUi: true,
       supportsVoiceInput: true,
-      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -173,7 +172,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -193,7 +191,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -209,7 +206,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
       chatType: "group",
     };
 
@@ -226,7 +222,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
       chatType: "supergroup",
     };
 
@@ -241,7 +236,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
       chatType: "private",
     };
 
@@ -257,7 +251,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -271,7 +264,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
       chatType: "channel",
     };
 
@@ -287,7 +279,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: true,
       supportsDynamicUi: true,
       supportsVoiceInput: true,
-      clientIsMacOS: false,
       chatType: "channel",
     };
 
@@ -304,7 +295,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -320,7 +310,6 @@ describe("injectChannelCapabilityContext", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
     };
 
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
@@ -435,7 +424,6 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
     };
 
     const result = applyRuntimeInjections(baseMessages, {
@@ -472,7 +460,6 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
     };
 
     const result = applyRuntimeInjections(baseMessages, {
@@ -502,7 +489,7 @@ describe("trust-gating via channel capabilities", () => {
     // macOS clients now get osascript guidance injected
     expect(result).not.toBe(message);
     const injected = (result.content[0] as { type: "text"; text: string }).text;
-    expect(injected).toContain("client_is_macos: true");
+    expect(injected).toContain("client_os: macos");
     expect(injected).toContain("osascript");
     expect(injected).toContain("host_bash");
     // No channel constraints — full desktop capabilities
@@ -612,7 +599,6 @@ describe("applyRuntimeInjections — injection mode", () => {
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
-      clientIsMacOS: false,
     } as ChannelCapabilities,
     unifiedTurnContext:
       "<turn_context>\ntimestamp: 2026-03-04 (Tue) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",

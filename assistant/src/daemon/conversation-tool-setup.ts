@@ -447,7 +447,7 @@ export interface SkillProjectionContext {
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
-    clientIsMacOS: boolean;
+    clientOS?: string;
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
@@ -505,9 +505,7 @@ export function isToolActiveForContext(
   if (PLATFORM_TOOL_NAMES.has(name)) {
     // Check the *client's* platform, not the daemon's process.platform.
     // In Docker the daemon runs on Linux but the connected client may be macOS.
-    return (
-      (ctx.channelCapabilities?.clientIsMacOS ?? false) && !ctx.hasNoClient
-    );
+    return ctx.channelCapabilities?.clientOS === "macos" && !ctx.hasNoClient;
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;
