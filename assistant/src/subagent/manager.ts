@@ -151,6 +151,7 @@ export class SubagentManager {
     const subagentId = uuid();
     const conversationRecord = bootstrapConversation({
       conversationType: "background",
+      source: "subagent",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
     });
