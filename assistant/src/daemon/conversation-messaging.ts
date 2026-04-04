@@ -544,8 +544,13 @@ export async function persistUserMessage(
 
     // Replace the live message in ctx.messages with the ref-only version so
     // subsequent context-window passes don't hold base64 bytes in memory.
-    // Source-path annotations are re-added for the LLM's benefit.
-    const refMessage: Message = { role: "user", content: persistedContent };
+    // Use the original `liveTextContent` (built from `content`, not
+    // `displayContent`) so the LLM still sees the full action payload even
+    // when `displayContent` is a UI-friendly summary.
+    const refMessage: Message = {
+      role: "user",
+      content: [...liveTextContent, ...storedRefBlocks],
+    };
     ctx.messages[ctx.messages.length - 1] = enrichMessageWithSourcePaths(
       refMessage,
       sourcePathInputs,
