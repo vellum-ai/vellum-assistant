@@ -992,7 +992,6 @@ export async function hatchDocker(
     let repoRoot: string | undefined;
 
     if (watch) {
-      emitProgress(2, 6, "Building images...");
       repoRoot = findRepoRoot();
 
       // When running from a packaged .app bundle, the Dockerfiles are
@@ -1009,6 +1008,7 @@ export async function hatchDocker(
     }
 
     if (watch && repoRoot) {
+      emitProgress(2, 6, "Building images...");
       const localTag = `local-${instanceName}`;
       imageTags.assistant = `vellum-assistant:${localTag}`;
       imageTags.gateway = `vellum-gateway:${localTag}`;
