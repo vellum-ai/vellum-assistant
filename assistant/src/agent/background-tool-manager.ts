@@ -51,6 +51,7 @@ export class BackgroundToolManager {
   getStatus(executionId: string): {
     status: "running" | "completed" | "cancelled";
     elapsedMs: number;
+    toolName: string;
     result?: ToolExecutionResult;
   } | null {
     const entry = this.executions.get(executionId);
@@ -58,6 +59,7 @@ export class BackgroundToolManager {
     return {
       status: entry.status,
       elapsedMs: Date.now() - entry.startedAt,
+      toolName: entry.toolName,
       result: entry.result,
     };
   }

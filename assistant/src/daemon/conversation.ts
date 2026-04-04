@@ -184,6 +184,10 @@ export class Conversation {
   /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
+  /** Handles for outstanding deferred check-in timers, cleared on abort/end. */
+  /** @internal */ readonly checkInTimers = new Set<
+    ReturnType<typeof setTimeout>
+  >();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
@@ -568,6 +572,11 @@ export class Conversation {
   }
 
   abort(): void {
+    // Clear deferred check-in timers so they don't fire after abort
+    for (const handle of this.checkInTimers) {
+      clearTimeout(handle);
+    }
+    this.checkInTimers.clear();
     abortConversation(this);
   }
 
@@ -1088,6 +1097,20 @@ export class Conversation {
       currentPage,
       options,
       displayContent,
+    );
+  }
+
+  /**
+   * Inject a synthetic check-in message and trigger a new assistant turn.
+   * Used by the deferred check-in callback when a background tool is still
+   * running after the scheduled interval.
+   */
+  async injectCheckInMessage(content: string): Promise<void> {
+    await processMessageImpl(
+      this as ProcessConversationContext,
+      content,
+      [],
+      (msg) => this.sendToClient(msg),
     );
   }
 
