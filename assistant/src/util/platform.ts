@@ -102,7 +102,7 @@ export function getSoundsDir(): string {
   return join(getWorkspaceDir(), "data", "sounds");
 }
 
-/** Returns the avatar directory (~/.vellum/workspace/data/avatar). */
+/** Returns the avatar directory ($VELLUM_WORKSPACE_DIR/data/avatar). */
 export function getAvatarDir(): string {
   return join(getWorkspaceDir(), "data", "avatar");
 }
