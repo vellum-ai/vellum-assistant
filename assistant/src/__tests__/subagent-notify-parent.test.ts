@@ -113,9 +113,13 @@ function makeContext(
 describe("notify_parent tool definition", () => {
   test("has correct core tool definition", () => {
     const def = notifyParentTool.getDefinition();
+    const schema = def.input_schema as Record<string, unknown>;
     expect(def.name).toBe("notify_parent");
-    expect(def.input_schema.required).toContain("message");
-    expect(def.input_schema.properties.urgency.enum).toEqual([
+    expect(schema.required).toContain("message");
+    expect(
+      (schema.properties as Record<string, Record<string, unknown>>).urgency
+        .enum,
+    ).toEqual([
       "info",
       "important",
       "blocked",
