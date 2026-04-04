@@ -176,8 +176,13 @@ struct MessageListContentView: View, Equatable {
             }
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+            let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
+                ? "Waking up..."
+                : (state.effectiveStatusText ?? "Thinking")
             ForEach(state.displayMessages, id: \.id) { message in
                 let index = state.messageIndexById[message.id] ?? 0
+                let isLatestAssistant = message.role == .assistant && message.id == state.latestAssistantId
+                let isAnchored = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == index
                 MessageCellView(
                     message: message,
                     index: index,
@@ -188,12 +193,13 @@ struct MessageListContentView: View, Equatable {
                     hasUserMessage: state.hasUserMessage,
                     hasEverSentMessage: hasEverSentMessage,
                     activePendingRequestId: state.activePendingRequestId,
-                    latestAssistantId: state.latestAssistantId,
-                    anchoredThinkingIndex: state.anchoredThinkingIndex,
                     subagentsByParent: state.subagentsByParent,
-                    canInlineProcessing: state.canInlineProcessing,
-                    shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
-                    assistantStatusText: state.effectiveStatusText,
+                    isLatestAssistantMessage: isLatestAssistant,
+                    isProcessingAfterTools: state.canInlineProcessing && isLatestAssistant,
+                    processingStatusText: state.canInlineProcessing && isLatestAssistant ? state.effectiveStatusText : nil,
+                    hideInlineAvatar: isLatestAssistant && state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil,
+                    showAnchoredThinkingIndicator: isAnchored,
+                    anchoredThinkingLabel: isAnchored ? thinkingLabel : "",
                     dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                     activeSurfaceId: activeSurfaceId,
                     isHighlighted: highlightedMessageId == message.id,
