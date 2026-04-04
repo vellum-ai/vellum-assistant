@@ -563,10 +563,7 @@ struct AssistantProgressView: View {
                     .foregroundStyle(VColor.systemNegativeStrong)
             }
         default:
-            Circle()
-                .fill(VColor.primaryBase)
-                .frame(width: 8, height: 8)
-                .modifier(AssistantProgressPulsingModifier())
+            PulsingDot(size: 8)
         }
     }
 
@@ -813,10 +810,7 @@ private struct StepDetailRow: View {
                             .foregroundStyle(VColor.contentTertiary)
                             .frame(width: 16)
                     } else {
-                        Circle()
-                            .fill(VColor.primaryBase)
-                            .frame(width: 6, height: 6)
-                            .modifier(AssistantProgressPulsingModifier())
+                        PulsingDot(size: 6)
                             .frame(width: 16)
                     }
 
@@ -1149,13 +1143,26 @@ private struct CompactPermissionChip: View {
     }
 }
 
-// MARK: - Pulsing Modifier
+// MARK: - Pulsing Dot
 
-private struct AssistantProgressPulsingModifier: ViewModifier {
+/// Isolated pulsing dot view with its own @State for the animation flag.
+///
+/// Extracting the animation into its own struct prevents the repeatForever
+/// animation from restarting ("jumping") when the parent AssistantProgressView
+/// body re-evaluates due to tool call updates. Each body re-eval in the parent
+/// would otherwise re-create the ViewModifier and reset its @State, causing
+/// the animated opacity to jump back to its start value mid-pulse.
+///
+/// - SeeAlso: LUM-691
+private struct PulsingDot: View {
+    var size: CGFloat = 8
+
     @State private var isPulsing = false
 
-    func body(content: Content) -> some View {
-        content
+    var body: some View {
+        Circle()
+            .fill(VColor.primaryBase)
+            .frame(width: size, height: size)
             .opacity(isPulsing ? 0.6 : 1.0)
             .animation(
                 Animation.easeInOut(duration: 1.8).repeatForever(autoreverses: true),
