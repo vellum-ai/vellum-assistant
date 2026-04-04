@@ -49,7 +49,7 @@ public struct VDisclosureSection<Content: View>: View {
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(title)
-                            .font(VFont.bodyMediumDefault)
+                            .font(VFont.bodyMediumEmphasised)
                             .foregroundStyle(VColor.contentDefault)
                         if let subtitle {
                             Text(subtitle)
