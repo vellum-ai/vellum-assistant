@@ -12,7 +12,10 @@ import {
 import { runNarrativeRefinement } from "./graph/narrative.js";
 import { runPatternScan } from "./graph/pattern-scan.js";
 import { backfillJob } from "./job-handlers/backfill.js";
-import { pruneOldConversationsJob } from "./job-handlers/cleanup.js";
+import {
+  pruneOldConversationsJob,
+  pruneOldLlmRequestLogsJob,
+} from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
@@ -39,6 +42,7 @@ import {
   deferMemoryJob,
   enqueueMemoryJob,
   enqueuePruneOldConversationsJob,
+  enqueuePruneOldLlmRequestLogsJob,
   failMemoryJob,
   failStalledJobs,
   type MemoryJob,
@@ -361,6 +365,9 @@ async function processJob(
     case "prune_old_conversations":
       pruneOldConversationsJob(job, config);
       return;
+    case "prune_old_llm_request_logs":
+      pruneOldLlmRequestLogsJob(job, config);
+      return;
     case "build_conversation_summary":
       await buildConversationSummaryJob(job, config);
       return;
@@ -439,12 +446,18 @@ export function maybeEnqueueScheduledCleanupJobs(
     cleanup.conversationRetentionDays > 0
       ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
       : null;
+  const pruneLlmRequestLogsJobId =
+    cleanup.llmRequestLogRetentionMs > 0
+      ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
+      : null;
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug(
     {
       pruneConversationsJobId,
+      pruneLlmRequestLogsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
+      llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
     },
     "Enqueued scheduled memory cleanup jobs",
   );
@@ -506,4 +519,3 @@ function maybeEnqueueGraphMaintenanceJobs(nowMs = Date.now()): void {
     }
   }
 }
-
