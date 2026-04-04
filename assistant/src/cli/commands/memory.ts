@@ -7,7 +7,6 @@ import {
   getMemorySystemStatus,
   queryMemory,
   requestMemoryBackfill,
-  requestMemoryCleanup,
   requestMemoryRebuildIndex,
   requestReextract,
 } from "../../memory/admin.js";
@@ -104,38 +103,6 @@ Examples:
       initializeDb();
       const jobId = requestMemoryBackfill(Boolean(opts?.force));
       log.info(`Queued backfill job: ${jobId}`);
-    });
-
-  memory
-    .command("cleanup")
-    .description("Queue cleanup jobs for stale superseded items")
-    .option(
-      "--retention-ms <ms>",
-      "Optional retention threshold in milliseconds"
-    )
-    .addHelpText(
-      "after",
-      `
-Queues a background cleanup job to remove memory items that have been
-superseded by newer, corrected facts past the retention threshold.
-
-The optional --retention-ms flag sets the minimum age (in milliseconds) a
-record must have before it is eligible for cleanup. If omitted, the system
-default retention period is used.
-
-Examples:
-  $ assistant memory cleanup
-  $ assistant memory cleanup --retention-ms 86400000`
-    )
-    .action((opts: { retentionMs?: string }) => {
-      initializeDb();
-      const retentionMs = opts.retentionMs
-        ? Number.parseInt(opts.retentionMs, 10)
-        : undefined;
-      requestMemoryCleanup(
-        Number.isFinite(retentionMs) ? retentionMs : undefined
-      );
-      log.info("Memory cleanup requested (legacy items table dropped)");
     });
 
   memory
@@ -270,7 +237,7 @@ extraction prompt. This is useful after updating the extraction prompt
 (e.g. importance scoring rework) to re-score and re-extract memories
 from historically important conversations.
 
-The command resets extraction checkpoints so the batch extraction handler
+The command resets extraction checkpoints so the graph extraction handler
 re-processes all messages. Existing memories are provided as supersession
 context — the new extraction can supersede old flat-fact memories with
 richer, properly-scored replacements.
