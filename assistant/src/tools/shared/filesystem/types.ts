@@ -78,3 +78,20 @@ export interface EditOutput {
 export type EditResult =
   | { ok: true; value: EditOutput }
   | { ok: false; error: FsError };
+
+// ---------------------------------------------------------------------------
+// List
+// ---------------------------------------------------------------------------
+
+export interface ListInput {
+  path: string;
+  glob?: string;
+}
+
+export interface ListOutput {
+  listing: string;
+}
+
+export type ListResult =
+  | { ok: true; value: ListOutput }
+  | { ok: false; error: FsError };
