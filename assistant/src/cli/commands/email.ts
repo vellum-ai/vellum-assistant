@@ -216,14 +216,6 @@ Examples:
     .option("-b, --body <text>", "Email body (plain text)")
     .option("-f, --file <path>", "Read body from file")
     .option("--html <path>", "HTML body file (optional)")
-    .option(
-      "--in-reply-to <message-id>",
-      "Message-ID to reply to (for threading)",
-    )
-    .option(
-      "--references <message-ids>",
-      "Space-separated ancestor Message-IDs",
-    )
     .addHelpText(
       "after",
       `
@@ -243,9 +235,6 @@ Examples:
   $ echo "Body text" | assistant email send user@example.com -s "Hello"
   ✓ Sent to user@example.com (delivery_id: def456)
 
-  $ assistant email send user@example.com -s "Re: Thread" -b "Reply" --in-reply-to "<orig@mail.gmail.com>"
-  ✓ Sent to user@example.com (delivery_id: ghi789)
-
   $ assistant email send user@example.com -s "Hello" -b "Hi" --json
   {"delivery_id":"abc123","status":"accepted"}`,
     )
@@ -257,8 +246,6 @@ Examples:
           body?: string;
           file?: string;
           html?: string;
-          inReplyTo?: string;
-          references?: string;
         },
         cmd: Command,
       ) => {
@@ -327,8 +314,6 @@ Examples:
           };
           if (opts.subject) payload.subject = opts.subject;
           if (html) payload.html = html;
-          if (opts.inReplyTo) payload.in_reply_to = opts.inReplyTo;
-          if (opts.references) payload.references = opts.references;
 
           // 5. Send via runtime proxy
           const response = await client.fetch("/v1/runtime-proxy/email/send/", {

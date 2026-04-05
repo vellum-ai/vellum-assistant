@@ -114,33 +114,6 @@ describe("assistant email send", () => {
     expect(process.exitCode).toBe(0);
   });
 
-  test("includes threading headers when --in-reply-to is provided", async () => {
-    mockListAddresses();
-    mockSendSuccess();
-
-    await runAssistantCommand(
-      "email",
-      "send",
-      "user@example.com",
-      "-s",
-      "Re: Thread",
-      "-b",
-      "Reply body",
-      "--in-reply-to",
-      "<orig@mail.gmail.com>",
-      "--references",
-      "<root@mail.gmail.com> <orig@mail.gmail.com>",
-    );
-
-    const calls = getMockFetchCalls();
-    const payload = JSON.parse(calls[1].init.body as string);
-    expect(payload.in_reply_to).toBe("<orig@mail.gmail.com>");
-    expect(payload.references).toBe(
-      "<root@mail.gmail.com> <orig@mail.gmail.com>",
-    );
-    expect(process.exitCode).toBe(0);
-  });
-
   test("no registered address returns error", async () => {
     mockListAddresses([]);
 
