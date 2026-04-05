@@ -24,6 +24,7 @@ Examples:
   $ assistant email unregister --confirm
   $ assistant email send user@example.com -s "Hello" -b "Hi there"
   $ assistant email status
+  $ assistant email list
   $ assistant email register mybot --json`,
   );
 
@@ -311,6 +312,117 @@ Examples:
         process.exitCode = 1;
       }
     });
+
+  email
+    .command("list")
+    .description("List received and sent emails for this assistant")
+    .option(
+      "-d, --direction <direction>",
+      "Filter by direction: inbound, outbound, or all",
+      "all",
+    )
+    .option("-l, --limit <count>", "Maximum number of results", "20")
+    .option("--since <date>", "Only show messages since this date (ISO 8601)")
+    .addHelpText(
+      "after",
+      `
+Lists email messages for this assistant. Shows subject, from, to,
+direction, and timestamp for each message.
+
+Examples:
+  $ assistant email list
+  $ assistant email list --direction inbound --limit 5
+  $ assistant email list --since 2026-04-01 --json`,
+    )
+    .action(
+      async (
+        opts: {
+          direction?: string;
+          limit?: string;
+          since?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          const client = await VellumPlatformClient.create();
+          if (!client) {
+            throw new Error(
+              "Platform credentials not configured. Run: assistant platform connect",
+            );
+          }
+          if (!client.platformAssistantId) {
+            throw new Error(
+              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+            );
+          }
+
+          const params = new URLSearchParams();
+          if (opts.direction && opts.direction !== "all") {
+            params.set("direction", opts.direction);
+          }
+          if (opts.limit) {
+            params.set("limit", opts.limit);
+          }
+          if (opts.since) {
+            params.set("since", opts.since);
+          }
+
+          const qs = params.toString();
+          const path = `/v1/assistants/${client.platformAssistantId}/emails/${qs ? `?${qs}` : ""}`;
+          const response = await client.fetch(path);
+
+          if (!response.ok) {
+            const body = (await response.json().catch(() => ({}))) as Record<
+              string,
+              unknown
+            >;
+            const detail = body.detail ?? `HTTP ${response.status}`;
+            throw new Error(String(detail));
+          }
+
+          const data = (await response.json()) as {
+            results: {
+              id: string;
+              direction: string;
+              from_address: string;
+              to_addresses: string[];
+              subject: string;
+              created_at: string;
+            }[];
+            count: number;
+          };
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, data);
+          } else {
+            const messages = data.results ?? [];
+            if (messages.length === 0) {
+              log.info("No email messages found.");
+            } else {
+              for (const msg of messages) {
+                const dir = msg.direction === "inbound" ? "←" : "→";
+                const to = Array.isArray(msg.to_addresses)
+                  ? msg.to_addresses.join(", ")
+                  : "";
+                const date = new Date(msg.created_at).toLocaleString();
+                log.info(
+                  `${dir} ${date}  ${msg.from_address} → ${to}  "${msg.subject || "(no subject)"}"`,
+                );
+              }
+              log.info(`\n${data.count} total message(s)`);
+            }
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { error: message });
+          } else {
+            log.error(`Error: ${message}`);
+          }
+          process.exitCode = 1;
+        }
+      },
+    );
 
   email
     .command("send <to>")
