@@ -3,6 +3,11 @@ import { z } from "zod";
 import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
+export type { PermissionMode } from "../permissions/permission-mode.js";
+export {
+  DEFAULT_PERMISSION_MODE,
+  PermissionModeSchema,
+} from "../permissions/permission-mode.js";
 export type { AcpAgentConfig, AcpConfig } from "./acp-schema.js";
 export { AcpAgentConfigSchema, AcpConfigSchema } from "./acp-schema.js";
 export type {
@@ -143,6 +148,7 @@ export type {
 export {
   PermissionsConfigSchema,
   SecretDetectionConfigSchema,
+  VALID_PERMISSIONS_MODES,
 } from "./schemas/security.js";
 export type {
   ImageGenerationService,

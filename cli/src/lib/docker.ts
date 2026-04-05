@@ -92,51 +92,60 @@ async function downloadAndExtract(
 }
 
 /**
- * Installs Docker CLI, Colima, and Lima by downloading pre-built binaries
- * directly into ~/.vellum/bin/. No Homebrew or sudo required.
- *
- * Falls back to Homebrew if available (e.g. admin users who prefer it).
+ * Installs Docker CLI (and Colima + Lima on macOS) by downloading pre-built
+ * binaries directly into ~/.local/bin/. No Homebrew or sudo required.
  */
 async function installDockerToolchain(): Promise<void> {
-  // Try Homebrew first if available — it handles updates and dependencies.
-  let hasBrew = false;
-  try {
-    await execOutput("brew", ["--version"]);
-    hasBrew = true;
-  } catch {
-    // brew not found
-  }
-
-  if (hasBrew) {
-    console.log("🐳 Docker not found. Installing via Homebrew...");
-    try {
-      await exec("brew", ["install", "colima", "docker"]);
-      return;
-    } catch {
-      console.log(
-        "  ⚠ Homebrew install failed, falling back to direct binary download...",
-      );
-    }
-  }
-
-  // Direct binary install — no sudo required.
-  console.log(
-    "🐳 Docker not found. Installing Docker, Colima, and Lima to ~/.local/bin/...",
-  );
+  const isMac = platform() === "darwin";
+  const isLinux = platform() === "linux";
 
   mkdirSync(LOCAL_BIN_DIR, { recursive: true });
 
   const cpuArch = releaseArch();
-  const isMac = platform() === "darwin";
+
+  if (isLinux) {
+    // On Linux, Docker runs natively — only need the Docker CLI.
+    console.log(
+      "🐳 Docker not found. Installing Docker CLI to ~/.local/bin/...",
+    );
+
+    const dockerArch = cpuArch === "aarch64" ? "aarch64" : "x86_64";
+    const dockerTarUrl = `https://download.docker.com/linux/static/stable/${dockerArch}/docker-27.5.1.tgz`;
+    const dockerTmpDir = join(LOCAL_BIN_DIR, ".docker-tmp");
+    mkdirSync(dockerTmpDir, { recursive: true });
+    try {
+      await downloadAndExtract(dockerTarUrl, dockerTmpDir, "Docker CLI");
+      await exec("mv", [
+        join(dockerTmpDir, "docker", "docker"),
+        join(LOCAL_BIN_DIR, "docker"),
+      ]);
+      chmodSync(join(LOCAL_BIN_DIR, "docker"), 0o755);
+    } finally {
+      await exec("rm", ["-rf", dockerTmpDir]).catch(() => {});
+    }
+
+    if (!existsSync(join(LOCAL_BIN_DIR, "docker"))) {
+      throw new Error(
+        "docker binary not found after installation. Please install Docker manually: https://docs.docker.com/engine/install/",
+      );
+    }
+
+    console.log("  ✅ Docker CLI installed to ~/.local/bin/");
+    return;
+  }
 
   if (!isMac) {
     throw new Error(
-      "Automatic Docker installation is only supported on macOS. " +
+      "Automatic Docker installation is only supported on macOS and Linux. " +
         "Please install Docker manually: https://docs.docker.com/engine/install/",
     );
   }
 
-  // --- Docker CLI ---
+  console.log(
+    "🐳 Docker not found. Installing Docker, Colima, and Lima to ~/.local/bin/...",
+  );
+
+  // --- Docker CLI (macOS) ---
   // Docker publishes static binaries at download.docker.com.
   const dockerArch = cpuArch === "aarch64" ? "aarch64" : "x86_64";
   const dockerTarUrl = `https://download.docker.com/mac/static/stable/${dockerArch}/docker-27.5.1.tgz`;
@@ -223,13 +232,17 @@ async function ensureDockerInstalled(): Promise<void> {
   // Always add ~/.local/bin to PATH so previously installed binaries are found.
   ensureLocalBinOnPath();
 
-  // Check that docker, colima, and limactl are all available. If any is
-  // missing (e.g. partial install from a previous failure), re-run install.
+  const isLinux = platform() === "linux";
+
+  // On Linux, Docker runs natively — only need the docker CLI + daemon.
+  // On macOS, we also need Colima and Lima to provide a Linux VM.
   const toolchainComplete = await (async () => {
     try {
       await execOutput("docker", ["--version"]);
-      await execOutput("colima", ["version"]);
-      await execOutput("limactl", ["--version"]);
+      if (!isLinux) {
+        await execOutput("colima", ["version"]);
+        await execOutput("limactl", ["--version"]);
+      }
       return true;
     } catch {
       return false;
@@ -251,10 +264,19 @@ async function ensureDockerInstalled(): Promise<void> {
     }
   }
 
-  // Verify the Docker daemon is reachable; start Colima if it isn't.
+  // Verify the Docker daemon is reachable.
   try {
     await exec("docker", ["info"]);
   } catch {
+    // On Linux, the daemon must already be running (systemd, etc.).
+    if (isLinux) {
+      throw new Error(
+        "Docker daemon is not running. Please start it with 'sudo systemctl start docker' " +
+          "or ensure the Docker service is enabled.",
+      );
+    }
+
+    // On macOS, try starting Colima.
     let hasColima = false;
     try {
       await execOutput("colima", ["version"]);
@@ -395,6 +417,15 @@ function walkUpForRepoRoot(startDir: string): string | undefined {
 }
 
 /**
+ * Returns `true` when the given root looks like a full source checkout
+ * (has assistant source code), as opposed to a packaged `.app` bundle
+ * that only contains the Dockerfiles.
+ */
+function hasFullSourceTree(root: string): boolean {
+  return existsSync(join(root, "assistant", "package.json"));
+}
+
+/**
  * Locate the repository root by walking up from `cli/src/lib/` until we
  * find a directory containing the expected Dockerfiles.
  */
@@ -412,6 +443,20 @@ function findRepoRoot(): string {
   const execRoot = walkUpForRepoRoot(dirname(process.execPath));
   if (execRoot) {
     return execRoot;
+  }
+
+  // Check the app bundle's Resources directory. Debug DMG builds bundle
+  // Dockerfiles at Contents/Resources/dockerfiles/{assistant,gateway,...}/Dockerfile.
+  // The CLI binary lives at Contents/MacOS/vellum-cli, so Resources is at
+  // ../Resources relative to the binary.
+  const bundledRoot = join(
+    dirname(process.execPath),
+    "..",
+    "Resources",
+    "dockerfiles",
+  );
+  if (existsSync(join(bundledRoot, "assistant", "Dockerfile"))) {
+    return bundledRoot;
   }
 
   // Walk up from cwd as a final fallback
@@ -691,11 +736,13 @@ export async function sleepContainers(
   }
 }
 
-/** Start existing stopped containers, starting Colima first if it isn't running. */
+/** Start existing stopped containers, starting Colima first if it isn't running (macOS only). */
 export async function wakeContainers(
   res: ReturnType<typeof dockerResourceNames>,
 ): Promise<void> {
-  await ensureColimaRunning();
+  if (platform() !== "linux") {
+    await ensureColimaRunning();
+  }
   for (const container of [
     res.assistantContainer,
     res.gatewayContainer,
@@ -969,8 +1016,23 @@ export async function hatchDocker(
     let repoRoot: string | undefined;
 
     if (watch) {
-      emitProgress(2, 6, "Building images...");
       repoRoot = findRepoRoot();
+
+      // When running from a packaged .app bundle, the Dockerfiles are
+      // present (so findRepoRoot succeeds) but the full source tree is
+      // not — we can't build images locally. Fall back to pulling
+      // pre-built images instead.
+      if (!hasFullSourceTree(repoRoot)) {
+        log(
+          "⚠️  Dockerfiles found but no source tree — falling back to image pull",
+        );
+        watch = false;
+        repoRoot = undefined;
+      }
+    }
+
+    if (watch && repoRoot) {
+      emitProgress(2, 6, "Building images...");
       const localTag = `local-${instanceName}`;
       imageTags.assistant = `vellum-assistant:${localTag}`;
       imageTags.gateway = `vellum-gateway:${localTag}`;
@@ -989,7 +1051,9 @@ export async function hatchDocker(
 
       await buildAllImages(repoRoot, imageTags, log);
       log("✅ Docker images built");
-    } else {
+    }
+
+    if (!watch || !repoRoot) {
       emitProgress(2, 6, "Pulling images...");
       const version = cliPkg.version;
       const versionTag = version ? `v${version}` : "latest";

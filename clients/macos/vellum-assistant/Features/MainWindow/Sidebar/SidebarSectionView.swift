@@ -174,12 +174,31 @@ struct SidebarSectionView: View {
                                 .transition(.opacity)
                         }
                     }
-                    .onDrop(of: [.plainText], delegate: GroupedReorderDropDelegate(
-                        targetConversation: conversation,
-                        groupId: group?.id,
-                        sidebar: sidebar,
-                        conversationManager: conversationManager
-                    ))
+                    .dropDestination(for: String.self) { items, _ in
+                        guard let droppedId = items.first,
+                              let sourceUUID = UUID(uuidString: droppedId),
+                              sourceUUID != conversation.id else {
+                            sidebar.endConversationDrag()
+                            return false
+                        }
+                        let insertAfter = sidebar.dropIndicatorAtBottom
+                        let moved = conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id, insertAfterTarget: insertAfter)
+                        sidebar.endConversationDrag()
+                        return moved
+                    } isTargeted: { isTargeted in
+                        if isTargeted && conversation.id != sidebar.draggingConversationId {
+                            sidebar.dropTargetConversationId = conversation.id
+                            if let dragId = sidebar.draggingConversationId {
+                                let groupConversations = conversationManager.groupedConversations
+                                    .first { $0.group?.id == group?.id }?.conversations ?? []
+                                let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
+                                let tIdx = groupConversations.firstIndex(where: { $0.id == conversation.id }) ?? 0
+                                sidebar.dropIndicatorAtBottom = sIdx < tIdx
+                            }
+                        } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
+                            sidebar.dropTargetConversationId = nil
+                        }
+                    }
             }
         } else {
             ForEach(displayed) { conversation in
@@ -394,58 +413,6 @@ struct SidebarSectionView: View {
             }
             return ScheduleSubGroup(key: key, label: label, conversations: conversations)
         }
-    }
-}
-
-/// Drop delegate for reordering conversations within a grouped section.
-/// Uses section-local index comparison for drop indicator direction.
-struct GroupedReorderDropDelegate: DropDelegate {
-    let targetConversation: ConversationModel
-    let groupId: String?
-    let sidebar: SidebarInteractionState
-    let conversationManager: ConversationManager
-
-    func validateDrop(info: DropInfo) -> Bool {
-        guard let dragId = sidebar.draggingConversationId,
-              dragId != targetConversation.id
-        else { return false }
-        return true
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        return DropProposal(operation: .move)
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard let dragId = sidebar.draggingConversationId,
-              dragId != targetConversation.id
-        else { return }
-
-        sidebar.dropTargetConversationId = targetConversation.id
-        let groupConversations = conversationManager.groupedConversations
-            .first { $0.group?.id == groupId }?.conversations ?? []
-        let sIdx = groupConversations.firstIndex(where: { $0.id == dragId })
-        let tIdx = groupConversations.firstIndex(where: { $0.id == targetConversation.id }) ?? 0
-        if let sIdx {
-            sidebar.dropIndicatorAtBottom = sIdx < tIdx
-        } else {
-            sidebar.dropIndicatorAtBottom = false
-        }
-    }
-
-    func dropExited(info: DropInfo) {
-        if sidebar.dropTargetConversationId == targetConversation.id {
-            sidebar.dropTargetConversationId = nil
-        }
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        let sourceId = sidebar.draggingConversationId
-        let insertAfter = sidebar.dropIndicatorAtBottom
-        sidebar.dropTargetConversationId = nil
-        sidebar.endConversationDrag()
-        guard let sourceId = sourceId, sourceId != targetConversation.id else { return false }
-        return conversationManager.moveConversation(sourceId: sourceId, targetId: targetConversation.id, insertAfterTarget: insertAfter)
     }
 }
 

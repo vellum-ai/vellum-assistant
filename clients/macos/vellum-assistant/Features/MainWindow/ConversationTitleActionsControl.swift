@@ -12,6 +12,7 @@ struct ConversationTitleActionsControl: View {
     let onArchive: () -> Void
     let onRename: () -> Void
     let onOpenForkParent: () -> Void
+    let onAnalyzeConversation: () -> Void
     @Binding var showDrawer: Bool
 
     var body: some View {
@@ -58,6 +59,7 @@ struct ConversationActionsDrawer: View {
     let onUnpin: () -> Void
     let onArchive: () -> Void
     let onRename: () -> Void
+    let onAnalyzeConversation: () -> Void
     var onOpenInNewWindow: (() -> Void)? = nil
 
     var body: some View {
@@ -68,6 +70,14 @@ struct ConversationActionsDrawer: View {
 
             if presentation.showsForkConversationAction && !presentation.isChannelConversation {
                 VMenuItem(icon: VIcon.gitBranch.rawValue, label: "Fork conversation", action: onForkConversation)
+            }
+
+            if !presentation.isChannelConversation && !presentation.isPrivateConversation {
+                VMenuItem(
+                    icon: VIcon.sparkles.rawValue,
+                    label: "Analyze conversation",
+                    action: onAnalyzeConversation
+                )
             }
 
             if let onOpenInNewWindow {

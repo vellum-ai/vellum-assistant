@@ -7,6 +7,7 @@
  */
 
 import { isHttpAuthDisabled } from "../config/env.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import {
@@ -192,6 +193,7 @@ export function createToolExecutor(
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
       hostFileProxy: ctx.hostFileProxy,
+      isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
@@ -445,11 +447,14 @@ export interface SkillProjectionContext {
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
+    clientOS?: string;
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
   /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
   subagentAllowedTools?: Set<string>;
+  /** True when this conversation belongs to a subagent spawned by SubagentManager. */
+  readonly isSubagent?: boolean;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -463,6 +468,16 @@ const HOST_TOOL_NAMES = new Set([
 ]);
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
+
+/**
+ * Tools that should only be visible to subagent conversations. Main (parent)
+ * conversations never see these in the LLM tool definitions. Subsequent PRs
+ * will populate this set; it starts empty so there is no behavioral change.
+ */
+export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
+  "file_list",
+  "notify_parent",
+]);
 
 /**
  * Determine whether a tool should be included in the LLM tool definitions
@@ -488,7 +503,12 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
-    return process.platform === "darwin" && !ctx.hasNoClient;
+    // Check the *client's* platform, not the daemon's process.platform.
+    // In Docker the daemon runs on Linux but the connected client may be macOS.
+    return ctx.channelCapabilities?.clientOS === "macos" && !ctx.hasNoClient;
+  }
+  if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
+    return ctx.isSubagent === true;
   }
   return true;
 }

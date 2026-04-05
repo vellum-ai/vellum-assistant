@@ -114,12 +114,12 @@ public struct GuardianDecisionBubble: View {
             // Activity text (primary description) — falls back to questionText
             if let activityText = decision.activityText, !activityText.isEmpty {
                 Text(activityText)
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text(decision.questionText)
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                     .fixedSize(horizontal: false, vertical: true)
             }

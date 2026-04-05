@@ -262,7 +262,7 @@ struct AppsGridView: View {
                 // Name + date below the image
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(app.name)
-                        .font(VFont.bodyLargeDefault)
+                        .font(VFont.bodyLargeEmphasised)
                         .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
 
@@ -343,7 +343,7 @@ struct AppsGridView: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     HStack(spacing: VSpacing.xs) {
                         Text(app.name)
-                            .font(VFont.bodyLargeDefault)
+                            .font(VFont.bodyLargeEmphasised)
                             .foregroundStyle(VColor.contentDefault)
                             .lineLimit(1)
 

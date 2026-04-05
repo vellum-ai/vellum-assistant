@@ -33,19 +33,30 @@ import {
 
 const log = getLogger("subagent-manager");
 
+/** How long to keep terminal subagent metadata after the live conversation is released (ms). */
+const TERMINAL_RETENTION_MS = 30 * 60 * 1000; // 30 minutes
+/** How often to sweep expired terminal entries (ms). */
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
 // ── Skill ID merge helper ──────────────────────────────────────────────
 
 /**
  * Merge role-defined skill IDs with caller-provided skill IDs, deduplicating.
  * Exported for direct unit testing.
  */
-export function mergeSkillIds(roleSkillIds: string[], configSkillIds?: string[]): string[] {
+export function mergeSkillIds(
+  roleSkillIds: string[],
+  configSkillIds?: string[],
+): string[] {
   return [...new Set([...roleSkillIds, ...(configSkillIds ?? [])])];
 }
 
 // ── Default subagent system prompt ──────────────────────────────────────
 
-function buildSubagentSystemPrompt(config: SubagentConfig, role: SubagentRole): string {
+function buildSubagentSystemPrompt(
+  config: SubagentConfig,
+  role: SubagentRole,
+): string {
   const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
   const sections: string[] = [
     roleConfig.systemPromptPreamble,
@@ -69,10 +80,23 @@ function buildSubagentSystemPrompt(config: SubagentConfig, role: SubagentRole): 
 // ── Manager ─────────────────────────────────────────────────────────────
 
 interface ManagedSubagent {
-  conversation: Conversation;
+  /** Live conversation — null after the subagent reaches a terminal state and is released. */
+  conversation: Conversation | null;
   state: SubagentState;
   /** Mutable reference to the parent's current sendToClient. Updated on reconnect. */
   parentSendToClient: (msg: ServerMessage) => void;
+  /** Epoch ms after which this terminal entry can be removed by the TTL sweep. */
+  retainedUntil?: number;
+  /**
+   * Set to true when sendMessage enqueues a follow-up message while the
+   * initial objective loop is running.  runAgentLoop fires drainQueue without
+   * awaiting it, and drainQueue shift()s the item synchronously — so both
+   * hasQueuedMessages() and isProcessing() can return false while the drain
+   * is still active.  This flag lets the finally block in runSubagent defer
+   * the release to the TTL sweep rather than tearing down the conversation
+   * mid-drain.
+   */
+  hadEnqueuedMessages?: boolean;
 }
 
 export interface SubagentNotificationInfo {
@@ -143,7 +167,9 @@ export class SubagentManager {
     // ── Resolve role ─────────────────────────────────────────────────
     const role: SubagentRole = (config.role as SubagentRole) ?? "general";
     if (!SUBAGENT_ROLE_REGISTRY[role]) {
-      throw new Error(`Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`);
+      throw new Error(
+        `Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`,
+      );
     }
     const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
 
@@ -151,6 +177,7 @@ export class SubagentManager {
     const subagentId = uuid();
     const conversationRecord = bootstrapConversation({
       conversationType: "background",
+      source: "subagent",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
     });
@@ -226,6 +253,7 @@ export class SubagentManager {
     // Mark conversation as having no direct client — it routes through parent.
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
+    conversation.setIsSubagent(true);
 
     // Apply role-based tool filter if the role defines one.
     if (roleConfig.allowedTools) {
@@ -233,7 +261,10 @@ export class SubagentManager {
     }
 
     // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
-    const mergedSkillIds = mergeSkillIds(roleConfig.skillIds, config.preactivatedSkillIds);
+    const mergedSkillIds = mergeSkillIds(
+      roleConfig.skillIds,
+      config.preactivatedSkillIds,
+    );
     if (mergedSkillIds.length > 0) {
       conversation.setPreactivatedSkillIds(mergedSkillIds);
     }
@@ -295,25 +326,26 @@ export class SubagentManager {
     const managed = this.subagents.get(subagentId);
     if (!managed) return;
 
+    // Capture the live conversation — it is non-null at this point because
+    // spawn() sets it before firing runSubagent.
+    const conversation = managed.conversation!;
+
     // Read the current parent sender so reconnects are picked up.
     const getSender = () => managed.parentSendToClient;
 
     this.setStatus(subagentId, "running", getSender());
     managed.state.startedAt = Date.now();
 
-    const onEvent = managed.conversation.sendToClient;
+    const onEvent = conversation.sendToClient;
 
     try {
       // Send the objective as the first user message and process it.
-      const messageId = await managed.conversation.persistUserMessage(
-        objective,
-        [],
-      );
-      await managed.conversation.runAgentLoop(objective, messageId, onEvent);
+      const messageId = await conversation.persistUserMessage(objective, []);
+      await conversation.runAgentLoop(objective, messageId, onEvent);
 
       // Agent loop completed successfully.
       // Copy usage stats from the conversation before sending status (which includes usage).
-      managed.state.usage = { ...managed.conversation.usageStats };
+      managed.state.usage = { ...conversation.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.state.completedAt = Date.now();
@@ -328,7 +360,9 @@ export class SubagentManager {
       const errorMsg = err instanceof Error ? err.message : String(err);
       managed.state.error = errorMsg;
       managed.state.completedAt = Date.now();
-      managed.state.usage = { ...managed.conversation.usageStats };
+      // Copy usage from the captured conversation reference — managed.conversation
+      // may have been nulled by an external dispose() before catch runs.
+      managed.state.usage = { ...conversation.usageStats };
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -337,6 +371,23 @@ export class SubagentManager {
       }
 
       log.error({ subagentId, err }, "Subagent failed");
+    } finally {
+      // Release the heavyweight Conversation — output is already persisted in DB.
+      // runAgentLoop fires drainQueue without awaiting it, and drainQueue shift()s
+      // the next item synchronously — so both hasQueuedMessages() and
+      // isProcessing() can return false while a drain is still active.  Use the
+      // hadEnqueuedMessages flag (set in sendMessage) to detect this case and
+      // defer the release to the TTL sweep rather than tearing down mid-drain.
+      if (managed.hadEnqueuedMessages) {
+        log.debug(
+          { subagentId },
+          "Deferring conversation release — messages were enqueued during run",
+        );
+        managed.retainedUntil = Date.now() + TERMINAL_RETENTION_MS;
+        this.ensureSweepRunning();
+      } else {
+        this.releaseConversation(managed);
+      }
     }
   }
 
@@ -367,7 +418,7 @@ export class SubagentManager {
       return false;
     }
 
-    managed.conversation.abort();
+    managed.conversation?.abort();
     managed.state.completedAt = Date.now();
     if (parentSendToClient) {
       // Route the status update through the stored parent sender so the
@@ -448,7 +499,8 @@ export class SubagentManager {
 
     const managed = this.subagents.get(subagentId);
     if (!managed) return "not_found";
-    if (TERMINAL_STATUSES.has(managed.state.status)) return "terminal";
+    if (TERMINAL_STATUSES.has(managed.state.status) || !managed.conversation)
+      return "terminal";
 
     const onEvent = managed.conversation.sendToClient;
     const requestId = uuid();
@@ -463,13 +515,15 @@ export class SubagentManager {
     if (result.rejected) {
       return "sent"; // error event already delivered via onEvent
     }
+    if (result.queued) {
+      managed.hadEnqueuedMessages = true;
+    }
     if (!result.queued) {
-      // Conversation is idle — send directly.  Fire-and-forget so we don't block.
-      const messageId = await managed.conversation.persistUserMessage(
-        trimmed,
-        [],
-      );
-      managed.conversation
+      // Capture conversation before the await — managed.conversation may be
+      // nulled by an external dispose() while persistUserMessage is awaited.
+      const conversation = managed.conversation;
+      const messageId = await conversation.persistUserMessage(trimmed, []);
+      conversation
         .runAgentLoop(trimmed, messageId, onEvent)
         .catch((err) => {
           log.error({ subagentId, err }, "Subagent message processing failed");
@@ -530,6 +584,24 @@ export class SubagentManager {
   // ── Cleanup ───────────────────────────────────────────────────────────
 
   /**
+   * Release the live Conversation from a terminal subagent, keeping only
+   * lightweight metadata (state, config, usage) for later queries.
+   * The conversation's output is already persisted in the database.
+   */
+  private releaseConversation(managed: ManagedSubagent): void {
+    if (!managed.conversation) return;
+    managed.conversation.dispose();
+    managed.conversation = null;
+    managed.retainedUntil = Date.now() + TERMINAL_RETENTION_MS;
+    this.ensureSweepRunning();
+
+    log.debug(
+      { subagentId: managed.state.config.id },
+      "Released live conversation for terminal subagent",
+    );
+  }
+
+  /**
    * Dispose a subagent and remove it from tracking.
    * Should be called after the subagent reaches a terminal state
    * and its data is no longer needed.
@@ -538,10 +610,13 @@ export class SubagentManager {
     const managed = this.subagents.get(subagentId);
     if (!managed) return;
 
-    if (!TERMINAL_STATUSES.has(managed.state.status)) {
-      managed.conversation.abort();
+    if (managed.conversation) {
+      if (!TERMINAL_STATUSES.has(managed.state.status)) {
+        managed.conversation.abort();
+      }
+      managed.conversation.dispose();
+      managed.conversation = null;
     }
-    managed.conversation.dispose();
     this.subagents.delete(subagentId);
 
     // Remove from label index only if it still maps to this subagent
@@ -566,8 +641,68 @@ export class SubagentManager {
 
   /** Dispose all subagents. Called on daemon shutdown. */
   disposeAll(): void {
+    this.stopSweep();
     for (const id of [...this.subagents.keys()]) {
       this.dispose(id);
+    }
+  }
+
+  // ── TTL sweep for terminal metadata ──────────────────────────────────
+
+  private sweepTimer?: ReturnType<typeof setInterval>;
+
+  private ensureSweepRunning(): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(
+      () => this.sweepTerminal(),
+      SWEEP_INTERVAL_MS,
+    );
+    // Don't let the sweep timer keep the process alive.
+    if (
+      this.sweepTimer &&
+      typeof this.sweepTimer === "object" &&
+      "unref" in this.sweepTimer
+    ) {
+      (this.sweepTimer as { unref: () => void }).unref();
+    }
+  }
+
+  private stopSweep(): void {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = undefined;
+    }
+  }
+
+  /** Remove terminal entries whose retention period has expired. */
+  private sweepTerminal(): void {
+    const now = Date.now();
+    const expired: string[] = [];
+    for (const [id, managed] of this.subagents) {
+      if (!managed.retainedUntil || now < managed.retainedUntil) continue;
+      // If the retention window has expired and the conversation is still live,
+      // release it now — the drain has had ample time to complete.
+      if (managed.conversation) {
+        this.releaseConversation(managed);
+        // releaseConversation resets retainedUntil to keep metadata around for
+        // another window; the entry will be swept on the next pass.
+        continue;
+      }
+      expired.push(id);
+    }
+    for (const id of expired) {
+      log.debug(
+        { subagentId: id },
+        "Sweeping expired terminal subagent metadata",
+      );
+      this.dispose(id);
+    }
+    // Stop the timer if there are no more entries to sweep.
+    const hasTerminal = [...this.subagents.values()].some(
+      (s) => s.retainedUntil !== undefined,
+    );
+    if (!hasTerminal) {
+      this.stopSweep();
     }
   }
 

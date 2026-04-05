@@ -18,6 +18,9 @@ let mockConfig = {
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
 }));
 
 // Mock conversation store
@@ -73,9 +76,8 @@ mock.module("../memory/conversation-title-service.js", () => ({
 }));
 
 // Import after mocks are set up
-const { HeartbeatService, isShallowProfile } = await import(
-  "../heartbeat/heartbeat-service.js"
-);
+const { HeartbeatService, isShallowProfile } =
+  await import("../heartbeat/heartbeat-service.js");
 
 // Read the bundled template files so we can write them into the test workspace
 const templatesDir = join(import.meta.dirname!, "..", "prompts", "templates");
@@ -242,6 +244,24 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls).toHaveLength(0);
   });
 
+  test("active hours skip still advances nextRunAt", async () => {
+    mockConfig.heartbeat.activeHoursStart = 9;
+    mockConfig.heartbeat.activeHoursEnd = 17;
+
+    const service = createService({ getCurrentHour: () => 3 });
+    service.start();
+
+    const before = Date.now();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(0);
+    expect(service.nextRunAt).not.toBeNull();
+    expect(service.nextRunAt!).toBeGreaterThanOrEqual(
+      before + mockConfig.heartbeat.intervalMs,
+    );
+    service.stop();
+  });
+
   test("active hours guard allows within window", async () => {
     mockConfig.heartbeat.activeHoursStart = 9;
     mockConfig.heartbeat.activeHoursEnd = 17;
@@ -374,6 +394,22 @@ describe("HeartbeatService", () => {
     expect(alerterCalls[0].body).toBe("LLM timeout");
   });
 
+  test("successful run updates lastRunAt and nextRunAt", async () => {
+    const service = createService();
+    expect(service.lastRunAt).toBeNull();
+    expect(service.nextRunAt).toBeNull();
+
+    const before = Date.now();
+    await service.runOnce();
+
+    expect(service.lastRunAt).not.toBeNull();
+    expect(service.lastRunAt!).toBeGreaterThanOrEqual(before);
+    expect(service.nextRunAt).not.toBeNull();
+    expect(service.nextRunAt!).toBeGreaterThanOrEqual(
+      before + mockConfig.heartbeat.intervalMs,
+    );
+  });
+
   test("alerts on conversation creation failure", async () => {
     // Override createConversation to throw via a fresh import trick:
     // Since createConversation is mocked at module level, we simulate
@@ -496,7 +532,8 @@ describe("HeartbeatService", () => {
       writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
 
       const service = createService();
-      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } =
+        service.buildPrompt("- Check things");
 
       expect(prompt).toContain("<relationship-depth>");
       expect(prompt).toContain("profile is still sparse");
@@ -511,7 +548,8 @@ describe("HeartbeatService", () => {
       writeFileSync(join(testWorkspaceDir, "USER.md"), USER_TEMPLATE);
 
       const service = createService();
-      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } =
+        service.buildPrompt("- Check things");
 
       expect(prompt).not.toContain("<relationship-depth>");
       expect(includedReengagement).toBe(false);
@@ -527,7 +565,8 @@ describe("HeartbeatService", () => {
       );
 
       const service = createService();
-      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } =
+        service.buildPrompt("- Check things");
 
       expect(prompt).not.toContain("<relationship-depth>");
       expect(includedReengagement).toBe(false);
@@ -544,7 +583,8 @@ describe("HeartbeatService", () => {
       );
 
       const service = createService();
-      const { prompt, includedReengagement } = service.buildPrompt("- Check things");
+      const { prompt, includedReengagement } =
+        service.buildPrompt("- Check things");
 
       expect(prompt).toContain("<relationship-depth>");
       expect(includedReengagement).toBe(true);

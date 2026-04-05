@@ -2072,7 +2072,8 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
 // ---------------------------------------------------------------------------
 
 // Import the real buildSanitizedEnv (not mocked) for baseline credential tests
-const { buildSanitizedEnv } = await import("../tools/terminal/safe-env.js");
+const { buildSanitizedEnv, SAFE_ENV_VARS, ALWAYS_INJECTED_ENV_VARS } =
+  await import("../tools/terminal/safe-env.js");
 
 describe("buildSanitizedEnv — baseline: credential exclusion", () => {
   // Credential-like env vars that must never appear in the sanitized env.
@@ -2130,33 +2131,10 @@ describe("buildSanitizedEnv — baseline: credential exclusion", () => {
   });
 
   test("sanitized env only contains keys from the allowlist", () => {
-    const SAFE_ENV_VARS = [
-      "PATH",
-      "HOME",
-      "TERM",
-      "LANG",
-      "EDITOR",
-      "SHELL",
-      "USER",
-      "TMPDIR",
-      "LC_ALL",
-      "LC_CTYPE",
-      "XDG_RUNTIME_DIR",
-      "DISPLAY",
-      "COLORTERM",
-      "TERM_PROGRAM",
-      "SSH_AUTH_SOCK",
-      "SSH_AGENT_PID",
-      "GPG_TTY",
-      "GNUPGHOME",
-      "INTERNAL_GATEWAY_BASE_URL",
-      "VELLUM_DATA_DIR",
-      "VELLUM_WORKSPACE_DIR",
-    ];
-
+    const allowed: string[] = [...SAFE_ENV_VARS, ...ALWAYS_INJECTED_ENV_VARS];
     const env = buildSanitizedEnv();
     for (const key of Object.keys(env)) {
-      expect(SAFE_ENV_VARS).toContain(key);
+      expect(allowed).toContain(key);
     }
   });
 });

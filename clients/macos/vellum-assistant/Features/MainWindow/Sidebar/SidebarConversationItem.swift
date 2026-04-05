@@ -20,6 +20,7 @@ struct SidebarConversationItem: View, Equatable {
     var onStartRename: () -> Void
     var onMarkUnread: () -> Void
     var onDragStart: () -> Void
+    var onAnalyze: (() -> Void)?
     var onOpenInNewWindow: (() -> Void)?
     var onShowFeedback: (() -> Void)?
     /// Available groups for the "Move to" submenu. Excludes the conversation's current group.
@@ -76,6 +77,12 @@ struct SidebarConversationItem: View, Equatable {
                 onMarkUnread()
             }
             .disabled(!canMarkUnread)
+        }
+
+        if !conversation.isChannelConversation && conversation.kind != .private, let onAnalyze {
+            VMenuItem(icon: VIcon.sparkles.rawValue, label: "Analyze") {
+                onAnalyze()
+            }
         }
 
         if !moveToGroups.isEmpty, let onMoveToGroup {

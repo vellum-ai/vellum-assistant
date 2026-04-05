@@ -126,11 +126,11 @@ export function seedSkillGraphNodes(): void {
 
     pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
 
-    // Clean up old-format nodes created by the legacy skill-memory.ts system.
-    // Those nodes have content like "skill:{id}\n..." instead of the current
-    // 'The "..." skill ...' format. Mark them as gone so they stop appearing
-    // as duplicates. Idempotent — once cleaned, subsequent runs find nothing.
-    cleanupOldFormatSkillNodes();
+    // Clean up old-format capability nodes (skill:* and cli:*) that use the
+    // legacy "{prefix}:{id}\n..." content format. Mark them as gone so they
+    // stop appearing as duplicates. Idempotent — once cleaned, subsequent
+    // runs find nothing.
+    cleanupOldFormatCapabilityNodes();
   } catch (err) {
     log.warn({ err }, "Failed to seed skill graph nodes");
   }
@@ -270,7 +270,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     },
     fidelity: "vivid" as const,
     confidence: 1.0,
-    significance: 0.3,
+    significance: 0.6,
     stability: 1000, // Effectively permanent — never decays
     reinforcementCount: 0,
     lastReinforced: now,
@@ -307,19 +307,26 @@ function deleteCapabilityNode(sourceKey: string): void {
       .set({ fidelity: "gone", lastAccessed: Date.now() })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: existing.id,
+    });
   }
 }
 
 /**
- * Find and soft-delete old-format skill memory nodes.
+ * Find and soft-delete old-format capability memory nodes (skill:* and cli:*).
  *
- * The legacy skill-memory.ts system stored content as "skill:{id}\n{statement}".
- * The current system uses "The "..." skill ..." prose format. This marks any
- * remaining old-format nodes as gone so they no longer surface in retrieval.
+ * The legacy system stored content as "skill:{id}\n{statement}" or
+ * "cli:{command}\n{statement}". The current system uses prose format.
+ * This marks any remaining old-format nodes as gone so they no longer
+ * surface in retrieval.
  */
-function cleanupOldFormatSkillNodes(): void {
+function cleanupOldFormatCapabilityNodes(): void {
   const db = getDb();
+  const now = Date.now();
 
+  // --- skill:* old-format nodes ---
   const oldFormatNodes = db
     .select()
     .from(memoryGraphNodes)
@@ -333,7 +340,6 @@ function cleanupOldFormatSkillNodes(): void {
     )
     .all();
 
-  const now = Date.now();
   for (const node of oldFormatNodes) {
     // Verify this is truly old-format: "skill:{id}\n..."
     if (!/^skill:\S+\n/.test(node.content)) continue;
@@ -342,7 +348,38 @@ function cleanupOldFormatSkillNodes(): void {
       .set({ fidelity: "gone", lastAccessed: now })
       .where(eq(memoryGraphNodes.id, node.id))
       .run();
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: node.id,
+    });
     log.info({ nodeId: node.id }, "Cleaned up old-format skill memory node");
+  }
+
+  // --- cli:* old-format nodes ---
+  const oldCliNodes = db
+    .select()
+    .from(memoryGraphNodes)
+    .where(
+      and(
+        eq(memoryGraphNodes.type, "procedural"),
+        eq(memoryGraphNodes.scopeId, "default"),
+        sql`${memoryGraphNodes.fidelity} != 'gone'`,
+        sql`${memoryGraphNodes.content} LIKE 'cli:%'`,
+      ),
+    )
+    .all();
+
+  for (const node of oldCliNodes) {
+    if (!/^cli:\S+\n/.test(node.content)) continue;
+    db.update(memoryGraphNodes)
+      .set({ fidelity: "gone", lastAccessed: now })
+      .where(eq(memoryGraphNodes.id, node.id))
+      .run();
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: node.id,
+    });
+    log.info({ nodeId: node.id }, "Cleaned up old-format CLI memory node");
   }
 }
 
@@ -379,6 +416,10 @@ function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
           .set({ fidelity: "gone", lastAccessed: now })
           .where(eq(memoryGraphNodes.id, row.id))
           .run();
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "graph_node",
+          targetId: row.id,
+        });
       }
     } catch {
       // Skip malformed JSON

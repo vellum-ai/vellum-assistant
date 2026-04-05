@@ -1034,12 +1034,16 @@ export async function retrieveForTurn(
   // 5. Hydrate and score
   const nodes = getNodesByIds(newCandidateIds);
   const scored: ScoredNode[] = [];
+  const capabilityCandidates: { node: MemoryNode; sim: number }[] = [];
 
   for (const node of nodes) {
     if (node.fidelity === "gone") continue;
     // Capability nodes (auto-seeded skills/CLI) are excluded from the general
     // scoring pool — they compete in the dedicated procedural reserve below.
-    if (isCapabilityNode(node)) continue;
+    if (isCapabilityNode(node)) {
+      capabilityCandidates.push({ node, sim: allCandidateIds.get(node.id) ?? 0 });
+      continue;
+    }
 
     const semanticSim = allCandidateIds.get(node.id) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);
@@ -1066,32 +1070,18 @@ export async function retrieveForTurn(
     );
   }
 
-  // 5b. Reserve slots for procedural memories (how-to knowledge + capabilities).
-  // Queried from SQLite — no additional Qdrant call — then ranked by the
-  // semantic similarity scores already computed from vector search.
+  // 5b. Reserve slots for capability nodes (skills/CLI).
+  // Sourced from vector search candidates — only semantically relevant
+  // capabilities compete for reserved slots.
   const PROCEDURAL_RESERVE = 3;
-  const rawProceduralNodes = queryNodes({
-    scopeId: opts.scopeId,
-    types: ["procedural"],
-    fidelityNot: ["gone"],
-    limit: PROCEDURAL_RESERVE * 4,
-  });
 
-  const proceduralCandidates = rawProceduralNodes.filter(
-    (node) => !opts.tracker.isInContext(node.id),
-  );
-
-  // Rank by similarity first, then dedup capability nodes by capability ID
-  // so we keep the highest-similarity node per capId rather than an arbitrary
-  // first-seen node that might fail PROCEDURAL_SIM_FLOOR.
-  const rankedProceduralAll = proceduralCandidates
-    .map((node) => ({ node, sim: allCandidateIds.get(node.id) ?? 0 }))
+  const proceduralCandidates = capabilityCandidates
+    .filter(({ node }) => !opts.tracker.isInContext(node.id))
     .sort((a, b) => b.sim - a.sim);
 
   const seenProcCapIds = new Set<string>();
-  const rankedProcedural = rankedProceduralAll
+  const rankedProcedural = proceduralCandidates
     .filter(({ node }) => {
-      if (!isCapabilityNode(node)) return true; // organic procedural — keep
       const match = node.content.match(
         /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
       );

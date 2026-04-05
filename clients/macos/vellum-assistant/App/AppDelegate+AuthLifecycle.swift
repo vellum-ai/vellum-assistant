@@ -550,9 +550,17 @@ extension AppDelegate {
         // that depend on connectedAssistantId).
         featureFlagStore.reloadFromDisk()
 
-        // Reload avatar for the new assistant (customAvatarURL now resolves
-        // to the new assistant's path after connectedAssistantId was updated).
-        AvatarAppearanceManager.shared.reloadAvatar()
+        // Reload avatar for the new assistant via the gateway.
+        // Skip the reload when onboarding avatar traits are pending — the async
+        // fetchTraitsViaHTTP inside reloadAvatar would find no traits on the
+        // freshly-hatched assistant and clear the locally-saved character avatar.
+        // syncOnboardingAvatarIfNeeded saves locally first, then syncs to the
+        // assistant, which triggers its own reloadAvatar on success.
+        if onboardingState?.hatchAvatarBodyShape != nil {
+            syncOnboardingAvatarIfNeeded()
+        } else {
+            AvatarAppearanceManager.shared.reloadAvatar()
+        }
 
         showMainWindow()
     }

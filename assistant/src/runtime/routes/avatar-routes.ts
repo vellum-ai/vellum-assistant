@@ -1,5 +1,3 @@
-import { join } from "node:path";
-
 import { z } from "zod";
 
 import { getCharacterComponents } from "../../avatar/character-components.js";
@@ -8,7 +6,7 @@ import {
   writeTraitsAndRenderAvatar,
 } from "../../avatar/traits-png-sync.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getAvatarImagePath } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -18,12 +16,7 @@ import type { RouteDefinition } from "../http-router.js";
 const log = getLogger("avatar-routes");
 
 function publishAvatarUpdated(): void {
-  const avatarPath = join(
-    getWorkspaceDir(),
-    "data",
-    "avatar",
-    "avatar-image.png",
-  );
+  const avatarPath = getAvatarImagePath();
   assistantEventHub
     .publish(
       buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {

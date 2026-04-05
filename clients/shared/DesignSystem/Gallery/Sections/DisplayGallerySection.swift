@@ -37,7 +37,7 @@ struct DisplayGallerySection: View {
                             .frame(width: 40, height: 40)
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
                             Text("Tappable Card")
-                                .font(VFont.bodyMediumDefault)
+                                .font(VFont.bodyMediumEmphasised)
                                 .foregroundStyle(VColor.contentDefault)
                             Text("Pass an action to VCard for hover highlight and tap behavior.")
                                 .font(VFont.labelDefault)
@@ -55,7 +55,7 @@ struct DisplayGallerySection: View {
                                 .frame(width: 40, height: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Memory Item")
-                                    .font(VFont.bodyMediumDefault)
+                                    .font(VFont.bodyMediumEmphasised)
                                     .foregroundStyle(VColor.contentDefault)
                                 Text("A remembered fact about the user.")
                                     .font(VFont.bodyMediumLighter)
@@ -72,7 +72,7 @@ struct DisplayGallerySection: View {
                                 .frame(width: 40, height: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Document")
-                                    .font(VFont.bodyMediumDefault)
+                                    .font(VFont.bodyMediumEmphasised)
                                     .foregroundStyle(VColor.contentDefault)
                                 Text("An uploaded reference document.")
                                     .font(VFont.bodyMediumLighter)

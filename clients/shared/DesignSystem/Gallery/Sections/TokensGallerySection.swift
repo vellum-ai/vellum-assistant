@@ -85,7 +85,7 @@ struct TokensGallerySection: View {
                 // MARK: - VFont
                 GallerySectionHeader(
                     title: "VFont",
-                    description: "Inter type scale. Each cell renders its own font token."
+                    description: "DM Sans type scale. Each cell renders its own font token."
                 )
 
                 // Type matrix (matches Figma node 2193-4447)
@@ -108,9 +108,9 @@ struct TokensGallerySection: View {
                         typeMatrixRow(group: "", size: "16", regular: nil, medium: ("Title/Small", VFont.titleSmall), semiBold: nil)
                         typeMatrixDivider()
 
-                        typeMatrixRow(group: "BODY", size: "16", regular: ("Body/Large Lighter", VFont.bodyLargeLighter), medium: ("Body/Large Default", VFont.bodyLargeDefault), semiBold: nil)
+                        typeMatrixRow(group: "BODY", size: "16", regular: ("Body/Lighter", VFont.bodyLargeLighter), medium: ("Body/Large Default", VFont.bodyLargeDefault), semiBold: ("Body/Large Emphasised", VFont.bodyLargeEmphasised))
                         typeMatrixDivider()
-                        typeMatrixRow(group: "", size: "14", regular: ("Body/Medium Lighter", VFont.bodyMediumLighter), medium: ("Body/Medium Default", VFont.bodyMediumDefault), semiBold: nil)
+                        typeMatrixRow(group: "", size: "14", regular: ("Body/Lighter", VFont.bodyMediumLighter), medium: ("Body/Medium Default", VFont.bodyMediumDefault), semiBold: ("Body/Medium Emphasised", VFont.bodyMediumEmphasised))
                         typeMatrixDivider()
                         typeMatrixRow(group: "", size: "12", regular: nil, medium: ("Body/Small Default", VFont.bodySmallDefault), semiBold: ("Body/Small Emphasised", VFont.bodySmallEmphasised))
                         typeMatrixDivider()
@@ -120,7 +120,7 @@ struct TokensGallerySection: View {
                         typeMatrixRow(group: "", size: "10", regular: nil, medium: ("Label/Small", VFont.labelSmall), semiBold: nil)
                         typeMatrixDivider()
 
-                        typeMatrixRow(group: "CHAT", size: "16", regular: ("Chat", VFont.chat), medium: nil, semiBold: nil)
+                        typeMatrixRow(group: "CHAT", size: "16", regular: nil, medium: ("Chat", VFont.chat), semiBold: nil)
                     }
                 }
 
@@ -141,13 +141,15 @@ struct TokensGallerySection: View {
                             ("titleSmall", "Medium 16", "Card titles, subheadings", VFont.titleSmall),
                             ("bodyLargeLighter", "Regular 16", "Secondary body text", VFont.bodyLargeLighter),
                             ("bodyLargeDefault", "Medium 16", "Primary body text", VFont.bodyLargeDefault),
+                            ("bodyLargeEmphasised", "SemiBold 16", "Emphasized body text", VFont.bodyLargeEmphasised),
                             ("bodyMediumLighter", "Regular 14", "Secondary UI text", VFont.bodyMediumLighter),
                             ("bodyMediumDefault", "Medium 14", "Default UI text", VFont.bodyMediumDefault),
+                            ("bodyMediumEmphasised", "SemiBold 14", "Emphasized UI text", VFont.bodyMediumEmphasised),
                             ("bodySmallDefault", "Medium 12", "Captions, metadata", VFont.bodySmallDefault),
                             ("bodySmallEmphasised", "SemiBold 12", "Tags, badges", VFont.bodySmallEmphasised),
                             ("labelDefault", "Medium 11", "Form labels, tooltips", VFont.labelDefault),
                             ("labelSmall", "Medium 10", "Fine print, timestamps", VFont.labelSmall),
-                            ("chat", "Regular 16 (24px line)", "Chat message text", VFont.chat),
+                            ("chat", "Medium 16 (24px line)", "Chat message text", VFont.chat),
                         ]
 
                         ForEach(tokens, id: \.0) { name, spec, usage, font in

@@ -151,33 +151,6 @@
       },
       "executor": "tools/subagent-read.ts",
       "execution_target": "host"
-    },
-    {
-      "name": "notify_parent",
-      "description": "Send a notification to the parent conversation. Use this for important findings, when you're blocked, or when you have preliminary results the parent should know about. Do not overuse — notify for significant findings, not after every tool call.",
-      "category": "orchestration",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string",
-            "description": "The notification content for the parent."
-          },
-          "urgency": {
-            "type": "string",
-            "enum": ["info", "important", "blocked"],
-            "description": "'info' for progress updates, 'important' for key findings, 'blocked' when you need guidance."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["message"]
-      },
-      "executor": "tools/subagent-notify-parent.ts",
-      "execution_target": "host"
     }
   ]
 }

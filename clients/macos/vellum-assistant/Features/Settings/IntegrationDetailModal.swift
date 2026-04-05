@@ -260,7 +260,7 @@ struct IntegrationDetailModal: View {
     private var managedConnectionsList: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Connected Accounts")
-                .font(VFont.bodyMediumDefault)
+                .font(VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
 
             ForEach(connections, id: \.id) { entry in

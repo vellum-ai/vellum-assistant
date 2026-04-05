@@ -8,6 +8,7 @@ export type FsErrorCode =
   | "PATH_NOT_ABSOLUTE"
   | "NOT_FOUND"
   | "NOT_A_FILE"
+  | "NOT_A_DIRECTORY"
   | "SIZE_LIMIT_EXCEEDED"
   | "MATCH_NOT_FOUND"
   | "MATCH_AMBIGUOUS"
@@ -54,6 +55,10 @@ export function notFound(path: string): FsError {
 
 export function notAFile(path: string): FsError {
   return { code: "NOT_A_FILE", message: `Not a regular file: ${path}`, path };
+}
+
+export function notADirectory(path: string): FsError {
+  return { code: "NOT_A_DIRECTORY", message: `Not a directory: ${path}`, path };
 }
 
 export function sizeLimitExceeded(path: string, detail: string): FsError {

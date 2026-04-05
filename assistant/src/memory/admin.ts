@@ -7,14 +7,20 @@ import { getConversationMemoryScopeId } from "./conversation-crud.js";
 import { getDb, rawGet } from "./db.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
 import { handleRecall, type RecallResult } from "./graph/tool-handlers.js";
-import { enqueueBackfillJob, enqueueRebuildIndexJob, MIN_SEGMENT_CHARS } from "./indexer.js";
 import {
-  enqueueMemoryJob,
-  getMemoryJobCounts,
-} from "./jobs-store.js";
+  enqueueBackfillJob,
+  enqueueRebuildIndexJob,
+  MIN_SEGMENT_CHARS,
+} from "./indexer.js";
+import { enqueueMemoryJob, getMemoryJobCounts } from "./jobs-store.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
-import { conversations, memorySegments, memorySummaries, messages } from "./schema.js";
+import {
+  conversations,
+  memorySegments,
+  memorySummaries,
+  messages,
+} from "./schema.js";
 
 const log = getLogger("memory-admin");
 
@@ -90,9 +96,9 @@ export interface CleanupShortSegmentsResult {
  * These short fragments waste embedding budget, retrieval slots, and
  * injection tokens.
  */
-export async function cleanupShortSegments(
-  opts?: { dryRun?: boolean },
-): Promise<CleanupShortSegmentsResult> {
+export async function cleanupShortSegments(opts?: {
+  dryRun?: boolean;
+}): Promise<CleanupShortSegmentsResult> {
   const db = getDb();
 
   const shortSegments = db
@@ -113,18 +119,22 @@ export async function cleanupShortSegments(
       await withQdrantBreaker(() => qdrant.deleteByTarget("segment", row.id));
     } catch (err) {
       // Keep the SQLite row so the target ID is preserved for retry
-      log.warn({ segmentId: row.id, err }, "Qdrant deletion failed — skipping SQLite deletion to preserve target ID");
+      log.warn(
+        { segmentId: row.id, err },
+        "Qdrant deletion failed — skipping SQLite deletion to preserve target ID",
+      );
       failed++;
       continue;
     }
 
-    db.delete(memorySegments)
-      .where(eq(memorySegments.id, row.id))
-      .run();
+    db.delete(memorySegments).where(eq(memorySegments.id, row.id)).run();
     removed++;
   }
 
-  log.info({ removed, failed, threshold: MIN_SEGMENT_CHARS }, "Cleaned up short segments");
+  log.info(
+    { removed, failed, threshold: MIN_SEGMENT_CHARS },
+    "Cleaned up short segments",
+  );
   return { removed, failed };
 }
 
@@ -156,7 +166,7 @@ export function findReextractTargets(limit: number): ReextractTarget[] {
     .from(conversations)
     .leftJoin(messages, eq(messages.conversationId, conversations.id))
     .where(
-      sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+      sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
     )
     .groupBy(conversations.id)
     .orderBy(desc(sql`count(${messages.id})`))
@@ -203,9 +213,9 @@ export function findReextractTarget(
  * graph extraction handler processes all messages from scratch with
  * expanded supersession context.
  */
-export function requestReextract(
-  targets: ReextractTarget[],
-): { jobIds: string[] } {
+export function requestReextract(targets: ReextractTarget[]): {
+  jobIds: string[];
+} {
   const db = getDb();
   const jobIds: string[] = [];
 
@@ -213,12 +223,8 @@ export function requestReextract(
     const { conversationId } = target;
 
     // Reset graph extraction checkpoints
-    deleteMemoryCheckpoint(
-      `graph_extract:${conversationId}:last_ts`,
-    );
-    deleteMemoryCheckpoint(
-      `graph_extract:${conversationId}:pending_count`,
-    );
+    deleteMemoryCheckpoint(`graph_extract:${conversationId}:last_ts`);
+    deleteMemoryCheckpoint(`graph_extract:${conversationId}:pending_count`);
 
     // Clear the extraction summary so it starts fresh
     db.delete(memorySummaries)

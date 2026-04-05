@@ -271,6 +271,7 @@ async function showQuery(query: string) {
     for (const r of results) {
       const node = nodeMap.get(r.nodeId);
       if (!node) continue;
+      if (node.fidelity === "gone") continue;
       const preview =
         node.content.length > 120
           ? node.content.slice(0, 120) + "…"

@@ -177,13 +177,20 @@ struct MessageListContentView: View, Equatable {
                 let messageIndex = state.messageIndexById[message.id] ?? 0
                 let isAnchored = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == messageIndex
                 let isUnanchoredThinking = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil
+                // Only pass activePendingRequestId to cells that could use it:
+                // confirmation bubbles need it for keyboard focus, tool-call messages
+                // need it for inline confirmation rendering in AssistantProgressView.
+                // Text-only cells get nil, so they won't fail == when the ID changes.
+                let cellActivePendingRequestId: String? =
+                    (message.confirmation != nil || !message.toolCalls.isEmpty)
+                    ? state.activePendingRequestId : nil
                 MessageCellView(
                     message: message,
                     showTimestamp: state.showTimestamp.contains(message.id),
                     nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[messageIndex],
                     isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(messageIndex),
                     hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(messageIndex),
-                    activePendingRequestId: state.activePendingRequestId,
+                    activePendingRequestId: cellActivePendingRequestId,
                     subagentsByParent: state.subagentsByParent,
                     isLatestAssistantMessage: isLatestAssistant,
                     isProcessingAfterTools: state.canInlineProcessing && isLatestAssistant,

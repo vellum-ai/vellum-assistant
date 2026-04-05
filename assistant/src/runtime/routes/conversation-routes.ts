@@ -1306,36 +1306,47 @@ export async function handleSendMessage(
     // Auto-deny pending confirmations only after enqueue succeeds, so we
     // don't cancel approval-gated workflows when the replacement message
     // is itself rejected by the queue budget.
-    if (conversation.hasAnyPendingConfirmation()) {
-      // Emit authoritative denial state for each pending request.
-      // sendToClient (wired to the SSE hub) delivers these to the client.
-      for (const interaction of pendingInteractions.getByConversation(
-        mapping.conversationId,
-      )) {
-        if (
-          interaction.conversation === conversation &&
-          interaction.kind === "confirmation"
-        ) {
-          conversation.emitConfirmationStateChanged({
-            conversationId: mapping.conversationId,
-            requestId: interaction.requestId,
-            state: "denied" as const,
-            source: "auto_deny" as const,
-          });
-          // Sync canonical guardian request status so stale "pending" DB
-          // records don't get matched by later guardian reply routing.
-          resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
-            status: "denied",
-          });
+    // Wrapped in try-catch: the message is already enqueued, so a failure
+    // here must not turn the 202 response into a 500 — that would leave
+    // the client showing "Failed to send" for a message the daemon will
+    // process from the queue.
+    try {
+      if (conversation.hasAnyPendingConfirmation()) {
+        // Emit authoritative denial state for each pending request.
+        // sendToClient (wired to the SSE hub) delivers these to the client.
+        for (const interaction of pendingInteractions.getByConversation(
+          mapping.conversationId,
+        )) {
+          if (
+            interaction.conversation === conversation &&
+            interaction.kind === "confirmation"
+          ) {
+            conversation.emitConfirmationStateChanged({
+              conversationId: mapping.conversationId,
+              requestId: interaction.requestId,
+              state: "denied" as const,
+              source: "auto_deny" as const,
+            });
+            // Sync canonical guardian request status so stale "pending" DB
+            // records don't get matched by later guardian reply routing.
+            resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+              status: "denied",
+            });
+          }
         }
+        conversation.denyAllPendingConfirmations();
+        pendingInteractions.removeByConversation(conversation);
       }
-      conversation.denyAllPendingConfirmations();
-      pendingInteractions.removeByConversation(conversation);
-    }
 
-    // Expire any orphaned canonical requests that survived without a
-    // matching in-memory pending interaction (e.g. prompter timeouts).
-    expireOrphanedCanonicalRequests(mapping.conversationId);
+      // Expire any orphaned canonical requests that survived without a
+      // matching in-memory pending interaction (e.g. prompter timeouts).
+      expireOrphanedCanonicalRequests(mapping.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: mapping.conversationId },
+        "Post-enqueue auto-deny failed — queued message unaffected",
+      );
+    }
 
     return Response.json(
       { accepted: true, queued: true, conversationId: mapping.conversationId },

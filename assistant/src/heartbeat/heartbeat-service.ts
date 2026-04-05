@@ -21,6 +21,7 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 - If something has happened since your last journal entry, write one. Even a few sentences. The journal is how future-you stays connected.`;
 
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
+const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 /** @internal Exported for testing. */
 export function isShallowProfile(): boolean {
@@ -191,6 +192,7 @@ export class HeartbeatService {
           },
           "Outside active hours, skipping",
         );
+        this.scheduleNextRun(config.intervalMs);
         return false;
       }
     }
@@ -204,7 +206,15 @@ export class HeartbeatService {
     const run = this.executeRun();
     this.activeRun = run;
     try {
-      await run;
+      await Promise.race([
+        run,
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Heartbeat execution timed out")),
+            HEARTBEAT_TIMEOUT_MS,
+          ),
+        ),
+      ]);
     } finally {
       this.activeRun = null;
       this._lastRunAt = Date.now();

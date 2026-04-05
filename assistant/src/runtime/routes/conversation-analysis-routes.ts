@@ -5,6 +5,7 @@
  * agent loop that produces a structured self-assessment.
  */
 
+import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   addMessage,
   createConversation,
@@ -12,13 +13,13 @@ import {
   getMessages,
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
+import { resolveLocalTrustContext } from "../local-actor-identity.js";
 
 const log = getLogger("conversation-analysis-routes");
 
@@ -90,9 +91,8 @@ export function conversationAnalysisRouteDefinitions(
         }
 
         // e. Build the analysis transcript
-        const { buildAnalysisTranscript } = await import(
-          "../../export/transcript-formatter.js"
-        );
+        const { buildAnalysisTranscript } =
+          await import("../../export/transcript-formatter.js");
         const transcript = buildAnalysisTranscript(resolvedId);
 
         // f. Create a new conversation for the analysis
@@ -122,25 +122,28 @@ If you identify insights worth remembering for future conversations, use your me
           newConv.id,
           "user",
           JSON.stringify([{ type: "text", text: prompt }]),
+          { provenanceTrustClass: "guardian" as const },
         );
         const messageId = message.id;
 
-        // i. Load the conversation into memory
+        // i. Load the conversation into memory and set guardian trust context
         const analysisConversation =
           await deps.sendMessageDeps.getOrCreateConversation(newConv.id);
+        analysisConversation.setTrustContext(resolveLocalTrustContext("vellum"));
 
         // j. Build onEvent using inline hub publisher
         const onEvent = (msg: ServerMessage) => {
           deps.sendMessageDeps.assistantEventHub.publish(
-            buildAssistantEvent(
-              DAEMON_INTERNAL_ASSISTANT_ID,
-              msg,
-              newConv.id,
-            ),
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, newConv.id),
           );
         };
 
-        // k. Fire-and-forget the agent loop
+        // k. Set up processing state (required by runAgentLoop guard)
+        analysisConversation.processing = true;
+        analysisConversation.abortController = new AbortController();
+        analysisConversation.currentRequestId = crypto.randomUUID();
+
+        // l. Fire-and-forget the agent loop
         analysisConversation
           .runAgentLoop(prompt, messageId, onEvent, {
             isInteractive: false,
@@ -153,10 +156,16 @@ If you identify insights worth remembering for future conversations, use your me
             );
           });
 
-        // l. Return the new conversation detail
-        return Response.json({
-          conversation: deps.buildConversationDetailResponse(newConv.id),
-        });
+        // m. Return the new conversation detail
+        const detail = deps.buildConversationDetailResponse(newConv.id);
+        if (!detail) {
+          return httpError(
+            "INTERNAL_ERROR",
+            `Analysis conversation ${newConv.id} could not be loaded`,
+            500,
+          );
+        }
+        return Response.json(detail);
       },
     },
   ];

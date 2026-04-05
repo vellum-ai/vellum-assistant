@@ -359,21 +359,29 @@ struct MarkdownSegmentView: View, Equatable {
 
             switch segment {
             case .text(let text):
-                let attributed = (try? AttributedString(markdown: text, options: mdOptions))
+                var attributed = (try? AttributedString(markdown: text, options: mdOptions))
                     ?? AttributedString(text)
+                AttributedStringAutolinker.autolinkBareURLs(in: &attributed)
                 result += attributed
 
             case .heading(let level, let text):
                 var headingAttr = (try? AttributedString(markdown: text, options: mdOptions))
                     ?? AttributedString(text)
+                AttributedStringAutolinker.autolinkBareURLs(in: &headingAttr)
                 let headingSize: CGFloat = switch level {
                 case 1: 20
                 case 2: 16
                 default: 14
                 }
-                let headingWght = level == 1 ? 700 : 600
-                let headingNS = VFont.nsInter(weight: headingWght, size: headingSize)
-                headingAttr.font = Font(headingNS)
+                let wght = 0x77676874 // 'wght' variation axis tag
+                let weightValue: Int = level == 1 ? 700 : 600
+                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, headingSize, nil)
+                let vars: [CFNumber: CFNumber] = [wght as CFNumber: weightValue as CFNumber]
+                let headingCT = CTFontCreateCopyWithAttributes(
+                    baseCT, headingSize, nil,
+                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: vars] as CFDictionary)
+                )
+                headingAttr.font = Font(headingCT as NSFont)
                 if index > 0 {
                     let paraStyle = NSMutableParagraphStyle()
                     paraStyle.paragraphSpacingBefore = level == 1 ? 8 : 4
@@ -393,8 +401,9 @@ struct MarkdownSegmentView: View, Equatable {
                     var prefixAttr = AttributedString(indentString + prefix)
                     prefixAttr.foregroundColor = secondaryTextColor
 
-                    let itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
+                    var itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
                         ?? AttributedString(item.text)
+                    AttributedStringAutolinker.autolinkBareURLs(in: &itemAttr)
 
                     // Apply hanging indent so wrapped lines align with item text
                     let prefixText = indentString + prefix
@@ -403,7 +412,7 @@ struct MarkdownSegmentView: View, Equatable {
                     if let cached = prefixWidthCache[prefixText] {
                         prefixWidth = cached
                     } else {
-                        let font = VFont.nsChat
+                        let font = NSFont(name: "DMSans-Regular", size: 16) ?? NSFont.systemFont(ofSize: 16)
                         let prefixNS = NSString(string: prefixText)
                         prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                         if prefixWidthCache.count < 200 {
@@ -466,19 +475,48 @@ struct MarkdownSegmentView: View, Equatable {
         font: NSFont,
         textColor: NSColor
     ) -> NSAttributedString {
+        // Pre-collect emphasis info from the source AttributedString.
+        // Reading inlinePresentationIntent directly from AttributedString.runs
+        // avoids relying on NSAttributedString attribute bridging, which can
+        // silently drop InlinePresentationIntent (a Swift struct / OptionSet)
+        // when it doesn't bridge to NSNumber during the conversion.
+        struct EmphasisRun {
+            let utf16Offset: Int
+            let utf16Length: Int
+            let intent: InlinePresentationIntent
+            let hasExplicitFont: Bool
+        }
+        var emphasisRuns: [EmphasisRun] = []
+        var utf16Offset = 0
+        for run in source.runs {
+            let runContent = source[run.range]
+            let utf16Length = String(runContent.characters).utf16.count
+            if let intent = runContent.inlinePresentationIntent {
+                emphasisRuns.append(EmphasisRun(
+                    utf16Offset: utf16Offset,
+                    utf16Length: utf16Length,
+                    intent: intent,
+                    hasExplicitFont: runContent.font != nil
+                ))
+            }
+            utf16Offset += utf16Length
+        }
+
         let ns = NSMutableAttributedString(source)
         let fullRange = NSRange(location: 0, length: ns.length)
 
-        // Apply italic/bold to emphasized runs using Inter via CTFont.
-        // InterVariable doesn't bundle an italic face, so we apply a synthetic
-        // oblique via affine transform (same approach as the old DM Sans code).
+        // Apply synthetic italic/bold to emphasized runs.
+        // DM Sans doesn't ship an italic font face, so we apply a synthetic
+        // oblique via affine transform. This is done on the NSMutableAttributedString
+        // (not the SwiftUI AttributedString) because SwiftUI Font attributes set via
+        // Font(nsFont) don't reliably survive the AttributedString→NSAttributedString
+        // conversion — the oblique transform is lost, leaving plain text.
         let sz = font.pointSize
+        let wght = 0x77676874 // 'wght' variation axis tag
         var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
-        let baseCT = CTFontCreateWithName("InterVariable" as CFString, sz, nil)
-        let italicNS = CTFontCreateWithName("InterVariable" as CFString, sz, &oblique) as NSFont
-        let boldWght = 700
-        let wghtTag = 0x77676874
-        let boldVars: [CFNumber: CFNumber] = [wghtTag as CFNumber: boldWght as CFNumber]
+        let italicNS = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique) as NSFont
+        let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
+        let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
         let boldNS = CTFontCreateCopyWithAttributes(
             baseCT, sz, nil,
             CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
@@ -488,21 +526,19 @@ struct MarkdownSegmentView: View, Equatable {
             CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
         ) as NSFont
 
-        ns.enumerateAttribute(.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
-            guard let rawValue = (value as? NSNumber)?.uintValue else { return }
-            let intent = InlinePresentationIntent(rawValue: rawValue)
-            guard !intent.contains(.code) else { return }
+        for emphRun in emphasisRuns {
+            guard !emphRun.intent.contains(.code) else { continue }
             // Skip runs that already have an explicit font (e.g. headings)
-            if ns.attribute(.font, at: range.location, effectiveRange: nil) != nil { return }
-
-            let isEmph = intent.contains(.emphasized)
-            let isBold = intent.contains(.stronglyEmphasized)
+            guard !emphRun.hasExplicitFont else { continue }
+            let nsRange = NSRange(location: emphRun.utf16Offset, length: emphRun.utf16Length)
+            let isEmph = emphRun.intent.contains(.emphasized)
+            let isBold = emphRun.intent.contains(.stronglyEmphasized)
             if isEmph && isBold {
-                ns.addAttribute(.font, value: boldItalicNS, range: range)
+                ns.addAttribute(.font, value: boldItalicNS, range: nsRange)
             } else if isEmph {
-                ns.addAttribute(.font, value: italicNS, range: range)
+                ns.addAttribute(.font, value: italicNS, range: nsRange)
             } else if isBold {
-                ns.addAttribute(.font, value: boldNS, range: range)
+                ns.addAttribute(.font, value: boldNS, range: nsRange)
             }
         }
 

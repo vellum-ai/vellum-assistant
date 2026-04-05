@@ -2225,6 +2225,7 @@ public enum ServerMessage: Decodable, Sendable {
     case recordingStop(RecordingStop)
     case clientSettingsUpdate(ClientSettingsUpdate)
     case avatarUpdated(AvatarUpdated)
+    case soundsConfigUpdated(SoundsConfigUpdated)
     case generateAvatarResponse(GenerateAvatarResponse)
     case heartbeatConfigResponse(HeartbeatConfigResponse)
     case heartbeatRunsListResponse(HeartbeatRunsListResponse)
@@ -2241,6 +2242,7 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileCancel(HostFileCancelRequest)
     case hostCuRequest(HostCuRequest)
     case hostCuCancel(HostCuCancelRequest)
+    case permissionModeUpdate(PermissionModeUpdateMessage)
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
@@ -2637,6 +2639,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "avatar_updated":
             let message = try AvatarUpdated(from: decoder)
             self = .avatarUpdated(message)
+        case "sounds_config_updated":
+            let message = try SoundsConfigUpdated(from: decoder)
+            self = .soundsConfigUpdated(message)
         case "generate_avatar_response":
             let message = try GenerateAvatarResponse(from: decoder)
             self = .generateAvatarResponse(message)
@@ -2685,6 +2690,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_cancel":
             let message = try HostCuCancelRequest(from: decoder)
             self = .hostCuCancel(message)
+        case "permission_mode_update":
+            let message = try PermissionModeUpdateMessage(from: decoder)
+            self = .permissionModeUpdate(message)
         case "usage_update":
             let message = try UsageUpdate(from: decoder)
             self = .usageUpdate(message)
@@ -2705,6 +2713,14 @@ public enum ServerMessage: Decodable, Sendable {
     }
 }
 
+
+// MARK: - Permission Mode
+
+/// Two-axis permission mode state broadcast via SSE or returned by GET /v1/permission-mode.
+public struct PermissionModeUpdateMessage: Decodable, Sendable {
+    public let askBeforeActing: Bool
+    public let hostAccess: Bool
+}
 
 // MARK: - Token Rotation
 

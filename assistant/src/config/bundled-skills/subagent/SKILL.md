@@ -29,9 +29,9 @@ Each subagent is spawned with a role that determines its tool access. Choose the
 | Role | Tools | When to use |
 |---|---|---|
 | `general` | Full tool access | Task genuinely needs unrestricted capabilities (rare -- prefer a specialized role) |
-| `researcher` | `web_search`, `web_fetch`, `file_read`, `memory_recall`, `notify_parent` | Information gathering, web research, codebase exploration, reading documentation |
-| `coder` | `bash`, `file_read`, `file_write`, `file_edit`, `web_search`, `notify_parent` | Code changes, file editing, running commands, build/test tasks |
-| `planner` | `file_read`, `web_search`, `web_fetch`, `memory_recall`, `notify_parent` | Analysis, planning, synthesizing information, reviewing approaches |
+| `researcher` | `web_search`, `web_fetch`, `file_read`, `file_list`, `recall`, `remember`, `notify_parent` | Information gathering, web research, codebase exploration, reading documentation |
+| `coder` | `bash`, `file_read`, `file_write`, `file_edit`, `web_search`, `recall`, `notify_parent` | Code changes, file editing, running commands, build/test tasks |
+| `planner` | `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Analysis, planning, synthesizing information, reviewing approaches |
 
 All specialized roles (`researcher`, `coder`, `planner`) include `notify_parent` for mid-run communication with the parent.
 

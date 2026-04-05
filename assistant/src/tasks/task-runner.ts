@@ -60,10 +60,10 @@ export async function runTask(
 
   const run = createTaskRun(task.id);
   const conversation = bootstrapConversation({
-    // Schedule-triggered tasks use "standard" so they appear in the sidebar's
-    // Scheduled section; non-schedule tasks use "background" to stay out of
-    // the main conversation list.
-    conversationType: opts.source === "schedule" ? undefined : "background",
+    // Schedule-triggered tasks use "scheduled" so they don't crowd out
+    // interactive conversations in the main list; non-schedule tasks use
+    // "background" to stay out of the list entirely.
+    conversationType: opts.source === "schedule" ? "scheduled" : "background",
     source: opts.source === "schedule" ? "schedule" : "task",
     scheduleJobId: opts.scheduleJobId,
     groupId:

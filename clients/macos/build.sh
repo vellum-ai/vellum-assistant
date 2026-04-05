@@ -727,6 +727,21 @@ PROVIDER_ENV_VARS_REGISTRY="$SCRIPT_DIR/../../meta/provider-env-vars.json"
 if [ -f "$PROVIDER_ENV_VARS_REGISTRY" ]; then
     cp "$PROVIDER_ENV_VARS_REGISTRY" "$RESOURCES_DIR/provider-env-vars.json"
 fi
+# Bundle Dockerfiles into Contents/Resources/dockerfiles/ for debug builds
+# so that the CLI's findRepoRoot() can locate them when running from a
+# packaged DMG.  This enables `vellum hatch --remote docker` to work
+# without a full source checkout (the CLI detects the missing source tree
+# and falls back to pulling pre-built images instead of building locally).
+if [ "$CONFIG" = "debug" ]; then
+    REPO_ROOT="$SCRIPT_DIR/../.."
+    for svc in assistant credential-executor gateway; do
+        if [ -f "$REPO_ROOT/$svc/Dockerfile" ]; then
+            mkdir -p "$RESOURCES_DIR/dockerfiles/$svc"
+            cp "$REPO_ROOT/$svc/Dockerfile" "$RESOURCES_DIR/dockerfiles/$svc/Dockerfile"
+        fi
+    done
+fi
+
 # Generate character-components.json for pre-daemon avatar rendering
 CHAR_COMP_SRC="$ASSISTANT_SRC_DIR/src/avatar/character-components.ts"
 if command -v bun &>/dev/null && [ -f "$CHAR_COMP_SRC" ]; then

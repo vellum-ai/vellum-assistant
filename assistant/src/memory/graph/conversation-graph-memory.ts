@@ -6,7 +6,7 @@
 // retrieval mode based on conversation state.
 // ---------------------------------------------------------------------------
 
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
@@ -151,7 +151,15 @@ export class ConversationGraphMemory {
           conversations,
           eq(memorySummaries.scopeKey, conversations.id),
         )
-        .where(and(baseWhere, ne(conversations.conversationType, "background")))
+        .where(
+          and(
+            baseWhere,
+            notInArray(conversations.conversationType, [
+              "background",
+              "scheduled",
+            ]),
+          ),
+        )
         .orderBy(desc(memorySummaries.updatedAt))
         .limit(3)
         .all();
@@ -160,7 +168,7 @@ export class ConversationGraphMemory {
         return userRows.map((r) => r.summary);
       }
 
-      // Fill remaining slots with at most 1 background conversation
+      // Fill remaining slots with at most 1 background/scheduled conversation
       const remaining = Math.min(1, 3 - userRows.length);
       const bgRows = db
         .select({ summary: memorySummaries.summary })
@@ -169,7 +177,15 @@ export class ConversationGraphMemory {
           conversations,
           eq(memorySummaries.scopeKey, conversations.id),
         )
-        .where(and(baseWhere, eq(conversations.conversationType, "background")))
+        .where(
+          and(
+            baseWhere,
+            inArray(conversations.conversationType, [
+              "background",
+              "scheduled",
+            ]),
+          ),
+        )
         .orderBy(desc(memorySummaries.updatedAt))
         .limit(remaining)
         .all();

@@ -22,10 +22,14 @@ const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "vellum-test-workspace-")),
 );
 process.env.VELLUM_WORKSPACE_DIR = testDir;
+process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
+process.exitCode = 0;
 
 afterAll(() => {
   resetDb();
+  process.exitCode = 0;
   delete process.env.VELLUM_WORKSPACE_DIR;
+  delete process.env.VELLUM_PLATFORM_URL;
   try {
     rmSync(testDir, { recursive: true, force: true });
   } catch {

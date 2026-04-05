@@ -93,7 +93,7 @@ struct DocumentsListView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(doc.title)
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
 

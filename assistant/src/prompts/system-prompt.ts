@@ -8,15 +8,17 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
+import { loadConfig } from "../config/loader.js";
 import { listConnections } from "../oauth/oauth-store.js";
+import { getMode } from "../permissions/permission-mode-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
   getConversationsDir,
   getWorkspaceDir,
   getWorkspacePromptPath,
-  isMacOS,
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
@@ -311,6 +313,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // Journal entries are extracted into graph nodes by the memory pipeline.
   // Journal files remain writable on disk.
 
+  const askBeforeActingSection = buildAskBeforeActingSection();
+  if (askBeforeActingSection) dynamicParts.push(askBeforeActingSection);
+
   const dynamic = dynamicParts.join("\n\n");
 
   return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
@@ -353,12 +358,6 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
     "## External Service Access",
     "",
     "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
-    ...(isMacOS()
-      ? [
-          "",
-          "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
-        ]
-      : []),
   ].join("\n");
 }
 
@@ -390,6 +389,25 @@ function buildIntegrationSection(): string {
   }
 
   return lines.join("\n");
+}
+
+function buildAskBeforeActingSection(): string | null {
+  try {
+    const config = loadConfig();
+    if (!isAssistantFeatureFlagEnabled("permission-controls-v2", config)) {
+      return null;
+    }
+    const mode = getMode();
+    if (!mode.askBeforeActing) return null;
+
+    return [
+      "## Action Confirmation Mode",
+      "",
+      'You are in "Ask before acting" mode. Use your judgment about when to check in with the user before proceeding. You should ask for confirmation before actions that are costly, time-consuming, or hard to reverse — for example: sending emails or messages, deleting files or data, making purchases, posting publicly, modifying permissions, or taking actions with significant real-world consequences. You do NOT need to ask before routine low-stakes actions like reading files, searching, running safe shell commands, or making code edits — just do those.',
+    ].join("\n");
+  } catch {
+    return null;
+  }
 }
 
 function buildContainerizedSection(): string {

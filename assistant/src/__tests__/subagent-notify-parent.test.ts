@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 // Mock conversation-crud before importing tool executors that depend on it.
@@ -30,20 +28,14 @@ mock.module("../memory/conversation-crud.js", () => ({
   createConversation: () => ({ id: "mock-conv" }),
 }));
 
+import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
-import { executeSubagentNotifyParent } from "../tools/subagent/notify-parent.js";
-
-// Load tool definitions from the bundled skill TOOLS.json
-const toolsJson = JSON.parse(
-  readFileSync(
-    join(import.meta.dirname, "../config/bundled-skills/subagent/TOOLS.json"),
-    "utf-8",
-  ),
-);
-const findTool = (name: string) =>
-  toolsJson.tools.find((t: { name: string }) => t.name === name);
+import {
+  executeSubagentNotifyParent,
+  notifyParentTool,
+} from "../tools/subagent/notify-parent.js";
 
 // ── Shared helpers ──────────────────────────────────────────────────
 
@@ -119,17 +111,55 @@ function makeContext(
 // ── Tool definition ────────────────────────────────────────────────
 
 describe("notify_parent tool definition", () => {
-  test("has correct definition in TOOLS.json", () => {
-    const def = findTool("notify_parent");
-    expect(def).toBeDefined();
-    expect(def.input_schema.required).toEqual(["message"]);
-    expect(def.input_schema.properties.urgency.enum).toEqual([
+  test("has correct core tool definition", () => {
+    const def = notifyParentTool.getDefinition();
+    const schema = def.input_schema as Record<string, unknown>;
+    expect(def.name).toBe("notify_parent");
+    expect(schema.required).toContain("message");
+    expect(
+      (schema.properties as Record<string, Record<string, unknown>>).urgency
+        .enum,
+    ).toEqual([
       "info",
       "important",
       "blocked",
     ]);
-    expect(def.risk).toBe("low");
-    expect(def.execution_target).toBe("host");
+    expect(notifyParentTool.category).toBe("orchestration");
+  });
+
+  test("is hidden from non-subagent context", () => {
+    const ctx = {
+      isSubagent: false,
+      preactivatedSkillIds: [],
+      skillProjectionState: new Map(),
+      skillProjectionCache: new Map(),
+      coreToolNames: new Set<string>(),
+      toolsDisabledDepth: 0,
+    } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
+    expect(isToolActiveForContext("notify_parent", ctx)).toBe(false);
+  });
+
+  test("is hidden when isSubagent is undefined", () => {
+    const ctx = {
+      preactivatedSkillIds: [],
+      skillProjectionState: new Map(),
+      skillProjectionCache: new Map(),
+      coreToolNames: new Set<string>(),
+      toolsDisabledDepth: 0,
+    } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
+    expect(isToolActiveForContext("notify_parent", ctx)).toBe(false);
+  });
+
+  test("is visible to subagent context", () => {
+    const ctx = {
+      isSubagent: true,
+      preactivatedSkillIds: [],
+      skillProjectionState: new Map(),
+      skillProjectionCache: new Map(),
+      coreToolNames: new Set<string>(),
+      toolsDisabledDepth: 0,
+    } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
+    expect(isToolActiveForContext("notify_parent", ctx)).toBe(true);
   });
 });
 

@@ -385,7 +385,7 @@ struct UsageDashboardPanel: View {
     private func statCard(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(value)
-                .font(VFont.bodyMediumDefault)
+                .font(VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentDefault)
             Text(label)
                 .font(VFont.labelDefault)
