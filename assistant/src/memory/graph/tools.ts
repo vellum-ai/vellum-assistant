@@ -74,68 +74,24 @@ export const graphRecallDefinition: ToolDefinition = {
 };
 
 /**
- * Explicitly save, update, or delete a memory. Writes are immediate —
- * the node is available in the graph right away.
- *
- * This replaces both memory_manage AND NOW.md. When the assistant
- * learns something worth remembering mid-conversation, it calls this
- * tool rather than waiting for end-of-conversation extraction.
+ * Save a fact to the personal knowledge base. The fact is appended to
+ * buffer.md (immediately available in the next conversation) and the
+ * daily archive (permanent date-indexed record). Filing into topic
+ * files happens during the periodic filing job.
  */
 export const graphRememberDefinition: ToolDefinition = {
   name: "remember",
   description:
-    "Save, update, or delete a memory. Writes take effect immediately. Use this when you learn something important mid-conversation that you want to remember — don't wait for automatic extraction. Use 'save' for new information, 'update' to correct or refine an existing memory, 'delete' to remove something no longer true. When the user says 'remember this', save immediately. Be proactive: if you learn something important, save it now.",
+    "Save a fact to your knowledge base. Call this AGGRESSIVELY — every preference, location, name, date, habit, opinion, health detail, plan, relationship fact, routine, or commitment. The bar is: if you wouldn't want to ask about it again, remember it. Examples: 'Prefers UberEats over DoorDash', 'Lives in NYC, from Texas', 'Takes 45mg nicotine daily, tapering', 'Girlfriend Yen is in Texas', 'Watches vampire show Saturday nights', 'NYU Summit April 10-11'. Call this multiple times per conversation — it's cheap (one line appended to a file). Don't wait until the end. Don't batch. Every new fact, immediately. Remembering too much is infinitely better than forgetting something that mattered.",
   input_schema: {
     type: "object",
     properties: {
-      op: {
-        type: "string",
-        enum: ["save", "update", "delete"],
-        description: "The operation to perform",
-      },
-      memory_id: {
-        type: "string",
-        description: "ID of existing memory (required for update/delete)",
-      },
       content: {
         type: "string",
         description:
-          "First-person prose — how you naturally remember this (required for save/update). Write as yourself, not as a database entry.",
-      },
-      type: {
-        type: "string",
-        enum: [
-          "episodic",
-          "semantic",
-          "procedural",
-          "emotional",
-          "prospective",
-          "behavioral",
-          "narrative",
-          "shared",
-        ],
-        description: "Category of memory (required for save)",
-      },
-      significance: {
-        type: "number",
-        description:
-          "How important is this? 0-1. Mundane: 0.2-0.4, important: 0.5-0.7, life events: 0.8-1.0 (optional, defaults to 0.5)",
-      },
-      emotional_charge: {
-        type: "object",
-        description: "Emotional context (optional)",
-        properties: {
-          valence: {
-            type: "number",
-            description: "Positive vs negative (-1 to 1)",
-          },
-          intensity: {
-            type: "number",
-            description: "How strong the feeling (0 to 1)",
-          },
-        },
+          "The fact to remember. Write naturally — a preference, a detail, a commitment, a plan. No need to categorize.",
       },
     },
-    required: ["op"],
+    required: ["content"],
   },
 };
