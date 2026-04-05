@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
-  afterEachEmailTest,
-  beforeEachEmailTest,
+  getMockFetchCalls,
   mockFetch,
-  runAssistantCommand,
-  setupEmailTests,
-} from "./email-test-utils.js";
+  resetMockFetch,
+} from "../../../__tests__/mock-fetch.js";
+import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
+import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
 
 let mockPlatformClient: {
   platformAssistantId: string;
@@ -20,10 +20,11 @@ mock.module("../../../platform/client.js", () => ({
 }));
 
 const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-const { getCalls } = setupEmailTests();
 
 beforeEach(() => {
-  beforeEachEmailTest();
+  process.exitCode = 0;
+  resetMockFetch();
+  _setOverridesForTesting({ "email-channel": true });
   mockPlatformClient = {
     platformAssistantId: ASSISTANT_ID,
     fetch: async (path: string, init?: RequestInit) => {
@@ -33,7 +34,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  afterEachEmailTest();
+  resetMockFetch();
+  _setOverridesForTesting({});
 });
 
 describe("assistant email register", () => {
@@ -53,13 +55,13 @@ describe("assistant email register", () => {
 
     await runAssistantCommand("email", "register", "mybot");
 
-    const fetchCalls = getCalls();
-    expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0].path).toBe(
+    const calls = getMockFetchCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toBe(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/`,
     );
-    expect(fetchCalls[0].init.method).toBe("POST");
-    expect(JSON.parse(fetchCalls[0].init.body as string)).toEqual({
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({
       username: "mybot",
     });
     expect(process.exitCode).toBe(0);

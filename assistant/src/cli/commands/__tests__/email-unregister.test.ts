@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
-  afterEachEmailTest,
-  beforeEachEmailTest,
+  getMockFetchCalls,
   mockFetch,
-  runAssistantCommand,
-  setupEmailTests,
-} from "./email-test-utils.js";
+  resetMockFetch,
+} from "../../../__tests__/mock-fetch.js";
+import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
+import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
 
 let mockPlatformClient: {
   platformAssistantId: string;
@@ -22,10 +22,11 @@ mock.module("../../../platform/client.js", () => ({
 const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const ADDRESS_ID = "550e8400-e29b-41d4-a716-446655440000";
 const ADDRESS = "mybot@vellum.me";
-const { getCalls } = setupEmailTests();
 
 beforeEach(() => {
-  beforeEachEmailTest();
+  process.exitCode = 0;
+  resetMockFetch();
+  _setOverridesForTesting({ "email-channel": true });
   mockPlatformClient = {
     platformAssistantId: ASSISTANT_ID,
     fetch: async (path: string, init?: RequestInit) => {
@@ -35,7 +36,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  afterEachEmailTest();
+  resetMockFetch();
+  _setOverridesForTesting({});
 });
 
 function standardEmailMockFetches(
@@ -63,15 +65,15 @@ describe("assistant email unregister", () => {
 
     await runAssistantCommand("email", "unregister", "--confirm");
 
-    const fetchCalls = getCalls();
-    expect(fetchCalls).toHaveLength(2);
-    expect(fetchCalls[0].path).toBe(
+    const calls = getMockFetchCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].path).toBe(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/`,
     );
-    expect(fetchCalls[1].path).toBe(
+    expect(calls[1].path).toBe(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/${ADDRESS_ID}/`,
     );
-    expect(fetchCalls[1].init.method).toBe("DELETE");
+    expect(calls[1].init.method).toBe("DELETE");
     expect(process.exitCode).toBe(0);
   });
 
