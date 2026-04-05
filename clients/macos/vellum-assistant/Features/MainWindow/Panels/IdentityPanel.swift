@@ -12,13 +12,11 @@ struct IdentityPanel: View {
     @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var identity: IdentityInfo?
-    @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var metadata: AssistantMetadata?
     @State private var lockfileAssistant: LockfileAssistant?
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
     @State private var skillCategoryLookup: [String: SkillCategory] = [:]
-    @State private var viewingFilePath: String?
     @State private var isFullscreen: Bool = false
     @State private var showAvatarSheet: Bool = false
     @State private var introText: String? = nil
@@ -39,7 +37,6 @@ struct IdentityPanel: View {
 
     private var assistantDisplayName: String {
         AssistantDisplayName.resolve(
-            remoteIdentity?.name.nilIfEmpty,
             identity?.name,
             fallback: "Your Assistant"
         )
@@ -47,7 +44,6 @@ struct IdentityPanel: View {
 
     private var hasRealName: Bool {
         AssistantDisplayName.firstUserFacing(from: [
-            remoteIdentity?.name.nilIfEmpty,
             identity?.name
         ]) != nil
     }
@@ -101,10 +97,9 @@ struct IdentityPanel: View {
 
                             // Role + Hatched date
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                                let role = AssistantDisplayName.firstUserFacing(from: [
-                                    remoteIdentity?.role.nilIfEmpty,
-                                    identity?.role
-                                ])
+                                                let role = AssistantDisplayName.firstUserFacing(from: [
+                                                    identity?.role
+                                                ])
                                 identityInfoRow(label: "Role", value: role ?? "Not set")
                                 if let date = metadata?.createdAt {
                                     identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
@@ -143,15 +138,6 @@ struct IdentityPanel: View {
                 .padding(.trailing, 0)
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
-            .sheet(isPresented: Binding(
-                get: { viewingFilePath != nil },
-                set: { if !$0 { viewingFilePath = nil } }
-            )) {
-                if let path = viewingFilePath {
-                    WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
-                        .frame(width: 600, height: 500)
-                }
-            }
             .sheet(isPresented: $showAvatarSheet) {
                 AvatarManagementSheet(
                     onClose: { showAvatarSheet = false }
@@ -160,18 +146,12 @@ struct IdentityPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             .task {
-                identity = await IdentityInfo.loadAsync()
-                metadata = await AssistantMetadata.loadAsync()
+                let result = await IdentityInfo.loadWithMetadata()
+                identity = result.identity
+                metadata = result.metadata
                 lockfileAssistant = LockfileAssistant.loadLatest()
                 workspaceFiles = await WorkspaceFileNode.scanAsync()
                 fetchSkills()
-
-                // For remote assistants without local IDENTITY.md, fetch from daemon
-                if identity == nil, lockfileAssistant?.isRemote == true {
-                    Task {
-                        remoteIdentity = await identityClient.fetchRemoteIdentity()
-                    }
-                }
 
                 bootstrapCheckTask = Task {
                     let fileResponse = await workspaceClient.fetchWorkspaceFile(path: "BOOTSTRAP.md", showHidden: false)
@@ -326,16 +306,15 @@ struct IdentityPanel: View {
     // MARK: - ID Card
 
     @ViewBuilder
-    private func idCardSection(identity: IdentityInfo?, remoteIdentity: RemoteIdentityInfo?) -> some View {
+    private func idCardSection(identity: IdentityInfo?) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Agent ID (only available from local identity)
+            // Agent ID
             if let identity {
                 idRow(label: "Agent ID", value: identity.agentID, mono: true)
             }
 
-            // Given name: remote > local > assistantId
+            // Given name
             let name = AssistantDisplayName.firstUserFacing(from: [
-                remoteIdentity?.name.nilIfEmpty,
                 identity?.name,
                 lockfileAssistant?.assistantId,
             ])
@@ -343,26 +322,18 @@ struct IdentityPanel: View {
                 idRow(label: "Given name", value: name)
             }
 
-            // Role: remote > local (truncated with tooltip for long values)
-            let role = AssistantDisplayName.firstUserFacing(from: [
-                remoteIdentity?.role.nilIfEmpty,
-                identity?.role
-            ])
-            if let role {
+            // Role (truncated with tooltip for long values)
+            if let role = identity?.role, !role.isEmpty {
                 idRow(label: "Role", value: role, truncate: true)
             }
 
-            // Personality: remote > local
-            let personality = AssistantDisplayName.firstUserFacing(from: [
-                remoteIdentity?.personality.nilIfEmpty,
-                identity?.personality
-            ])
-            if let personality {
+            // Personality
+            if let personality = identity?.personality, !personality.isEmpty {
                 idRow(label: "Personality", value: personality)
             }
 
-            // Version: remote > daemon > metadata
-            let version = remoteIdentity?.version ?? connectionManager.assistantVersion ?? metadata?.version
+            // Version
+            let version = connectionManager.assistantVersion ?? metadata?.version
             idRow(label: "Version", value: version ?? "—")
 
             if let date = metadata?.createdAt {
@@ -417,63 +388,5 @@ struct IdentityPanel: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
-    }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
-}
-
-// MARK: - Workspace File Sheet
-
-private struct WorkspaceFileSheet: View {
-    let filePath: String
-    let onClose: () -> Void
-
-    @State private var fileContent: String = ""
-
-    private var fileName: String {
-        (filePath as NSString).lastPathComponent
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                VIconView(.fileText, size: 13)
-                    .foregroundStyle(VColor.systemNegativeHover)
-                Text(fileName)
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentDefault)
-                Spacer()
-                Button(action: onClose) {
-                    VIconView(.x, size: 12)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.vertical, VSpacing.lg)
-
-            Divider().background(VColor.borderBase)
-
-            // Content
-            ScrollView {
-                MarkdownRenderer(text: fileContent)
-                    .padding(VSpacing.xl)
-            }
-        }
-        .background(VColor.surfaceBase)
-        .task(id: filePath) {
-            if let response = await WorkspaceClient().fetchWorkspaceFile(path: filePath, showHidden: false),
-               let content = response.content {
-                fileContent = content
-            } else {
-                fileContent = "Unable to read file."
-            }
-        }
     }
 }

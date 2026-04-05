@@ -167,6 +167,20 @@ struct IdentityInfo {
         return IdentityInfo(name: remote.name, role: remote.role, personality: remote.personality, emoji: remote.emoji, home: home)
     }
 
+    /// Load identity and metadata from a single gateway fetch.
+    /// Use this when both are needed to avoid duplicate HTTP requests.
+    static func loadWithMetadata() async -> (identity: IdentityInfo?, metadata: AssistantMetadata) {
+        guard let remote = await IdentityClient().fetchRemoteIdentity() else {
+            return (nil, AssistantMetadata(version: "v1.0", createdAt: nil))
+        }
+        let identity: IdentityInfo? = {
+            guard !remote.name.isEmpty else { return nil }
+            let home = remote.home.flatMap { $0.isEmpty ? nil : AssistantHome.parse($0) }
+            return IdentityInfo(name: remote.name, role: remote.role, personality: remote.personality, emoji: remote.emoji, home: home)
+        }()
+        return (identity, AssistantMetadata.from(remote: remote))
+    }
+
     /// Async loading via the gateway identity/intro endpoint.
     static func loadIdentityIntroAsync() async -> String? {
         await IdentityClient().fetchIdentityIntro()
@@ -224,11 +238,8 @@ struct AssistantMetadata {
     let version: String
     let createdAt: Date?
 
-    /// Load metadata from the gateway identity endpoint.
-    static func loadAsync() async -> AssistantMetadata {
-        guard let remote = await IdentityClient().fetchRemoteIdentity() else {
-            return AssistantMetadata(version: "v1.0", createdAt: nil)
-        }
+    /// Build metadata from an already-fetched remote identity response.
+    static func from(remote: RemoteIdentityInfo) -> AssistantMetadata {
         let createdAt: Date? = remote.createdAt.flatMap { dateStr in
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
