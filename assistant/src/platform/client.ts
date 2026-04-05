@@ -26,19 +26,6 @@ export class VellumPlatformClient {
   }
 
   /**
-   * Build a client from explicit credentials, bypassing all credential
-   * resolution. Useful for testing and for callers that already hold
-   * resolved values.
-   */
-  static fromCredentials(
-    platformBaseUrl: string,
-    apiKey: string,
-    assistantId: string,
-  ): VellumPlatformClient {
-    return new VellumPlatformClient(platformBaseUrl, apiKey, assistantId);
-  }
-
-  /**
    * Create a platform client by resolving managed proxy context.
    *
    * First tries the in-memory managed proxy context (available when the daemon
