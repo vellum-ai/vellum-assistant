@@ -10,6 +10,19 @@ import { resolveManagedProxyContext } from "../providers/managed-proxy/context.j
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 
+/**
+ * Test-only override for `VellumPlatformClient.create()`.
+ * When set, `create()` calls this function instead of resolving real credentials.
+ */
+let _createOverride: (() => Promise<VellumPlatformClient | null>) | undefined;
+
+/** @internal Test-only: override `VellumPlatformClient.create()`. */
+export function _setCreateOverrideForTesting(
+  fn: (() => Promise<VellumPlatformClient | null>) | undefined,
+): void {
+  _createOverride = fn;
+}
+
 export class VellumPlatformClient {
   private readonly platformBaseUrl: string;
   private readonly apiKey: string;
@@ -26,6 +39,19 @@ export class VellumPlatformClient {
   }
 
   /**
+   * Build a client from explicit credentials, bypassing all credential
+   * resolution. Useful for testing and for callers that already hold
+   * resolved values.
+   */
+  static fromCredentials(
+    platformBaseUrl: string,
+    apiKey: string,
+    assistantId: string,
+  ): VellumPlatformClient {
+    return new VellumPlatformClient(platformBaseUrl, apiKey, assistantId);
+  }
+
+  /**
    * Create a platform client by resolving managed proxy context.
    *
    * First tries the in-memory managed proxy context (available when the daemon
@@ -38,6 +64,8 @@ export class VellumPlatformClient {
    * should check `platformAssistantId` themselves.
    */
   static async create(): Promise<VellumPlatformClient | null> {
+    if (_createOverride) return _createOverride();
+
     const ctx = await resolveManagedProxyContext();
 
     let baseUrl = ctx.enabled ? ctx.platformBaseUrl : "";

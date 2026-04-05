@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getMockFetchCalls,
@@ -6,36 +6,44 @@ import {
   resetMockFetch,
 } from "../../../__tests__/mock-fetch.js";
 import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
+import {
+  _setCreateOverrideForTesting,
+  VellumPlatformClient,
+} from "../../../platform/client.js";
 import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
 
-let mockPlatformClient: {
-  platformAssistantId: string;
-  fetch: (path: string, init?: RequestInit) => Promise<Response>;
-} | null = null;
-
-mock.module("../../../platform/client.js", () => ({
-  VellumPlatformClient: {
-    create: async () => mockPlatformClient,
-  },
-}));
-
 const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+function setClient(
+  overrides?: Partial<{
+    platformAssistantId: string;
+  }> | null,
+): void {
+  if (overrides === null) {
+    _setCreateOverrideForTesting(async () => null);
+    return;
+  }
+  const assistantId = overrides?.platformAssistantId ?? ASSISTANT_ID;
+  _setCreateOverrideForTesting(async () =>
+    VellumPlatformClient.fromCredentials(
+      "" /* base URL — mockFetch intercepts before it matters */,
+      "test-api-key",
+      assistantId,
+    ),
+  );
+}
 
 beforeEach(() => {
   process.exitCode = 0;
   resetMockFetch();
   _setOverridesForTesting({ "email-channel": true });
-  mockPlatformClient = {
-    platformAssistantId: ASSISTANT_ID,
-    fetch: async (path: string, init?: RequestInit) => {
-      return globalThis.fetch(path, init);
-    },
-  };
+  setClient();
 });
 
 afterEach(() => {
   resetMockFetch();
   _setOverridesForTesting({});
+  _setCreateOverrideForTesting(undefined);
 });
 
 describe("assistant email register", () => {
@@ -120,7 +128,7 @@ describe("assistant email register", () => {
   });
 
   test("missing platform credentials returns error", async () => {
-    mockPlatformClient = null;
+    setClient(null);
 
     const output = await runAssistantCommand(
       "email",
@@ -135,10 +143,7 @@ describe("assistant email register", () => {
   });
 
   test("missing assistant ID returns error", async () => {
-    mockPlatformClient = {
-      ...mockPlatformClient!,
-      platformAssistantId: "",
-    };
+    setClient({ platformAssistantId: "" });
 
     const output = await runAssistantCommand(
       "email",
