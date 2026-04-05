@@ -6,7 +6,6 @@ struct IdentityPanel: View {
     let connectionManager: GatewayConnectionManager
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
-    var identityClient: IdentityClientProtocol = IdentityClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
     var workspaceClient: WorkspaceClientProtocol = WorkspaceClient()
     @State private var appearance = AvatarAppearanceManager.shared
@@ -17,6 +16,7 @@ struct IdentityPanel: View {
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
     @State private var skillCategoryLookup: [String: SkillCategory] = [:]
+    @State private var viewingFilePath: String?
     @State private var isFullscreen: Bool = false
     @State private var showAvatarSheet: Bool = false
     @State private var introText: String? = nil
@@ -138,6 +138,15 @@ struct IdentityPanel: View {
                 .padding(.trailing, 0)
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
+            .sheet(isPresented: Binding(
+                get: { viewingFilePath != nil },
+                set: { if !$0 { viewingFilePath = nil } }
+            )) {
+                if let path = viewingFilePath {
+                    WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
+                        .frame(width: 600, height: 500)
+                }
+            }
             .sheet(isPresented: $showAvatarSheet) {
                 AvatarManagementSheet(
                     onClose: { showAvatarSheet = false }
@@ -388,5 +397,59 @@ struct IdentityPanel: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Workspace File Sheet
+
+private struct WorkspaceFileSheet: View {
+    let filePath: String
+    let onClose: () -> Void
+
+    @State private var fileContent: String = ""
+
+    private var fileName: String {
+        (filePath as NSString).lastPathComponent
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                VIconView(.fileText, size: 13)
+                    .foregroundStyle(VColor.systemNegativeHover)
+                Text(fileName)
+                    .font(VFont.titleSmall)
+                    .foregroundStyle(VColor.contentDefault)
+                Spacer()
+                Button(action: onClose) {
+                    VIconView(.x, size: 12)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.lg)
+
+            Divider().background(VColor.borderBase)
+
+            // Content
+            ScrollView {
+                MarkdownRenderer(text: fileContent)
+                    .padding(VSpacing.xl)
+            }
+        }
+        .background(VColor.surfaceBase)
+        .task(id: filePath) {
+            if let response = await WorkspaceClient().fetchWorkspaceFile(path: filePath, showHidden: false),
+               let content = response.content {
+                fileContent = content
+            } else {
+                fileContent = "Unable to read file."
+            }
+        }
     }
 }
