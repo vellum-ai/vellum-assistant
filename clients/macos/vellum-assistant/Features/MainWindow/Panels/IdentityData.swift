@@ -164,20 +164,10 @@ struct IdentityInfo {
         load(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
     }
 
-    private static let ioQueue = DispatchQueue(label: "com.vellum.identity-io", qos: .userInitiated)
-
-    /// Async loading that prefers the gateway API and falls back to disk.
+    /// Async loading via the gateway API.
     /// Respects structured cancellation from SwiftUI `.task` modifiers.
     static func loadAsync() async -> IdentityInfo? {
-        if let info = await loadFromGateway() { return info }
-        return await loadAsync(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
-    }
-
-    /// Async variant that performs file I/O off the main thread.
-    static func loadAsync(from path: String) async -> IdentityInfo? {
-        await withCheckedContinuation { continuation in
-            ioQueue.async { continuation.resume(returning: load(from: path)) }
-        }
+        await loadFromGateway()
     }
 
     /// Load identity from the gateway API (daemon-side IDENTITY.md parsing).
@@ -218,13 +208,9 @@ struct IdentityInfo {
         return IdentityInfo(name: name, role: role, personality: personality, emoji: emoji, home: home)
     }
 
-    /// Async loading that prefers the gateway identity/intro endpoint
-    /// and falls back to disk-based SOUL.md parsing.
+    /// Async loading via the gateway identity/intro endpoint.
     static func loadIdentityIntroAsync() async -> String? {
-        if let intro = await IdentityClient().fetchIdentityIntro() { return intro }
-        return await withCheckedContinuation { continuation in
-            ioQueue.async { continuation.resume(returning: loadIdentityIntro()) }
-        }
+        await IdentityClient().fetchIdentityIntro()
     }
 
     /// Parses an optional `## Identity Intro` section from SOUL.md.
@@ -254,16 +240,12 @@ struct IdentityInfo {
         return nil
     }
 
-    /// Async loading that prefers the gateway workspace API (fetches SOUL.md
-    /// content) and falls back to disk-based parsing.
+    /// Async loading via the gateway workspace API (fetches SOUL.md content).
     static func loadGreetingsAsync() async -> [String] {
-        if let content = await WorkspaceClient().fetchWorkspaceFile(path: "SOUL.md", showHidden: false)?.content {
-            let greetings = parseGreetings(from: content)
-            if !greetings.isEmpty { return greetings }
+        guard let content = await WorkspaceClient().fetchWorkspaceFile(path: "SOUL.md", showHidden: false)?.content else {
+            return []
         }
-        return await withCheckedContinuation { continuation in
-            ioQueue.async { continuation.resume(returning: loadGreetings()) }
-        }
+        return parseGreetings(from: content)
     }
 
     /// Parses an optional `## Greetings` section from SOUL.md.
@@ -318,19 +300,19 @@ struct AssistantMetadata {
     let version: String
     let createdAt: Date?
 
-    /// Load metadata from the gateway identity endpoint, falling back to disk.
+    /// Load metadata from the gateway identity endpoint.
     static func loadAsync() async -> AssistantMetadata {
-        if let remote = await IdentityClient().fetchRemoteIdentity() {
-            let createdAt: Date? = remote.createdAt.flatMap { dateStr in
-                let formatter = ISO8601DateFormatter()
-                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                let fallback = ISO8601DateFormatter()
-                fallback.formatOptions = [.withInternetDateTime]
-                return formatter.date(from: dateStr) ?? fallback.date(from: dateStr)
-            }
-            return AssistantMetadata(version: remote.version ?? "v1.0", createdAt: createdAt)
+        guard let remote = await IdentityClient().fetchRemoteIdentity() else {
+            return AssistantMetadata(version: "v1.0", createdAt: nil)
         }
-        return load()
+        let createdAt: Date? = remote.createdAt.flatMap { dateStr in
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let fallback = ISO8601DateFormatter()
+            fallback.formatOptions = [.withInternetDateTime]
+            return formatter.date(from: dateStr) ?? fallback.date(from: dateStr)
+        }
+        return AssistantMetadata(version: remote.version ?? "v1.0", createdAt: createdAt)
     }
 
     /// Synchronous disk-based fallback.
@@ -408,18 +390,23 @@ struct WorkspaceFileNode: Identifiable {
     let path: String
     let exists: Bool
 
-    /// Check file existence via the gateway workspace tree API, falling back to disk.
+    /// Check file existence via the gateway workspace tree API.
     static func scanAsync() async -> [WorkspaceFileNode] {
-        if let tree = await WorkspaceClient().fetchWorkspaceTree(path: "", showHidden: false) {
-            let names = Set(tree.entries.map { $0.name })
+        guard let tree = await WorkspaceClient().fetchWorkspaceTree(path: "", showHidden: false) else {
             return [
-                WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: names.contains("IDENTITY.md")),
-                WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: names.contains("SOUL.md")),
-                WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: names.contains("USER.md")),
-                WorkspaceFileNode(label: "skills/", path: "skills", exists: names.contains("skills")),
+                WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: false),
+                WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: false),
+                WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: false),
+                WorkspaceFileNode(label: "skills/", path: "skills", exists: false),
             ]
         }
-        return scan()
+        let names = Set(tree.entries.map { $0.name })
+        return [
+            WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: names.contains("IDENTITY.md")),
+            WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: names.contains("SOUL.md")),
+            WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: names.contains("USER.md")),
+            WorkspaceFileNode(label: "skills/", path: "skills", exists: names.contains("skills")),
+        ]
     }
 
     /// Synchronous disk-based fallback.
