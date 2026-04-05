@@ -23,6 +23,7 @@ Examples:
   $ assistant email register mybot
   $ assistant email unregister --confirm
   $ assistant email send user@example.com -s "Hello" -b "Hi there"
+  $ assistant email status
   $ assistant email register mybot --json`,
   );
 
@@ -197,6 +198,108 @@ Examples:
           writeOutput(cmd, { unregistered: target.address });
         } else {
           log.info(`✓ Unregistered ${target.address}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { error: message });
+        } else {
+          log.error(`Error: ${message}`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  email
+    .command("status")
+    .description("Show email address info and usage for this assistant")
+    .addHelpText(
+      "after",
+      `
+Shows the email address registered for this assistant along with
+current usage and quota information from the platform.
+
+Examples:
+  $ assistant email status
+  Address: mybot@vellum.me
+  Status:  active
+  Sent:    12 / 100 (daily)
+
+  $ assistant email status --json
+  {"address":"mybot@vellum.me","status":"active","usage":{"sent_today":12,"daily_limit":100}}`,
+    )
+    .action(async (_opts: unknown, cmd: Command) => {
+      try {
+        const client = await VellumPlatformClient.create();
+        if (!client) {
+          throw new Error(
+            "Platform credentials not configured. Run: assistant platform connect",
+          );
+        }
+        if (!client.platformAssistantId) {
+          throw new Error(
+            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+          );
+        }
+
+        // 1. List addresses to find the registered one
+        const listResponse = await client.fetch(
+          `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
+        );
+
+        if (!listResponse.ok) {
+          throw new Error(
+            `Failed to list email addresses: HTTP ${listResponse.status}`,
+          );
+        }
+
+        const listData = (await listResponse.json()) as {
+          results: { id: string; address: string }[];
+        };
+
+        const addresses = listData.results ?? [];
+        if (addresses.length === 0) {
+          throw new Error(
+            "No email address registered for this assistant. Run: assistant email register <username>",
+          );
+        }
+
+        const target = addresses[0];
+
+        // 2. Fetch status/usage for this address
+        const statusResponse = await client.fetch(
+          `/v1/assistants/${client.platformAssistantId}/email-addresses/${target.id}/status/`,
+        );
+
+        if (!statusResponse.ok) {
+          const body = (await statusResponse
+            .json()
+            .catch(() => ({}))) as Record<string, unknown>;
+          const detail = body.detail ?? `HTTP ${statusResponse.status}`;
+          throw new Error(String(detail));
+        }
+
+        const statusData = (await statusResponse.json()) as {
+          address: string;
+          status: string;
+          usage: {
+            sent_today: number;
+            daily_limit: number;
+            received_today: number;
+          };
+        };
+
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, statusData);
+        } else {
+          log.info(`Address: ${statusData.address}`);
+          log.info(`Status:  ${statusData.status}`);
+          if (statusData.usage) {
+            log.info(
+              `Sent:    ${statusData.usage.sent_today} / ${statusData.usage.daily_limit} (daily)`,
+            );
+            log.info(`Received today: ${statusData.usage.received_today}`);
+          }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
