@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
@@ -411,6 +411,139 @@ Examples:
               }
               log.info(`\n${data.count} total message(s)`);
             }
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { error: message });
+          } else {
+            log.error(`Error: ${message}`);
+          }
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  email
+    .command("download <message-id>")
+    .description("Download a specific email message")
+    .option(
+      "--format <type>",
+      "Output format: text, html, json (default: text)",
+      "text",
+    )
+    .option("-o, --output <path>", "Write to file instead of stdout")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  message-id   Email message ID (from \`assistant email list --json\`)
+
+Downloads a specific email message by ID. The default format shows
+headers and the plain-text body. Use --format html for the HTML body,
+or --format json for the full message object.
+
+Examples:
+  $ assistant email download msg_abc123
+  From:    user@example.com
+  To:      mybot@vellum.me
+  Subject: Hello
+  Date:    2026-04-05 12:00:00
+
+  Hi, this is a test message.
+
+  $ assistant email download msg_abc123 --format json
+  {"id":"msg_abc123","direction":"inbound",...}
+
+  $ assistant email download msg_abc123 -o email.txt
+  ✓ Saved to email.txt`,
+    )
+    .action(
+      async (
+        messageId: string,
+        opts: {
+          format?: string;
+          output?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          const client = await VellumPlatformClient.create();
+          if (!client) {
+            throw new Error(
+              "Platform credentials not configured. Run: assistant platform connect",
+            );
+          }
+          if (!client.platformAssistantId) {
+            throw new Error(
+              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+            );
+          }
+
+          const response = await client.fetch(
+            `/v1/assistants/${client.platformAssistantId}/emails/${messageId}/`,
+          );
+
+          if (!response.ok) {
+            const body = (await response.json().catch(() => ({}))) as Record<
+              string,
+              unknown
+            >;
+            const detail = body.detail ?? `HTTP ${response.status}`;
+            throw new Error(String(detail));
+          }
+
+          const msg = (await response.json()) as {
+            id: string;
+            direction: string;
+            from_address: string;
+            to_addresses: string[];
+            subject: string;
+            body_text: string;
+            body_html: string;
+            in_reply_to: string;
+            references: string[];
+            created_at: string;
+          };
+
+          const fmt = opts.format ?? "text";
+
+          let content: string;
+          if (fmt === "json" || shouldOutputJson(cmd)) {
+            content = JSON.stringify(msg, null, 2) + "\n";
+          } else if (fmt === "html") {
+            if (!msg.body_html) {
+              throw new Error("No HTML body available for this message.");
+            }
+            content = msg.body_html;
+          } else {
+            // text format: headers + body
+            const to = Array.isArray(msg.to_addresses)
+              ? msg.to_addresses.join(", ")
+              : "";
+            const date = new Date(msg.created_at).toLocaleString();
+            const lines = [
+              `From:    ${msg.from_address}`,
+              `To:      ${to}`,
+              `Subject: ${msg.subject || "(no subject)"}`,
+              `Date:    ${date}`,
+            ];
+            if (msg.in_reply_to) {
+              lines.push(`In-Reply-To: ${msg.in_reply_to}`);
+            }
+            lines.push("", msg.body_text || "(no plain-text body)");
+            content = lines.join("\n") + "\n";
+          }
+
+          if (opts.output) {
+            writeFileSync(opts.output, content, "utf-8");
+            if (!shouldOutputJson(cmd)) {
+              log.info(`✓ Saved to ${opts.output}`);
+            } else {
+              writeOutput(cmd, { saved: opts.output, bytes: content.length });
+            }
+          } else {
+            process.stdout.write(content);
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
