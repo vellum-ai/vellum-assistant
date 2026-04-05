@@ -359,13 +359,15 @@ struct MarkdownSegmentView: View, Equatable {
 
             switch segment {
             case .text(let text):
-                let attributed = (try? AttributedString(markdown: text, options: mdOptions))
+                var attributed = (try? AttributedString(markdown: text, options: mdOptions))
                     ?? AttributedString(text)
+                AttributedStringAutolinker.autolinkBareURLs(in: &attributed)
                 result += attributed
 
             case .heading(let level, let text):
                 var headingAttr = (try? AttributedString(markdown: text, options: mdOptions))
                     ?? AttributedString(text)
+                AttributedStringAutolinker.autolinkBareURLs(in: &headingAttr)
                 let headingSize: CGFloat = switch level {
                 case 1: 20
                 case 2: 16
@@ -399,8 +401,9 @@ struct MarkdownSegmentView: View, Equatable {
                     var prefixAttr = AttributedString(indentString + prefix)
                     prefixAttr.foregroundColor = secondaryTextColor
 
-                    let itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
+                    var itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
                         ?? AttributedString(item.text)
+                    AttributedStringAutolinker.autolinkBareURLs(in: &itemAttr)
 
                     // Apply hanging indent so wrapped lines align with item text
                     let prefixText = indentString + prefix

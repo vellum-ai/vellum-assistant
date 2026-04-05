@@ -334,8 +334,9 @@ struct MarkdownTableView: View {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        let attributed = (try? AttributedString(markdown: text, options: options))
+        var attributed = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
+        AttributedStringAutolinker.autolinkBareURLs(in: &attributed)
 
         // Evict least-recently-used entry if over limit
         if cellCache.count >= cellCacheLimit {
