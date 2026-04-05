@@ -149,7 +149,7 @@ public final class EventStreamClient {
             defer { self.pendingMappingLocalIds.remove(conversationId) }
             let messageClient = MessageClient()
             let attachmentCount = attachments?.count ?? 0
-            log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount)")
+            log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount, privacy: .public)")
 
             // Upload attachments
             var attachmentIds: [String] = []
@@ -167,7 +167,7 @@ public final class EventStreamClient {
                     case .terminalAuthFailure:
                         return
                     case .transientFailure:
-                        log.error("Failed to upload attachment: \(attachment.filename)")
+                        log.error("Failed to upload attachment: \(attachment.filename, privacy: .public)")
                         let failedCount = attachments.count - attachmentIds.count
                         self.broadcastMessage(.conversationError(ConversationErrorMessage(
                             conversationId: conversationId,
@@ -258,7 +258,7 @@ public final class EventStreamClient {
 
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                    log.error("SSE connection failed with status \(statusCode)")
+                    log.error("SSE connection failed with status \(statusCode, privacy: .public)")
                     if statusCode == 402, !self.hasShownCreditsExhausted {
                         self.hasShownCreditsExhausted = true
                         self.broadcastMessage(.conversationError(ConversationErrorMessage(
@@ -289,7 +289,7 @@ public final class EventStreamClient {
                 }
             } catch {
                 if !Task.isCancelled {
-                    log.error("SSE stream error: \(error.localizedDescription)")
+                    log.error("SSE stream error: \(error.localizedDescription, privacy: .public)")
                 }
             }
 
@@ -319,7 +319,7 @@ public final class EventStreamClient {
         defer {
             let elapsed = CFAbsoluteTimeGetCurrent() - start
             if elapsed > 0.05 || byteCount > 100_000 {
-                log.warning("Slow SSE event: \(String(format: "%.1f", elapsed * 1000))ms, \(byteCount) bytes")
+                log.warning("Slow SSE event: \(String(format: "%.1f", elapsed * 1000), privacy: .public)ms, \(byteCount, privacy: .public) bytes")
             }
             sseParseTimeAccumulator += elapsed
             sseParseCountInWindow += 1
@@ -328,7 +328,7 @@ public final class EventStreamClient {
                 if sseParseTimeAccumulator > 0.5 {
                     let totalMs = String(format: "%.0f", sseParseTimeAccumulator * 1000)
                     let count = sseParseCountInWindow
-                    log.warning("SSE main-thread saturation: \(totalMs)ms in \(count) events over 1s")
+                    log.warning("SSE main-thread saturation: \(totalMs, privacy: .public)ms in \(count, privacy: .public) events over 1s")
                 }
                 sseParseTimeAccumulator = 0
                 sseParseCountInWindow = 0
@@ -394,7 +394,7 @@ public final class EventStreamClient {
                 handleParsedMessage(message)
             } catch {
                 let byteCount = jsonData.count
-                log.error("Failed to decode SSE event: \(error.localizedDescription), bytes: \(byteCount)")
+                log.error("Failed to decode SSE event: \(error.localizedDescription, privacy: .public), bytes: \(byteCount, privacy: .public)")
             }
         }
     }
@@ -456,7 +456,7 @@ public final class EventStreamClient {
         sseReconnectTask?.cancel()
 
         let delay = sseReconnectDelay
-        log.info("Scheduling SSE reconnect in \(delay)s")
+        log.info("Scheduling SSE reconnect in \(delay, privacy: .public)s")
 
         sseReconnectTask = Task { @MainActor [weak self] in
             do {
