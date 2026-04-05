@@ -92,7 +92,7 @@ jobs:
           SHORT_SHA="${GITHUB_SHA::7}"
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           echo "image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "tag=dev-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tag=dev.${GITHUB_RUN_NUMBER}.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json gateway/src/feature-flag-registry.json
