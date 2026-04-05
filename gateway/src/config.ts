@@ -149,7 +149,9 @@ export function loadConfig(): GatewayConfig {
   }
 
   const logFile: LogFileConfig = {
-    dir: process.env.GATEWAY_LOG_DIR ?? join(homedir(), ".vellum", "logs"),
+    dir:
+      process.env.GATEWAY_LOG_DIR ??
+      join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "logs"),
     retentionDays: 30,
   };
 

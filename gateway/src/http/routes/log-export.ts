@@ -72,7 +72,18 @@ export function createLogExportHandler(config: GatewayConfig) {
     try {
       const text = await req.text();
       if (text.trim()) {
-        body = JSON.parse(text);
+        const parsed = JSON.parse(text);
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          Array.isArray(parsed)
+        ) {
+          return Response.json(
+            { error: "Body must be a JSON object" },
+            { status: 400 },
+          );
+        }
+        body = parsed;
       }
     } catch {
       return Response.json({ error: "Invalid JSON body" }, { status: 400 });
@@ -172,9 +183,14 @@ export function createLogExportHandler(config: GatewayConfig) {
         },
       });
     } finally {
-      // Clean up staging directory
+      // Clean up staging directory and archive file (which is a sibling, not inside staging)
       try {
         rmSync(stagingDir, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+      try {
+        rmSync(`${stagingDir}.tar.gz`, { force: true });
       } catch {
         // best-effort
       }
