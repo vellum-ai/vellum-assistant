@@ -144,9 +144,9 @@ struct IdentityInfo {
         cached ?? load()
     }
 
-    /// Populate (or refresh) the in-memory cache via the gateway API
-    /// (falling back to disk). Call this at app launch, on workspace
-    /// switch, and whenever IDENTITY.md is known to have changed.
+    /// Populate (or refresh) the in-memory cache via the gateway API.
+    /// Call this at app launch, on workspace switch, and whenever
+    /// IDENTITY.md is known to have changed.
     @MainActor @discardableResult
     static func refreshCache() async -> IdentityInfo? {
         let info = await loadAsync()
