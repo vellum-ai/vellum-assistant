@@ -144,9 +144,9 @@ struct IdentityInfo {
         cached ?? load()
     }
 
-    /// Populate (or refresh) the in-memory cache from disk, off the
-    /// main thread. Call this at app launch, on workspace switch, and
-    /// whenever IDENTITY.md is known to have changed.
+    /// Populate (or refresh) the in-memory cache via the gateway API
+    /// (falling back to disk). Call this at app launch, on workspace
+    /// switch, and whenever IDENTITY.md is known to have changed.
     @MainActor @discardableResult
     static func refreshCache() async -> IdentityInfo? {
         let info = await loadAsync()
@@ -166,10 +166,11 @@ struct IdentityInfo {
 
     private static let ioQueue = DispatchQueue(label: "com.vellum.identity-io", qos: .userInitiated)
 
-    /// Async variant that performs file I/O off the main thread.
+    /// Async loading that prefers the gateway API and falls back to disk.
     /// Respects structured cancellation from SwiftUI `.task` modifiers.
     static func loadAsync() async -> IdentityInfo? {
-        await loadAsync(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
+        if let info = await loadFromGateway() { return info }
+        return await loadAsync(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
     }
 
     /// Async variant that performs file I/O off the main thread.
@@ -177,6 +178,14 @@ struct IdentityInfo {
         await withCheckedContinuation { continuation in
             ioQueue.async { continuation.resume(returning: load(from: path)) }
         }
+    }
+
+    /// Load identity from the gateway API (daemon-side IDENTITY.md parsing).
+    private static func loadFromGateway() async -> IdentityInfo? {
+        guard let remote = await IdentityClient().fetchRemoteIdentity() else { return nil }
+        guard !remote.name.isEmpty else { return nil }
+        let home = remote.home.flatMap { $0.isEmpty ? nil : AssistantHome.parse($0) }
+        return IdentityInfo(name: remote.name, role: remote.role, personality: remote.personality, emoji: remote.emoji, home: home)
     }
 
     /// Load identity from a specific IDENTITY.md path.
@@ -209,9 +218,11 @@ struct IdentityInfo {
         return IdentityInfo(name: name, role: role, personality: personality, emoji: emoji, home: home)
     }
 
-    /// Async variant that performs file I/O off the main thread.
+    /// Async loading that prefers the gateway identity/intro endpoint
+    /// and falls back to disk-based SOUL.md parsing.
     static func loadIdentityIntroAsync() async -> String? {
-        await withCheckedContinuation { continuation in
+        if let intro = await IdentityClient().fetchIdentityIntro() { return intro }
+        return await withCheckedContinuation { continuation in
             ioQueue.async { continuation.resume(returning: loadIdentityIntro()) }
         }
     }
@@ -221,7 +232,11 @@ struct IdentityInfo {
     static func loadIdentityIntro() -> String? {
         let path = NSHomeDirectory() + "/.vellum/workspace/SOUL.md"
         guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        return parseIdentityIntro(from: content)
+    }
 
+    /// Extract the first non-empty line under the `## Identity Intro` heading.
+    private static func parseIdentityIntro(from content: String) -> String? {
         var inSection = false
 
         for line in content.components(separatedBy: .newlines) {
@@ -231,7 +246,6 @@ struct IdentityInfo {
                 continue
             }
             if inSection {
-                // The intro is the first non-empty line in the section
                 if !trimmed.isEmpty {
                     return trimmed
                 }
@@ -240,9 +254,14 @@ struct IdentityInfo {
         return nil
     }
 
-    /// Async variant that performs file I/O off the main thread.
+    /// Async loading that prefers the gateway workspace API (fetches SOUL.md
+    /// content) and falls back to disk-based parsing.
     static func loadGreetingsAsync() async -> [String] {
-        await withCheckedContinuation { continuation in
+        if let content = await WorkspaceClient().fetchWorkspaceFile(path: "SOUL.md", showHidden: false)?.content {
+            let greetings = parseGreetings(from: content)
+            if !greetings.isEmpty { return greetings }
+        }
+        return await withCheckedContinuation { continuation in
             ioQueue.async { continuation.resume(returning: loadGreetings()) }
         }
     }
@@ -252,7 +271,11 @@ struct IdentityInfo {
     static func loadGreetings() -> [String] {
         let path = NSHomeDirectory() + "/.vellum/workspace/SOUL.md"
         guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+        return parseGreetings(from: content)
+    }
 
+    /// Extract greeting lines from the `## Greetings` section of SOUL.md content.
+    private static func parseGreetings(from content: String) -> [String] {
         var greetings: [String] = []
         var inGreetingsSection = false
 
@@ -295,6 +318,20 @@ struct AssistantMetadata {
     let version: String
     let createdAt: Date?
 
+    /// Load metadata from the gateway identity endpoint, falling back to disk.
+    static func loadAsync() async -> AssistantMetadata {
+        if let remote = await IdentityClient().fetchRemoteIdentity() {
+            let createdAt: Date? = remote.createdAt.flatMap { dateStr in
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                return formatter.date(from: dateStr) ?? ISO8601DateFormatter().date(from: dateStr)
+            }
+            return AssistantMetadata(version: remote.version ?? "v1.0", createdAt: createdAt)
+        }
+        return load()
+    }
+
+    /// Synchronous disk-based fallback.
     static func load() -> AssistantMetadata {
         let identityPath = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
         let fm = FileManager.default
@@ -369,14 +406,29 @@ struct WorkspaceFileNode: Identifiable {
     let path: String
     let exists: Bool
 
+    /// Check file existence via the gateway workspace tree API, falling back to disk.
+    static func scanAsync() async -> [WorkspaceFileNode] {
+        if let tree = await WorkspaceClient().fetchWorkspaceTree(path: "", showHidden: false) {
+            let names = Set(tree.entries.map { $0.name })
+            return [
+                WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: names.contains("IDENTITY.md")),
+                WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: names.contains("SOUL.md")),
+                WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: names.contains("USER.md")),
+                WorkspaceFileNode(label: "skills/", path: "skills", exists: names.contains("skills")),
+            ]
+        }
+        return scan()
+    }
+
+    /// Synchronous disk-based fallback.
     static func scan() -> [WorkspaceFileNode] {
         let base = NSHomeDirectory() + "/.vellum/workspace"
         let fm = FileManager.default
         return [
-            WorkspaceFileNode(label: "IDENTITY.md", path: base + "/IDENTITY.md", exists: fm.fileExists(atPath: base + "/IDENTITY.md")),
-            WorkspaceFileNode(label: "SOUL.md", path: base + "/SOUL.md", exists: fm.fileExists(atPath: base + "/SOUL.md")),
-            WorkspaceFileNode(label: "USER.md", path: base + "/USER.md", exists: fm.fileExists(atPath: base + "/USER.md")),
-            WorkspaceFileNode(label: "skills/", path: base + "/skills", exists: fm.fileExists(atPath: base + "/skills")),
+            WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: fm.fileExists(atPath: base + "/IDENTITY.md")),
+            WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: fm.fileExists(atPath: base + "/SOUL.md")),
+            WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: fm.fileExists(atPath: base + "/USER.md")),
+            WorkspaceFileNode(label: "skills/", path: "skills", exists: fm.fileExists(atPath: base + "/skills")),
         ]
     }
 }

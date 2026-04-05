@@ -161,9 +161,9 @@ struct IdentityPanel: View {
             }
             .task {
                 identity = await IdentityInfo.loadAsync()
-                metadata = AssistantMetadata.load()
+                metadata = await AssistantMetadata.loadAsync()
                 lockfileAssistant = LockfileAssistant.loadLatest()
-                workspaceFiles = WorkspaceFileNode.scan()
+                workspaceFiles = await WorkspaceFileNode.scanAsync()
                 fetchSkills()
 
                 // For remote assistants without local IDENTITY.md, fetch from daemon
@@ -468,7 +468,12 @@ private struct WorkspaceFileSheet: View {
         }
         .background(VColor.surfaceBase)
         .task(id: filePath) {
-            fileContent = (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? "Unable to read file."
+            if let response = await WorkspaceClient().fetchWorkspaceFile(path: filePath, showHidden: false),
+               let content = response.content {
+                fileContent = content
+            } else {
+                fileContent = "Unable to read file."
+            }
         }
     }
 }
