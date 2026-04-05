@@ -131,17 +131,16 @@ struct IdentityInfo {
 
     /// Most-recently loaded identity, cached in memory so that
     /// hot paths (menu bar, command palette, session overlay) never
-    /// perform synchronous file I/O on the main thread.
+    /// block on the main thread.
     ///
     /// All reads and writes are confined to `@MainActor` to eliminate
     /// data races between the async `refreshCache()` writer and the
     /// synchronous `current` reader.
     @MainActor private static var cached: IdentityInfo?
 
-    /// Returns the cached identity if available, otherwise falls back
-    /// to a synchronous load (for first-access before the cache is warm).
+    /// Returns the cached identity if available (nil before first refresh).
     @MainActor static var current: IdentityInfo? {
-        cached ?? load()
+        cached
     }
 
     /// Populate (or refresh) the in-memory cache via the gateway API.
@@ -154,58 +153,18 @@ struct IdentityInfo {
         return info
     }
 
-    /// Synchronously seeds the cache from the current default path.
-    /// Intended for use when an async context is not available.
-    @MainActor static func warmCache() {
-        cached = load()
+    /// Seeds the cache via the gateway API.
+    @MainActor static func warmCache() async {
+        cached = await loadAsync()
     }
 
-    static func load() -> IdentityInfo? {
-        load(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
-    }
-
-    /// Async loading via the gateway API.
+    /// Load identity from the gateway API (assistant-side IDENTITY.md parsing).
     /// Respects structured cancellation from SwiftUI `.task` modifiers.
     static func loadAsync() async -> IdentityInfo? {
-        await loadFromGateway()
-    }
-
-    /// Load identity from the gateway API (daemon-side IDENTITY.md parsing).
-    private static func loadFromGateway() async -> IdentityInfo? {
         guard let remote = await IdentityClient().fetchRemoteIdentity() else { return nil }
         guard !remote.name.isEmpty else { return nil }
         let home = remote.home.flatMap { $0.isEmpty ? nil : AssistantHome.parse($0) }
         return IdentityInfo(name: remote.name, role: remote.role, personality: remote.personality, emoji: remote.emoji, home: home)
-    }
-
-    /// Load identity from a specific IDENTITY.md path.
-    static func load(from path: String) -> IdentityInfo? {
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
-
-        var name = ""
-        var role = ""
-        var personality = ""
-        var emoji = ""
-        var homeRaw = ""
-
-        for line in content.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.lowercased().hasPrefix("- **name:**") {
-                name = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
-            } else if trimmed.lowercased().hasPrefix("- **role:**") {
-                role = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
-            } else if trimmed.lowercased().hasPrefix("- **personality:**") || trimmed.lowercased().hasPrefix("- **vibe:**") {
-                personality = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
-            } else if trimmed.lowercased().hasPrefix("- **emoji:**") {
-                emoji = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
-            } else if trimmed.lowercased().hasPrefix("- **home:**") {
-                homeRaw = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
-            }
-        }
-
-        guard !name.isEmpty else { return nil }
-        let home = homeRaw.isEmpty ? nil : AssistantHome.parse(homeRaw)
-        return IdentityInfo(name: name, role: role, personality: personality, emoji: emoji, home: home)
     }
 
     /// Async loading via the gateway identity/intro endpoint.
@@ -213,46 +172,11 @@ struct IdentityInfo {
         await IdentityClient().fetchIdentityIntro()
     }
 
-    /// Parses an optional `## Identity Intro` section from SOUL.md.
-    /// Returns a single short tagline or nil.
-    static func loadIdentityIntro() -> String? {
-        let path = NSHomeDirectory() + "/.vellum/workspace/SOUL.md"
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
-        return parseIdentityIntro(from: content)
-    }
-
-    /// Extract the first non-empty line under the `## Identity Intro` heading.
-    private static func parseIdentityIntro(from content: String) -> String? {
-        var inSection = false
-
-        for line in content.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("#") && trimmed.drop(while: { $0 == "#" }).first == " " {
-                inSection = trimmed.lowercased().contains("identity intro")
-                continue
-            }
-            if inSection {
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-        }
-        return nil
-    }
-
     /// Async loading via the gateway workspace API (fetches SOUL.md content).
     static func loadGreetingsAsync() async -> [String] {
         guard let content = await WorkspaceClient().fetchWorkspaceFile(path: "SOUL.md", showHidden: false)?.content else {
             return []
         }
-        return parseGreetings(from: content)
-    }
-
-    /// Parses an optional `## Greetings` section from SOUL.md.
-    /// The assistant is expected to maintain this section as part of its personality.
-    static func loadGreetings() -> [String] {
-        let path = NSHomeDirectory() + "/.vellum/workspace/SOUL.md"
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
         return parseGreetings(from: content)
     }
 
@@ -314,26 +238,6 @@ struct AssistantMetadata {
         }
         return AssistantMetadata(version: remote.version ?? "v1.0", createdAt: createdAt)
     }
-
-    /// Synchronous disk-based fallback.
-    static func load() -> AssistantMetadata {
-        let identityPath = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
-        let fm = FileManager.default
-
-        // Version from IDENTITY.md modified date count (simple lineage)
-        let version = "v1.0"
-
-        // Created at = IDENTITY.md creation date
-        let createdAt: Date?
-        if let attrs = try? fm.attributesOfItem(atPath: identityPath),
-           let date = attrs[.creationDate] as? Date {
-            createdAt = date
-        } else {
-            createdAt = nil
-        }
-
-        return AssistantMetadata(version: version, createdAt: createdAt)
-    }
 }
 
 // MARK: - Lockfile Assistant Extensions (macOS-specific UI helpers)
@@ -375,8 +279,16 @@ extension LockfileAssistant {
     func loadDisplayName() -> String? {
         guard let base = instanceDir else { return nil }
         let identityPath = base + "/.vellum/workspace/IDENTITY.md"
-        guard let info = IdentityInfo.load(from: identityPath) else { return nil }
-        guard let resolved = AssistantDisplayName.firstUserFacing(from: [info.name]),
+        guard let content = try? String(contentsOfFile: identityPath, encoding: .utf8) else { return nil }
+        var name = ""
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.lowercased().hasPrefix("- **name:**") {
+                name = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
+                break
+            }
+        }
+        guard let resolved = AssistantDisplayName.firstUserFacing(from: [name]),
               resolved != AssistantDisplayName.placeholder else { return nil }
         return resolved
     }
@@ -406,18 +318,6 @@ struct WorkspaceFileNode: Identifiable {
             WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: names.contains("SOUL.md")),
             WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: names.contains("USER.md")),
             WorkspaceFileNode(label: "skills/", path: "skills", exists: names.contains("skills")),
-        ]
-    }
-
-    /// Synchronous disk-based fallback.
-    static func scan() -> [WorkspaceFileNode] {
-        let base = NSHomeDirectory() + "/.vellum/workspace"
-        let fm = FileManager.default
-        return [
-            WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: fm.fileExists(atPath: base + "/IDENTITY.md")),
-            WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: fm.fileExists(atPath: base + "/SOUL.md")),
-            WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: fm.fileExists(atPath: base + "/USER.md")),
-            WorkspaceFileNode(label: "skills/", path: "skills", exists: fm.fileExists(atPath: base + "/skills")),
         ]
     }
 }
