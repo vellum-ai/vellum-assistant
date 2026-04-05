@@ -15,6 +15,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -351,6 +352,12 @@ async function collectDaemonExport(
       "Failed to extract daemon export tar.gz — including raw archive",
     );
     // Move the raw tar.gz into the dest dir so we still have something
+    try {
+      renameSync(tarGzPath, join(destDir, "daemon-export.tar.gz"));
+    } catch {
+      // best-effort — clean up below will handle it
+    }
+    return "error";
   }
 
   // Clean up the temp tar.gz
@@ -450,6 +457,13 @@ async function collectCesExport(
       { exitCode: extractExit, stderr },
       "Failed to extract CES export tar.gz — including raw archive",
     );
+    // Move the raw tar.gz into the dest dir so we still have something
+    try {
+      renameSync(tarGzPath, join(destDir, "ces-export.tar.gz"));
+    } catch {
+      // best-effort
+    }
+    return "error";
   }
 
   // Clean up the temp tar.gz

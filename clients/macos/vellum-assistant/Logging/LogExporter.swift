@@ -645,7 +645,7 @@ enum LogExporter {
         }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "logs/export", json: body, timeout: 30)
+            let response = try await GatewayHTTPClient.post(path: "logs/export", json: body, timeout: 60)
             guard response.isSuccess else {
                 log.warning("Export API failed with status \(response.statusCode)")
                 writeExportErrorLog(

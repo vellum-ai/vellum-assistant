@@ -105,6 +105,14 @@ function configWithLogDir(dir: string): GatewayConfig {
   return { ...baseConfig, logFile: { dir, retentionDays: 30 } };
 }
 
+/** Convert a Node Buffer to a plain ArrayBuffer (avoids SharedArrayBuffer TS errors). */
+function toArrayBuffer(buf: Buffer): ArrayBuffer {
+  return buf.buffer.slice(
+    buf.byteOffset,
+    buf.byteOffset + buf.byteLength,
+  ) as ArrayBuffer;
+}
+
 /**
  * Create a minimal valid tar.gz containing a single file.
  * Returns an ArrayBuffer suitable for use in a mock Response.
@@ -221,31 +229,19 @@ describe("gateway log export handler", () => {
       if (url.includes("/v1/logs/export")) {
         // CES export — check before /v1/export since that's a substring match
         return Promise.resolve(
-          new Response(
-            cesTarGz.buffer.slice(
-              cesTarGz.byteOffset,
-              cesTarGz.byteOffset + cesTarGz.byteLength,
-            ),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/gzip" },
-            },
-          ),
+          new Response(toArrayBuffer(cesTarGz), {
+            status: 200,
+            headers: { "Content-Type": "application/gzip" },
+          }),
         );
       }
       if (url.includes("/v1/export")) {
         // Daemon export
         return Promise.resolve(
-          new Response(
-            daemonTarGz.buffer.slice(
-              daemonTarGz.byteOffset,
-              daemonTarGz.byteOffset + daemonTarGz.byteLength,
-            ),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/gzip" },
-            },
-          ),
+          new Response(toArrayBuffer(daemonTarGz), {
+            status: 200,
+            headers: { "Content-Type": "application/gzip" },
+          }),
         );
       }
       return Promise.resolve(new Response("", { status: 404 }));
@@ -327,16 +323,10 @@ describe("gateway log export handler", () => {
           capturedBody = init.body;
         }
         return Promise.resolve(
-          new Response(
-            daemonTarGz.buffer.slice(
-              daemonTarGz.byteOffset,
-              daemonTarGz.byteOffset + daemonTarGz.byteLength,
-            ),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/gzip" },
-            },
-          ),
+          new Response(toArrayBuffer(daemonTarGz), {
+            status: 200,
+            headers: { "Content-Type": "application/gzip" },
+          }),
         );
       },
     );
@@ -377,16 +367,10 @@ describe("gateway log export handler", () => {
         capturedCesUrl = url;
       }
       return Promise.resolve(
-        new Response(
-          tarGz.buffer.slice(
-            tarGz.byteOffset,
-            tarGz.byteOffset + tarGz.byteLength,
-          ),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/gzip" },
-          },
-        ),
+        new Response(toArrayBuffer(tarGz), {
+          status: 200,
+          headers: { "Content-Type": "application/gzip" },
+        }),
       );
     });
 
@@ -451,16 +435,10 @@ describe("gateway log export handler", () => {
       if (url.includes("/v1/export")) {
         // Daemon succeeds
         return Promise.resolve(
-          new Response(
-            daemonTarGz.buffer.slice(
-              daemonTarGz.byteOffset,
-              daemonTarGz.byteOffset + daemonTarGz.byteLength,
-            ),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/gzip" },
-            },
-          ),
+          new Response(toArrayBuffer(daemonTarGz), {
+            status: 200,
+            headers: { "Content-Type": "application/gzip" },
+          }),
         );
       }
       return Promise.reject(new Error("unexpected URL: " + url));
@@ -489,16 +467,10 @@ describe("gateway log export handler", () => {
 
     fetchMock.mockImplementation(() =>
       Promise.resolve(
-        new Response(
-          daemonTarGz.buffer.slice(
-            daemonTarGz.byteOffset,
-            daemonTarGz.byteOffset + daemonTarGz.byteLength,
-          ),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/gzip" },
-          },
-        ),
+        new Response(toArrayBuffer(daemonTarGz), {
+          status: 200,
+          headers: { "Content-Type": "application/gzip" },
+        }),
       ),
     );
 
