@@ -1055,18 +1055,37 @@ export async function hatchDocker(
 
     if (!watch || !repoRoot) {
       emitProgress(2, 6, "Pulling images...");
-      const version = cliPkg.version;
-      const versionTag = version ? `v${version}` : "latest";
-      log("🔍 Resolving image references...");
-      const resolved = await resolveImageRefs(versionTag, log);
-      imageTags.assistant = resolved.imageTags.assistant;
-      imageTags.gateway = resolved.imageTags.gateway;
-      imageTags["credential-executor"] =
-        resolved.imageTags["credential-executor"];
+
+      // Allow explicit image overrides via environment variables.
+      // When all three are set, skip version-based resolution entirely.
+      const envAssistant = process.env.VELLUM_ASSISTANT_IMAGE;
+      const envGateway = process.env.VELLUM_GATEWAY_IMAGE;
+      const envCredentialExecutor =
+        process.env.VELLUM_CREDENTIAL_EXECUTOR_IMAGE;
+
+      let imageSource: string;
+
+      if (envAssistant && envGateway && envCredentialExecutor) {
+        imageTags.assistant = envAssistant;
+        imageTags.gateway = envGateway;
+        imageTags["credential-executor"] = envCredentialExecutor;
+        imageSource = "env override";
+        log("Using image overrides from environment variables");
+      } else {
+        const version = cliPkg.version;
+        const versionTag = version ? `v${version}` : "latest";
+        log("🔍 Resolving image references...");
+        const resolved = await resolveImageRefs(versionTag, log);
+        imageTags.assistant = resolved.imageTags.assistant;
+        imageTags.gateway = resolved.imageTags.gateway;
+        imageTags["credential-executor"] =
+          resolved.imageTags["credential-executor"];
+        imageSource = resolved.source;
+      }
 
       log(`🥚 Hatching Docker assistant: ${instanceName}`);
       log(`   Species: ${species}`);
-      log(`   Images (${resolved.source}):`);
+      log(`   Images (${imageSource}):`);
       log(`     assistant:            ${imageTags.assistant}`);
       log(`     gateway:              ${imageTags.gateway}`);
       log(`     credential-executor:  ${imageTags["credential-executor"]}`);
