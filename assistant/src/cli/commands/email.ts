@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import type { Command } from "commander";
 
 import { VellumPlatformClient } from "../../platform/client.js";
@@ -20,6 +22,7 @@ Manage the assistant's email channel on the Vellum platform.
 Examples:
   $ assistant email register mybot
   $ assistant email unregister --confirm
+  $ assistant email send user@example.com -s "Hello" -b "Hi there"
   $ assistant email register mybot --json`,
   );
 
@@ -205,4 +208,163 @@ Examples:
         process.exitCode = 1;
       }
     });
+
+  email
+    .command("send <to>")
+    .description("Send an email from this assistant")
+    .option("-s, --subject <text>", "Subject line")
+    .option("-b, --body <text>", "Email body (plain text)")
+    .option("-f, --file <path>", "Read body from file")
+    .option("--html <path>", "HTML body file (optional)")
+    .option(
+      "--in-reply-to <message-id>",
+      "Message-ID to reply to (for threading)",
+    )
+    .option(
+      "--references <message-ids>",
+      "Space-separated ancestor Message-IDs",
+    )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  to   Recipient email address
+
+Sends an email from the assistant's registered email address via the
+Vellum runtime proxy. The "from" address is automatically resolved
+from the assistant's registered email address.
+
+Body source priority: --body flag > --file flag > stdin (if not a TTY).
+
+Examples:
+  $ assistant email send user@example.com -s "Hello" -b "Hi there"
+  ✓ Sent to user@example.com (delivery_id: abc123)
+
+  $ echo "Body text" | assistant email send user@example.com -s "Hello"
+  ✓ Sent to user@example.com (delivery_id: def456)
+
+  $ assistant email send user@example.com -s "Re: Thread" -b "Reply" --in-reply-to "<orig@mail.gmail.com>"
+  ✓ Sent to user@example.com (delivery_id: ghi789)
+
+  $ assistant email send user@example.com -s "Hello" -b "Hi" --json
+  {"delivery_id":"abc123","status":"accepted"}`,
+    )
+    .action(
+      async (
+        to: string,
+        opts: {
+          subject?: string;
+          body?: string;
+          file?: string;
+          html?: string;
+          inReplyTo?: string;
+          references?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          const client = await VellumPlatformClient.create();
+          if (!client) {
+            throw new Error(
+              "Platform credentials not configured. Run: assistant platform connect",
+            );
+          }
+          if (!client.platformAssistantId) {
+            throw new Error(
+              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+            );
+          }
+
+          // 1. Resolve the assistant's registered email address (the "from").
+          const listResponse = await client.fetch(
+            `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
+          );
+
+          if (!listResponse.ok) {
+            throw new Error(
+              `Failed to list email addresses: HTTP ${listResponse.status}`,
+            );
+          }
+
+          const listData = (await listResponse.json()) as {
+            results: { id: string; address: string }[];
+          };
+
+          const addresses = listData.results ?? [];
+          if (addresses.length === 0) {
+            throw new Error(
+              "No email address registered for this assistant. Run: assistant email register <username>",
+            );
+          }
+
+          const fromAddress = addresses[0].address;
+
+          // 2. Resolve body text: --body > --file > stdin
+          let text = opts.body;
+          if (!text && opts.file) {
+            text = readFileSync(opts.file, "utf-8");
+          }
+          if (!text && !process.stdin.isTTY) {
+            text = readFileSync("/dev/stdin", "utf-8");
+          }
+          if (!text) {
+            throw new Error(
+              "Email body is required. Use --body, --file, or pipe via stdin.",
+            );
+          }
+
+          // 3. Resolve optional HTML body from file
+          let html: string | undefined;
+          if (opts.html) {
+            html = readFileSync(opts.html, "utf-8");
+          }
+
+          // 4. Build payload
+          const payload: Record<string, string> = {
+            to,
+            from_address: fromAddress,
+            text,
+          };
+          if (opts.subject) payload.subject = opts.subject;
+          if (html) payload.html = html;
+          if (opts.inReplyTo) payload.in_reply_to = opts.inReplyTo;
+          if (opts.references) payload.references = opts.references;
+
+          // 5. Send via runtime proxy
+          const response = await client.fetch("/v1/runtime-proxy/email/send/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            const body = (await response.json().catch(() => ({}))) as Record<
+              string,
+              unknown
+            >;
+            const detail = body.detail ?? `HTTP ${response.status}`;
+            throw new Error(String(detail));
+          }
+
+          const data = (await response.json()) as {
+            delivery_id: string;
+            status: string;
+          };
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, data);
+          } else {
+            log.info(`✓ Sent to ${to} (delivery_id: ${data.delivery_id})`);
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { error: message });
+          } else {
+            log.error(`Error: ${message}`);
+          }
+          process.exitCode = 1;
+        }
+      },
+    );
 }
