@@ -395,6 +395,7 @@ export function ensureDataDir(): void {
     join(wsData, "apps"),
     join(wsData, "interfaces"),
     join(wsData, "sounds"),
+    join(wsData, "audio-spool"),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {
