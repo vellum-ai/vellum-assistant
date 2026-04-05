@@ -6,44 +6,31 @@ import {
   resetMockFetch,
 } from "../../../__tests__/mock-fetch.js";
 import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
+import { setPlatformAssistantId } from "../../../config/env.js";
+import { credentialKey } from "../../../security/credential-key.js";
 import {
-  _setCreateOverrideForTesting,
-  VellumPlatformClient,
-} from "../../../platform/client.js";
+  _resetBackend,
+  setSecureKeyAsync,
+} from "../../../security/secure-keys.js";
 import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
 
 const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
 
-function setClient(
-  overrides?: Partial<{
-    platformAssistantId: string;
-  }> | null,
-): void {
-  if (overrides === null) {
-    _setCreateOverrideForTesting(async () => null);
-    return;
-  }
-  const assistantId = overrides?.platformAssistantId ?? ASSISTANT_ID;
-  _setCreateOverrideForTesting(async () =>
-    VellumPlatformClient.fromCredentials(
-      "" /* base URL — mockFetch intercepts before it matters */,
-      "test-api-key",
-      assistantId,
-    ),
-  );
-}
-
-beforeEach(() => {
+beforeEach(async () => {
   process.exitCode = 0;
+  _resetBackend();
   resetMockFetch();
   _setOverridesForTesting({ "email-channel": true });
-  setClient();
+  setPlatformAssistantId(ASSISTANT_ID);
+  await setSecureKeyAsync(API_KEY_CREDENTIAL, "test-api-key");
 });
 
 afterEach(() => {
   resetMockFetch();
   _setOverridesForTesting({});
-  _setCreateOverrideForTesting(undefined);
+  setPlatformAssistantId(undefined);
+  _resetBackend();
 });
 
 describe("assistant email register", () => {
@@ -128,7 +115,9 @@ describe("assistant email register", () => {
   });
 
   test("missing platform credentials returns error", async () => {
-    setClient(null);
+    // Remove the API key so create() returns null
+    _resetBackend();
+    setPlatformAssistantId(undefined);
 
     const output = await runAssistantCommand(
       "email",
@@ -143,7 +132,7 @@ describe("assistant email register", () => {
   });
 
   test("missing assistant ID returns error", async () => {
-    setClient({ platformAssistantId: "" });
+    setPlatformAssistantId("");
 
     const output = await runAssistantCommand(
       "email",
