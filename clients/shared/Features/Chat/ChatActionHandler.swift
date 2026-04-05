@@ -671,13 +671,25 @@ final class ChatActionHandler {
                 vm.currentTurnUserText = text
             }
         } else {
-            // No matching messageId — still recompute queued positions
+            // No matching messageId — still recompute queued positions and
+            // reconcile any false "Failed to send" state: the daemon is
+            // processing a queued message, so if a user message is marked as
+            // sendFailed, the send actually succeeded (transient HTTP error
+            // between enqueue and 202 response).
+            var reconciledId: UUID?
             vm.messageManager.batchUpdateMessages { msgs in
+                if let idx = msgs.lastIndex(where: { $0.role == .user && $0.status == .sendFailed }) {
+                    msgs[idx].status = .processing
+                    reconciledId = msgs[idx].id
+                }
                 for i in msgs.indices {
                     if case .queued(let position) = msgs[i].status, position > 0 {
                         msgs[i].status = .queued(position: position - 1)
                     }
                 }
+            }
+            if let reconciledId {
+                vm.activeRequestIdToMessageId[msg.requestId] = reconciledId
             }
         }
         // The dequeued message is now being processed
