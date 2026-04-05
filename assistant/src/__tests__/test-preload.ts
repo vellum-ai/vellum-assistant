@@ -23,9 +23,11 @@ const testDir = realpathSync(
 );
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
+process.exitCode = 0;
 
 afterAll(() => {
   resetDb();
+  process.exitCode = 0;
   delete process.env.VELLUM_WORKSPACE_DIR;
   delete process.env.VELLUM_PLATFORM_URL;
   try {

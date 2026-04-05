@@ -19,6 +19,7 @@ Manage the assistant's email channel on the Vellum platform.
 
 Examples:
   $ assistant email register mybot
+  $ assistant email unregister --confirm
   $ assistant email register mybot --json`,
   );
 
@@ -90,6 +91,109 @@ Examples:
           writeOutput(cmd, data);
         } else {
           log.info(`✓ Registered ${data.address}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { error: message });
+        } else {
+          log.error(`Error: ${message}`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  email
+    .command("unregister")
+    .description("Remove the email address registered for this assistant")
+    .option("--confirm", "Skip confirmation prompt")
+    .addHelpText(
+      "after",
+      `
+Removes the email address currently registered for this assistant.
+The address is deactivated immediately — inbound email will no longer
+be delivered. The username enters a cooldown period and is not
+immediately available for reuse.
+
+Examples:
+  $ assistant email unregister
+  Remove mybot@vellum.me? (y/N) y
+  ✓ Unregistered mybot@vellum.me
+
+  $ assistant email unregister --confirm
+  ✓ Unregistered mybot@vellum.me
+
+  $ assistant email unregister --json
+  {"unregistered":"mybot@vellum.me"}`,
+    )
+    .action(async (_opts: { confirm?: boolean }, cmd: Command) => {
+      try {
+        const client = await VellumPlatformClient.create();
+        if (!client) {
+          throw new Error(
+            "Platform credentials not configured. Run: assistant platform connect",
+          );
+        }
+        if (!client.platformAssistantId) {
+          throw new Error(
+            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+          );
+        }
+
+        const listResponse = await client.fetch(
+          `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
+        );
+
+        if (!listResponse.ok) {
+          throw new Error(
+            `Failed to list email addresses: HTTP ${listResponse.status}`,
+          );
+        }
+
+        const listData = (await listResponse.json()) as {
+          results: { id: string; address: string }[];
+        };
+
+        const addresses = listData.results ?? [];
+        if (addresses.length === 0) {
+          throw new Error("No email address registered for this assistant.");
+        }
+
+        const target = addresses[0];
+
+        if (!_opts.confirm && !shouldOutputJson(cmd)) {
+          const rl = await import("node:readline");
+          const iface = rl.createInterface({
+            input: process.stdin,
+            output: process.stderr,
+          });
+          const answer = await new Promise<string>((resolve) => {
+            iface.question(`Remove ${target.address}? (y/N) `, resolve);
+          });
+          iface.close();
+          if (answer.trim().toLowerCase() !== "y") {
+            log.info("Cancelled.");
+            return;
+          }
+        }
+
+        const deleteResponse = await client.fetch(
+          `/v1/assistants/${client.platformAssistantId}/email-addresses/${target.id}/`,
+          { method: "DELETE" },
+        );
+
+        if (!deleteResponse.ok) {
+          const body = (await deleteResponse
+            .json()
+            .catch(() => ({}))) as Record<string, unknown>;
+          const detail = body.detail ?? `HTTP ${deleteResponse.status}`;
+          throw new Error(String(detail));
+        }
+
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { unregistered: target.address });
+        } else {
+          log.info(`✓ Unregistered ${target.address}`);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

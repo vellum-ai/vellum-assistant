@@ -1,19 +1,17 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  getMockFetchCalls,
+  mockFetch,
+  resetMockFetch,
+} from "../../../__tests__/mock-fetch.js";
 import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
-
-// ---------------------------------------------------------------------------
-// Mutable mock state
-// ---------------------------------------------------------------------------
+import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
 
 let mockPlatformClient: {
   platformAssistantId: string;
   fetch: (path: string, init?: RequestInit) => Promise<Response>;
 } | null = null;
-
-// ---------------------------------------------------------------------------
-// Module mocks — must be declared before imports that use them
-// ---------------------------------------------------------------------------
 
 mock.module("../../../platform/client.js", () => ({
   VellumPlatformClient: {
@@ -21,118 +19,69 @@ mock.module("../../../platform/client.js", () => ({
   },
 }));
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-let originalFetch: typeof globalThis.fetch;
-let fetchCalls: [string, RequestInit][] = [];
+const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
 beforeEach(() => {
-  originalFetch = globalThis.fetch;
-  fetchCalls = [];
   process.exitCode = 0;
-
+  resetMockFetch();
   _setOverridesForTesting({ "email-channel": true });
-
   mockPlatformClient = {
-    platformAssistantId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    platformAssistantId: ASSISTANT_ID,
     fetch: async (path: string, init?: RequestInit) => {
-      const url = `https://test-platform.vellum.ai${path}`;
-      fetchCalls.push([url, init ?? {}]);
-      return globalThis.fetch(url, init);
+      return globalThis.fetch(path, init);
     },
   };
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  resetMockFetch();
   _setOverridesForTesting({});
-  process.exitCode = 0;
 });
-
-async function captureStdout(fn: () => Promise<void>): Promise<string> {
-  const chunks: string[] = [];
-  const originalWrite = process.stdout.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    chunks.push(
-      typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk),
-    );
-    return true;
-  }) as typeof process.stdout.write;
-  try {
-    await fn();
-  } finally {
-    process.stdout.write = originalWrite;
-  }
-  return chunks.join("");
-}
-
-function setFetchResponse(body: unknown, status: number): void {
-  globalThis.fetch = (async (
-    _input: RequestInfo | URL,
-    _init?: RequestInit,
-  ) => {
-    return new Response(JSON.stringify(body), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    });
-  }) as unknown as typeof globalThis.fetch;
-}
-
-async function runEmailCommand(...args: string[]): Promise<string> {
-  const { buildCliProgram } = await import("../../program.js");
-  const program = buildCliProgram();
-  program.exitOverride();
-  program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
-
-  return captureStdout(async () => {
-    try {
-      await program.parseAsync(["node", "assistant", ...args]);
-    } catch {
-      /* commander exit override throws */
-    }
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("assistant email register", () => {
   test("successful registration calls correct URL and body", async () => {
-    setFetchResponse(
+    mockFetch(
+      "/email-addresses/",
+      { method: "POST" },
       {
-        id: "550e8400-e29b-41d4-a716-446655440000",
-        address: "mybot@vellum.me",
-        created_at: "2026-04-04T21:00:00Z",
+        body: {
+          id: "550e8400-e29b-41d4-a716-446655440000",
+          address: "mybot@vellum.me",
+          created_at: "2026-04-04T21:00:00Z",
+        },
+        status: 201,
       },
-      201,
     );
 
-    await runEmailCommand("email", "register", "mybot");
+    await runAssistantCommand("email", "register", "mybot");
 
-    expect(fetchCalls).toHaveLength(1);
-    const [url, opts] = fetchCalls[0];
-    expect(url).toBe(
-      "https://test-platform.vellum.ai/v1/assistants/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/email-addresses/",
+    const calls = getMockFetchCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toBe(
+      `/v1/assistants/${ASSISTANT_ID}/email-addresses/`,
     );
-    expect(opts.method).toBe("POST");
-    expect(JSON.parse(opts.body as string)).toEqual({ username: "mybot" });
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({
+      username: "mybot",
+    });
     expect(process.exitCode).toBe(0);
   });
 
   test("--json outputs structured response", async () => {
-    setFetchResponse(
+    mockFetch(
+      "/email-addresses/",
+      { method: "POST" },
       {
-        id: "550e8400-e29b-41d4-a716-446655440000",
-        address: "support@vellum.me",
-        created_at: "2026-04-04T21:00:00Z",
+        body: {
+          id: "550e8400-e29b-41d4-a716-446655440000",
+          address: "support@vellum.me",
+          created_at: "2026-04-04T21:00:00Z",
+        },
+        status: 201,
       },
-      201,
     );
 
-    const output = await runEmailCommand(
+    const output = await runAssistantCommand(
       "email",
       "--json",
       "register",
@@ -147,12 +96,18 @@ describe("assistant email register", () => {
   });
 
   test("duplicate address returns error", async () => {
-    setFetchResponse(
-      { assistant_id: ["This assistant already has an email address."] },
-      400,
+    mockFetch(
+      "/email-addresses/",
+      { method: "POST" },
+      {
+        body: {
+          assistant_id: ["This assistant already has an email address."],
+        },
+        status: 400,
+      },
     );
 
-    const output = await runEmailCommand(
+    const output = await runAssistantCommand(
       "email",
       "--json",
       "register",
@@ -167,7 +122,7 @@ describe("assistant email register", () => {
   test("missing platform credentials returns error", async () => {
     mockPlatformClient = null;
 
-    const output = await runEmailCommand(
+    const output = await runAssistantCommand(
       "email",
       "--json",
       "register",
@@ -185,7 +140,7 @@ describe("assistant email register", () => {
       platformAssistantId: "",
     };
 
-    const output = await runEmailCommand(
+    const output = await runAssistantCommand(
       "email",
       "--json",
       "register",
@@ -198,9 +153,13 @@ describe("assistant email register", () => {
   });
 
   test("platform 5xx returns error", async () => {
-    setFetchResponse({ detail: "Internal server error" }, 500);
+    mockFetch(
+      "/email-addresses/",
+      { method: "POST" },
+      { body: { detail: "Internal server error" }, status: 500 },
+    );
 
-    const output = await runEmailCommand(
+    const output = await runAssistantCommand(
       "email",
       "--json",
       "register",
@@ -213,9 +172,13 @@ describe("assistant email register", () => {
   });
 
   test("username validation error from platform is surfaced", async () => {
-    setFetchResponse({ username: ["Enter a valid value."] }, 400);
+    mockFetch(
+      "/email-addresses/",
+      { method: "POST" },
+      { body: { username: ["Enter a valid value."] }, status: 400 },
+    );
 
-    const output = await runEmailCommand(
+    const output = await runAssistantCommand(
       "email",
       "--json",
       "register",
