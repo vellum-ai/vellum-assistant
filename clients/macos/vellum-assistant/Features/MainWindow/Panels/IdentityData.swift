@@ -324,7 +324,9 @@ struct AssistantMetadata {
             let createdAt: Date? = remote.createdAt.flatMap { dateStr in
                 let formatter = ISO8601DateFormatter()
                 formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                return formatter.date(from: dateStr) ?? ISO8601DateFormatter().date(from: dateStr)
+                let fallback = ISO8601DateFormatter()
+                fallback.formatOptions = [.withInternetDateTime]
+                return formatter.date(from: dateStr) ?? fallback.date(from: dateStr)
             }
             return AssistantMetadata(version: remote.version ?? "v1.0", createdAt: createdAt)
         }
