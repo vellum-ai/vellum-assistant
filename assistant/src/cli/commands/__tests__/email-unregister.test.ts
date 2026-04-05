@@ -1,19 +1,17 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
-
-// ---------------------------------------------------------------------------
-// Mutable mock state
-// ---------------------------------------------------------------------------
+import {
+  afterEachEmailTest,
+  beforeEachEmailTest,
+  mockFetch,
+  runAssistantCommand,
+  setupEmailTests,
+} from "./email-test-utils.js";
 
 let mockPlatformClient: {
   platformAssistantId: string;
   fetch: (path: string, init?: RequestInit) => Promise<Response>;
 } | null = null;
-
-// ---------------------------------------------------------------------------
-// Module mocks — must be declared before imports that use them
-// ---------------------------------------------------------------------------
 
 mock.module("../../../platform/client.js", () => ({
   VellumPlatformClient: {
@@ -21,123 +19,55 @@ mock.module("../../../platform/client.js", () => ({
   },
 }));
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-let originalFetch: typeof globalThis.fetch;
-let fetchCalls: { path: string; init: RequestInit }[] = [];
+const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+const ADDRESS_ID = "550e8400-e29b-41d4-a716-446655440000";
+const ADDRESS = "mybot@vellum.me";
+const { getCalls } = setupEmailTests();
 
 beforeEach(() => {
-  originalFetch = globalThis.fetch;
-  fetchCalls = [];
-  process.exitCode = 0;
-
-  _setOverridesForTesting({ "email-channel": true });
-
+  beforeEachEmailTest();
   mockPlatformClient = {
-    platformAssistantId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    platformAssistantId: ASSISTANT_ID,
     fetch: async (path: string, init?: RequestInit) => {
-      fetchCalls.push({ path, init: init ?? {} });
       return globalThis.fetch(path, init);
     },
   };
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
-  _setOverridesForTesting({});
-  process.exitCode = 0;
+  afterEachEmailTest();
 });
 
-async function captureStdout(fn: () => Promise<void>): Promise<string> {
-  const chunks: string[] = [];
-  const originalWrite = process.stdout.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    chunks.push(
-      typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk),
-    );
-    return true;
-  }) as typeof process.stdout.write;
-  try {
-    await fn();
-  } finally {
-    process.stdout.write = originalWrite;
-  }
-  return chunks.join("");
-}
-
-type FetchHandler = (
-  path: string,
-  init?: RequestInit,
-) => { body: unknown; status: number };
-
-function setFetchSequence(handler: FetchHandler): void {
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = String(input);
-    const { body, status } = handler(path, init);
-    return new Response(JSON.stringify(body), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    });
-  }) as unknown as typeof globalThis.fetch;
-}
-
-async function runEmailCommand(...args: string[]): Promise<string> {
-  const { buildCliProgram } = await import("../../program.js");
-  const program = buildCliProgram();
-  program.exitOverride();
-  program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
-
-  return captureStdout(async () => {
-    try {
-      await program.parseAsync(["node", "assistant", ...args]);
-    } catch {
-      /* commander exit override throws */
-    }
-  });
-}
-
-const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-const ADDRESS_ID = "550e8400-e29b-41d4-a716-446655440000";
-const ADDRESS = "mybot@vellum.me";
-
-function standardHandler(
+function standardEmailMockFetches(
   deleteStatus = 204,
   deleteBody: unknown = null,
-): FetchHandler {
-  return (path: string, init?: RequestInit) => {
-    if (
-      path.includes("/email-addresses/") &&
-      (!init?.method || init.method === "GET")
-    ) {
-      return {
-        body: { results: [{ id: ADDRESS_ID, address: ADDRESS }] },
-        status: 200,
-      };
-    }
-    if (init?.method === "DELETE") {
-      return { body: deleteBody, status: deleteStatus };
-    }
-    return { body: {}, status: 404 };
-  };
+): void {
+  mockFetch(
+    "/email-addresses/",
+    {},
+    {
+      body: { results: [{ id: ADDRESS_ID, address: ADDRESS }] },
+      status: 200,
+    },
+  );
+  mockFetch(
+    `/email-addresses/${ADDRESS_ID}/`,
+    { method: "DELETE" },
+    { body: deleteBody, status: deleteStatus },
+  );
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("assistant email unregister", () => {
   test("successful unregister with --confirm lists then deletes", async () => {
-    setFetchSequence(standardHandler());
+    standardEmailMockFetches();
 
-    await runEmailCommand("email", "unregister", "--confirm");
+    await runAssistantCommand("email", "unregister", "--confirm");
 
+    const fetchCalls = getCalls();
     expect(fetchCalls).toHaveLength(2);
     expect(fetchCalls[0].path).toBe(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/`,
     );
-    expect(fetchCalls[0].init.method).toBeUndefined();
     expect(fetchCalls[1].path).toBe(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/${ADDRESS_ID}/`,
     );
@@ -146,9 +76,9 @@ describe("assistant email unregister", () => {
   });
 
   test("--json outputs structured response", async () => {
-    setFetchSequence(standardHandler());
+    standardEmailMockFetches();
 
-    const output = await runEmailCommand("email", "--json", "unregister");
+    const output = await runAssistantCommand("email", "--json", "unregister");
 
     const parsed = JSON.parse(output.trim());
     expect(parsed.unregistered).toBe(ADDRESS);
@@ -156,12 +86,9 @@ describe("assistant email unregister", () => {
   });
 
   test("no registered address returns error", async () => {
-    setFetchSequence((_path: string) => ({
-      body: { results: [] },
-      status: 200,
-    }));
+    mockFetch("/email-addresses/", {}, { body: { results: [] }, status: 200 });
 
-    const output = await runEmailCommand("email", "--json", "unregister");
+    const output = await runAssistantCommand("email", "--json", "unregister");
 
     expect(process.exitCode).toBe(1);
     const parsed = JSON.parse(output.trim());
@@ -169,12 +96,13 @@ describe("assistant email unregister", () => {
   });
 
   test("list endpoint failure returns error", async () => {
-    setFetchSequence((_path: string) => ({
-      body: { detail: "Internal server error" },
-      status: 500,
-    }));
+    mockFetch(
+      "/email-addresses/",
+      {},
+      { body: { detail: "Internal server error" }, status: 500 },
+    );
 
-    const output = await runEmailCommand("email", "--json", "unregister");
+    const output = await runAssistantCommand("email", "--json", "unregister");
 
     expect(process.exitCode).toBe(1);
     const parsed = JSON.parse(output.trim());
@@ -182,9 +110,9 @@ describe("assistant email unregister", () => {
   });
 
   test("delete endpoint failure returns error", async () => {
-    setFetchSequence(standardHandler(500, { detail: "Cannot delete address" }));
+    standardEmailMockFetches(500, { detail: "Cannot delete address" });
 
-    const output = await runEmailCommand("email", "--json", "unregister");
+    const output = await runAssistantCommand("email", "--json", "unregister");
 
     expect(process.exitCode).toBe(1);
     const parsed = JSON.parse(output.trim());
@@ -194,7 +122,7 @@ describe("assistant email unregister", () => {
   test("missing platform credentials returns error", async () => {
     mockPlatformClient = null;
 
-    const output = await runEmailCommand("email", "--json", "unregister");
+    const output = await runAssistantCommand("email", "--json", "unregister");
 
     expect(process.exitCode).toBe(1);
     const parsed = JSON.parse(output.trim());
@@ -207,7 +135,7 @@ describe("assistant email unregister", () => {
       platformAssistantId: "",
     };
 
-    const output = await runEmailCommand("email", "--json", "unregister");
+    const output = await runAssistantCommand("email", "--json", "unregister");
 
     expect(process.exitCode).toBe(1);
     const parsed = JSON.parse(output.trim());
