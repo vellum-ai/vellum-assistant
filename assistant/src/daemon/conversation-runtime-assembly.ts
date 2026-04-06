@@ -586,7 +586,7 @@ export function readPkbContext(): string | null {
  */
 export function injectPkbContext(message: Message, content: string): Message {
   // Escape closing tags that could break out of the XML wrapper
-  const escaped = content.replace(/<\/pkb>/gi, "&lt;/pkb&gt;");
+  const escaped = content.replace(/<\/pkb\s*>/gi, "&lt;/pkb&gt;");
   const pkbBlock = {
     type: "text" as const,
     text: `<pkb>\n${escaped}\n</pkb>`,
