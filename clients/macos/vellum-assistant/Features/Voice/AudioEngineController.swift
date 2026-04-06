@@ -1,4 +1,5 @@
 import AVFoundation
+import AVFAudio
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AudioEngineController")
@@ -53,6 +54,10 @@ final class AudioEngineController: @unchecked Sendable {
             queue: nil
         ) { [weak self] _ in
             guard let self else { return }
+            guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+                log.info("Audio configuration changed — skipping re-warm (mic not authorized)")
+                return
+            }
             log.info("Audio configuration changed — re-warming inputNode")
             self.queue.async {
                 let _ = self.audioEngine.inputNode

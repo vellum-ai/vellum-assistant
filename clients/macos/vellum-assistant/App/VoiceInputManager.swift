@@ -721,9 +721,14 @@ final class VoiceInputManager {
             // while session B is active — using the stale request would
             // desynchronize recognitionTask/recognitionRequest ownership.
             guard self.isRecording, self.recordingGeneration == generation else {
-                if success {
+                // Only tear down if no session is currently active. When a newer
+                // session is running (isRecording true, generation mismatch),
+                // it owns the engine — tearing down here would remove its tap.
+                if success, !self.isRecording {
                     self.engineController.stopAndRemoveTap()
-                    log.info("Engine started for stale generation \(generation) (current \(self.recordingGeneration)) — tore down")
+                    log.info("Engine started for stale generation \(generation) — tore down (no active session)")
+                } else if success {
+                    log.info("Stale generation \(generation) completed — skipping teardown, session \(self.recordingGeneration) owns engine")
                 }
                 return
             }
