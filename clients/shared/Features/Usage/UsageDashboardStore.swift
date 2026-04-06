@@ -3,7 +3,6 @@ import Foundation
 // MARK: - Usage Client Protocol
 
 /// Abstraction for fetching usage data, decoupled from the full GatewayConnectionManager.
-@MainActor
 public protocol UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
     func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse?
@@ -11,7 +10,6 @@ public protocol UsageClientProtocol {
 }
 
 /// Fetches usage data via GatewayHTTPClient.
-@MainActor
 public struct UsageClient: UsageClientProtocol {
     /// A restricted character set for encoding query parameter values.
     /// `.urlQueryAllowed` permits `&`, `=`, `+`, and `#` which are
@@ -22,7 +20,7 @@ public struct UsageClient: UsageClientProtocol {
         return cs
     }()
 
-    nonisolated public init() {}
+    public init() {}
 
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
         let result: (UsageTotalsResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
