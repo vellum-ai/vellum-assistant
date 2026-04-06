@@ -37,77 +37,22 @@ Before starting setup, check whether Slack is already configured by calling `cre
 
 ## Step 1: Generate Manifest & Create Slack App
 
-Ask the user what they'd like to name their Slack bot and optionally provide a short description. Use their answers (or sensible defaults) to generate a pre-configured Slack app manifest.
+Ask the user what they'd like to name their Slack bot and optionally provide a short description. Use their answers (or sensible defaults) to generate the manifest creation URL.
 
-Generate the manifest JSON:
+**IMPORTANT — use `bash` to build the manifest and URL programmatically.** Do NOT manually interpolate the user's name into a JSON string — special characters (quotes, backslashes, slashes, etc.) will break the JSON or the URL. Instead, run a `bash` command that uses `node -e` to safely construct the JSON via `JSON.stringify` and URL-encode the result via `encodeURIComponent`.
 
-```json
-{
-  "display_information": {
-    "name": "<user's chosen name>",
-    "description": "<user's chosen description>",
-    "background_color": "#1a1a2e"
-  },
-  "features": {
-    "app_home": {
-      "home_tab_enabled": false,
-      "messages_tab_enabled": true,
-      "messages_tab_read_only_enabled": false
-    },
-    "bot_user": {
-      "display_name": "<user's chosen name>",
-      "always_online": true
-    }
-  },
-  "oauth_config": {
-    "scopes": {
-      "bot": [
-        "app_mentions:read",
-        "assistant:write",
-        "channels:history",
-        "channels:read",
-        "chat:write",
-        "files:read",
-        "files:write",
-        "groups:history",
-        "groups:read",
-        "im:history",
-        "im:read",
-        "im:write",
-        "mpim:history",
-        "mpim:read",
-        "reactions:read",
-        "reactions:write",
-        "users:read"
-      ]
-    }
-  },
-  "settings": {
-    "event_subscriptions": {
-      "bot_events": [
-        "app_mention",
-        "message.channels",
-        "message.groups",
-        "message.im",
-        "message.mpim",
-        "reaction_added"
-      ]
-    },
-    "interactivity": { "is_enabled": true },
-    "org_deploy_enabled": false,
-    "socket_mode_enabled": true,
-    "token_rotation_enabled": false
-  }
+Run this `bash` command, replacing `NAME` and `DESCRIPTION` with the user's values:
+
+```
+bash {
+  command: "node -e \"const name = <NAME>; const desc = <DESCRIPTION>; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
+  activity: "to generate the Slack app manifest link"
 }
 ```
 
-After generating the manifest, URL-encode it and construct the create-from-manifest link:
+Replace `<NAME>` and `<DESCRIPTION>` with properly quoted JavaScript string literals for the user's chosen values (e.g. `'Becky 24/7'`, `'My assistant bot'`). Use single quotes around values and escape any single quotes inside them with `\\'`.
 
-```
-https://api.slack.com/apps?new_app=1&manifest_json=<url_encoded_manifest>
-```
-
-Present the link to the user: "Click this link to create your Slack app. It's pre-configured with all the right permissions, events, and Socket Mode. Just select your workspace and click **Create**."
+The command outputs a ready-to-click URL. Present it to the user: "Click this link to create your Slack app. It's pre-configured with all the right permissions, events, and Socket Mode. Just select your workspace and click **Create**."
 
 Wait for the user to confirm they've created the app before proceeding.
 
