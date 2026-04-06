@@ -151,6 +151,13 @@ struct AssistantProgressView: View {
     var onTemporaryAllow: ((String, String) -> Void)? = nil
     var activeConfirmationRequestId: String? = nil  // For keyboard focus
 
+    /// Step detail expansion state lifted from StepDetailRow to survive
+    /// the trailing→interleaved rendering path switch in ChatBubble.
+    @Binding var expandedStepIds: Set<UUID>
+    /// Card-level expansion overrides lifted from this view's @State to
+    /// survive view recreation. Keyed by first tool call UUID in the group.
+    @Binding var cardExpansionOverrides: [UUID: Bool]
+
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool
     @State private var startDate: Date = Date()
@@ -176,7 +183,9 @@ struct AssistantProgressView: View {
         onConfirmationDeny: ((String) -> Void)? = nil,
         onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
         onTemporaryAllow: ((String, String) -> Void)? = nil,
-        activeConfirmationRequestId: String? = nil
+        activeConfirmationRequestId: String? = nil,
+        expandedStepIds: Binding<Set<UUID>>,
+        cardExpansionOverrides: Binding<[UUID: Bool]>
     ) {
         self.toolCalls = toolCalls
         self.isStreaming = isStreaming
@@ -192,6 +201,8 @@ struct AssistantProgressView: View {
         self.onAlwaysAllow = onAlwaysAllow
         self.onTemporaryAllow = onTemporaryAllow
         self.activeConfirmationRequestId = activeConfirmationRequestId
+        self._expandedStepIds = expandedStepIds
+        self._cardExpansionOverrides = cardExpansionOverrides
         _derived = State(initialValue: DerivedProgressState.compute(
             toolCalls: toolCalls,
             decidedConfirmations: decidedConfirmations
@@ -201,8 +212,17 @@ struct AssistantProgressView: View {
         let isDenied = derived.hasDeniedToolCalls && derived.hasTools && !derived.allComplete
         let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         let shouldAutoExpand = (isComplete || isDenied) && expandFlag
-        _isExpanded = State(initialValue: shouldAutoExpand || derived.hasPendingConfirmation)
+        // Seed from user override if one exists, otherwise use auto-expand logic.
+        if let key = toolCalls.first?.id,
+           let override = cardExpansionOverrides.wrappedValue[key] {
+            _isExpanded = State(initialValue: override)
+        } else {
+            _isExpanded = State(initialValue: shouldAutoExpand || derived.hasPendingConfirmation)
+        }
     }
+
+    /// Stable key for this progress card in `cardExpansionOverrides`.
+    private var cardKey: UUID? { toolCalls.first?.id }
 
     // MARK: - Derived State (reads from cached DerivedProgressState)
 
@@ -384,9 +404,12 @@ struct AssistantProgressView: View {
             processingStartDate = Date()
             startDate = Date()
         }
-        // Auto-expand when a step group completes, if the flag is enabled
+        // Auto-expand when a step group completes, if the flag is enabled.
+        // Skip if the user has explicitly set a preference for this card.
+        let hasUserCardPreference = cardKey != nil && cardExpansionOverrides[cardKey!] != nil
         if (newPhase == .complete || newPhase == .denied),
            !isExpanded,
+           !hasUserCardPreference,
            MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         {
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
@@ -397,6 +420,7 @@ struct AssistantProgressView: View {
             withAnimation(VAnimation.fast) {
                 isExpanded = true
             }
+            if let key = cardKey { cardExpansionOverrides[key] = true }
         }
     }
 
@@ -411,6 +435,8 @@ struct AssistantProgressView: View {
     }
 
     private func handlePendingConfirmationChange(_ pending: Bool) {
+        // Pending confirmations always force-expand — user must be able to
+        // see and interact with the approval UI.
         if pending && !isExpanded {
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
@@ -420,6 +446,7 @@ struct AssistantProgressView: View {
             withAnimation(VAnimation.fast) {
                 isExpanded = true
             }
+            if let key = cardKey { cardExpansionOverrides[key] = true }
         }
     }
 
@@ -434,9 +461,10 @@ struct AssistantProgressView: View {
             startDate = earliest
         }
         // Auto-expand completed step groups when the flag is enabled.
-        // Also triggers rehydration for stripped tool call data so
-        // expanded groups don't render with empty details.
+        // Skip if the user has explicitly set a preference for this card.
+        let hasUserCardPreference = cardKey != nil && cardExpansionOverrides[cardKey!] != nil
         if !isExpanded,
+           !hasUserCardPreference,
            (phase == .complete || phase == .denied),
            MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         {
@@ -446,9 +474,11 @@ struct AssistantProgressView: View {
                 toolCallCount: derived.totalToolCount
             ))
             isExpanded = true
+            if let key = cardKey { cardExpansionOverrides[key] = true }
             // Rehydration is handled by onChange(of: isExpanded) above.
         }
-        // Auto-expand when a pending confirmation exists on appear
+        // Auto-expand when a pending confirmation exists on appear —
+        // always force-expand so the user can interact with the approval UI.
         if derived.hasPendingConfirmation && !isExpanded {
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
@@ -458,6 +488,7 @@ struct AssistantProgressView: View {
             withAnimation(VAnimation.fast) {
                 isExpanded = true
             }
+            if let key = cardKey { cardExpansionOverrides[key] = true }
         }
 
         // Rehydrate stripped tool calls for cards that start expanded.
@@ -504,6 +535,7 @@ struct AssistantProgressView: View {
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
             }
+            if let key = cardKey { cardExpansionOverrides[key] = isExpanded }
         }) {
             HStack(spacing: VSpacing.sm) {
                 // Status icon
@@ -651,6 +683,19 @@ struct AssistantProgressView: View {
 
     // MARK: - Expanded Content
 
+    /// Derives a `Binding<Bool>` for a single step's expansion state from the
+    /// shared `expandedStepIds` set. The binding is scoped to one tool call ID
+    /// so StepDetailRow can use it as a drop-in replacement for `@State`.
+    private func isStepExpanded(_ id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { expandedStepIds.contains(id) },
+            set: { newValue in
+                if newValue { expandedStepIds.insert(id) }
+                else { expandedStepIds.remove(id) }
+            }
+        )
+    }
+
     @ViewBuilder
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -658,6 +703,7 @@ struct AssistantProgressView: View {
                 StepDetailRow(
                     toolCall: toolCall,
                     phase: phase,
+                    isDetailExpanded: isStepExpanded(toolCall.id),
                     skillLabel: toolCall.toolName == "skill_execute" ? derived.skillExecuteLabel : nil,
                     onRehydrate: onRehydrate
                 )
@@ -738,11 +784,12 @@ struct AssistantProgressView: View {
 private struct StepDetailRow: View {
     let toolCall: ToolCallData
     let phase: ProgressPhase
+    /// Expansion state lifted to ChatBubble so it survives the
+    /// trailing→interleaved rendering path switch mid-stream.
+    @Binding var isDetailExpanded: Bool
     /// Human-friendly label for skill_execute rows (e.g. "Using my frontend design skill").
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
-
-    @State private var isDetailExpanded = false
     @State private var isHovered = false
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?

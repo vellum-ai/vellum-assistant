@@ -326,7 +326,9 @@ extension ChatBubble {
                 onConfirmationDeny: onConfirmationDeny,
                 onAlwaysAllow: onAlwaysAllow,
                 onTemporaryAllow: onTemporaryAllow,
-                activeConfirmationRequestId: activeConfirmationRequestId
+                activeConfirmationRequestId: activeConfirmationRequestId,
+                expandedStepIds: $expandedStepIds,
+                cardExpansionOverrides: $cardExpansionOverrides
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 
