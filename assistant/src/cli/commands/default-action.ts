@@ -14,13 +14,15 @@ export function registerDefaultAction(program: Command): void {
       const unknown = cmd.args[0];
       const available = cmd.commands.map((c) => c.name());
       const suggestion = findClosestCommand(unknown, available);
-      const lines = [`error: unknown command '${unknown}'`];
+      const lines = [`unknown command '${unknown}'`];
       if (suggestion) {
         lines.push(`(Did you mean '${suggestion}'?)`);
       }
       lines.push(`Run 'assistant --help' to see a list of available commands.`);
-      console.error(lines.join("\n"));
-      process.exitCode = 1;
+      cmd.error(lines.join("\n"), {
+        code: "commander.unknownCommand",
+        exitCode: 1,
+      });
       return;
     }
 
