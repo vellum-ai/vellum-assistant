@@ -65,8 +65,17 @@ export function ensureGroupMigration(): void {
       ('system:pinned', 'Pinned', 0, TRUE, ${now}, ${now}),
       ('system:scheduled', 'Scheduled', 1, TRUE, ${now}, ${now}),
       ('system:background', 'Background', 2, TRUE, ${now}, ${now}),
-      ('system:all', 'Recents', 999999, TRUE, ${now}, ${now})
+      ('system:all', 'Recents', 3, TRUE, ${now}, ${now})
   `);
+
+  // Ensure system:all has sortPosition 3 (migrates from 999999 for existing installs).
+  // Bump any custom groups at position 3+ up by 1 first to make room.
+  rawRun(
+    "UPDATE conversation_groups SET sort_position = sort_position + 1 WHERE is_system_group = 0 AND sort_position >= 3",
+  );
+  rawRun(
+    "UPDATE conversation_groups SET sort_position = 3 WHERE id = 'system:all' AND sort_position != 3",
+  );
 
   // 4. One-time backfill (guard: persistent marker prevents re-running on restart)
   //

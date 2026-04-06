@@ -79,8 +79,8 @@ export function getGroup(groupId: string): ConversationGroupRow | null {
 
 /**
  * Create a custom group. Server assigns sort_position as max(custom) + 1.
- * System groups occupy positions 0 (pinned), 1 (scheduled), 2 (background).
- * First custom group gets position 3. Fallback ?? 2 ensures 2 + 1 = 3 when
+ * System groups occupy positions 0–3 (pinned, scheduled, background, all).
+ * First custom group gets position 4. Fallback ?? 3 ensures 3 + 1 = 4 when
  * no custom groups exist.
  */
 export function createGroup(name: string): ConversationGroupRow {
@@ -88,13 +88,8 @@ export function createGroup(name: string): ConversationGroupRow {
   const maxPos =
     rawGet<{ max: number | null }>(
       "SELECT MAX(sort_position) as max FROM conversation_groups WHERE is_system_group = 0",
-    )?.max ?? 2;
+    )?.max ?? 3;
   const sortPosition = maxPos + 1;
-  if (sortPosition >= 999999) {
-    throw new Error(
-      "Custom group sort_position must be < 999999 (reserved for system:all)",
-    );
-  }
   const id = uuid();
   const now = Math.floor(Date.now() / 1000);
   rawRun(
@@ -188,9 +183,9 @@ export function reorderGroups(
       );
       if (!group) continue;
 
-      if (update.sortPosition >= 999999) {
+      if (update.sortPosition < 4) {
         throw new Error(
-          `Custom group sort_position must be < 999999 (got ${update.sortPosition} for ${update.groupId})`,
+          `Custom group sort_position must be >= 4 (got ${update.sortPosition} for ${update.groupId})`,
         );
       }
       rawRun(

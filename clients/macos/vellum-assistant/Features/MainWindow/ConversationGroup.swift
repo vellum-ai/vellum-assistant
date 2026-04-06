@@ -18,7 +18,7 @@ struct ConversationGroup: Identifiable, Hashable, Codable, Sendable {
         id: "system:background", name: "Background", sortPosition: 2, isSystemGroup: true
     )
     static let all = ConversationGroup(
-        id: "system:all", name: "Recents", sortPosition: 999999, isSystemGroup: true
+        id: "system:all", name: "Recents", sortPosition: 3, isSystemGroup: true
     )
 
     init(id: String, name: String, sortPosition: Double, isSystemGroup: Bool) {
