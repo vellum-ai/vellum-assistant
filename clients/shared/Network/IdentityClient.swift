@@ -32,6 +32,7 @@ public struct RemoteIdentityInfo: Decodable {
 public protocol IdentityClientProtocol {
     func fetchRemoteIdentity() async -> RemoteIdentityInfo?
     func fetchIdentity() async -> IdentityGetResponse?
+    func fetchIdentityIntro() async -> String?
     func generateAvatar(description: String) async -> GenerateAvatarResponse?
 }
 
@@ -68,6 +69,24 @@ public struct IdentityClient: IdentityClientProtocol {
             return try JSONDecoder().decode(IdentityGetResponse.self, from: patched)
         } catch {
             log.error("fetchIdentity error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func fetchIdentityIntro() async -> String? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/identity/intro", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchIdentityIntro failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            struct IntroResponse: Decodable { let text: String }
+            let decoded = try JSONDecoder().decode(IntroResponse.self, from: response.data)
+            return decoded.text.isEmpty ? nil : decoded.text
+        } catch {
+            log.error("fetchIdentityIntro error: \(error.localizedDescription)")
             return nil
         }
     }
