@@ -5,7 +5,6 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { seedCliCommandMemories } from "../cli/cli-memory.js";
 import {
   getPlatformAssistantId,
   getQdrantHttpPortEnv,
@@ -682,12 +681,6 @@ export async function runDaemon(): Promise<void> {
 
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
-
-      try {
-        seedCliCommandMemories();
-      } catch (err) {
-        log.warn({ err }, "CLI command memory seeding failed — continuing");
-      }
 
       // Seed capability graph nodes (new memory graph system)
       try {
