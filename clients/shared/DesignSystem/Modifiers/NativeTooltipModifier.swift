@@ -76,8 +76,8 @@ private final class VTooltipCoordinator {
 /// - Never steals clicks or interferes with hover/button states
 /// - Works on any view: `VButton`, `Text`, `Image`, `HStack`, etc.
 /// - Only one tooltip is visible at a time (coordinator-managed singleton)
-/// - Respects view occlusion: won't show if the source view is covered
-///   by another view (e.g., settings panel over sidebar)
+/// - Won't show if the source view is clipped to zero size (e.g., sidebar
+///   hidden behind the settings panel)
 ///
 /// Usage:
 /// ```swift
@@ -128,7 +128,8 @@ private struct VTooltipTracker: NSViewRepresentable {
 ///
 /// Coordinates with `VTooltipCoordinator` so only one tooltip is visible
 /// at a time. Before showing, checks `isEffectivelyVisible` to suppress
-/// tooltips for views that are clipped or covered by another layer.
+/// tooltips for views that are clipped to zero size (e.g., sidebar hidden
+/// behind the settings panel).
 private final class VTooltipTrackerView: NSView {
     var tooltipText: String = ""
     var tooltipEdge: Edge = .top
@@ -260,46 +261,23 @@ private final class VTooltipTrackerView: NSView {
 
     /// Whether this view is actually visible and reachable by the user.
     ///
-    /// Guards against two scenarios where `NSTrackingArea` fires
-    /// `mouseEntered` even though the view isn't user-visible:
+    /// `NSTrackingArea` fires `mouseEntered` even when the view is clipped
+    /// to zero size (e.g., sidebar set to `width: 0` + `.clipped()` when
+    /// the settings panel opens). `visibleRect` becomes empty because the
+    /// clipping ancestor's bounds exclude us, so we use it as a guard.
     ///
-    /// 1. **Clipped to zero size** — The sidebar is set to `width: 0` +
-    ///    `.clipped()` when the settings panel opens. `visibleRect` becomes
-    ///    empty because the clipping ancestor's bounds exclude us.
-    ///
-    /// 2. **Covered by an opaque layer** — An overlay (settings, modal)
-    ///    sits on top in the same window. We detect this via a window-level
-    ///    hit test: if the deepest interactive view under the mouse isn't
-    ///    a descendant of (or equal to) our superview, something else is
-    ///    blocking us.
-    ///
-    /// Both checks are O(depth-of-view-tree) and only run once per tooltip
-    /// show attempt (after the 0.2 s delay fires), not per mouse-move.
+    /// Runs once per tooltip show attempt (after the 0.2 s delay fires),
+    /// not per mouse-move.
     private var isEffectivelyVisible: Bool {
-        guard let window, let parent = superview else { return false }
-
         // The view is clipped to nothing (zero-width sidebar, off-screen, etc.)
-        guard !visibleRect.isEmpty else { return false }
-
-        // Hit test at the current mouse location in window coordinates.
-        // Since VTooltipTrackerView returns nil from hitTest (pass-through),
-        // the result is the deepest *interactive* view at that point.
-        let mouseInWindow = window.mouseLocationOutsideOfEventStream
-        guard let contentView = window.contentView,
-              let hitView = contentView.hitTest(contentView.convert(mouseInWindow, from: nil)) else {
-            return false
-        }
-
-        // Check if the hit view lives inside our parent's subtree.
-        // The tracker is installed via `.overlay()`, so our parent is the
-        // SwiftUI hosting container for the target view. If an unrelated
-        // layer (settings panel, modal overlay) covers us, the hit view
-        // will be outside this subtree.
-        return hitView.isDescendant(of: parent)
+        !visibleRect.isEmpty
     }
 
     private func showTooltip() {
         guard panel == nil, let window else { return }
+
+        // Dismiss any other active tooltip before creating ours.
+        VTooltipCoordinator.shared.activate(self)
 
         let p = NSPanel(
             contentRect: .zero,
@@ -340,7 +318,6 @@ private final class VTooltipTrackerView: NSView {
             p.animator().alphaValue = 1
         }
         panel = p
-        VTooltipCoordinator.shared.activate(self)
     }
 
     private func hideTooltip() {
