@@ -10,13 +10,11 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Audio
 /// audio-subsystem queue. When that queue is contended (hardware state changes,
 /// Bluetooth negotiation, coreaudiod latency), the wait can exceed 2 seconds.
 ///
-/// Fire-and-forget operations (`installTap`, `removeTap`, `stop`, `reset`)
-/// use `queue.async` so the caller never blocks. Methods that return a value
-/// (`inputNodeFormat`, `prepareAndStart`) or that require ordering guarantees
-/// (`tearDown`, `stopAndRemoveTap` — callers call `endAudio()` immediately
-/// after) use `queue.sync`. Callers should ensure `prewarm()` has run first
-/// so `inputNode` is already initialized and sync calls complete in
-/// sub-milliseconds.
+/// Fire-and-forget operations (`stop`, `reset`) use `queue.async` so the caller
+/// never blocks. Methods that require ordering guarantees (`tearDown`,
+/// `stopAndRemoveTap`, `installTapAndStart`) use `queue.sync`. Callers should
+/// ensure `prewarm()` has run first so `inputNode` is already initialized and
+/// sync calls complete in sub-milliseconds.
 ///
 /// See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
 final class AudioEngineController: @unchecked Sendable {
@@ -26,18 +24,6 @@ final class AudioEngineController: @unchecked Sendable {
 
     init(label: String = "com.vellum.audioEngine") {
         self.queue = DispatchQueue(label: label, qos: .userInitiated)
-    }
-
-    // MARK: - Input Node Format
-
-    /// Returns the input node's output format for bus 0.
-    /// Returns `nil` if the format has zero channels or zero sample rate.
-    func inputNodeFormat() -> AVAudioFormat? {
-        queue.sync { [self] in
-            let format = audioEngine.inputNode.outputFormat(forBus: 0)
-            guard format.channelCount > 0, format.sampleRate > 0 else { return nil }
-            return format
-        }
     }
 
     // MARK: - Pre-warm
@@ -51,45 +37,7 @@ final class AudioEngineController: @unchecked Sendable {
         }
     }
 
-    // MARK: - Tap Management
-
-    /// Remove any existing tap on bus 0, then install a new one.
-    /// Uses `async` — the next `queue.sync` call (e.g. `prepareAndStart`) will
-    /// wait for this to complete thanks to serial queue ordering.
-    func installTap(
-        bufferSize: AVAudioFrameCount,
-        format: AVAudioFormat?,
-        block: @escaping AVAudioNodeTapBlock
-    ) {
-        queue.async { [weak self] in
-            guard let self else { return }
-            let inputNode = self.audioEngine.inputNode
-            inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format, block: block)
-        }
-    }
-
-    /// Remove the tap on bus 0 from the input node.
-    func removeTap() {
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.audioEngine.inputNode.removeTap(onBus: 0)
-        }
-    }
-
     // MARK: - Engine Lifecycle
-
-    func prepare() {
-        queue.async { [weak self] in
-            self?.audioEngine.prepare()
-        }
-    }
-
-    func start() throws {
-        try queue.sync { [self] in
-            try audioEngine.start()
-        }
-    }
 
     func stop() {
         queue.async { [weak self] in
@@ -122,18 +70,25 @@ final class AudioEngineController: @unchecked Sendable {
 
     // MARK: - Combined Operations
 
-    /// Atomically reads the input format, installs a tap, and starts the engine
-    /// in a single synchronous dispatch to the audio queue.
+    /// Atomically validates audio input, installs a tap with `nil` format, and
+    /// starts the engine in a single synchronous dispatch to the audio queue.
     ///
-    /// Eliminates the TOCTOU race where the format read by `inputNodeFormat()`
-    /// becomes stale before the separate `installTap()` async block executes —
-    /// which crashes with `NSInternalInconsistencyException` when the hardware
-    /// format changes between calls (common on first use after permission grant).
+    /// Passing `nil` for `installTap`'s format parameter lets AVAudioEngine use
+    /// its own internal hardware format, which is always self-consistent. This
+    /// prevents `NSInternalInconsistencyException` crashes caused by
+    /// `format.sampleRate != hwFormat.sampleRate` — the cached format from
+    /// `outputFormat(forBus:)` can diverge from the engine's internal hardware
+    /// format after audio route changes (Bluetooth, USB mic, AirPods mode
+    /// switch), even within a single synchronous block.
     ///
-    /// Returns `true` on success, or `false` if the format is invalid or the
-    /// engine fails to start.
+    /// The format validation (channels > 0, sampleRate > 0) is kept as a
+    /// pre-check to detect "no audio input available" — but the validated format
+    /// is **not** forwarded to `installTap`.
     ///
-    /// See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
+    /// Returns `true` on success, or `false` if no audio input is available or
+    /// the engine fails to start.
+    ///
+    /// See: https://developer.apple.com/documentation/avfaudio/avaudionode/installtap(onbus:buffersize:format:block:)
     func installTapAndStart(
         bufferSize: AVAudioFrameCount,
         block: @escaping AVAudioNodeTapBlock
@@ -147,7 +102,7 @@ final class AudioEngineController: @unchecked Sendable {
             }
 
             inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format, block: block)
+            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil, block: block)
 
             audioEngine.prepare()
             do {
@@ -156,23 +111,6 @@ final class AudioEngineController: @unchecked Sendable {
             } catch {
                 log.error("Failed to start audio engine: \(error.localizedDescription)")
                 inputNode.removeTap(onBus: 0)
-                return false
-            }
-        }
-    }
-
-    /// Prepare and start the engine. Returns `true` on success.
-    /// On failure, removes tap and returns `false`.
-    @discardableResult
-    func prepareAndStart() -> Bool {
-        queue.sync { [self] in
-            audioEngine.prepare()
-            do {
-                try audioEngine.start()
-                return true
-            } catch {
-                log.error("Failed to start audio engine: \(error.localizedDescription)")
-                audioEngine.inputNode.removeTap(onBus: 0)
                 return false
             }
         }
