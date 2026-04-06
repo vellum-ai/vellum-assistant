@@ -5,6 +5,7 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
+import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
   getQdrantHttpPortEnv,
@@ -268,6 +269,10 @@ export async function runDaemon(): Promise<void> {
     // daemon restarts.
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
+
+    // Pre-populate the feature flag cache from the gateway so all
+    // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
+    await initFeatureFlagOverrides();
 
     seedInterfaceFiles();
 

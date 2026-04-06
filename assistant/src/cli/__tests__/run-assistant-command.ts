@@ -13,6 +13,9 @@ export interface AssistantCommandResult {
 export async function runAssistantCommandFull(
   ...args: string[]
 ): Promise<AssistantCommandResult> {
+  const { initFeatureFlagOverrides } =
+    await import("../../config/assistant-feature-flags.js");
+  await initFeatureFlagOverrides();
   const { buildCliProgram } = await import("../program.js");
   const program = buildCliProgram();
   program.exitOverride();
