@@ -15,7 +15,7 @@ extension AppDelegate {
             await authManager.checkSession()
             SentryDeviceInfo.updateUserTag(authManager.currentUser?.id)
             let isAuthed = authManager.isAuthenticated
-            let hasKey = APIKeyManager.hasAnyKey()
+            let hasKey = await APIKeyManager.hasAnyKey()
             log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
             if isAuthed || hasKey {
                 // Verify there is at least one assistant from the current
