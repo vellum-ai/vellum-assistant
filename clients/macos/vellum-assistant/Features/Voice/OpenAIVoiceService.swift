@@ -154,7 +154,8 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
         // Reuse existing SFSpeechRecognizer across turns to avoid OS resource
         // release delays that make isAvailable return false on the second turn.
-        if speechRecognizer == nil {
+        // Recreate if transiently unavailable (e.g. after sleep/wake or heavy use).
+        if speechRecognizer == nil || speechRecognizer?.isAvailable != true {
             speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
         }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
