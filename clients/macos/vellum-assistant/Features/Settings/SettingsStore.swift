@@ -927,6 +927,9 @@ public final class SettingsStore: ObservableObject {
         }
 
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: provider)
+        // Optimistically update the cache so hasKeyForProvider/maskedKeyForProvider
+        // return correct results immediately while the async validation runs.
+        providerKeyCache[provider] = (true, Self.maskKey(trimmed))
 
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: provider, value: trimmed)
@@ -934,7 +937,6 @@ public final class SettingsStore: ObservableObject {
                 apiKeySaving = false
             }
             if result.success {
-                providerKeyCache[provider] = (true, Self.maskKey(trimmed))
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
                 refreshModelInfo()
@@ -944,7 +946,9 @@ public final class SettingsStore: ObservableObject {
                 } else {
                     apiKeySaveError = error
                 }
+                // Revert the optimistic cache entry on permanent failure.
                 if !result.isTransient {
+                    providerKeyCache[provider] = (false, "")
                     await APIKeyManager.deleteKey(for: provider)
                     if hadTombstone {
                         addDeletionTombstone(type: "api_key", name: provider)

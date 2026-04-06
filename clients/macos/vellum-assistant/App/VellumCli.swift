@@ -1046,11 +1046,19 @@ final class VellumCli {
                 // Fall back to the daemon's secret store for provider API
                 // keys when they're not in the process environment (e.g.
                 // app launched from Finder, not a terminal with env vars).
-                for (provider, envVar) in VellumCli.providerEnvVars {
-                    if env[envVar] == nil,
-                       let storedKey = await APIKeyManager.getKey(for: provider),
-                       !storedKey.isEmpty {
-                        env[envVar] = storedKey
+                // Fetch all keys concurrently to avoid sequential 5s timeouts.
+                let missingProviders = VellumCli.providerEnvVars.filter { env[$0.value] == nil }
+                let fetchedKeys = await withTaskGroup(of: (String, String, String?).self) { group in
+                    for (provider, envVar) in missingProviders {
+                        group.addTask { (provider, envVar, await APIKeyManager.getKey(for: provider)) }
+                    }
+                    var results: [(String, String, String?)] = []
+                    for await result in group { results.append(result) }
+                    return results
+                }
+                for (_, envVar, key) in fetchedKeys {
+                    if let key, !key.isEmpty {
+                        env[envVar] = key
                     }
                 }
                 proc.environment = env

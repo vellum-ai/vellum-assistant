@@ -125,15 +125,18 @@ struct APIKeyEntryStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .task {
-            if let existingKey = await APIKeyManager.getKey(for: state.selectedProvider) {
-                apiKey = existingKey
-                hasExistingKey = true
-            }
+            // Start entrance animations immediately — don't block on the
+            // network call to pre-fill an existing key.
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
+            }
+            // Pre-fill existing key asynchronously (gateway call with 5s timeout).
+            if let existingKey = await APIKeyManager.getKey(for: state.selectedProvider) {
+                apiKey = existingKey
+                hasExistingKey = true
             }
             try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled else { return }
@@ -245,8 +248,10 @@ struct APIKeyEntryStepView: View {
                 // Best-effort write to daemon (succeeds on re-hatch when a
                 // daemon is already running; silently fails on first hatch).
                 await APIKeyManager.setKey(trimmed, for: provider)
-                await MainActor.run { state.advance() }
             }
+            // Advance immediately — don't block on the network call which
+            // has a 5s timeout and will fail during first-time onboarding.
+            state.advance()
         } else {
             state.advance()
         }
