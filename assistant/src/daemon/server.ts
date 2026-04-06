@@ -17,6 +17,7 @@ import {
   type InterfaceId,
   parseChannelId,
   parseInterfaceId,
+  supportsHostProxy,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
@@ -1096,7 +1097,7 @@ export class DaemonServer {
     // Guard: don't replace an active proxy during concurrent turn races —
     // another request may have started processing between the isProcessing()
     // check above and the await on ensureActorScopedHistory().
-    if (resolvedInterface === "macos") {
+    if (supportsHostProxy(resolvedInterface)) {
       if (!conversation.isProcessing() || !conversation.hostBashProxy) {
         conversation.setHostBashProxy(
           new HostBashProxy(conversation.getCurrentSender(), (requestId) => {
