@@ -89,6 +89,14 @@ struct ConversationModel: Identifiable, Hashable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
+    /// Whether this conversation is automated (heartbeat, schedule, background/task)
+    /// and should never show unread indicators. Per Apple HIG, badges and unread
+    /// indicators should only reflect content requiring user attention — system-generated
+    /// messages from automated threads do not qualify.
+    var shouldSuppressUnreadIndicator: Bool {
+        isScheduleConversation || shouldReturnToBackgroundOnUnpin
+    }
+
     var isChannelConversation: Bool {
         guard let originChannel else { return false }
         return originChannel != "vellum"
