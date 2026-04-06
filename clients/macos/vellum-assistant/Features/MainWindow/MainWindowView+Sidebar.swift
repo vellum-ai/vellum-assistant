@@ -357,8 +357,26 @@ extension MainWindowView {
            conversationManager.hasMoreConversations,
            !conversationManager.groupedConversations.contains(where: { entry in
                guard let group = entry.group else { return false }
-               let limit = group.id == ConversationGroup.pinned.id ? Int.max : 5
-               return entry.conversations.count > limit
+               // Skip custom groups when feature flag is off — rendering
+               // hides them and folds their conversations into ungrouped.
+               if !group.isSystemGroup && !assistantFeatureFlagStore.isEnabled("conversation-groups-ui") {
+                   return false
+               }
+               let isPinned = group.id == ConversationGroup.pinned.id
+               let isScheduled = group.id == ConversationGroup.scheduled.id
+               let isBackground = group.id == ConversationGroup.background.id
+               let maxCollapsed = isPinned ? Int.max : 5
+               if isScheduled || isBackground {
+                   // Subgroup count mode — "Show more" triggers on distinct
+                   // subgroup count, not total conversation count.
+                   let grouper: (ConversationModel) -> String? = isScheduled
+                       ? { $0.scheduleJobId }
+                       : { $0.source }
+                   var keys = Set<String>()
+                   for c in entry.conversations { keys.insert(grouper(c) ?? c.id.uuidString) }
+                   return keys.count > maxCollapsed
+               }
+               return entry.conversations.count > maxCollapsed
            }) {
             Color.clear
                 .frame(height: 0)
