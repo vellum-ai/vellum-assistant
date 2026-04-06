@@ -164,7 +164,6 @@ struct AssistantProgressView: View {
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
-    @State private var hideInlineChips: Bool = false
     @State private var derived: DerivedProgressState
 
     // MARK: - Init
@@ -537,32 +536,12 @@ struct AssistantProgressView: View {
             }
             if let key = cardKey { cardExpansionOverrides[key] = isExpanded }
         }) {
-            HStack(spacing: VSpacing.sm) {
-                // Status icon
-                statusIcon
-
-                // Headline text with cross-fade
-                headlineLabel
-
-                // Inline permission chips (collapsed only, hidden at narrow widths)
-                if !isExpanded && !hideInlineChips {
-                    inlinePermissionChips
-                }
-
-                Spacer()
-
-                // Elapsed time: live counter when active, final duration when complete
-                if isActive {
-                    elapsedTimeLabel
-                } else if derived.hasTools {
-                    completedDurationLabel
-                }
-
-                // Chevron (only if tools exist)
-                if hasChevron {
-                    VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
+            // Let SwiftUI choose the compact variant instead of toggling local
+            // state from a geometry callback, which can create layout feedback
+            // loops while the progress card is updating mid-send.
+            ViewThatFits(in: .horizontal) {
+                headerRowContent(showInlinePermissionChips: !isExpanded)
+                headerRowContent(showInlinePermissionChips: false)
             }
             .contentShape(Rectangle())
         }
@@ -571,10 +550,35 @@ struct AssistantProgressView: View {
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: Bool.self) { proxy in
-            proxy.size.width < 350
-        } action: { shouldHide in
-            hideInlineChips = shouldHide
+    }
+
+    @ViewBuilder
+    private func headerRowContent(showInlinePermissionChips: Bool) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            // Status icon
+            statusIcon
+
+            // Headline text with cross-fade
+            headlineLabel
+
+            if showInlinePermissionChips {
+                inlinePermissionChips
+            }
+
+            Spacer()
+
+            // Elapsed time: live counter when active, final duration when complete
+            if isActive {
+                elapsedTimeLabel
+            } else if derived.hasTools {
+                completedDurationLabel
+            }
+
+            // Chevron (only if tools exist)
+            if hasChevron {
+                VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
     }
 
