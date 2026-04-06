@@ -346,6 +346,19 @@ extension MainWindowView {
             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
             .padding(.bottom, VSpacing.xs)
         }
+
+        // Fallback pagination: the ungrouped section is always the last
+        // rendered section. When every section fits within its collapse
+        // limit (no "Show more" buttons visible) but the server has more
+        // conversations, auto-trigger loading so users can reach them.
+        if conversations.count <= 5,
+           conversationManager.hasMoreConversations {
+            Color.clear
+                .frame(height: 0)
+                .onAppear {
+                    conversationManager.loadAllRemainingConversations()
+                }
+        }
     }
 
     // MARK: - Pinned App Helpers
