@@ -1097,11 +1097,7 @@ export async function check(
     !matchedRule &&
     risk === RiskLevel.Low
   ) {
-    // When sandbox is disabled, bash runs on the host — don't auto-allow
-    const sandboxEnabled = getConfig().sandbox.enabled;
-    if (toolName === "bash" && !sandboxEnabled) {
-      // Fall through to risk-based policy below
-    } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
+    if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
       return {
         decision: "allow",
         reason: "Workspace mode: workspace-scoped operation auto-allowed",
