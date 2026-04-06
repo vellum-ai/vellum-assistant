@@ -30,6 +30,7 @@ import type {
   UiSurfaceShow,
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
+import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 
 const log = getLogger("conversation-surfaces");
@@ -84,10 +85,7 @@ export function markSurfaceCompleted(
       }
     }
   } catch (err) {
-    log.warn(
-      { err, surfaceId },
-      "Failed to persist surface completion to DB",
-    );
+    log.warn({ err, surfaceId }, "Failed to persist surface completion to DB");
   }
 }
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
@@ -285,6 +283,7 @@ export interface SurfaceConversationContext {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
+    transport?: ConversationTransportMetadata,
   ): { queued: boolean; requestId: string; rejected?: boolean };
   getQueueDepth(): number;
   processMessage(
