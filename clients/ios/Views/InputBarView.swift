@@ -390,6 +390,7 @@ struct InputBarView: View {
             log.error("installTap threw ObjC exception: \(installError?.localizedDescription ?? "unknown")")
             isVoiceOrbExpanded = false
             viewModel.errorText = "Voice input failed. Please try again."
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             cleanupRecognition()
             return
         }
