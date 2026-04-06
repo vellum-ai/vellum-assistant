@@ -191,6 +191,11 @@ describe("handleListMessages tool_result merging", () => {
     // Orphan tool_result is preserved (not suppressed) to avoid data loss
     expect(body.messages).toHaveLength(2);
     expect(body.messages[0].role).toBe("user");
+    // The preserved message must retain the actual tool_result payload
+    const orphanToolCalls = body.messages[0].toolCalls;
+    expect(orphanToolCalls).toBeDefined();
+    expect(orphanToolCalls).toHaveLength(1);
+    expect(orphanToolCalls![0].result).toBe("stale result");
     expect(body.messages[1].role).toBe("assistant");
     expect(body.messages[1].content).toBe("response");
   });
