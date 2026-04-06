@@ -390,6 +390,9 @@ struct InputBarView: View {
             log.error("installTap threw ObjC exception: \(installError?.localizedDescription ?? "unknown")")
             isVoiceOrbExpanded = false
             viewModel.errorText = "Voice input failed. Please try again."
+            // Remove any partially-installed tap before cleanup — otherwise the
+            // next recording attempt fails trying to install a second tap on bus 0.
+            audioEngine.inputNode.removeTap(onBus: 0)
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             cleanupRecognition()
             return
