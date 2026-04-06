@@ -1,4 +1,5 @@
 import Foundation
+import os
 import VellumAssistantShared
 
 extension Notification.Name {
@@ -21,9 +22,18 @@ extension Notification.Name {
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }
 
-/// Manages API keys using file-based CredentialStorage. The daemon owns the
-/// canonical encrypted store; the app syncs
-/// keys to the daemon via HTTP on save/clear/reconnect.
+private let apiKeyLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "APIKeyManager")
+
+/// Manages API keys via both local file-based storage and the daemon's
+/// gateway secrets API.
+///
+/// **Sync methods** (no `async`) read/write the local `FileCredentialStorage`.
+/// These are the legacy path and will be removed once all callers are migrated.
+///
+/// **Async methods** read/write via the daemon's HTTP secrets endpoints
+/// (`POST /v1/secrets`, `POST /v1/secrets/read`, `DELETE /v1/secrets`).
+/// Callers should prefer the async overloads. Swift picks the correct
+/// overload based on whether the call site uses `await`.
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
 
@@ -41,13 +51,100 @@ enum APIKeyManager {
         "perplexity",
     ]
 
-    /// Returns true if any known provider has a key configured.
+    // MARK: - Sync (legacy — FileCredentialStorage)
+
+    /// Returns true if any known provider has a key configured (sync/local).
     static func hasAnyKey() -> Bool {
         for provider in allSyncableProviders {
             if getKey(for: provider) != nil { return true }
         }
         if getKey(for: "elevenlabs") != nil { return true }
         return false
+    }
+
+    static func getKey(for provider: String) -> String? {
+        storage.get(account: udPrefix + provider)
+    }
+
+    static func setKey(_ key: String, for provider: String) {
+        _ = storage.set(account: udPrefix + provider, value: key)
+        notifyKeyDidChange()
+    }
+
+    static func deleteKey(for provider: String) {
+        _ = storage.delete(account: udPrefix + provider)
+        notifyKeyDidChange()
+    }
+
+    // MARK: - Async (gateway API)
+
+    /// Returns true if any known provider has a key in the daemon (async).
+    static func hasAnyKey() async -> Bool {
+        for provider in allSyncableProviders {
+            if await getKey(for: provider) != nil { return true }
+        }
+        if await getKey(for: "elevenlabs") != nil { return true }
+        return false
+    }
+
+    /// Read an API key from the daemon's secret store.
+    static func getKey(for provider: String) async -> String? {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider, "reveal": true]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
+            )
+            guard response.isSuccess,
+                  let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let found = json["found"] as? Bool, found,
+                  let value = json["value"] as? String, !value.isEmpty else {
+                return nil
+            }
+            return value
+        } catch {
+            apiKeyLog.error("getKey(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Write an API key to the daemon's secret store.
+    @discardableResult
+    static func setKey(_ key: String, for provider: String) async -> Bool {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider, "value": key]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+            )
+            if response.isSuccess {
+                notifyKeyDidChange()
+                return true
+            }
+            apiKeyLog.warning("setKey(\(provider, privacy: .public)) returned status \(response.statusCode)")
+            return false
+        } catch {
+            apiKeyLog.error("setKey(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Delete an API key from the daemon's secret store.
+    @discardableResult
+    static func deleteKey(for provider: String) async -> Bool {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider]
+            let response = try await GatewayHTTPClient.delete(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+            )
+            if response.isSuccess || response.statusCode == 404 {
+                notifyKeyDidChange()
+                return true
+            }
+            apiKeyLog.warning("deleteKey(\(provider, privacy: .public)) returned status \(response.statusCode)")
+            return false
+        } catch {
+            apiKeyLog.error("deleteKey(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
     }
 
     // MARK: - Migration from UserDefaults
@@ -81,21 +178,7 @@ enum APIKeyManager {
         UserDefaults.standard.removeObject(forKey: udKey)
     }
 
-    // MARK: - Generic provider access
-
-    static func getKey(for provider: String) -> String? {
-        storage.get(account: udPrefix + provider)
-    }
-
-    static func setKey(_ key: String, for provider: String) {
-        _ = storage.set(account: udPrefix + provider, value: key)
-        notifyKeyDidChange()
-    }
-
-    static func deleteKey(for provider: String) {
-        _ = storage.delete(account: udPrefix + provider)
-        notifyKeyDidChange()
-    }
+    // MARK: - Daemon sync (legacy fire-and-forget)
 
     /// Push an API key to the daemon's encrypted store via the gateway.
     /// Waits up to 15s for the actor token if it's not yet available (e.g.
