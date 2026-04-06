@@ -79,6 +79,8 @@ function getBroadcaster(): NotificationBroadcaster {
           title: info.title,
           sourceEventName: info.sourceEventName,
           targetGuardianPrincipalId: info.targetGuardianPrincipalId,
+          groupId: info.groupId,
+          source: info.source,
         });
         log.info(
           {

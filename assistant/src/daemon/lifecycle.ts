@@ -785,6 +785,7 @@ export async function runDaemon(): Promise<void> {
           conversationMetadata: {
             groupId: "system:scheduled",
             scheduleJobId: schedule.id,
+            source: "schedule",
           },
           dedupeKey: `schedule:complete:${schedule.id}:${Date.now()}`,
         });
