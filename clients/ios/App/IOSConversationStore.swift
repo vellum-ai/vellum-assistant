@@ -753,6 +753,8 @@ class IOSConversationStore: ObservableObject {
                             displayOrder: useLocalPin ? local.displayOrder : restored.displayOrder,
                             scheduleJobId: restored.scheduleJobId,
                             forkParent: restored.forkParent,
+                            groupId: restored.groupId,
+                            source: restored.source,
                             hasUnseenLatestAssistantMessage: restored.hasUnseenLatestAssistantMessage,
                             latestAssistantMessageAt: restored.latestAssistantMessageAt,
                             lastSeenAssistantMessageAt: restored.lastSeenAssistantMessageAt

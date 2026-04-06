@@ -311,9 +311,18 @@ final class ConversationRestorer {
                 forkParent: session.forkParent,
                 originChannel: session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
             )
-            // VM creation is lazy — only the active conversation will get a VM via
-            // getOrCreateViewModel() when it's first accessed.
-            restoredConversations.append(conversation)
+            // Suppress unread indicators for automated conversations on initial load.
+            // The server tracks attention for all conversations, but automated threads
+            // (heartbeat, schedule, background/task) should never show unread state.
+            if conversation.shouldSuppressUnreadIndicator {
+                var suppressed = conversation
+                suppressed.hasUnseenLatestAssistantMessage = false
+                restoredConversations.append(suppressed)
+            } else {
+                // VM creation is lazy — only the active conversation will get a VM via
+                // getOrCreateViewModel() when it's first accessed.
+                restoredConversations.append(conversation)
+            }
         }
 
         // Suppress animations during bulk list assignment. Without this,
