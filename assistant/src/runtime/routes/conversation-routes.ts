@@ -740,7 +740,22 @@ function mergeToolResultsIntoAssistantMessages(
       // original message as-is to avoid permanent data loss. The preceding
       // assistant tool_use lives in the previous page; dropping the result
       // here would be unrecoverable.
-      result.push(msg);
+      // Still strip system notices so internal prompt text isn't exposed.
+      const filteredBlocks = blocks.filter(
+        (b) =>
+          !(
+            typeof b === "object" &&
+            b !== null &&
+            isSystemNoticeText(b as Record<string, unknown>)
+          ),
+      );
+      result.push({
+        ...msg,
+        content:
+          filteredBlocks.length === blocks.length
+            ? msg.content
+            : JSON.stringify(filteredBlocks),
+      });
       continue;
     }
 
