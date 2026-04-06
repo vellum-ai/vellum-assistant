@@ -290,4 +290,73 @@ describe("installSkill routing", () => {
       expect(result.error).toContain("Skill not found in repo");
     }
   });
+
+  // --- Extended coverage ---
+
+  test("bundled skill auto-enables via ensureSkillEntry and seeds memory", async () => {
+    mockCatalogSkills.mockReturnValue([
+      {
+        id: "browser",
+        displayName: "Browser",
+        description: "Browser integration",
+        source: "bundled",
+        directoryPath: "/tmp/test-bundled-skills/browser",
+      },
+    ]);
+
+    const result = await installSkill({ slug: "browser" }, dummyCtx);
+
+    expect(result.success).toBe(true);
+    // Should have auto-enabled via ensureSkillEntry
+    expect(mockEnsureSkillEntry).toHaveBeenCalledWith(
+      expect.any(Object),
+      "browser",
+    );
+    // Should have seeded skill memory graph
+    expect(mockSeedSkillGraphNodes).toHaveBeenCalledTimes(1);
+    // Should NOT have called any external install paths
+    expect(mockClawhubInstall).not.toHaveBeenCalled();
+    expect(mockInstallExternalSkill).not.toHaveBeenCalled();
+    expect(mockInstallSkillLocally).not.toHaveBeenCalled();
+  });
+
+  test("Vellum catalog match routes to installSkillLocally", async () => {
+    // No bundled skill matches
+    mockCatalogSkills.mockReturnValue([]);
+    // Vellum catalog has the skill
+    mockGetCatalog.mockResolvedValue([
+      { id: "weather", name: "Weather", description: "Weather skill" } as never,
+    ]);
+
+    const result = await installSkill({ slug: "weather" }, dummyCtx);
+
+    expect(result.success).toBe(true);
+    expect(mockInstallSkillLocally).toHaveBeenCalledTimes(1);
+    expect(mockInstallSkillLocally).toHaveBeenCalledWith(
+      "weather",
+      expect.objectContaining({ id: "weather" }),
+      true,
+      undefined, // contactId
+    );
+    // Should NOT have called clawhub or skills.sh
+    expect(mockClawhubInstall).not.toHaveBeenCalled();
+    expect(mockInstallExternalSkill).not.toHaveBeenCalled();
+  });
+
+  test("clawhub install failure propagates error", async () => {
+    mockClawhubInstall.mockResolvedValue({
+      success: false,
+      error: "Skill not found on clawhub",
+    });
+
+    const result = await installSkill(
+      { slug: "missing-skill", origin: "clawhub" },
+      dummyCtx,
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain("Skill not found on clawhub");
+    }
+  });
 });
