@@ -274,10 +274,6 @@ export function getEmbedWorkerPidPath(): string {
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in
  * containerized deployments where the workspace is a separate volume).
  * Otherwise falls back to ~/.vellum/workspace.
- *
- * WARNING: The entire workspace directory is included in diagnostic log exports
- * ("Send logs to Vellum"). Do not store secrets, API keys, or sensitive
- * credentials here — use the credential store or ~/.vellum/protected/ instead.
  */
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
