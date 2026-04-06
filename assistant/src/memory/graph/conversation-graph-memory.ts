@@ -528,9 +528,10 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
 
   // Walk from the front and skip all memory-injected blocks.
   // The injection prefix is always contiguous at the start of content.
-  // Memory-injected images are always preceded by a <memory_image> text
-  // marker (see injectMemoryBlock). Only strip image blocks that follow
-  // such a marker — user-attached images must be preserved.
+  // Memory-injected images use a 3-block pattern: opening <memory_image> text,
+  // image block, closing </memory_image> text (see injectMemoryBlock).
+  // Legacy 2-block pattern (no closing tag) is also handled for backward compat.
+  // Only strip image blocks that follow a marker — user-attached images must be preserved.
   let firstNonMemory = 0;
   let prevWasMemoryImageMarker = false;
   const content = last.content;
@@ -544,13 +545,19 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
       prevWasMemoryImageMarker = false;
     } else if (
       block.type === "text" &&
-      block.text.startsWith("<memory_image>")
+      block.text.startsWith("<memory_image")
     ) {
       firstNonMemory++;
       prevWasMemoryImageMarker = true;
     } else if (block.type === "image" && prevWasMemoryImageMarker) {
       firstNonMemory++;
       prevWasMemoryImageMarker = false;
+    } else if (
+      block.type === "text" &&
+      block.text === "</memory_image>"
+    ) {
+      // Closing tag from the 3-block pattern
+      firstNonMemory++;
     } else {
       break;
     }
@@ -606,7 +613,7 @@ function injectMemoryBlock(
   for (const [_nodeId, img] of images) {
     blocks.push({
       type: "text" as const,
-      text: `<memory_image>${img.description}</memory_image>`,
+      text: `<memory_image __injected>\n${img.description}`,
     });
     blocks.push({
       type: "image" as const,
@@ -616,6 +623,10 @@ function injectMemoryBlock(
         data: img.base64Data,
       },
     } as ImageContent);
+    blocks.push({
+      type: "text" as const,
+      text: `</memory_image>`,
+    });
   }
 
   blocks.push({
