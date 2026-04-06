@@ -240,15 +240,15 @@ extension AppDelegate {
             }
 
             // Clear locally-cached credentials for all local assistants
-            let credStorage = FileCredentialStorage()
+            let credStorage = GatewayCredentialStorage()
             for assistant in LockfileAssistant.loadAll() where (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged {
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistant.assistantId)
-                _ = credStorage.delete(account: credentialAccount)
+                _ = await credStorage.deleteAsync(account: credentialAccount)
             }
             // Also clear for the connected assistant in case it's not in the lockfile
             if let assistantId = connectedAssistantId {
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
-                _ = credStorage.delete(account: credentialAccount)
+                _ = await credStorage.deleteAsync(account: credentialAccount)
             }
 
             // Stop all non-current local assistant processes to clear in-memory platform
@@ -397,7 +397,7 @@ extension AppDelegate {
             }
 
             do {
-                let credentialStorage = FileCredentialStorage()
+                let credentialStorage = GatewayCredentialStorage()
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
                 let platformId = try await bootstrapService.bootstrap(
                     runtimeAssistantId: assistantId,

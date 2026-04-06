@@ -21,13 +21,13 @@ extension Notification.Name {
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }
 
-/// Manages API keys using file-based CredentialStorage. The daemon owns the
+/// Manages API keys using gateway-backed CredentialStorage. The daemon owns the
 /// canonical encrypted store; the app syncs
 /// keys to the daemon via HTTP on save/clear/reconnect.
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
 
-    private static let storage: CredentialStorage = FileCredentialStorage()
+    private static let storage: CredentialStorage = GatewayCredentialStorage()
 
     /// Provider identifiers whose API keys are synced to the daemon as
     /// `type: "api_key"`.

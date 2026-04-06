@@ -2407,12 +2407,12 @@ public final class SettingsStore: ObservableObject {
             return nil
         }
 
-        let credentialStorage = FileCredentialStorage()
+        let credentialStorage = GatewayCredentialStorage()
 
         let orgId = cachedOrgId
 
-        // Try the fast synchronous path first.
-        if let resolved = PlatformAssistantIdResolver.resolve(
+        // Try the gateway-backed async path first.
+        if let resolved = await PlatformAssistantIdResolver.resolveAsync(
             lockfileAssistantId: assistant.assistantId,
             isManaged: assistant.isManaged,
             organizationId: orgId,
@@ -2454,7 +2454,7 @@ public final class SettingsStore: ObservableObject {
         }
         let postBootstrapOrgId = cachedOrgId
 
-        let postBootstrapResolved = PlatformAssistantIdResolver.resolve(
+        let postBootstrapResolved = await PlatformAssistantIdResolver.resolveAsync(
             lockfileAssistantId: assistant.assistantId,
             isManaged: assistant.isManaged,
             organizationId: postBootstrapOrgId,

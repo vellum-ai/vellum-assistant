@@ -501,7 +501,7 @@ struct SettingsDeveloperTab: View {
             isManaged: assistant.isManaged,
             organizationId: orgId,
             userId: userId,
-            credentialStorage: FileCredentialStorage()
+            credentialStorage: GatewayCredentialStorage()
         )
     }
 
@@ -858,9 +858,9 @@ struct SettingsDeveloperTab: View {
             if response.isSuccess || response.statusCode == 404 {
                 // Clear the locally-cached credential so the key is not
                 // re-injected on the next daemon restart or bootstrap.
-                let credStorage = FileCredentialStorage()
+                let credStorage = GatewayCredentialStorage()
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: targetAssistantId)
-                _ = credStorage.delete(account: credentialAccount)
+                _ = await credStorage.deleteAsync(account: credentialAccount)
 
                 showRevokeStatus("Assistant API key revoked", isError: false)
             } else {

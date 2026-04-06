@@ -4,11 +4,32 @@ import os
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "LocalAssistantBootstrap")
 
 /// Platform-agnostic credential storage abstraction.
-/// On macOS, callers supply a file-based implementation (FileCredentialStorage).
+/// On macOS, callers supply a gateway-backed implementation (GatewayCredentialStorage).
+///
+/// The base methods are synchronous for callers that cannot suspend.
+/// Async variants route through the daemon's gateway API when available
+/// and fall back to the synchronous implementation on error.
 public protocol CredentialStorage: Sendable {
     func get(account: String) -> String?
     func set(account: String, value: String) -> Bool
     func delete(account: String) -> Bool
+
+    /// Async credential read — routes through the gateway when available.
+    /// Default implementation delegates to the synchronous ``get(account:)``.
+    func getAsync(account: String) async -> String?
+    /// Async credential write — routes through the gateway when available.
+    /// Default implementation delegates to the synchronous ``set(account:value:)``.
+    func setAsync(account: String, value: String) async -> Bool
+    /// Async credential delete — routes through the gateway when available.
+    /// Default implementation delegates to the synchronous ``delete(account:)``.
+    func deleteAsync(account: String) async -> Bool
+}
+
+/// Default async implementations that delegate to the synchronous methods.
+public extension CredentialStorage {
+    func getAsync(account: String) async -> String? { get(account: account) }
+    func setAsync(account: String, value: String) async -> Bool { set(account: account, value: value) }
+    func deleteAsync(account: String) async -> Bool { delete(account: account) }
 }
 
 /// Errors that can occur during local assistant bootstrapping.
@@ -129,7 +150,7 @@ public final class LocalAssistantBootstrapService {
         // Persist the platform assistant ID mapping so other services can resolve it.
         if let storage = credentialStorage {
             if let uid = try? await resolveUserId() {
-                let persisted = PlatformAssistantIdResolver.persist(
+                let persisted = await PlatformAssistantIdResolver.persistAsync(
                     platformAssistantId: platformAssistantId,
                     runtimeAssistantId: runtimeAssistantId,
                     organizationId: organizationId,
@@ -156,9 +177,9 @@ public final class LocalAssistantBootstrapService {
         if let newKey = registration.assistantApiKey, !newKey.isEmpty {
             // Fresh key from first registration
             apiKey = newKey
-            _ = credentialStorage?.set(account: credentialAccount, value: newKey)
+            _ = await credentialStorage?.setAsync(account: credentialAccount, value: newKey)
             log.info("Received and cached new API key from ensure-registration")
-        } else if let cachedKey = credentialStorage?.get(account: credentialAccount), !cachedKey.isEmpty {
+        } else if let cachedKey = await credentialStorage?.getAsync(account: credentialAccount), !cachedKey.isEmpty {
             // Existing key persisted locally
             apiKey = cachedKey
             log.info("Using locally persisted API key")
@@ -180,7 +201,7 @@ public final class LocalAssistantBootstrapService {
                 throw LocalBootstrapError.provisioningFailed(error.localizedDescription)
             }
             apiKey = provisionResponse.provisioning.assistantApiKey
-            _ = credentialStorage?.set(account: credentialAccount, value: apiKey)
+            _ = await credentialStorage?.setAsync(account: credentialAccount, value: apiKey)
             log.info("Provisioned and cached new API key via reprovision")
         }
 
@@ -209,7 +230,7 @@ public final class LocalAssistantBootstrapService {
         assistantVersion: String? = nil
     ) async throws -> String {
         let account = Self.credentialAccount(for: runtimeAssistantId)
-        _ = credentialStorage?.delete(account: account)
+        _ = await credentialStorage?.deleteAsync(account: account)
 
         return try await bootstrap(
             runtimeAssistantId: runtimeAssistantId,

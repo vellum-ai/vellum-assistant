@@ -44,6 +44,23 @@ public enum PlatformAssistantIdResolver {
         return credentialStorage.set(account: account, value: platformAssistantId)
     }
 
+    /// Async variant that routes through the gateway when the storage supports it.
+    @discardableResult
+    public static func persistAsync(
+        platformAssistantId: String,
+        runtimeAssistantId: String,
+        organizationId: String,
+        userId: String,
+        credentialStorage: CredentialStorage
+    ) async -> Bool {
+        let account = credentialStorageAccount(
+            runtimeAssistantId: runtimeAssistantId,
+            organizationId: organizationId,
+            userId: userId
+        )
+        return await credentialStorage.setAsync(account: account, value: platformAssistantId)
+    }
+
     // MARK: - Resolve
 
     /// Resolves the platform assistant ID for the current assistant.
@@ -72,6 +89,30 @@ public enum PlatformAssistantIdResolver {
             userId: uid
         )
         return credentialStorage.get(account: account)
+    }
+
+    /// Async variant that routes through the gateway when the storage supports it.
+    public static func resolveAsync(
+        lockfileAssistantId: String,
+        isManaged: Bool,
+        organizationId: String?,
+        userId: String?,
+        credentialStorage: CredentialStorage
+    ) async -> String? {
+        if isManaged {
+            return lockfileAssistantId
+        }
+
+        guard let orgId = organizationId, let uid = userId else {
+            return nil
+        }
+
+        let account = credentialStorageAccount(
+            runtimeAssistantId: lockfileAssistantId,
+            organizationId: orgId,
+            userId: uid
+        )
+        return await credentialStorage.getAsync(account: account)
     }
 
     // MARK: - Clear

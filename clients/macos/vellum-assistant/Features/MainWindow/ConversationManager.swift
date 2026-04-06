@@ -1362,7 +1362,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             return
         }
         log.info("Managed API key invalid — attempting reprovision for \(assistantId, privacy: .public)")
-        let credentialStorage = FileCredentialStorage()
+        let credentialStorage = GatewayCredentialStorage()
         let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
         do {
             _ = try await bootstrapService.reprovision(
