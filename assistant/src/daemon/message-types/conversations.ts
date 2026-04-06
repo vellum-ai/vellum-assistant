@@ -14,12 +14,10 @@ export interface ConversationListRequest {
   limit?: number;
 }
 
-/** Lightweight conversation transport metadata for channel identity and natural-language guidance. */
-export interface ConversationTransportMetadata {
+/** Shared fields for all transport metadata variants. */
+interface BaseTransportMetadata {
   /** Logical channel identifier (e.g. "desktop", "telegram", "mobile"). */
   channelId: ChannelId;
-  /** Interface identifier for this transport (e.g. "macos", "ios", "cli"). */
-  interfaceId?: InterfaceId;
   /** Optional natural-language hints for channel-specific UX behavior. */
   hints?: string[];
   /** Optional concise UX brief for this channel. */
@@ -27,6 +25,27 @@ export interface ConversationTransportMetadata {
   /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel"). */
   chatType?: string;
 }
+
+/** Transport metadata for macOS desktop clients, including host environment fields. */
+export interface MacosTransportMetadata extends BaseTransportMetadata {
+  /** Interface identifier for macOS transport. */
+  interfaceId: "macos";
+  /** Home directory of the host macOS user. */
+  hostHomeDir?: string;
+  /** Username of the host macOS user. */
+  hostUsername?: string;
+}
+
+/** Transport metadata for non-macOS transports. */
+export interface NonMacosTransportMetadata extends BaseTransportMetadata {
+  /** Interface identifier for this transport (e.g. "ios", "cli"). */
+  interfaceId?: Exclude<InterfaceId, "macos">;
+}
+
+/** Lightweight conversation transport metadata for channel identity and natural-language guidance. */
+export type ConversationTransportMetadata =
+  | MacosTransportMetadata
+  | NonMacosTransportMetadata;
 
 export interface ConversationCreateRequest {
   type: "conversation_create";
