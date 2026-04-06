@@ -606,14 +606,15 @@ final class ConversationManager: ConversationRestorerDelegate {
         log.info("Created schedule conversation \(localId) for conversation \(conversationId) (schedule \(scheduleJobId))")
     }
 
-    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String) {
+    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String, groupId: String? = nil, source: String? = nil) {
         guard let localId = createBackgroundConversation(
             conversationId: conversationId,
             title: title,
-            source: "notification",
-            markHistoryLoaded: false
+            source: source ?? "notification",
+            markHistoryLoaded: false,
+            groupId: groupId
         ) else { return }
-        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName))")
+        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName), groupId: \(groupId ?? "nil"))")
     }
 
     func createHeartbeatConversation(conversationId: String, title: String) {

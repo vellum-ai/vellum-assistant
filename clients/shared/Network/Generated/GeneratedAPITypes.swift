@@ -2819,13 +2819,21 @@ public struct NotificationConversationCreated: Codable, Sendable {
     /// When set, this conversation was created for a guardian-sensitive notification
     /// and should only be surfaced by clients bound to this guardian identity.
     public let targetGuardianPrincipalId: String?
+    /// Conversation group identifier from the signal producer (e.g. "system:scheduled").
+    /// Clients use this to place the conversation in the correct sidebar folder.
+    public let groupId: String?
+    /// Semantic source of the conversation (e.g. "schedule", "reminder").
+    /// Allows clients to override the default "notification" source.
+    public let source: String?
 
-    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil) {
+    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil, groupId: String? = nil, source: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
         self.sourceEventName = sourceEventName
         self.targetGuardianPrincipalId = targetGuardianPrincipalId
+        self.groupId = groupId
+        self.source = source
     }
 }
 

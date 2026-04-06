@@ -130,7 +130,9 @@ export async function pairDeliveryWithConversation(
       const targetId = conversationAction.conversationId;
       const existing = getConversation(targetId);
 
-      if (existing && existing.source === "notification") {
+      const effectiveSource =
+        signal.conversationMetadata?.source ?? "notification";
+      if (existing && existing.source === effectiveSource) {
         // Append the seed message to the existing conversation
         const message = await addMessage(
           existing.id,
@@ -186,7 +188,9 @@ export async function pairDeliveryWithConversation(
       const conversation = createConversation({
         title,
         conversationType,
-        source: "notification",
+        source: signal.conversationMetadata?.source ?? "notification",
+        groupId: signal.conversationMetadata?.groupId,
+        scheduleJobId: signal.conversationMetadata?.scheduleJobId,
       });
 
       const message = await addMessage(
@@ -241,7 +245,9 @@ export async function pairDeliveryWithConversation(
           existingBinding.conversationId,
         );
 
-        if (boundConversation && boundConversation.source === "notification") {
+        const effectiveSource =
+          signal.conversationMetadata?.source ?? "notification";
+        if (boundConversation && boundConversation.source === effectiveSource) {
           const message = await addMessage(
             boundConversation.id,
             "assistant",
@@ -299,7 +305,9 @@ export async function pairDeliveryWithConversation(
     const conversation = createConversation({
       title,
       conversationType,
-      source: "notification",
+      source: signal.conversationMetadata?.source ?? "notification",
+      groupId: signal.conversationMetadata?.groupId,
+      scheduleJobId: signal.conversationMetadata?.scheduleJobId,
     });
 
     // Skip memory indexing — notification audit messages are not conversational

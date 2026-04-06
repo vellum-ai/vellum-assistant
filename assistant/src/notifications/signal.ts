@@ -200,4 +200,15 @@ export interface NotificationSignal<TEventName extends string = string> {
    * affinity within a call session.
    */
   conversationAffinityHint?: Partial<Record<string, string>>;
+  /**
+   * Optional metadata propagated to the conversation created by the notification
+   * pipeline. Allows signal producers (e.g. the scheduler) to set groupId,
+   * scheduleJobId, or override the default "notification" source on the
+   * resulting conversation so it appears in the correct folder on clients.
+   */
+  conversationMetadata?: {
+    groupId?: string;
+    scheduleJobId?: string;
+    source?: string;
+  };
 }
