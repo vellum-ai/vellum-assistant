@@ -205,8 +205,11 @@ export class HeartbeatService {
 
     const run = this.executeRun();
     this.activeRun = run;
-    // Clear activeRun only once executeRun actually finishes, so the overlap
-    // guard keeps blocking even after a timeout.
+    // Clear activeRun once executeRun finishes. On timeout, runOnce releases
+    // activeRun separately (see catch block below) so future runs aren't
+    // permanently blocked. The .finally() handler still serves as the
+    // normal-completion cleanup path and uses an identity guard to avoid
+    // clearing a different run's activeRun.
     run.finally(() => {
       if (this.activeRun === run) {
         this.activeRun = null;
