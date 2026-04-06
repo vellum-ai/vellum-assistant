@@ -13,7 +13,8 @@ struct ConversationSwitcherDrawer: View {
     private let maxPerSection = 5
 
     /// Tracks which sections have been expanded via "Show more".
-    @State private var expandedSections: Set<String> = []
+    /// Recents starts expanded so conversations are visible.
+    @State private var expandedSections: Set<String> = [ConversationGroup.all.id]
 
     /// Tracks which sub-groups (schedule/background) are expanded in the drawer.
     @State private var expandedSubGroups: Set<String> = []

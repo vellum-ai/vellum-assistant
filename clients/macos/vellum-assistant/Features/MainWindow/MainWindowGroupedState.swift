@@ -47,8 +47,15 @@ final class SidebarInteractionState {
         if let saved = defaults.stringArray(forKey: "sidebar.expandedSections") {
             initial = Set(saved)
         } else {
-            // First-launch defaults: all groups collapsed.
-            initial = []
+            // First-launch defaults: Recents expanded so conversations are visible.
+            initial = [ConversationGroup.all.id]
+        }
+
+        // Ensure system:all is expanded for existing users upgrading from before
+        // the Recents group existed. Without this, their conversations would be
+        // hidden behind a collapsed section header.
+        if !initial.contains(ConversationGroup.all.id) {
+            initial.insert(ConversationGroup.all.id)
         }
 
         // Clean up old keys (one-time migration).
