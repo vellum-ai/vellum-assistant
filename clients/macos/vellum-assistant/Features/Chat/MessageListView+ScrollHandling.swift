@@ -21,21 +21,71 @@ extension MessageListView {
 
     func handleScrollGeometryUpdate(_ newState: ScrollGeometrySnapshot) {
         // --- Scroll direction detection ---
-        let effectiveContentHeight = newState.contentHeight - scrollState.tailSpacerHeight
-        let isScrollable = effectiveContentHeight > newState.containerHeight || scrollState.mode.pushToTopMessageId != nil
+        let effectiveContentHeight = newState.contentHeight
+        let isScrollable = effectiveContentHeight > newState.containerHeight
         let isScrollingUp = newState.contentOffsetY < scrollState.lastContentOffsetY
+        let previousContentHeight = scrollState.scrollContentHeight
         scrollState.scrollContentHeight = newState.contentHeight
         scrollState.scrollContainerHeight = newState.containerHeight
         scrollState.lastContentOffsetY = newState.contentOffsetY
 
-        // Only detach on direct user gesture (interacting), not momentum.
+        // Detach on user gesture (interacting) AND user-initiated momentum
+        // (decelerating). A fast trackpad flick has a very brief .interacting
+        // phase — sometimes only 1-2 geometry updates fire before the phase
+        // transitions to .decelerating. If the first update hasn't registered
+        // a position change yet, handleUserScrollUp() never fires and the CTA
+        // never appears. .decelerating is exclusively user-initiated momentum
+        // (programmatic scrolls use .animating), so it's safe to detect here.
         // Only detach when content is scrollable (prevents false detaches
         // on short conversations).
-        if scrollState.scrollPhase == .interacting && isScrollingUp && isScrollable {
-            scrollState.scrollRestoreTask?.cancel()
-            scrollState.scrollRestoreTask = nil
-            scrollState.handleUserScrollUp()
+        let isUserScrollPhase = scrollState.scrollPhase == .interacting
+            || scrollState.scrollPhase == .decelerating
+        if isUserScrollPhase && isScrollingUp && isScrollable {
+            // During .decelerating, check if the momentum is stale (pre-CTA).
+            // When the user scrolls up and taps "Scroll to latest" while
+            // momentum is active, the CTA fires requestPinToBottom and sets
+            // mode to .followingBottom. But the residual upward momentum
+            // generates geometry updates with isScrollingUp=true in
+            // .decelerating phase — the very next update would fire
+            // handleUserScrollUp(), undoing the CTA's mode transition and
+            // creating a "scroll lock" effect.
+            //
+            // Only suppress during .decelerating (residual momentum from
+            // before the CTA tap). .interacting (new deliberate trackpad
+            // touch) is always respected — the user is explicitly starting
+            // a new scroll gesture, overriding the CTA.
+            if scrollState.scrollPhase == .decelerating,
+               let pinTime = scrollState.lastUserInitiatedPinTime,
+               Date().timeIntervalSince(pinTime) < 0.5 {
+                // Stale momentum from before CTA tap — ignore.
+            } else {
+                scrollState.scrollRestoreTask?.cancel()
+                scrollState.scrollRestoreTask = nil
+                scrollState.handleUserScrollUp()
+            }
         }
+
+        // --- Phase guard (shared by bottom detection, auto-follow, recovery) ---
+        // Only allow automatic scroll actions when scroll is fully at rest
+        // (.idle). Block during ALL non-idle phases including .animating.
+        //
+        // Why no .animating exception: recovery calls non-animated
+        // scrollToEdge(.bottom) which interrupts any in-flight spring
+        // animation (e.g. the CTA's smooth scroll). The user sees the
+        // spring start, then a jarring jump to bottom. By restricting
+        // to .idle only, recovery waits until the animation completes,
+        // then fires cleanly.
+        //
+        // This is safe for streaming auto-follow because the auto-follow
+        // path uses non-animated scrollToEdge(.bottom) which doesn't
+        // trigger .animating — the scroll position changes instantly and
+        // scrollPhase stays .idle.
+        //
+        // Animated pins (handleSendingChanged, handleMessagesCountChanged)
+        // briefly trigger .animating (~150ms with VAnimation.fast), during
+        // which auto-follow is paused. After the animation completes and
+        // phase returns to .idle, auto-follow resumes immediately.
+        let phaseAllowsAutoFollow = !scrollState.scrollPhase.isScrolling
 
         // --- Viewport height update ---
         // Filter non-finite viewport heights and sub-pixel jitter.
@@ -71,20 +121,103 @@ extension MessageListView {
         }
         if scrollState.isAtBottom != nowAtBottom {
             scrollState.isAtBottom = nowAtBottom
-            if nowAtBottom {
+            // Only reattach during non-user-initiated phases. During
+            // .interacting the user is actively scrolling — reattaching
+            // would cause mode to oscillate between freeBrowsing and
+            // followingBottom within the 16ms UI-sync debounce window,
+            // preventing the CTA from ever appearing. The idle handler
+            // in onScrollPhaseChange provides deferred reattach when
+            // the scroll settles.
+            if nowAtBottom, phaseAllowsAutoFollow {
                 scrollState.handleReachedBottom()
             }
         }
 
-        // --- Push-to-top overflow detection ---
-        // Only clear push-to-top if the pin request succeeds.
-        // When the user has detached from bottom, pinToBottom returns
-        // false. Clearing pushToTopMessageId without a successful pin
-        // removes the tail spacer without the accompanying scroll
-        // adjustment, causing a content-height discontinuity that
-        // makes the scroll position jump.
-        if scrollState.mode.pushToTopMessageId != nil && distanceFromBottom > 50 {
-            scrollState.handlePushToTopOverflow()
+        // --- Content-height-change auto-follow ---
+        // Pin to bottom when content height changes in either direction:
+        //   Growth  → streaming, new messages
+        //   Shrinkage → LazyVStack height-estimate convergence after a
+        //               conversation switch (estimated height overshoots,
+        //               then shrinks as views materialize with actual heights)
+        // The 0.5pt threshold filters sub-pixel layout noise. Safe from
+        // feedback loops because pinning changes contentOffsetY, not
+        // contentHeight.
+        if abs(effectiveContentHeight - previousContentHeight) > 0.5,
+           scrollState.mode.allowsAutoScroll,
+           phaseAllowsAutoFollow {
+            scrollState.requestPinToBottom()
+        }
+        // --- Persistent bottom-recovery ---
+        // Independent of the content-height auto-follow. Catches cases
+        // the height-change check misses:
+        //   • LazyVStack estimate converging in <0.5pt increments
+        //   • ID-based scroll landing short due to height estimation
+        //     errors (long conversations with variable content like images)
+        //   • Race conditions during rapid conversation switching
+        //   • "False at-bottom" — viewport at the estimated bottom but
+        //     actual content is above (LazyVStack blank space)
+        //
+        // Uses edge-based scroll instead of ID-based (requestPinToBottom).
+        // ID-based ScrollPosition(id: lastMessageId, .bottom) depends on
+        // accurate height estimates for all preceding views — in long
+        // conversations with images, estimates are unreliable and the
+        // scroll lands short. Edge-based scrollToEdge(.bottom) targets
+        // the absolute content bottom, converging as LazyVStack
+        // materializes more views with each attempt.
+        //
+        // Recovery fires unconditionally until the bottom anchor view
+        // has appeared (meaning LazyVStack materialized to the actual
+        // bottom and isAtBottom is reliable) OR the 2-second deadline
+        // expires (whichever comes first). The deadline is critical
+        // because multiple paths reset bottomAnchorAppeared = false
+        // while the anchor may already be visible in the hierarchy
+        // (CTA taps, sends, resizes) — since onAppear only fires on
+        // hierarchy transitions, the flag won't be re-set and recovery
+        // would fire indefinitely without the time cutoff.
+        // Only fires in initialLoad/followingBottom.
+        let isInRecoveryWindow: Bool
+        if scrollState.bottomAnchorAppeared {
+            // Anchor materialized — isAtBottom is reliable now.
+            isInRecoveryWindow = false
+        } else if let deadline = scrollState.recoveryDeadline,
+                  Date() < deadline {
+            // Bottom anchor hasn't materialized yet and we're within
+            // the 2-second hard time limit. Each recovery attempt
+            // scrolls closer to the actual bottom, materializing more
+            // views. Eventually the bottom anchor materializes and
+            // recovery ends. The 100ms throttle limits this to at most
+            // 10 attempts/second. Recovery naturally stops via:
+            //   • bottomAnchorAppeared (anchor materializes)
+            //   • User scroll-up (mode → freeBrowsing)
+            //   • Conversation switch (reset())
+            //   • 2-second deadline expiry (hard limit)
+            // The deadline is critical because multiple paths reset
+            // bottomAnchorAppeared = false while the anchor may already
+            // be visible (CTA taps, sends, resizes). Since onAppear
+            // only fires on hierarchy transitions, the anchor won't
+            // re-fire if already materialized — without the deadline,
+            // recovery would fire at 10Hz indefinitely.
+            isInRecoveryWindow = true
+        } else {
+            isInRecoveryWindow = false
+        }
+        if scrollState.mode.allowsAutoScroll,
+           phaseAllowsAutoFollow,
+           effectiveContentHeight > newState.visibleRectHeight,
+           (!nowAtBottom || isInRecoveryWindow) {
+            // Throttle recovery to at most once per 100ms. Without this,
+            // geometry updates at ~60fps fire scrollToEdge every ~16ms.
+            // LazyVStack needs time between scroll attempts to materialize
+            // views at the new position — rapid-fire scrolls keep yanking
+            // the viewport before materialization completes, causing the
+            // chat to appear blank (especially in long conversations).
+            // 100ms ≈ 6 frames at 60fps — enough for LazyVStack to
+            // materialize a batch of views while still feeling responsive.
+            let now = Date()
+            if now.timeIntervalSince(scrollState.lastRecoveryAttempt) >= 0.1 {
+                scrollState.lastRecoveryAttempt = now
+                scrollState.scrollToEdge?(.bottom)
+            }
         }
 
         // --- Pagination trigger ---
@@ -175,9 +308,20 @@ extension MessageListView {
         scrollState.scrollRestoreTask = Task { @MainActor [scrollState] in
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else { return }
-            if anchorMessageId == nil
-                && !scrollState.hasBeenInteracted
-            {
+            if anchorMessageId == nil,
+               case .freeBrowsing = scrollState.mode {
+                // User scrolled away during the restore window — respect that.
+            } else if anchorMessageId == nil,
+                      case .programmaticScroll = scrollState.mode {
+                // A deep-link anchor scroll resolved and cleared anchorMessageId
+                // before this task fired. Don't yank the viewport back to bottom.
+            } else if anchorMessageId == nil,
+                      case .stabilizing = scrollState.mode {
+                // A resize or expansion stabilization started during the
+                // restore window. Overriding with .followingBottom would
+                // leak activeStabilizationCount — endStabilization() checks
+                // `guard case .stabilizing = mode` and bails if mode changed.
+            } else if anchorMessageId == nil {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
                 scrollState.transition(to: .followingBottom)
                 scrollState.requestPinToBottom()
@@ -206,15 +350,51 @@ extension MessageListView {
     /// perform programmatic scrolls via the view-owned ScrollPosition.
     func configureScrollCallbacks() {
         let binding = $scrollPosition
+        // Replace the entire ScrollPosition value instead of calling the
+        // mutating `.scrollTo(id:anchor:)` method. Value replacement
+        // forces SwiftUI to process a fresh scroll command every time.
+        // The `.scrollTo()` method can be silently deduped when the
+        // position was previously set to the same ID (e.g. from a
+        // conversation switch `ScrollPosition(id: lastId, .bottom)`) —
+        // even after the user has scrolled away, the internal state may
+        // still consider itself "at" that ID.
         scrollState.scrollTo = { id, anchor in
-            if let stringId = id as? String {
-                binding.wrappedValue.scrollTo(id: stringId, anchor: anchor)
-            } else if let uuidId = id as? UUID {
-                binding.wrappedValue.scrollTo(id: uuidId, anchor: anchor)
+            if let uuidId = id as? UUID {
+                binding.wrappedValue = ScrollPosition(id: uuidId, anchor: anchor)
+            } else if let stringId = id as? String {
+                binding.wrappedValue = ScrollPosition(id: stringId, anchor: anchor)
             }
         }
+        // Replace the entire ScrollPosition value (same as the ID-based
+        // closure above) instead of calling the mutating `.scrollTo(edge:)`
+        // method. Value replacement forces SwiftUI to process a fresh
+        // scroll command every time. The mutating method can be silently
+        // deduped when SwiftUI considers the position "already at that
+        // edge" — the same class of bug that affected `.scrollTo(id:)`.
+        // After SwiftUI processes the edge scroll, it updates the binding
+        // to the actual content offset, so the next value replacement
+        // with ScrollPosition(edge:) is always a new value.
         scrollState.scrollToEdge = { edge in
-            binding.wrappedValue.scrollTo(edge: edge)
+            binding.wrappedValue = ScrollPosition(edge: edge)
+        }
+        // Cancel in-flight spring animations on the scroll position.
+        //
+        // SwiftUI's `withAnimation { scrollPosition = ScrollPosition(...) }`
+        // creates a SwiftUI-managed spring animation that does NOT cancel
+        // when the user starts a new scroll gesture — unlike UIKit's
+        // `UIScrollView.setContentOffset(animated:)` which cancels on touch.
+        //
+        // Writing an empty `ScrollPosition()` (no target) with animations
+        // disabled overwrites the animated value, cancelling the spring.
+        // During `.interacting` phase the user's gesture has priority, so
+        // the empty position doesn't move the viewport — it just stops the
+        // animation from fighting the user's drag.
+        scrollState.cancelScrollAnimation = {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                binding.wrappedValue = ScrollPosition()
+            }
         }
         scrollState.currentConversationId = conversationId
     }

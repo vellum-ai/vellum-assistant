@@ -26,6 +26,19 @@ extension MessageListView {
         configureScrollCallbacks()
         if isConversationSwitch {
             handleConversationSwitched()
+        } else {
+            // Start the recovery window for the initial load — LazyVStack
+            // height estimates are unreliable until views materialize.
+            // (For conversation switches, reset() inside handleConversationSwitched
+            // already sets recoveryDeadline.)
+            scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
+            // Seed lastMessageId so the CTA and executeScrollToBottom always
+            // have a valid ForEach target. Without this, the initial load
+            // leaves lastMessageId nil — a CTA tap would fall back to the
+            // standalone "scroll-bottom-anchor" which may not be materialized.
+            if let lastId = paginatedVisibleMessages.last?.id {
+                scrollState.lastMessageId = lastId
+            }
         }
         // Seed the confirmation marker so a conversation already paused in
         // awaiting_confirmation at launch or reconnect is correctly tracked.
@@ -58,13 +71,25 @@ extension MessageListView {
                         scrollState.anchorSetTime = nil
                         scrollState.anchorTimeoutTask = nil
                         scrollState.transition(to: .followingBottom)
-                        scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                        _ = withAnimation(VAnimation.fast) {
+                            scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                        }
                     }
             }
         } else {
-            if !scrollState.hasBeenInteracted {
-                scrollState.scrollToEdge?(.bottom)
-            }
+            // Initial load (first mount). Let `.defaultScrollAnchor(.bottom,
+            // for: .initialOffset)` handle positioning declaratively —
+            // it places the viewport at the bottom in the same layout pass
+            // as content rendering. An imperative `scrollToEdge(.bottom)`
+            // here would compete with the declarative anchor, causing visible
+            // flicker: the viewport jumps down (declarative), then gets
+            // yanked again by the imperative call, potentially overshooting
+            // into blank LazyVStack estimated space.
+            //
+            // The delayed `restoreScrollToBottom()` (100ms) acts as a safety
+            // net: if `.defaultScrollAnchor` didn't fully resolve (e.g. very
+            // long conversation with unreliable height estimates), the
+            // recovery window + restore fallback will catch it.
             restoreScrollToBottom()
         }
     }
@@ -72,6 +97,13 @@ extension MessageListView {
     // MARK: - onChange handlers
 
     func handleSendingChanged() {
+        // Guard against stale fires during a conversation switch.
+        // onChange handlers fire in declaration order; isSending fires
+        // before conversationId, so during a switch this handler sees
+        // the NEW isSending value but the OLD scroll state (reset()
+        // hasn't run yet). Animated pins targeting stale content
+        // accumulate and corrupt SwiftUI's scroll position.
+        guard conversationId == scrollState.currentConversationId else { return }
         if isSending {
             // Clear stale confirmation marker: if the phase left "awaiting_confirmation"
             // while not sending, the marker is stale.
@@ -92,26 +124,21 @@ extension MessageListView {
             if isDaemonConfirmationResume && !scrollState.isFollowingBottom {
                 // Daemon resumed from confirmation while user was scrolled up.
             } else {
-                // For user-initiated sends, scroll the user's message to
-                // the viewport top with space below for the assistant's
-                // response. Daemon confirmation resumes stay bottom-pinned.
-                if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
-                    scrollState.enterPushToTop(messageId: lastUserMsg.id)
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                                "target=userMessage reason=pushToTop")
-                } else {
-                    scrollState.transition(to: .followingBottom)
-                    scrollState.requestPinToBottom(animated: true)
-                }
+                scrollState.transition(to: .followingBottom)
+                // Start a fresh recovery window: the animated scroll can
+                // overshoot into blank LazyVStack estimated space. Without
+                // this, isAtBottom is falsely true at the estimated bottom
+                // and persistent recovery doesn't fire — the viewport
+                // stays blank until the user scrolls manually.
+                scrollState.bottomAnchorAppeared = false
+                scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
+                scrollState.requestPinToBottom(animated: true)
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
+                            "target=bottom reason=sendFollowingBottom")
             }
         } else {
             // Capture the activity phase at the moment sending stops.
             scrollState.lastActivityPhaseWhenIdle = assistantActivityPhase
-            // End push-to-top phase and scroll to bottom so the user
-            // sees the complete response.
-            if scrollState.mode.pushToTopMessageId != nil {
-                scrollState.exitPushToTop(animated: true)
-            }
             // First-message detection.
             if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                 hasEverSentMessage = true
@@ -121,6 +148,13 @@ extension MessageListView {
     }
 
     func handleMessagesCountChanged() {
+        // Guard against stale fires during a conversation switch.
+        // onChange(of: messages.count) fires before onChange(of: conversationId),
+        // so during a switch this handler sees the NEW message count but
+        // the OLD scroll state (reset() hasn't run yet). An animated
+        // requestPinToBottom targeting stale content interferes with the
+        // subsequent conversation switch flow.
+        guard conversationId == scrollState.currentConversationId else { return }
         // --- Anchor message resolution ---
         if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")
@@ -154,9 +188,11 @@ extension MessageListView {
             }
         }
         // --- Bottom-pin on new messages ---
-        if scrollState.mode.pushToTopMessageId != nil && anchorMessageId == nil {
-            // no-op: push-to-top suppresses bottom-pin
-        } else if anchorMessageId == nil {
+        // Keep lastMessageId current so executeScrollToBottom targets ForEach items.
+        if let lastId = paginatedVisibleMessages.last?.id {
+            scrollState.lastMessageId = lastId
+        }
+        if anchorMessageId == nil {
             scrollState.requestPinToBottom(animated: true)
         }
         // --- Confirmation focus handoff ---
@@ -179,10 +215,32 @@ extension MessageListView {
                 scrollState.endStabilization()
                 return
             }
-            scrollState.endStabilization()
-            if scrollState.isFollowingBottom && anchorMessageId == nil && !scrollState.isAtBottom {
-                scrollState.requestPinToBottom()
-            }
+                scrollState.endStabilization()
+                if scrollState.mode.allowsAutoScroll && anchorMessageId == nil {
+                    // Use mode.allowsAutoScroll (covers both .initialLoad and
+                    // .followingBottom) instead of isFollowingBottom (which
+                    // returns false for .initialLoad). A resize during initial
+                    // load — e.g. app opens with side panel — must still re-pin.
+                    // Always re-pin after resize — don't check isAtBottom.
+                    // After a width change, LazyVStack re-estimates content heights.
+                    // The viewport can be at the *estimated* bottom (blank space)
+                    // where distanceFromBottom ≈ 0 → isAtBottom = true, even though
+                    // actual content is above. Start a fresh recovery window so
+                    // persistent recovery fires unconditionally for 2 seconds.
+                    scrollState.bottomAnchorAppeared = false
+                    scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
+                    scrollState.requestPinToBottom()
+                } else if case .freeBrowsing = scrollState.mode,
+                          anchorMessageId == nil,
+                          let visibleId = scrollState.cachedFirstVisibleMessageId {
+                    // User was scrolled up when resize happened. LazyVStack
+                    // re-estimates heights for the new container width, which
+                    // can shift content — the viewport may now show blank
+                    // estimated space instead of the message the user was
+                    // reading. Re-anchor at the first visible message to
+                    // maintain the user's reading position.
+                    scrollState.performScrollTo(visibleId, anchor: .top)
+                }
         }
     }
 
@@ -202,18 +260,29 @@ extension MessageListView {
         scrollState.anchorTimeoutTask?.cancel()
         scrollState.anchorTimeoutTask = nil
         scrollState.lastAutoFocusedRequestId = nil
-        // When switching to a conversation that is already actively sending,
-        // .onChange(of: isSending) won't fire (the value doesn't change), so
-        // mode stays .initialLoad. Transition to .followingBottom now so that
-        // requestPinToBottom() can issue pins for streaming messages.
-        if isSending {
-            scrollState.transition(to: .followingBottom)
-        }
+        // reset() already set mode to .initialLoad, which allows auto-scroll.
+        // Don't override with .programmaticScroll — that would block
+        // handleMessagesCountChanged and content-growth auto-follow during
+        // the critical window while LazyVStack materializes new content.
+        //
+        // Seed lastMessageId so executeScrollToBottom can target it.
+        scrollState.lastMessageId = paginatedVisibleMessages.last?.id
         // Declarative position reset — processed in the same layout pass as new content.
+        // Prefer the last ForEach message ID over the standalone anchor because
+        // ForEach items are always indexable by ScrollPosition even when not
+        // materialized — SwiftUI locates them in the data source. The standalone
+        // "scroll-bottom-anchor" (outside ForEach) is only locatable when materialized.
         // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            scrollPosition = ScrollPosition(edge: .bottom)
+            if let lastId = paginatedVisibleMessages.last?.id {
+                scrollPosition = ScrollPosition(id: lastId, anchor: .bottom)
+            } else {
+                // Empty conversation — no ForEach items to target.
+                // Use edge-based position; the standalone "scroll-bottom-anchor"
+                // is outside ForEach and only locatable when materialized.
+                scrollPosition = ScrollPosition(edge: .bottom)
+            }
         }
         restoreScrollToBottom()
     }
@@ -253,7 +322,9 @@ extension MessageListView {
                 anchorMessageId = nil
                 scrollState.anchorSetTime = nil
                 scrollState.anchorTimeoutTask = nil
-                scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                _ = withAnimation(VAnimation.fast) {
+                    scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                }
             }
         }
     }
