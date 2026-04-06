@@ -364,6 +364,25 @@ extension MessageListView {
         scrollState.scrollToEdge = { edge in
             binding.wrappedValue = ScrollPosition(edge: edge)
         }
+        // Cancel in-flight spring animations on the scroll position.
+        //
+        // SwiftUI's `withAnimation { scrollPosition = ScrollPosition(...) }`
+        // creates a SwiftUI-managed spring animation that does NOT cancel
+        // when the user starts a new scroll gesture — unlike UIKit's
+        // `UIScrollView.setContentOffset(animated:)` which cancels on touch.
+        //
+        // Writing an empty `ScrollPosition()` (no target) with animations
+        // disabled overwrites the animated value, cancelling the spring.
+        // During `.interacting` phase the user's gesture has priority, so
+        // the empty position doesn't move the viewport — it just stops the
+        // animation from fighting the user's drag.
+        scrollState.cancelScrollAnimation = {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                binding.wrappedValue = ScrollPosition()
+            }
+        }
         scrollState.currentConversationId = conversationId
     }
 }

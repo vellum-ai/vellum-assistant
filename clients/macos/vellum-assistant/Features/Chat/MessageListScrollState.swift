@@ -318,6 +318,24 @@ final class MessageListScrollState {
     /// Closure that scrolls to a given edge (e.g. `.bottom`).
     @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
 
+    /// Closure that cancels any in-flight programmatic scroll animation.
+    ///
+    /// SwiftUI's `withAnimation { scrollPosition = ... }` creates a SwiftUI-
+    /// managed animation that does NOT automatically cancel when the user
+    /// starts a new scroll gesture — unlike UIKit's
+    /// `UIScrollView.setContentOffset(animated:)` which cancels on touch.
+    /// This closure writes an empty `ScrollPosition()` (no target) to the
+    /// binding with `Transaction(disablesAnimations: true)`, which:
+    ///   1. Overwrites the in-flight spring animation (new value written)
+    ///   2. Doesn't move the viewport (empty position = no target)
+    ///   3. During `.interacting` phase, the user's gesture has priority
+    ///      over any programmatic position changes anyway
+    ///
+    /// Called from `handleUserScrollUp()` when transitioning away from a
+    /// following state to prevent the CTA spring animation from fighting
+    /// the user's new scroll gesture.
+    @ObservationIgnored var cancelScrollAnimation: (() -> Void)?
+
     // MARK: - Circuit Breaker
 
     @ObservationIgnored var isThrottled: Bool {
@@ -646,6 +664,10 @@ final class MessageListScrollState {
 
     /// Handles user scrolling up — transitions to freeBrowsing if appropriate.
     func handleUserScrollUp() {
+        // Capture whether we're leaving a state that could have an
+        // in-flight programmatic scroll (CTA spring animation, auto-
+        // follow, recovery). Used below to cancel the animation.
+        let wasFollowingOrInitial = mode.allowsAutoScroll
         switch mode {
         case .initialLoad, .followingBottom:
             transition(to: .freeBrowsing)
@@ -666,6 +688,21 @@ final class MessageListScrollState {
         // `isInRecoveryWindow` condition is false for ALL subsequent
         // geometry updates, eliminating any race window.
         recoveryDeadline = nil
+        // Cancel any in-flight CTA spring animation. SwiftUI's
+        // `withAnimation { scrollPosition = ... }` creates an animation
+        // that does NOT cancel when the user starts a new scroll gesture
+        // (unlike UIKit's UIScrollView.setContentOffset(animated:) which
+        // cancels on touch). Without this, the spring animation continues
+        // to drive the scroll position toward bottom while the user's
+        // gesture drives it upward — creating visible jitter/lock that
+        // persists until the spring settles (~300-500ms).
+        //
+        // Only cancel when leaving a following state — if mode was already
+        // .freeBrowsing or .programmaticScroll, there's no animation to
+        // cancel (avoids unnecessary binding writes during normal scrolling).
+        if wasFollowingOrInitial {
+            cancelScrollAnimation?()
+        }
     }
 
     /// Handles the user arriving at the bottom of the scroll view.
