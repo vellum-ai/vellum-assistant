@@ -198,7 +198,7 @@ public final class SettingsStore: ObservableObject {
     /// Cached key presence and masked values for arbitrary providers.
     /// Populated by `refreshAPIKeyState()` so sync callers (SwiftUI views)
     /// can query key state without awaiting the gateway.
-    var providerKeyCache: [String: (hasKey: Bool, masked: String)] = [:]
+    @Published var providerKeyCache: [String: (hasKey: Bool, masked: String)] = [:]
 
     // MARK: - Provider Routing Sources
 
