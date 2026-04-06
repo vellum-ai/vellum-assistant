@@ -3,7 +3,7 @@ import AppKit
 enum AssistantStatus {
     case idle
     case thinking
-    case error(String)
+    case error
     case disconnected
 
     var menuTitle: String {
