@@ -7,6 +7,12 @@ export async function executeSubagentAbort(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const subagentId = resolveSubagentId(input, context);
+  if (!subagentId && input.label) {
+    return {
+      content: `No subagent found with label "${input.label as string}".`,
+      isError: true,
+    };
+  }
   if (!subagentId) {
     return {
       content: '"subagent_id" or "label" is required.',
