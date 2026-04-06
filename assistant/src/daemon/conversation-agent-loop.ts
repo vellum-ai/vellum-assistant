@@ -917,12 +917,13 @@ export async function runAgentLoopImpl(
         }
 
         // Re-inject with potentially downgraded injection mode.
-        // Override nowScratchpad and pkbContext: compaction strips these
-        // blocks, so we must re-inject the current content unconditionally.
+        // When compaction ran it strips existing NOW.md / PKB blocks, so we
+        // must re-inject the current content. Otherwise rely on the deduplicated
+        // value from injectionOpts to avoid duplicate injection.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
-          nowScratchpad: currentNowContent,
+          ...(step.compactionResult?.compacted && { nowScratchpad: currentNowContent }),
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1114,13 +1115,13 @@ export async function runAgentLoopImpl(
       }
 
       // Re-inject runtime context and re-enter the agent loop.
-      // After compaction, stripInjectionsForCompaction() removes the existing
+      // When compaction ran, stripInjectionsForCompaction() removes the existing
       // NOW.md block from history, so we must re-inject the current content
       // even if it hasn't changed since the last injection.
       runMessages = applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
         pkbContext: currentPkbContent,
-        nowScratchpad: currentNowContent,
+        ...(midLoopCompact.compacted && { nowScratchpad: currentNowContent }),
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
           : null,
@@ -1328,7 +1329,7 @@ export async function runAgentLoopImpl(
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
-          nowScratchpad: currentNowContent,
+          ...(step.compactionResult?.compacted && { nowScratchpad: currentNowContent }),
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1448,7 +1449,7 @@ export async function runAgentLoopImpl(
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
               pkbContext: currentPkbContent,
-              nowScratchpad: currentNowContent,
+              ...(emergencyCompact.compacted && { nowScratchpad: currentNowContent }),
               workspaceTopLevelContext: shouldInjectWorkspace
                 ? ctx.workspaceTopLevelContext
                 : null,
@@ -1566,7 +1567,7 @@ export async function runAgentLoopImpl(
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             pkbContext: currentPkbContent,
-            nowScratchpad: currentNowContent,
+            ...(emergencyCompact.compacted && { nowScratchpad: currentNowContent }),
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
