@@ -44,7 +44,6 @@ import {
   updateConversationTitle,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
-import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
@@ -110,6 +109,7 @@ import {
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
+import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";

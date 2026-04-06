@@ -9,6 +9,10 @@ import {
   resolveAppDir,
   updateApp,
 } from "../memory/app-store.js";
+import {
+  getMessages,
+  updateMessageContent,
+} from "../memory/conversation-crud.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -27,10 +31,6 @@ import type {
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
-import {
-  getMessages,
-  updateMessageContent,
-} from "../memory/conversation-crud.js";
 
 const log = getLogger("conversation-surfaces");
 
