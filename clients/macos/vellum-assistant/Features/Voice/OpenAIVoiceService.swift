@@ -223,7 +223,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         // Atomically validate format, install tap, and start engine.
         // Passes nil for format so AVAudioEngine uses its internal hardware
         // format, preventing sampleRate mismatch crashes.
-        guard engineController.installTapAndStart(bufferSize: 4096) { [weak self] buffer, _ in
+        guard engineController.installTapAndStart(bufferSize: 4096, block: { [weak self] buffer, _ in
             guard let floatData = buffer.floatChannelData else { return }
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
@@ -266,7 +266,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                     self.onSilenceDetected?()
                 }
             }
-        } else {
+        }) else {
             log.error("Failed to start audio engine for recording")
             tearDownRecognition()
             return false
