@@ -50,23 +50,49 @@ export function listConversations(
   ensureGroupMigration();
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} = 'background'`
-    : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
+    ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
+    : sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`;
   const query = db
     .select()
     .from(conversations)
     .where(where)
-    .orderBy(desc(conversations.updatedAt))
+    .orderBy(
+      desc(
+        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
+      ),
+    )
     .limit(limit ?? 100)
     .offset(offset);
+  return query.all().map(parseConversation);
+}
+
+export function listPinnedConversations(): ConversationRow[] {
+  ensureDisplayOrderMigration();
+  ensureGroupMigration();
+  const db = getDb();
+  const query = db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
+        sql`is_pinned = 1`,
+      ),
+    )
+    .orderBy(
+      sql`COALESCE(display_order, 999999) ASC`,
+      desc(
+        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
+      ),
+    );
   return query.all().map(parseConversation);
 }
 
 export function countConversations(backgroundOnly = false): number {
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} = 'background'`
-    : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
+    ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
+    : sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
@@ -81,9 +107,13 @@ export function getLatestConversation(): ConversationRow | null {
     .select()
     .from(conversations)
     .where(
-      sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+      sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
     )
-    .orderBy(desc(conversations.updatedAt))
+    .orderBy(
+      desc(
+        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
+      ),
+    )
     .limit(1)
     .get();
   return row ? parseConversation(row) : null;
@@ -188,7 +218,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'private')
+        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'private', 'scheduled')
         LIMIT 1000
       `,
         ftsMatch,
@@ -213,7 +243,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'private')
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'private', 'scheduled')
       LIMIT 1000
     `,
       likePattern,
@@ -227,7 +257,7 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+        sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
       ),
     )

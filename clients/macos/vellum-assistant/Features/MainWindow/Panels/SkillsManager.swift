@@ -2,17 +2,28 @@ import SwiftUI
 import Combine
 import VellumAssistantShared
 
-/// Filter for showing all skills or only installed ones.
+/// Filter for showing skills by status or source.
 enum SkillFilter: String, CaseIterable {
     case all = "All"
     case installed = "Installed"
+    case available = "Available"
+    case vellum = "Vellum"
+    case community = "Community"
+    case custom = "Custom"
 
     var icon: VIcon {
         switch self {
-        case .all: return .circle
+        case .all: return .layoutGrid
         case .installed: return .circleCheck
+        case .available: return .arrowDownToLine
+        case .vellum: return .package
+        case .community: return .globe
+        case .custom: return .user
         }
     }
+
+    static var statusFilters: [SkillFilter] { [.all, .installed, .available] }
+    static var sourceFilters: [SkillFilter] { [.vellum, .community, .custom] }
 }
 
 @MainActor
@@ -127,10 +138,19 @@ final class SkillsManager {
         let hasSearch = !query.isEmpty
 
         let baseSkills: [SkillInfo]
-        if skillFilter == .all {
+        switch skillFilter {
+        case .all:
             baseSkills = skills
-        } else {
+        case .installed:
             baseSkills = skills.filter { $0.isInstalled }
+        case .available:
+            baseSkills = skills.filter { $0.isAvailable }
+        case .vellum:
+            baseSkills = skills.filter { $0.origin == "vellum" }
+        case .community:
+            baseSkills = skills.filter { $0.origin == "clawhub" || $0.origin == "skillssh" }
+        case .custom:
+            baseSkills = skills.filter { $0.origin == "custom" }
         }
 
         let searchFiltered: [SkillInfo]
@@ -176,13 +196,13 @@ final class SkillsManager {
     static func sourceLabel(_ origin: String) -> String {
         switch origin {
         case "vellum":
-            return "Core"
+            return "Vellum"
         case "clawhub":
             return "Community"
         case "skillssh":
             return "Community"
         case "custom":
-            return "Created"
+            return "Custom"
         default:
             return origin.replacingOccurrences(of: "-", with: " ").capitalized
         }

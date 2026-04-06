@@ -18,8 +18,19 @@ extension AppDelegate {
             let hasKey = APIKeyManager.hasAnyKey()
             log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
             if isAuthed || hasKey {
-                log.info("[authFlow] → proceedToApp()")
-                proceedToApp()
+                // Verify there is at least one assistant from the current
+                // platform environment before entering the app. After a
+                // retire the lockfile may only contain cross-environment
+                // entries that cannot be connected to — in that case fall
+                // through to onboarding so the user can hatch a new one.
+                let hasConnectable = LockfileAssistant.loadAll().contains { $0.isCurrentEnvironment }
+                if hasConnectable {
+                    log.info("[authFlow] → proceedToApp()")
+                    proceedToApp()
+                } else {
+                    log.info("[authFlow] Authenticated but no current-environment assistant — showing onboarding")
+                    showAuthWindow()
+                }
             } else {
                 // Check if the lockfile has a non-managed assistant we can connect to
                 // without authentication. Local/remote assistants run independently
@@ -258,8 +269,6 @@ extension AppDelegate {
                 // show the reauth screen.
                 let detachedWindow = mainWindow?.detachWindow()
                 mainWindow = nil
-                conversationBadgeCancellable?.cancel()
-                conversationBadgeCancellable = nil
                 NSApp.dockTile.badgeLabel = nil
 
                 if let hotKeyMonitor {
@@ -283,8 +292,6 @@ extension AppDelegate {
                     NotificationCenter.default.removeObserver(observer)
                     windowObserver = nil
                 }
-                statusIconCancellable?.cancel()
-                statusIconCancellable = nil
                 connectionStatusCancellable?.cancel()
                 connectionStatusCancellable = nil
                 pulseTimer?.invalidate()
@@ -543,9 +550,17 @@ extension AppDelegate {
         // that depend on connectedAssistantId).
         featureFlagStore.reloadFromDisk()
 
-        // Reload avatar for the new assistant (customAvatarURL now resolves
-        // to the new assistant's path after connectedAssistantId was updated).
-        AvatarAppearanceManager.shared.reloadAvatar()
+        // Reload avatar for the new assistant via the gateway.
+        // Skip the reload when onboarding avatar traits are pending — the async
+        // fetchTraitsViaHTTP inside reloadAvatar would find no traits on the
+        // freshly-hatched assistant and clear the locally-saved character avatar.
+        // syncOnboardingAvatarIfNeeded saves locally first, then syncs to the
+        // assistant, which triggers its own reloadAvatar on success.
+        if onboardingState?.hatchAvatarBodyShape != nil {
+            syncOnboardingAvatarIfNeeded()
+        } else {
+            AvatarAppearanceManager.shared.reloadAvatar()
+        }
 
         showMainWindow()
     }
@@ -699,8 +714,6 @@ extension AppDelegate {
         threadWindowManager?.closeAll()
         mainWindow?.close()
         mainWindow = nil
-        conversationBadgeCancellable?.cancel()
-        conversationBadgeCancellable = nil
         NSApp.dockTile.badgeLabel = nil
 
         if let hotKeyMonitor {
@@ -724,8 +737,6 @@ extension AppDelegate {
             NotificationCenter.default.removeObserver(observer)
             windowObserver = nil
         }
-        statusIconCancellable?.cancel()
-        statusIconCancellable = nil
         connectionStatusCancellable?.cancel()
         connectionStatusCancellable = nil
         pulseTimer?.invalidate()

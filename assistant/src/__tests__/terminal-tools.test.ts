@@ -67,7 +67,11 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 
 import type { SandboxConfig } from "../config/schema.js";
 import { parse } from "../tools/terminal/parser.js";
-import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
+import {
+  ALWAYS_INJECTED_ENV_VARS,
+  buildSanitizedEnv,
+  SAFE_ENV_VARS,
+} from "../tools/terminal/safe-env.js";
 import { wrapCommand } from "../tools/terminal/sandbox.js";
 import { ToolError } from "../util/errors.js";
 
@@ -451,29 +455,9 @@ describe("buildSanitizedEnv", () => {
   test("result is a plain object with no prototype-inherited secrets", () => {
     const env = buildSanitizedEnv();
     const keys = Object.keys(env);
-    const safeKeys = [
-      "PATH",
-      "HOME",
-      "TERM",
-      "LANG",
-      "EDITOR",
-      "SHELL",
-      "USER",
-      "TMPDIR",
-      "LC_ALL",
-      "LC_CTYPE",
-      "XDG_RUNTIME_DIR",
-      "DISPLAY",
-      "COLORTERM",
-      "TERM_PROGRAM",
-      "SSH_AUTH_SOCK",
-      "SSH_AGENT_PID",
-      "GPG_TTY",
-      "GNUPGHOME",
-      "VELLUM_DEV",
-      "INTERNAL_GATEWAY_BASE_URL",
-      "VELLUM_DATA_DIR",
-      "VELLUM_WORKSPACE_DIR",
+    const safeKeys: string[] = [
+      ...SAFE_ENV_VARS,
+      ...ALWAYS_INJECTED_ENV_VARS,
     ];
     for (const key of keys) {
       expect(safeKeys).toContain(key);

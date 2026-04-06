@@ -75,7 +75,7 @@ NavigationToolbar                     (Chat tab + panel toggle buttons)
 VSplitView                            (ChatView + optional side panel)
 ```
 
-**Data flow**: `ConversationManager` (`@MainActor ObservableObject`) owns `[ConversationModel]` and a dictionary of `ChatViewModel` instances keyed by conversation ID. `MainWindowView` binds to the active `ChatViewModel` via `conversationManager.activeViewModel`. `ChatViewModel` is `@Observable`, so SwiftUI views track property access directly at the view level without `objectWillChange` forwarding. ConversationManager uses sub-manager Combine publishers (e.g. `messagesPublisher`) for its own reactive needs.
+**Data flow**: `ConversationManager` (`@MainActor ObservableObject`) owns `[ConversationModel]` and a dictionary of `ChatViewModel` instances keyed by conversation ID. `MainWindowView` binds to the active `ChatViewModel` via `conversationManager.activeViewModel`. `ChatViewModel` is `@Observable`, so SwiftUI views track property access directly at the view level without `objectWillChange` forwarding. Non-view consumers (e.g. `ConversationActivityStore`, `VoiceModeManager`) observe `@Observable` properties via `withObservationTracking` loops with generation counters for lifecycle invalidation.
 
 ---
 
@@ -248,7 +248,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **Dependency injection**: Pass dependencies through init parameters, not singletons. Session dependencies use protocols for testability.
 - **Previews**: Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface. If you encounter existing `#Preview` blocks, remove them. See `clients/AGENTS.md` § "Preview Policy & Component Gallery" for full rationale and guidance on when to reconsider this policy.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
-- **Accessibility**: Add `.accessibilityLabel()` to icon-only buttons, `.accessibilityHidden(true)` to decorative elements, and `.accessibilityValue()` to stateful controls. See existing components for patterns.
+- **Accessibility**: See `clients/AGENTS.md` § [Accessibility](../AGENTS.md#accessibility) for the full checklist (labels, hidden elements, custom interactions, AppKit panels). All rules there apply to macOS components.
 
 ### Naming & File Placement
 

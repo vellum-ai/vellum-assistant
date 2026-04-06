@@ -1571,7 +1571,7 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.status == rhs.status
         && lhs.isError == rhs.isError
         && lhs.conversationError == rhs.conversationError
-        && lhs.toolCalls == rhs.toolCalls
+        && lhs.toolCallsRevision == rhs.toolCallsRevision
         && lhs.attachments.count == rhs.attachments.count
         && lhs.attachmentWarnings == rhs.attachmentWarnings
         && lhs.inlineSurfaces == rhs.inlineSurfaces
@@ -1599,7 +1599,13 @@ public struct ChatMessage: Identifiable, Equatable {
     public var commandList: CommandListData?
     public var attachments: [ChatAttachment]
     public var attachmentWarnings: [String]
-    public var toolCalls: [ToolCallData]
+    public var toolCalls: [ToolCallData] {
+        didSet { toolCallsRevision &+= 1 }
+    }
+    /// Monotonically increasing revision counter so that `==` can detect
+    /// tool-call mutations in O(1) instead of O(n) element-wise comparison.
+    /// Seeded from a content fingerprint at init; incremented via `didSet`.
+    public private(set) var toolCallsRevision: Int = 0
     public var inlineSurfaces: [InlineSurfaceData]
     /// Streaming code preview from tool input generation (e.g. app_create HTML).
     public var streamingCodePreview: String?
@@ -1615,7 +1621,7 @@ public struct ChatMessage: Identifiable, Equatable {
     /// Nil for freshly streamed messages that haven't been loaded from history.
     /// Used for fork-from-message, inspect LLM context, TTS, and other daemon-anchored actions.
     public var daemonMessageId: String?
-    /// When true, this message is a subagent notification (e.g. completed/failed/aborted)
+    /// When true, this message is a subagent notification (e.g. running/completed/failed/aborted)
     /// reconstructed from history. It should be hidden from the chat UI since the
     /// corresponding subagent chip conveys the same information.
     public var isSubagentNotification: Bool = false
@@ -1671,9 +1677,43 @@ public struct ChatMessage: Identifiable, Equatable {
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.toolCalls = toolCalls
+        self.toolCallsRevision = Self.toolCallsFingerprint(toolCalls)
         self.inlineSurfaces = inlineSurfaces
         self.isError = isError
         self.conversationError = conversationError
+    }
+
+    /// Content fingerprint for seeding `toolCallsRevision` at init time
+    /// (where `didSet` does not fire). Hashes every field that
+    /// `ToolCallData.==` compares so independently constructed messages
+    /// (e.g. history reconstruction) with different tool-call content
+    /// always get different initial revisions.
+    /// `pendingConfirmation` is excluded because `ToolConfirmationData`
+    /// is not `Hashable` and is always `nil` at init (set later via streaming).
+    /// This is O(n) but paid once at init, not on every SwiftUI diff cycle.
+    private static func toolCallsFingerprint(_ toolCalls: [ToolCallData]) -> Int {
+        guard !toolCalls.isEmpty else { return 0 }
+        var hasher = Hasher()
+        hasher.combine(toolCalls.count)
+        for tc in toolCalls {
+            hasher.combine(tc.id)
+            hasher.combine(tc.toolName)
+            hasher.combine(tc.inputSummary)
+            hasher.combine(tc.resultLength)
+            hasher.combine(tc.isError)
+            hasher.combine(tc.isComplete)
+            hasher.combine(tc.arrivedBeforeText)
+            hasher.combine(tc.inputFullLength)
+            hasher.combine(tc.inputRawValueLength)
+            hasher.combine(tc.partialOutputRevision)
+            hasher.combine(tc.buildingStatus)
+            hasher.combine(tc.reasonDescription)
+            hasher.combine(tc.startedAt)
+            hasher.combine(tc.completedAt)
+            hasher.combine(tc.confirmationDecision)
+            hasher.combine(tc.confirmationLabel)
+        }
+        return hasher.finalize()
     }
 
     /// Synthesize `ToolConfirmationData` entries from persisted per-tool-call confirmation data.

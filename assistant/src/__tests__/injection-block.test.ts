@@ -125,6 +125,18 @@ describe("assembleInjectionBlock", () => {
     expect(result).toContain("[skill]");
     expect(result).toContain("→ use skill_load to activate");
   });
+
+  test("assembleInjectionBlock omits skill_load suffix for CLI commands", () => {
+    const node = makeScoredNode({
+      type: "procedural",
+      content:
+        'cli:bash\nThe "assistant bash" CLI command is available. Execute a shell command.',
+    });
+    const result = assembleInjectionBlock([node]);
+    expect(result).not.toContain("[skill]");
+    expect(result).not.toContain("skill_load to activate");
+    expect(result).toContain("CLI command is available");
+  });
 });
 
 describe("assembleContextBlock — procedural nodes", () => {
@@ -137,6 +149,18 @@ describe("assembleContextBlock — procedural nodes", () => {
     const result = assembleContextBlock([node]);
     expect(result).toContain("### Skills You Can Use");
     expect(result).toContain("use skill_load to activate");
+  });
+
+  test("omits skill_load suffix for CLI commands", () => {
+    const node = makeScoredNode({
+      type: "procedural",
+      content:
+        'cli:bash\nThe "assistant bash" CLI command is available. Execute a shell command.',
+    });
+    const result = assembleContextBlock([node]);
+    expect(result).toContain("### Skills You Can Use");
+    expect(result).not.toContain("skill_load to activate");
+    expect(result).toContain("CLI command is available");
   });
 
   test("strips skill: prefix from old-format content", () => {

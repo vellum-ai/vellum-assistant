@@ -103,6 +103,16 @@ export class SlackSocketModeClient {
         if (data.team) {
           this.config.teamName = data.team;
         }
+        // Warn if the bot token is missing scopes needed for file downloads.
+        const scopes = resp.headers.get("x-oauth-scopes") ?? "";
+        if (!scopes.split(",").some((s) => s.trim() === "files:read")) {
+          log.warn(
+            "Slack bot token is missing the 'files:read' scope — file/image " +
+              "attachments will not be downloaded. Add 'files:read' to your " +
+              "Slack app's Bot Token Scopes and reinstall the app.",
+          );
+        }
+
         log.info(
           {
             botUserId: data.user_id,

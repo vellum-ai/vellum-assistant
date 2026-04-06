@@ -15,10 +15,10 @@ private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "Layou
 /// this struct and applies scroll/lifecycle modifiers. This view's body is
 /// expensive — it drives `LazyStack.measureEstimates` over all visible cells.
 ///
-/// Closures and `@Observable` references (`scrollState`, `appearance`) are
-/// intentionally skipped in `==` — closures are never equal, and `@Observable`
-/// objects are identity-stable. Only data properties that affect rendered
-/// output are compared.
+/// Closures and `@Observable` references (`scrollState`) are intentionally
+/// skipped in `==` — closures are never equal, and `@Observable` objects are
+/// identity-stable. Only data properties that affect rendered output are
+/// compared.
 ///
 /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
 /// - SeeAlso: [Airbnb — Understanding and Improving SwiftUI Performance](https://airbnb.tech/mobile/understanding-and-improving-swiftui-performance/)
@@ -85,7 +85,6 @@ struct MessageListContentView: View, Equatable {
     // MARK: - @Observable references (not compared in ==; reads occur in closures or child views)
 
     let scrollState: MessageListScrollState
-    let appearance: AvatarAppearanceManager
 
     // MARK: - Closures (skipped in ==)
 
@@ -133,31 +132,25 @@ struct MessageListContentView: View, Equatable {
 
     @ViewBuilder
     private var thinkingAvatarRow: some View {
+        let appearance = AvatarAppearanceManager.shared
         let avatarSize = ConversationAvatarFollower.avatarSize
-        if appearance.customAvatarImage != nil {
-            HStack {
+        HStack {
+            if appearance.customAvatarImage != nil {
                 VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                Spacer()
-            }
-            .accessibilityHidden(true)
-        } else if let body = appearance.characterBodyShape,
-                  let eyes = appearance.characterEyeStyle,
-                  let color = appearance.characterColor {
-            HStack {
+            } else if let body = appearance.characterBodyShape,
+                      let eyes = appearance.characterEyeStyle,
+                      let color = appearance.characterColor {
                 AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
                                    size: avatarSize, blinkEnabled: true, pokeEnabled: true,
                                    isStreaming: true)
                     .frame(width: avatarSize, height: avatarSize)
-                Spacer()
-            }
-            .accessibilityHidden(true)
-        } else {
-            HStack {
+            } else {
                 VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                Spacer()
             }
-            .accessibilityHidden(true)
+            Spacer()
         }
+        .padding(.top, VSpacing.sm)
+        .accessibilityHidden(true)
     }
 
     // MARK: - Body
@@ -176,24 +169,35 @@ struct MessageListContentView: View, Equatable {
             }
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+            let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
+                ? "Waking up..."
+                : (state.effectiveStatusText ?? "Thinking")
             ForEach(state.displayMessages, id: \.id) { message in
-                let index = state.messageIndexById[message.id] ?? 0
+                let isLatestAssistant = message.role == .assistant && message.id == state.latestAssistantId
+                let messageIndex = state.messageIndexById[message.id] ?? 0
+                let isAnchored = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == messageIndex
+                let isUnanchoredThinking = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil
+                // Only pass activePendingRequestId to cells that could use it:
+                // confirmation bubbles need it for keyboard focus, tool-call messages
+                // need it for inline confirmation rendering in AssistantProgressView.
+                // Text-only cells get nil, so they won't fail == when the ID changes.
+                let cellActivePendingRequestId: String? =
+                    (message.confirmation != nil || !message.toolCalls.isEmpty)
+                    ? state.activePendingRequestId : nil
                 MessageCellView(
                     message: message,
-                    index: index,
                     showTimestamp: state.showTimestamp.contains(message.id),
-                    nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
-                    isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
-                    hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
-                    hasUserMessage: state.hasUserMessage,
-                    hasEverSentMessage: hasEverSentMessage,
-                    activePendingRequestId: state.activePendingRequestId,
-                    latestAssistantId: state.latestAssistantId,
-                    anchoredThinkingIndex: state.anchoredThinkingIndex,
+                    nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[messageIndex],
+                    isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(messageIndex),
+                    hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(messageIndex),
+                    activePendingRequestId: cellActivePendingRequestId,
                     subagentsByParent: state.subagentsByParent,
-                    canInlineProcessing: state.canInlineProcessing,
-                    shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
-                    assistantStatusText: state.effectiveStatusText,
+                    isLatestAssistantMessage: isLatestAssistant,
+                    isProcessingAfterTools: state.canInlineProcessing && isLatestAssistant,
+                    processingStatusText: state.canInlineProcessing && isLatestAssistant ? state.effectiveStatusText : nil,
+                    hideInlineAvatar: isLatestAssistant && isUnanchoredThinking,
+                    showAnchoredThinkingIndicator: isAnchored,
+                    anchoredThinkingLabel: isAnchored ? thinkingLabel : "",
                     dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                     activeSurfaceId: activeSurfaceId,
                     isHighlighted: highlightedMessageId == message.id,

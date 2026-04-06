@@ -5,6 +5,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import type { McpTransport } from "../config/schemas/mcp.js";
+import { shouldUsePlatformCallbacks } from "../inbound/platform-callback-registration.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { McpOAuthProvider } from "./mcp-oauth-provider.js";
@@ -63,9 +64,14 @@ export class McpClient {
         `mcp:${this.serverId}:tokens`,
       );
       if (cachedTokens) {
+        const callbackTransport = shouldUsePlatformCallbacks()
+          ? "gateway"
+          : "loopback";
         this.oauthProvider = new McpOAuthProvider(
           this.serverId,
           transportConfig.url,
+          /* interactive */ false,
+          callbackTransport,
         );
       }
     }

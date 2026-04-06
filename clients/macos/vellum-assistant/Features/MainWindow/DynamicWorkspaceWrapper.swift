@@ -328,11 +328,11 @@ private struct ShareDrawer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ShareDrawerRow(icon: .share, label: "Share", action: onShare)
+            VNavItem(icon: VIcon.share.rawValue, label: "Share") { onShare() }
             if isDeployToVercelEnabled {
                 VColor.borderBase.frame(height: 1)
                     .padding(.horizontal, VSpacing.xs)
-                ShareDrawerRow(icon: .arrowUpRight, label: "Publish to Vercel", action: onPublish)
+                VNavItem(icon: VIcon.arrowUpRight.rawValue, label: "Publish to Vercel") { onPublish() }
             }
         }
         .padding(.vertical, VSpacing.xs)
@@ -347,32 +347,3 @@ private struct ShareDrawer: View {
     }
 }
 
-private struct ShareDrawerRow: View {
-    let icon: VIcon
-    let label: String
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(icon, size: 12)
-                    .foregroundStyle(isHovered ? VColor.contentDefault : VColor.contentSecondary)
-                    .frame(width: 18)
-                Text(label)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                Spacer()
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(VColor.surfaceBase.opacity(isHovered ? 1 : 0))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .pointerCursor()
-    }
-}

@@ -3,12 +3,8 @@ import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
 
-extension Notification.Name {
-    static let identityFileDidChange = Notification.Name("identityFileDidChange")
-}
-
 struct MainWindowView: View {
-    @ObservedObject var conversationManager: ConversationManager
+    @Bindable var conversationManager: ConversationManager
     let appListManager: AppListManager
     let zoomManager: ZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
@@ -69,12 +65,10 @@ struct MainWindowView: View {
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
     @State var groupToDelete: ConversationGroup?
 
-    /// Cached assistant display name, refreshed when IDENTITY.md changes on disk.
+    /// Cached assistant display name, refreshed when the daemon emits an identity change event.
     @State var cachedAssistantName: String = "Your Assistant"
     /// Whether cachedAssistantName has been resolved from IDENTITY.md at least once.
     @State var assistantNameResolved: Bool = false
-    /// File watcher for IDENTITY.md — fires when the assistant's name changes.
-    @State var identityFileWatcher: DispatchSourceFileSystemObject?
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
@@ -83,6 +77,8 @@ struct MainWindowView: View {
     @State var assistantLoadingTimedOut = false
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State var isInFullscreen: Bool = false
+    /// Whether the permission mode popover is shown.
+    @State private var showPermissionModePopover: Bool = false
 
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
@@ -479,6 +475,10 @@ struct MainWindowView: View {
                 .animation(VAnimation.fast, value: updateManager.isServiceGroupUpdateAvailable)
                 .animation(VAnimation.fast, value: updateManager.isDeferredUpdateReady)
             }
+            if assistantFeatureFlagStore.isEnabled("permission-controls-v2"),
+               connectionManager.permissionMode != nil {
+                permissionModeIndicator
+            }
             if windowState.isConversationVisible {
                 TemporaryChatToggleWrapper(
                     activeConversation: conversationManager.activeConversation,
@@ -525,12 +525,62 @@ struct MainWindowView: View {
                         dismissConversationDrawer()
                     },
                     onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
-                    onOpenForkParent: { openForkParentConversation() }
+                    onOpenForkParent: { openForkParentConversation() },
+                    onAnalyzeConversation: {
+                        Task {
+                            await conversationManager.analyzeActiveConversation()
+                            await MainActor.run { dismissConversationDrawer() }
+                        }
+                    }
                 )
             }
         }
         .frame(height: 48)
         .background(VColor.surfaceBase)
+    }
+
+    /// Toolbar status indicator for the two-axis permission mode.
+    ///
+    /// Shows a shield icon reflecting the current state:
+    /// - Shield-check when both protections are active (ask + no host access)
+    /// - Shield-alert when host access is granted
+    /// - Shield-off when autonomous mode is active
+    ///
+    /// Tapping opens the `PermissionModeStatusView` popover.
+    private var permissionModeIndicator: some View {
+        let askBeforeActing = connectionManager.permissionMode?.askBeforeActing ?? PermissionModeDefaults.askBeforeActing
+        let hostAccess = connectionManager.permissionMode?.hostAccess ?? PermissionModeDefaults.hostAccess
+
+        let iconName: String
+        let iconColor: Color
+        let tooltip: String
+
+        if askBeforeActing && !hostAccess {
+            iconName = VIcon.shieldCheck.rawValue
+            iconColor = VColor.systemPositiveStrong
+            tooltip = "Protected: asks before acting, no computer access"
+        } else if hostAccess {
+            iconName = VIcon.shieldAlert.rawValue
+            iconColor = VColor.systemMidStrong
+            tooltip = "Computer access enabled"
+        } else {
+            iconName = VIcon.shieldOff.rawValue
+            iconColor = VColor.contentSecondary
+            tooltip = "Autonomous mode: acts without asking"
+        }
+
+        return VButton(
+            label: "Permission controls",
+            iconOnly: iconName,
+            style: .ghost,
+            tooltip: tooltip
+        ) {
+            showPermissionModePopover.toggle()
+        }
+        .foregroundStyle(iconColor)
+        .popover(isPresented: $showPermissionModePopover, arrowEdge: .bottom) {
+            PermissionModeStatusView(connectionManager: connectionManager)
+        }
     }
 
     /// Core layout extracted to break up type-checker complexity.
@@ -832,6 +882,7 @@ private struct ConversationTitleOverlay: View {
     let onArchive: () -> Void
     let onRename: () -> Void
     let onOpenForkParent: () -> Void
+    let onAnalyzeConversation: () -> Void
 
     private var presentation: ConversationHeaderPresentation {
         ConversationHeaderPresentation(
@@ -851,6 +902,7 @@ private struct ConversationTitleOverlay: View {
             onArchive: onArchive,
             onRename: onRename,
             onOpenForkParent: onOpenForkParent,
+            onAnalyzeConversation: onAnalyzeConversation,
             showDrawer: $showDrawer
         )
         .onGeometryChange(for: CGRect.self) { proxy in

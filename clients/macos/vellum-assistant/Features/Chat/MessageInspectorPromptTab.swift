@@ -5,33 +5,36 @@ import VellumAssistantShared
 struct MessageInspectorPromptTab: View {
     let entry: LLMRequestLogEntry
 
-    private var model: MessageInspectorPromptTabModel {
-        MessageInspectorPromptTabModel(entry: entry)
-    }
+    @State private var model: MessageInspectorPromptTabModel?
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                headerCard
+            if let model {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    headerCard(model)
 
-                if model.sections.isEmpty {
-                    emptyState
-                } else {
-                    LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-                        ForEach(model.sections) { section in
-                            sectionCard(section)
+                    if model.sections.isEmpty {
+                        emptyState(model)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+                            ForEach(model.sections) { section in
+                                sectionCard(section)
+                            }
                         }
                     }
                 }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceBase)
+        .task(id: entry.id) {
+            model = MessageInspectorPromptTabModel(entry: entry)
+        }
     }
 
-    private var headerCard: some View {
+    private func headerCard(_ model: MessageInspectorPromptTabModel) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Prompt sections")
                 .font(VFont.bodyMediumDefault)
@@ -47,7 +50,7 @@ struct MessageInspectorPromptTab: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
     }
 
-    private var emptyState: some View {
+    private func emptyState(_ model: MessageInspectorPromptTabModel) -> some View {
         VEmptyState(
             title: "No normalized prompt sections",
             subtitle: model.fallbackMessage,

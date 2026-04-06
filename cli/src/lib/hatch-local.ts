@@ -308,10 +308,13 @@ export async function hatchLocal(
   }
 
   // Lease a guardian token so the desktop app can import it on first launch
-  // instead of hitting /v1/guardian/init itself.
+  // instead of hitting /v1/guardian/init itself. Use loopback to satisfy
+  // the daemon's local-only check — the mDNS runtimeUrl resolves to a LAN
+  // IP which the daemon rejects as non-loopback.
   emitProgress(6, 7, "Securing connection...");
+  const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   try {
-    await leaseGuardianToken(runtimeUrl, instanceName);
+    await leaseGuardianToken(loopbackUrl, instanceName);
   } catch (err) {
     console.error(`⚠️  Guardian token lease failed: ${err}`);
   }

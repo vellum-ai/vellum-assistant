@@ -26,16 +26,6 @@ export function getPlatformName(): string {
 }
 
 /**
- * Returns the platform-specific clipboard copy command, or null if
- * clipboard access is not supported on the current platform.
- */
-export function getClipboardCommand(): string | null {
-  if (isMacOS()) return "pbcopy";
-  if (isLinux()) return "xclip -selection clipboard";
-  return null;
-}
-
-/**
  * Normalize an assistant ID to its canonical form for DB operations.
  *
  * The system uses "self" as the canonical single-tenant identifier
@@ -105,11 +95,23 @@ export function getInterfacesDir(): string {
 
 /**
  * Returns the sounds directory (~/.vellum/workspace/data/sounds).
- * Custom sound files and sound configuration live here. Sound files
- * can be large, so this directory is excluded from diagnostic exports.
+ * Custom sound files and sound configuration live here.
  */
 export function getSoundsDir(): string {
   return join(getWorkspaceDir(), "data", "sounds");
+}
+
+/** Returns the avatar directory ($VELLUM_WORKSPACE_DIR/data/avatar). */
+export function getAvatarDir(): string {
+  return join(getWorkspaceDir(), "data", "avatar");
+}
+
+/** Canonical filename for the custom avatar PNG. */
+export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
+
+/** Returns the canonical avatar image path (~/.vellum/workspace/data/avatar/avatar-image.png). */
+export function getAvatarImagePath(): string {
+  return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
 
 /**
@@ -218,7 +220,7 @@ export function getHistoryPath(): string {
  * overrides, device approval lists — live here.
  *
  * This directory is:
- * - Outside the workspace (not included in diagnostic exports)
+ * - Outside the workspace
  * - Outside the sandbox write boundary (tools cannot modify it)
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
@@ -271,10 +273,6 @@ export function getEmbedWorkerPidPath(): string {
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in
  * containerized deployments where the workspace is a separate volume).
  * Otherwise falls back to ~/.vellum/workspace.
- *
- * WARNING: The entire workspace directory is included in diagnostic log exports
- * ("Send logs to Vellum"). Do not store secrets, API keys, or sensitive
- * credentials here — use the credential store or ~/.vellum/protected/ instead.
  */
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
@@ -315,6 +313,11 @@ export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
 
+/** Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers. */
+export function getWorkspaceRoutesDir(): string {
+  return join(getWorkspaceDir(), "routes");
+}
+
 /** Returns ~/.vellum/workspace/deprecated — transitional files slated for removal. */
 export function getDeprecatedDir(): string {
   return join(getWorkspaceDir(), "deprecated");
@@ -330,6 +333,35 @@ export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
 
+// ── Profiler filesystem layout ──────────────────────────────────────────
+// Managed profiler runs live under <workspace>/data/profiler/. These
+// helpers enforce a single canonical layout so every runtime caller
+// resolves the same paths.
+
+/**
+ * Returns the profiler root directory (<workspace>/data/profiler).
+ * All profiler state (runs directory, global metadata) lives here.
+ */
+export function getProfilerRootDir(): string {
+  return join(getDataDir(), "profiler");
+}
+
+/**
+ * Returns the profiler runs directory (<workspace>/data/profiler/runs).
+ * Each completed or active profiler run gets its own sub-directory here.
+ */
+export function getProfilerRunsDir(): string {
+  return join(getProfilerRootDir(), "runs");
+}
+
+/**
+ * Returns the directory for a specific profiler run by ID
+ * (<workspace>/data/profiler/runs/<runId>).
+ */
+export function getProfilerRunDir(runId: string): string {
+  return join(getProfilerRunsDir(), runId);
+}
+
 export function ensureDataDir(): void {
   const root = vellumRoot();
   const workspace = getWorkspaceDir();
@@ -342,6 +374,7 @@ export function ensureDataDir(): void {
     join(workspace, "signals"),
     join(workspace, "hooks"),
     join(workspace, "skills"),
+    join(workspace, "routes"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),
     join(workspace, "logs"),

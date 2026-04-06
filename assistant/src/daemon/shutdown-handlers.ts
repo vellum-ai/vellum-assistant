@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { HookManager } from "../hooks/manager.js";
 import type { McpServerManager } from "../mcp/manager.js";
@@ -7,6 +8,7 @@ import { getSqlite, resetDb } from "../memory/db.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
+import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
 import type { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
@@ -18,6 +20,7 @@ export interface ShutdownDeps {
   server: DaemonServer;
   workspaceHeartbeat: WorkspaceHeartbeatService;
   heartbeat: HeartbeatService;
+  filing: FilingService;
   hookManager: HookManager;
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
@@ -51,6 +54,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     await deps.workspaceHeartbeat.stop();
     await deps.heartbeat.stop();
+    await deps.filing.stop();
 
     try {
       await deps.hookManager.trigger("daemon-stop", { pid: process.pid });
@@ -105,6 +109,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     if (deps.runtimeHttp) await deps.runtimeHttp.stop();
     await browserManager.closeAllPages();
+    cleanupShellOutputTempFiles();
     deps.scheduler.stop();
     deps.getMemoryWorker()?.stop();
 

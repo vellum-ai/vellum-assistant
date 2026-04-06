@@ -109,6 +109,34 @@ public struct InlineChatErrorAlert: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                // Debug details — raw error payload with one-click copy
+                if let details = conversationError?.debugDetails, !details.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack {
+                            Text("Details")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                            Spacer()
+                            VCopyButton(text: details, size: .compact, iconSize: 14, accessibilityHint: "Copy error details")
+                        }
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.top, VSpacing.xs)
+
+                        ScrollView {
+                            Text(details)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(VColor.contentSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxHeight: 160)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.bottom, VSpacing.sm)
+                    }
+                    .background(RoundedRectangle(cornerRadius: VRadius.sm).fill(VColor.surfaceOverlay))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+
                 // Retry button
                 if conversationError?.isRetryable == true, let onRetry {
                     Button(action: onRetry) {

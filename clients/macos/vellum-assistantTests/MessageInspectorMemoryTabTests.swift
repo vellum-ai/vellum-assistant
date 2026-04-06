@@ -132,20 +132,19 @@ final class MessageInspectorMemoryTabTests: XCTestCase {
         let recall = makeRecall(
             enabled: true,
             topCandidates: [
-                MemoryRecallCandidate(key: "low", type: "fact", kind: "core", finalScore: 0.3, semantic: 0.2, recency: 0.5),
-                MemoryRecallCandidate(key: "high", type: "preference", kind: "inferred", finalScore: 0.9, semantic: 0.8, recency: 0.7),
-                MemoryRecallCandidate(key: "mid", type: "fact", kind: "core", finalScore: 0.6, semantic: 0.5, recency: 0.4),
+                MemoryRecallCandidate(nodeId: "low", type: "fact", score: 0.3, semanticSimilarity: 0.2, recencyBoost: 0.5),
+                MemoryRecallCandidate(nodeId: "high", type: "preference", score: 0.9, semanticSimilarity: 0.8, recencyBoost: 0.7),
+                MemoryRecallCandidate(nodeId: "mid", type: "fact", score: 0.6, semanticSimilarity: 0.5, recencyBoost: 0.4),
             ]
         )
         let model = MessageInspectorMemoryTabModel(memoryRecall: recall)
 
         XCTAssertEqual(model.candidates.count, 3)
-        XCTAssertEqual(model.candidates.map(\.key), ["high", "mid", "low"])
-        XCTAssertEqual(model.candidates[0].finalScore, "0.900")
+        XCTAssertEqual(model.candidates.map(\.nodeId), ["high", "mid", "low"])
+        XCTAssertEqual(model.candidates[0].score, "0.900")
         XCTAssertEqual(model.candidates[0].semanticScore, "0.800")
         XCTAssertEqual(model.candidates[0].recencyScore, "0.700")
         XCTAssertEqual(model.candidates[0].type, "preference")
-        XCTAssertEqual(model.candidates[0].kind, "inferred")
     }
 
     func testEmptyCandidatesProducesEmptyArray() {
@@ -228,7 +227,8 @@ final class MessageInspectorMemoryTabTests: XCTestCase {
         latencyMs: Int = 0,
         reason: String? = nil,
         topCandidates: [MemoryRecallCandidate] = [],
-        injectedText: String? = nil
+        injectedText: String? = nil,
+        queryContext: String? = nil
     ) -> MemoryRecallData {
         MemoryRecallData(
             enabled: enabled,
@@ -247,7 +247,8 @@ final class MessageInspectorMemoryTabTests: XCTestCase {
             latencyMs: latencyMs,
             reason: reason,
             topCandidates: topCandidates,
-            injectedText: injectedText
+            injectedText: injectedText,
+            queryContext: queryContext
         )
     }
 }

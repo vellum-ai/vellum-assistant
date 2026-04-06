@@ -41,6 +41,7 @@ import {
 } from "./http/routes/twilio-relay-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
+import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
@@ -67,6 +68,7 @@ import {
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
+import { createLogExportHandler } from "./http/routes/log-export.js";
 import {
   createTrustRulesListHandler,
   createTrustRulesAddHandler,
@@ -238,6 +240,11 @@ async function main() {
     credentials: credentialCache,
     configFile: configFileCache,
   });
+  const { handler: handleEmailWebhook, dedupCache: emailDedupCache } =
+    createEmailWebhookHandler(config, {
+      credentials: credentialCache,
+      configFile: configFileCache,
+    });
   // Map: "channel:threadTs" -> { messageTs, expiresAt } for replacing approval
   // messages with the bot's follow-up content after an approval button click.
   const pendingApprovalReplacements = new Map<
@@ -282,6 +289,7 @@ async function main() {
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
+  const handleLogExport = createLogExportHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
@@ -350,6 +358,10 @@ async function main() {
       path: "/webhooks/whatsapp",
       precondition: requireWhatsApp,
       handler: (req) => handleWhatsAppWebhook(req),
+    },
+    {
+      path: "/webhooks/email/inbound",
+      handler: (req) => handleEmailWebhook(req),
     },
 
     // ── Audio serving (unauthenticated — Twilio fetches these URLs directly) ──
@@ -923,6 +935,15 @@ async function main() {
       handler: (req) => handlePrivacyConfigPatch(req),
     },
 
+    // ── Log export ──
+    {
+      path: "/v1/logs/export",
+      method: "POST",
+      auth: "edge",
+      handler: (req, params, getClientIp) =>
+        handleLogExport(req, params, getClientIp),
+    },
+
     // ── Trust rules ──
     {
       path: "/v1/trust-rules/clear",
@@ -1161,6 +1182,7 @@ async function main() {
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
   whatsappDedupCache.startCleanup();
+  emailDedupCache.startCleanup();
 
   const telegramCaches = {
     credentials: credentialCache,
@@ -1521,6 +1543,7 @@ async function main() {
     remoteFeatureFlagSync.stop();
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
+    emailDedupCache.stopCleanup();
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;

@@ -76,7 +76,10 @@ struct MessageListView: View {
     /// message list while keeping scrolling and text selection functional.
     var isInteractionEnabled: Bool = true
     var containerWidth: CGFloat = 0
-    @AppStorage("hasEverSentMessage") var hasEverSentMessage: Bool = false
+    /// Cached in `@State` to avoid `UserDefaults` IPC on every view body
+    /// evaluation. Seeded once from `UserDefaults` when SwiftUI first creates
+    /// the state; persisted back in `handleSendingChanged()` when flipped.
+    @State var hasEverSentMessage: Bool = UserDefaults.standard.bool(forKey: "hasEverSentMessage")
     @State var appearance = AvatarAppearanceManager.shared
     /// Read at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared manager.
@@ -144,7 +147,7 @@ struct MessageListView: View {
                     visibleRectHeight: geometry.visibleRect.height
                 )
             } action: { _, newState in
-                handleScrollGeometryUpdate(newState)
+                enqueueScrollGeometryUpdate(newState)
             }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .overlay(alignment: .bottom) {

@@ -58,7 +58,7 @@ struct AssistantTransferSection: View {
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
+        .vCard()
         .alert("Transfer to Cloud", isPresented: $showingConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Transfer", role: .destructive) {

@@ -39,6 +39,12 @@
 
 ---
 
+### Quick Demo
+
+https://github.com/user-attachments/assets/009bd0ae-95ac-4cf3-81bc-d54cd8631583
+
+---
+
 ## Getting started
 
 ### Desktop App (Recommended)

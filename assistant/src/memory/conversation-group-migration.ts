@@ -118,7 +118,7 @@ export function ensureGroupMigration(): void {
       // Step B: Scheduled -> system:scheduled (schedule/reminder source or has schedule_job_id)
       rawExec(`
         UPDATE conversations SET group_id = 'system:scheduled'
-        WHERE (source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL)
+        WHERE (source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL OR conversation_type = 'scheduled')
         AND group_id IS NULL
       `);
 

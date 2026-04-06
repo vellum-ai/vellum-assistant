@@ -122,6 +122,45 @@ final class AudioEngineController: @unchecked Sendable {
 
     // MARK: - Combined Operations
 
+    /// Atomically reads the input format, installs a tap, and starts the engine
+    /// in a single synchronous dispatch to the audio queue.
+    ///
+    /// Eliminates the TOCTOU race where the format read by `inputNodeFormat()`
+    /// becomes stale before the separate `installTap()` async block executes —
+    /// which crashes with `NSInternalInconsistencyException` when the hardware
+    /// format changes between calls (common on first use after permission grant).
+    ///
+    /// Returns `true` on success, or `false` if the format is invalid or the
+    /// engine fails to start.
+    ///
+    /// See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
+    func installTapAndStart(
+        bufferSize: AVAudioFrameCount,
+        block: @escaping AVAudioNodeTapBlock
+    ) -> Bool {
+        queue.sync { [self] in
+            let inputNode = audioEngine.inputNode
+            let format = inputNode.outputFormat(forBus: 0)
+            guard format.channelCount > 0, format.sampleRate > 0 else {
+                log.error("Invalid audio format — channels: \(format.channelCount), sampleRate: \(format.sampleRate)")
+                return false
+            }
+
+            inputNode.removeTap(onBus: 0)
+            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format, block: block)
+
+            audioEngine.prepare()
+            do {
+                try audioEngine.start()
+                return true
+            } catch {
+                log.error("Failed to start audio engine: \(error.localizedDescription)")
+                inputNode.removeTap(onBus: 0)
+                return false
+            }
+        }
+    }
+
     /// Prepare and start the engine. Returns `true` on success.
     /// On failure, removes tap and returns `false`.
     @discardableResult

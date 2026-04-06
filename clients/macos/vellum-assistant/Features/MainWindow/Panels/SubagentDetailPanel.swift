@@ -187,9 +187,9 @@ struct SubagentDetailPanel: View {
     private func eventLabel(for kind: SubagentEventItem.Kind) -> some View {
         switch kind {
         case .text:
-            label(icon: "text.bubble.fill", text: "RESPONSE", color: VColor.systemPositiveWeak)
+            label(icon: "text.bubble.fill", text: "RESPONSE", color: VColor.systemPositiveStrong)
         case .toolUse:
-            label(icon: "wrench.fill", text: "TOOL CALL", color: VColor.systemPositiveWeak)
+            label(icon: "wrench.fill", text: "TOOL CALL", color: VColor.systemPositiveStrong)
         case .toolResult(let isError):
             label(icon: isError ? "xmark.circle.fill" : "checkmark.circle.fill", text: isError ? "TOOL ERROR" : "TOOL RESULT", color: isError ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
         case .error:
@@ -225,7 +225,7 @@ struct SubagentDetailPanel: View {
             HStack(spacing: VSpacing.xs) {
                 Text(name)
                     .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.systemPositiveWeak)
+                    .foregroundStyle(VColor.systemPositiveStrong)
                 if !event.content.isEmpty {
                     Text(event.content)
                         .font(VFont.bodySmallDefault)
@@ -238,10 +238,10 @@ struct SubagentDetailPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.primaryActive.opacity(0.06))
+                    .fill(VColor.primaryActive.opacity(0.08))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .strokeBorder(VColor.primaryActive.opacity(0.12), lineWidth: 1)
+                            .strokeBorder(VColor.primaryActive.opacity(0.16), lineWidth: 1)
                     )
             )
 
@@ -255,7 +255,7 @@ struct SubagentDetailPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surfaceBase.opacity(0.3))
+                        .fill(VColor.surfaceActive.opacity(0.3))
                 )
 
         case .error:

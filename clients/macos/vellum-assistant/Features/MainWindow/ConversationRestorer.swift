@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 import VellumAssistantShared
 import os
 
@@ -13,6 +14,8 @@ protocol ConversationRestorerDelegate: AnyObject {
     var groups: [ConversationGroup] { get set }
     var daemonSupportsGroups: Bool { get set }
     var restoreRecentConversations: Bool { get }
+    /// The persisted last-active conversation UUID string (UserDefaults-backed).
+    var lastActiveConversationIdString: String? { get }
     var isLoadingMoreConversations: Bool { get set }
     var hasMoreConversations: Bool { get set }
     var serverOffset: Int { get set }
@@ -206,14 +209,22 @@ final class ConversationRestorer {
         // Seed groups from the response if available, otherwise fall back to system defaults.
         // This must run before the restoreRecentConversations guard so that users who
         // disable restore still get groups initialized for the session.
+        // Wrapped in an animation-suppressing transaction so SwiftUI doesn't
+        // compute diffing/animation for the groups-only update.
+        var groupTransaction = Transaction()
+        groupTransaction.disablesAnimations = true
         let daemonSupportsGroups: Bool
         if let responseGroups = response.groups, !responseGroups.isEmpty {
-            delegate.groups = responseGroups.map { ConversationGroup(from: $0) }
+            withTransaction(groupTransaction) {
+                delegate.groups = responseGroups.map { ConversationGroup(from: $0) }
+            }
             delegate.daemonSupportsGroups = true
             daemonSupportsGroups = true
         } else {
             if delegate.groups.isEmpty {
-                delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+                withTransaction(groupTransaction) {
+                    delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+                }
             }
             delegate.daemonSupportsGroups = false
             daemonSupportsGroups = false
@@ -254,9 +265,16 @@ final class ConversationRestorer {
             // createNotificationConversation before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.
             if let existingIdx = delegate.conversations.firstIndex(where: { $0.conversationId == session.id }) {
-                delegate.conversations[existingIdx].groupId = groupId
-                delegate.conversations[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
-                delegate.conversations[existingIdx].forkParent = session.forkParent
+                // Copy-modify-writeback for non-attention fields: write back once
+                // so conversations.didSet fires once instead of per-field.
+                var existing = delegate.conversations[existingIdx]
+                existing.groupId = groupId
+                existing.displayOrder = session.displayOrder.map { Int($0) }
+                existing.forkParent = session.forkParent
+                delegate.conversations[existingIdx] = existing
+                // Attention merge must go through mergeAssistantAttention so that
+                // pendingAttentionOverrides are reconciled (e.g. a notification
+                // conversation the user already opened before the list arrived).
                 delegate.mergeAssistantAttention(from: session, intoConversationAt: existingIdx)
                 continue
             }
@@ -279,7 +297,7 @@ final class ConversationRestorer {
                 isArchived: delegate.isConversationArchived(session.id),
                 groupId: groupId,
                 displayOrder: session.displayOrder.map { Int($0) },
-                lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+                lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.lastMessageAt ?? session.updatedAt) / 1000.0),
                 kind: kind,
                 source: session.source,
                 scheduleJobId: session.scheduleJobId,
@@ -298,26 +316,51 @@ final class ConversationRestorer {
             restoredConversations.append(conversation)
         }
 
-        if defaultConversationIsEmpty {
-            if let defaultConversation = delegate.conversations.first {
-                delegate.removeChatViewModel(for: defaultConversation.id)
+        // Suppress animations during bulk list assignment. Without this,
+        // SwiftUI computes before/after diffing and animation interpolation
+        // for every row — expensive when restoring ~50 conversations at once.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if defaultConversationIsEmpty {
+                if let defaultConversation = delegate.conversations.first {
+                    delegate.removeChatViewModel(for: defaultConversation.id)
+                }
+                delegate.conversations = restoredConversations
+            } else {
+                delegate.conversations = restoredConversations + delegate.conversations
             }
-            delegate.conversations = restoredConversations
-        } else {
-            delegate.conversations = restoredConversations + delegate.conversations
         }
 
-        if let firstVisible = restoredConversations.first(where: { !$0.isArchived }) {
-            delegate.activateConversation(firstVisible.id)
+        if let hasMore = response.hasMore {
+            delegate.hasMoreConversations = hasMore
+        }
+
+        // Determine the activation target once up front.
+        // Priority: saved last-active > first visible restored > new conversation.
+        let activationTarget: UUID? = {
+            // Try the user's last active conversation first.
+            if delegate.restoreRecentConversations,
+               let savedString = delegate.lastActiveConversationIdString,
+               let savedUUID = UUID(uuidString: savedString),
+               delegate.conversations.contains(where: { $0.id == savedUUID && !$0.isArchived }) {
+                return savedUUID
+            }
+            // Fall back to the first visible restored conversation.
+            if let firstVisible = restoredConversations.first(where: { !$0.isArchived }) {
+                return firstVisible.id
+            }
+            return nil
+        }()
+
+        if let target = activationTarget {
+            delegate.activateConversation(target)
         } else if defaultConversationIsEmpty {
             // All restored conversations are archived and the default conversation was removed,
             // so create a new empty conversation to avoid a blank window.
             delegate.createConversation()
         }
 
-        if let hasMore = response.hasMore {
-            delegate.hasMoreConversations = hasMore
-        }
         // serverOffset is set by fetchConversationList before merging foreground +
         // background, so it reflects foreground-only count for correct pagination.
         log.info("Restored \(restoredConversations.count) conversations from daemon (hasMore: \(response.hasMore ?? false))")
@@ -386,7 +429,7 @@ final class ConversationRestorer {
                     // Set serverOffset from foreground count BEFORE merging.
                     // loadMoreConversations pages the foreground endpoint only,
                     // so the offset must not include merged background rows.
-                    self.delegate?.serverOffset = foreground.conversations.count
+                    self.delegate?.serverOffset = foreground.nextOffset ?? foreground.conversations.count
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,

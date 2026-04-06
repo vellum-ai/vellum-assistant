@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { getLogger, type LogFileConfig } from "./logger.js";
@@ -148,7 +149,9 @@ export function loadConfig(): GatewayConfig {
   }
 
   const logFile: LogFileConfig = {
-    dir: undefined,
+    dir:
+      process.env.GATEWAY_LOG_DIR ??
+      join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "logs"),
     retentionDays: 30,
   };
 

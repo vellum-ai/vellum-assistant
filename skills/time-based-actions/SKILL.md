@@ -53,6 +53,8 @@ timestamp: 2026-04-02 (Wed) 14:30:00 -05:00 (America/Chicago)
 
 It contains the date, abbreviated weekday, local time (HH:MM:SS), UTC offset, and IANA timezone name in parentheses.
 
+**Timezone confidence check:** The timezone shown may be the assistant host's timezone rather than the user's actual timezone (this happens when the user hasn't configured `Settings → Appearance → User timezone`). If you have no prior confirmation of the user's timezone (from conversation history or memory) and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), confirm the timezone once before scheduling. If the user confirms, suggest saving it in Settings → Appearance → User timezone so future requests resolve correctly without re-asking.
+
 ## Relative Time Parsing
 
 When the user says "in X minutes/hours", compute the ISO 8601 timestamp yourself:
@@ -125,21 +127,34 @@ Use the following heuristics to pick `routing_intent`:
 
 - **Default to `all_channels`** for most reminders. Users setting reminders usually want to be notified wherever they are, and redundant notifications are less harmful than missed ones.
 - **Use `single_channel`** only when the user explicitly specifies a single channel (e.g. "remind me on Telegram") or the reminder is low-stakes and noise reduction matters.
-- **Check the `interface` field** from the `<turn_context>` block. If the user is currently active on a specific interface (e.g. `macos`, `slack`, `telegram`), always include that channel. Pass it as a routing hint:
+- **Determine the originating channel** for routing hints using this priority:
+  1. **`source_channel`** from `<turn_context>` — use directly if present. This is the authoritative channel name.
+  2. **`interface` fallback** — if `source_channel` is absent (common for guardian/direct users), map the `interface` value to a channel name:
+     | `interface` value | Channel name |
+     | --- | --- |
+     | `macos`, `ios` | `vellum` |
+     | `telegram` | `telegram` |
+     | `slack` | `slack` |
+     | `cli` | _(omit — no routable channel)_ |
+  3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
+
+  When a channel is determined, include it as a routing hint:
   ```
-  routing_hints: { preferred_channels: ["vellum"] }
+  routing_hints: { preferred_channels: ["<resolved channel>"] }
   routing_intent: "all_channels"
   ```
 - **Never use `single_channel` as a passive default.** If you haven't thought about which channel to use, use `all_channels`.
 
 ### Examples
 
-| Scenario                            | routing_intent   | routing_hints                          |
-| ----------------------------------- | ---------------- | -------------------------------------- |
-| User sets reminder from desktop app | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
-| User says "remind me on Telegram"   | `single_channel` | `{ preferred_channels: ["telegram"] }` |
-| User sets reminder from Telegram    | `all_channels`   | `{ preferred_channels: ["telegram"] }` |
-| No channel preference expressed     | `all_channels`   | `{}`                                   |
+| Scenario                                                    | routing_intent   | routing_hints                          |
+| ----------------------------------------------------------- | ---------------- | -------------------------------------- |
+| `source_channel: telegram` in turn_context                  | `all_channels`   | `{ preferred_channels: ["telegram"] }` |
+| No `source_channel`, `interface: macos`                     | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
+| No `source_channel`, `interface: ios`                       | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
+| User says "remind me on Telegram"                           | `single_channel` | `{ preferred_channels: ["telegram"] }` |
+| No `source_channel`, `interface: cli`                       | `all_channels`   | `{}`                                   |
+| No channel info available                                   | `all_channels`   | `{}`                                   |
 
 ## Tool Summary
 

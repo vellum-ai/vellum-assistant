@@ -70,6 +70,15 @@ enum LogTimeRange: String, CaseIterable, Identifiable, Sendable {
         case .allTime: return "All time"
         }
     }
+
+    /// Returns the earliest `Date` that should be included, or `nil` for `.allTime`.
+    var cutoffDate: Date? {
+        switch self {
+        case .pastHour: return Date().addingTimeInterval(-3600)
+        case .past24Hours: return Date().addingTimeInterval(-86400)
+        case .allTime: return nil
+        }
+    }
 }
 
 /// Aggregated form data collected from the feedback sheet.

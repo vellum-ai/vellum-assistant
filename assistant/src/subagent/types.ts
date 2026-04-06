@@ -41,6 +41,8 @@ export interface SubagentConfig {
   preactivatedSkillIds?: string[];
   /** Whether the parent should present the result to the user. Defaults to true. */
   sendResultToUser?: boolean;
+  /** Optional role for the subagent. Defaults handled by consumers. */
+  role?: SubagentRole;
 }
 
 // ── State (runtime) ─────────────────────────────────────────────────────
@@ -66,3 +68,69 @@ export const SUBAGENT_LIMITS = {
   /** Max nesting depth (1 = no nested subagents). */
   maxDepth: 1,
 } as const;
+
+// ── Roles ───────────────────────────────────────────────────────────────
+
+export type SubagentRole = "general" | "researcher" | "coder" | "planner";
+
+export interface SubagentRoleConfig {
+  /**
+   * When defined, only these tools are visible to the subagent.
+   * `undefined` means no filter (all tools available).
+   */
+  allowedTools?: string[];
+  /** Skill IDs to pre-activate on the subagent conversation. */
+  skillIds: string[];
+  /** Role-specific text prepended to the subagent system prompt. */
+  systemPromptPreamble: string;
+}
+
+export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
+  {
+    general: {
+      allowedTools: undefined,
+      skillIds: [],
+      systemPromptPreamble:
+        "You are a general-purpose subagent. Complete the delegated task thoroughly and concisely.",
+    },
+    researcher: {
+      allowedTools: [
+        "web_search",
+        "web_fetch",
+        "file_read",
+        "file_list",
+        "recall",
+        "notify_parent",
+      ],
+      skillIds: [],
+      systemPromptPreamble:
+        "You are a research-focused subagent with read-only access. Search the web, read files, and recall memories. You cannot write files or run shell commands.",
+    },
+    coder: {
+      allowedTools: [
+        "bash",
+        "file_read",
+        "file_write",
+        "file_edit",
+        "web_search",
+        "recall",
+        "notify_parent",
+      ],
+      skillIds: [],
+      systemPromptPreamble:
+        "You are a code-focused subagent with file and shell access. Read, write, and edit files, and run shell commands.",
+    },
+    planner: {
+      allowedTools: [
+        "file_read",
+        "file_list",
+        "web_search",
+        "web_fetch",
+        "recall",
+        "notify_parent",
+      ],
+      skillIds: [],
+      systemPromptPreamble:
+        "You are an analysis-focused subagent with read-only access. Read files, search the web, and synthesize findings. You cannot write files or run shell commands.",
+    },
+  };

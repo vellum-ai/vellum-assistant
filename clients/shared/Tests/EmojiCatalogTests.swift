@@ -28,25 +28,44 @@ final class EmojiCatalogTests: XCTestCase {
         }
     }
 
-    func testSearchPrefixMatch() {
-        let results = EmojiCatalog.search(prefix: "thu")
-        XCTAssertFalse(results.isEmpty, "Expected results for prefix 'thu'")
+    func testSearchSubstringMatch() {
+        let results = EmojiCatalog.search(query: "eart")
+        XCTAssertFalse(results.isEmpty, "Expected results for substring 'eart'")
         for entry in results {
             XCTAssertTrue(
-                entry.shortcode.hasPrefix("thu"),
-                "Entry '\(entry.shortcode)' does not start with 'thu'"
+                entry.shortcode.contains("eart"),
+                "Entry '\(entry.shortcode)' does not contain 'eart'"
             )
         }
     }
 
+    func testSearchPrefixMatchesRankedFirst() {
+        let results = EmojiCatalog.search(query: "hear", limit: 20)
+        // "heart" variants start with "hear" and should appear before substring-only matches like "hear_no_evil" is actually a prefix too
+        // Find first non-prefix match index
+        var lastPrefixIndex = -1
+        var firstSubstringIndex = Int.max
+        for (i, entry) in results.enumerated() {
+            if entry.shortcode.hasPrefix("hear") {
+                lastPrefixIndex = i
+            } else if entry.shortcode.contains("hear") && firstSubstringIndex == Int.max {
+                firstSubstringIndex = i
+            }
+        }
+        if lastPrefixIndex >= 0 && firstSubstringIndex < Int.max {
+            XCTAssertLessThan(lastPrefixIndex, firstSubstringIndex,
+                "Prefix matches should appear before substring-only matches")
+        }
+    }
+
     func testSearchIsCaseInsensitive() {
-        let lower = EmojiCatalog.search(prefix: "thu")
-        let upper = EmojiCatalog.search(prefix: "THU")
+        let lower = EmojiCatalog.search(query: "thu")
+        let upper = EmojiCatalog.search(query: "THU")
         XCTAssertEqual(lower, upper, "Case-insensitive search should return identical results")
     }
 
     func testSearchRespectsLimit() {
-        let results = EmojiCatalog.search(prefix: "", limit: 3)
+        let results = EmojiCatalog.search(query: "", limit: 3)
         XCTAssertLessThanOrEqual(results.count, 3)
     }
 

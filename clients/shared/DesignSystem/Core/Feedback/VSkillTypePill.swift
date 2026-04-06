@@ -1,22 +1,18 @@
 import SwiftUI
 
-/// A pill badge indicating the type/source of a skill based on its origin.
+/// A pill badge indicating the source of a skill.
 public struct VSkillTypePill: View {
     public enum SkillType {
         case vellum
-        case clawhub
-        case skillssh
+        case community
         case custom
-        case available
         case other(label: String, icon: String, foreground: Color, background: Color)
 
         var label: String {
             switch self {
-            case .vellum: return "Core"
-            case .clawhub: return "Community"
-            case .skillssh: return "Community"
-            case .custom: return "Created"
-            case .available: return "Available"
+            case .vellum: return "Vellum"
+            case .community: return "Community"
+            case .custom: return "Custom"
             case .other(let label, _, _, _): return label
             }
         }
@@ -24,32 +20,26 @@ public struct VSkillTypePill: View {
         var vIcon: VIcon {
             switch self {
             case .vellum: return .package
-            case .clawhub: return .globe
-            case .skillssh: return .globe
-            case .custom: return .sparkles
-            case .available: return .arrowDownToLine
+            case .community: return .globe
+            case .custom: return .user
             case .other(_, let icon, _, _): return .resolve(icon)
             }
         }
 
         var foregroundColor: Color {
             switch self {
-            case .vellum: return VColor.contentDefault
-            case .clawhub: return VColor.funPurple
-            case .skillssh: return VColor.funTeal
-            case .custom: return VColor.contentSecondary
-            case .available: return VColor.funTeal
+            case .vellum: return VColor.primaryBase
+            case .community: return VColor.funTeal
+            case .custom: return VColor.funPurple
             case .other(_, _, let fg, _): return fg
             }
         }
 
         var backgroundColor: Color {
             switch self {
-            case .vellum: return VColor.surfaceBase
-            case .clawhub: return VColor.funPurple.opacity(0.12)
-            case .skillssh: return VColor.funTeal.opacity(0.12)
-            case .custom: return VColor.surfaceBase
-            case .available: return VColor.funTeal.opacity(0.12)
+            case .vellum: return VColor.primaryBase.opacity(0.12)
+            case .community: return VColor.funTeal.opacity(0.12)
+            case .custom: return VColor.funPurple.opacity(0.12)
             case .other(_, _, _, let bg): return bg
             }
         }
@@ -61,28 +51,22 @@ public struct VSkillTypePill: View {
         self.type = type
     }
 
-    /// Convenience initializer from a skill origin string and optional kind/status.
-    public init(origin: String, status: String? = nil) {
-        if status == "available" {
-            self.type = .available
-        } else {
-            switch origin {
-            case "vellum":
-                self.type = .vellum
-            case "clawhub":
-                self.type = .clawhub
-            case "skillssh":
-                self.type = .skillssh
-            case "custom":
-                self.type = .custom
-            default:
-                self.type = .other(
-                    label: origin.replacingOccurrences(of: "-", with: " ").capitalized,
-                    icon: VIcon.puzzle.rawValue,
-                    foreground: VColor.contentTertiary,
-                    background: VColor.surfaceOverlay
-                )
-            }
+    /// Convenience initializer from a skill origin string.
+    public init(origin: String) {
+        switch origin {
+        case "vellum":
+            self.type = .vellum
+        case "clawhub", "skillssh":
+            self.type = .community
+        case "custom":
+            self.type = .custom
+        default:
+            self.type = .other(
+                label: origin.replacingOccurrences(of: "-", with: " ").capitalized,
+                icon: VIcon.puzzle.rawValue,
+                foreground: VColor.contentTertiary,
+                background: VColor.surfaceOverlay
+            )
         }
     }
 

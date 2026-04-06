@@ -35,3 +35,21 @@ export function buildWhatsAppTransportMetadata(): {
     uxBrief: WHATSAPP_CHANNEL_TRANSPORT_UX_BRIEF,
   };
 }
+
+export const EMAIL_CHANNEL_TRANSPORT_HINTS = [
+  "email-medium",
+  "defer-dashboard-only-tasks",
+] as const;
+
+export const EMAIL_CHANNEL_TRANSPORT_UX_BRIEF =
+  "Email is an asynchronous medium. Responses can be longer and more detailed than chat. Use proper formatting. The user may not see the response immediately.";
+
+export function buildEmailTransportMetadata(): {
+  hints: string[];
+  uxBrief: string;
+} {
+  return {
+    hints: [...EMAIL_CHANNEL_TRANSPORT_HINTS],
+    uxBrief: EMAIL_CHANNEL_TRANSPORT_UX_BRIEF,
+  };
+}

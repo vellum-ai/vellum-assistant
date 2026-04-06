@@ -669,7 +669,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func performManagedRestart() async {
-        _ = try? await GatewayHTTPClient.post(path: "assistants/restart")
+        _ = try? await GatewayHTTPClient.post(path: "assistants/\(selectedAssistantId)/restart")
     }
 
     private func performLocalRestart() async {

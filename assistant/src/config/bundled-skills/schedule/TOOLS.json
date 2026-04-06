@@ -56,6 +56,10 @@
             "type": "boolean",
             "description": "When true, suppress completion notifications for this schedule. The job still runs and produces output, but no notification or conversation message is sent on completion. Useful for high-frequency recurring jobs that report findings separately. Defaults to false."
           },
+          "reuse_conversation": {
+            "type": "boolean",
+            "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Useful for polling-style schedules that accumulate context over time. Ignored for one-shot schedules. Defaults to false."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -146,6 +150,10 @@
           "quiet": {
             "type": "boolean",
             "description": "When true, suppress completion notifications for this schedule. Useful for high-frequency jobs that report findings separately."
+          },
+          "reuse_conversation": {
+            "type": "boolean",
+            "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Useful for polling-style schedules that accumulate context over time. Ignored for one-shot schedules."
           },
           "activity": {
             "type": "string",

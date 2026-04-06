@@ -18,8 +18,9 @@ private let log = Logger(
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes transcript diagnostics)
 /// - `~/Library/Application Support/vellum-assistant/hang-context.json` — hang diagnostic context written during main-thread stalls
 /// - `~/Library/Application Support/vellum-assistant/hang-sample*.txt` — process sample captures from prolonged stalls
-/// - Daemon logs, audit data, and sanitized config via `POST /v1/export` gateway HTTP API
-/// - Workspace files via `POST /v1/export` — full workspace contents (config, skills, prompts, hooks, DB dump, logs)
+/// - Multi-service logs via `POST /v1/logs/export` gateway HTTP API — the gateway orchestrates
+///   collection from all services (gateway, daemon, CES), returning a combined archive that
+///   includes gateway logs, CES logs, daemon logs, audit data, and sanitized config
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
@@ -285,12 +286,14 @@ enum LogExporter {
         let connectedAssistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
         var daemonUnreachable = false
 
+        let cutoffDate: Date? = formData?.logTimeRange.cutoffDate
+
         let shouldCollectLogs = formData?.includeLogs ?? true
         if shouldCollectLogs {
             // 1-2. Client artifacts — session logs, debug-state, hang-context, hang-sample files
             if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
                 let appSupportDir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
-                collectClientArtifacts(from: appSupportDir, into: tempDir, fileManager: fileManager)
+                collectClientArtifacts(from: appSupportDir, into: tempDir, cutoffDate: cutoffDate, fileManager: fileManager)
             }
 
             // 3. Assistant logs — platform API for managed, local gateway for self-hosted
@@ -298,9 +301,11 @@ enum LogExporter {
 
             if isManagedAssistant, let assistantId = connectedId,
                let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+                // TODO: fetchPlatformLogs does not yet support time-range filtering.
+                // The platform export API would need a startTime parameter to respect cutoffDate here.
                 await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
             } else {
-                let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
+                let success = await fetchServiceExports(into: tempDir, scope: formData?.scope ?? .global, cutoffDate: cutoffDate)
                 if !success {
                     daemonUnreachable = true
                 }
@@ -314,7 +319,8 @@ enum LogExporter {
             copyDirectoryContents(
                 from: xdgLogDir,
                 to: tempDir.appendingPathComponent("xdg-logs", isDirectory: true),
-                fileManager: fileManager
+                fileManager: fileManager,
+                cutoffDate: cutoffDate
             )
 
             // 5. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
@@ -345,7 +351,8 @@ enum LogExporter {
             // 9. macOS crash/hang reports — recent .ips/.crash/.spin files for assistant-related processes
             collectCrashReports(
                 into: tempDir.appendingPathComponent("crash-reports", isDirectory: true),
-                fileManager: fileManager
+                fileManager: fileManager,
+                cutoffDate: cutoffDate
             )
         }
 
@@ -405,15 +412,17 @@ enum LogExporter {
         if shouldCollectLogs {
             // 11. macOS unified log — recent os.Logger entries for this app's subsystem.
             collectUnifiedLog(
-                to: tempDir.appendingPathComponent("os-log.txt")
+                to: tempDir.appendingPathComponent("os-log.txt"),
+                cutoffDate: cutoffDate
             )
 
-            // 12. Sanitized workspace config — client-side fallback if daemon export didn't include it.
-            //     The daemon archive extracts into daemon-exports/, so check both locations.
+            // 12. Sanitized workspace config — client-side fallback if service export didn't include it.
+            //     The gateway archive extracts into service-exports/, and the daemon archive is nested
+            //     inside it under daemon-exports/, so check both locations.
             let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
-            let daemonConfigPath = tempDir.appendingPathComponent("daemon-exports/config-snapshot.json")
+            let serviceConfigPath = tempDir.appendingPathComponent("service-exports/daemon-exports/config-snapshot.json")
             if !fileManager.fileExists(atPath: configSnapshotPath.path)
-                && !fileManager.fileExists(atPath: daemonConfigPath.path) {
+                && !fileManager.fileExists(atPath: serviceConfigPath.path) {
                 await writeSanitizedWorkspaceConfig(to: configSnapshotPath)
             }
         }
@@ -479,15 +488,47 @@ enum LogExporter {
     nonisolated static func collectClientArtifacts(
         from sourceDir: URL,
         into destDir: URL,
+        cutoffDate: Date? = nil,
         fileManager: FileManager = .default
     ) {
-        // Session logs
+        // Session logs — filter by modification date when cutoffDate is set
         let sessionLogDir = sourceDir.appendingPathComponent("logs", isDirectory: true)
-        copyDirectoryContents(
-            from: sessionLogDir,
-            to: destDir.appendingPathComponent("session-logs", isDirectory: true),
-            fileManager: fileManager
-        )
+        if let cutoffDate {
+            // Enumerate files and include only those modified at or after the cutoff
+            if fileManager.fileExists(atPath: sessionLogDir.path),
+               let files = try? fileManager.contentsOfDirectory(
+                   at: sessionLogDir,
+                   includingPropertiesForKeys: [.contentModificationDateKey],
+                   options: [.skipsHiddenFiles]
+               ) {
+                let filtered = files.filter { url in
+                    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                          let modDate = values.contentModificationDate else {
+                        // Include files whose modification date can't be read to avoid data loss
+                        return true
+                    }
+                    return modDate >= cutoffDate
+                }
+
+                if !filtered.isEmpty {
+                    let sessionLogDest = destDir.appendingPathComponent("session-logs", isDirectory: true)
+                    try? fileManager.createDirectory(at: sessionLogDest, withIntermediateDirectories: true)
+                    for file in filtered {
+                        try? fileManager.copyItem(
+                            at: file,
+                            to: sessionLogDest.appendingPathComponent(file.lastPathComponent)
+                        )
+                    }
+                }
+            }
+        } else {
+            // No cutoff — copy all session logs (existing behavior)
+            copyDirectoryContents(
+                from: sessionLogDir,
+                to: destDir.appendingPathComponent("session-logs", isDirectory: true),
+                fileManager: fileManager
+            )
+        }
 
         // Debug state snapshot
         let debugState = sourceDir.appendingPathComponent("debug-state.json")
@@ -526,20 +567,40 @@ enum LogExporter {
 
     /// Copies all files from `source` into `dest`, creating `dest` if needed.
     /// Silently skips if `source` doesn't exist or is empty.
+    ///
+    /// When `cutoffDate` is non-nil, only files whose content modification date
+    /// is on or after the cutoff are copied. Files without a readable modification
+    /// date are included to avoid silently dropping data.
     private nonisolated static func copyDirectoryContents(
         from source: URL,
         to dest: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        cutoffDate: Date? = nil
     ) {
         guard fileManager.fileExists(atPath: source.path) else { return }
         guard let items = try? fileManager.contentsOfDirectory(
             at: source,
-            includingPropertiesForKeys: nil,
+            includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ), !items.isEmpty else { return }
 
+        let filtered: [URL]
+        if let cutoff = cutoffDate {
+            filtered = items.filter { url in
+                guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                      let modDate = values.contentModificationDate else {
+                    // Include files whose modification date can't be read
+                    return true
+                }
+                return modDate >= cutoff
+            }
+        } else {
+            filtered = items
+        }
+
+        guard !filtered.isEmpty else { return }
         try? fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
-        for item in items {
+        for item in filtered {
             try? fileManager.copyItem(
                 at: item,
                 to: dest.appendingPathComponent(item.lastPathComponent)
@@ -549,10 +610,15 @@ enum LogExporter {
 
     // MARK: - Assistant Export Helpers
 
-    /// Calls POST /v1/export on the gateway to download a tar.gz archive of
-    /// audit data, assistant logs, workspace files, and config snapshot.
-    /// Extracts the archive into `directory/daemon-exports/`.
+    /// Calls POST /v1/logs/export on the gateway to download a tar.gz archive
+    /// containing logs from all services (gateway, daemon, CES), along with
+    /// audit data and config snapshot.
+    /// Extracts the archive into `directory/service-exports/`.
     /// Returns `true` if the export succeeded, `false` if the assistant was unreachable.
+    ///
+    /// The gateway's orchestrating endpoint collects logs from all services and
+    /// combines them into a single archive. The daemon archive is nested inside
+    /// the gateway archive under `daemon-exports/`.
     ///
     /// On failure, writes an `export-error.log` into `directory` with the
     /// status code and response body so the feedback bundle still contains
@@ -561,38 +627,42 @@ enum LogExporter {
     /// Routes through ``GatewayHTTPClient`` so auth and connection resolution
     /// are handled consistently for both local and managed assistants.
     @discardableResult
-    private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope) async -> Bool {
-        var body: [String: Any] = ["auditLimit": 10000]
+    private nonisolated static func fetchServiceExports(into directory: URL, scope: LogExportScope, cutoffDate: Date? = nil) async -> Bool {
+        var body: [String: Any] = ["auditLimit": 1000]
         if case .conversation(let conversationId, _, let startTime, let endTime) = scope {
             body["conversationId"] = conversationId
             if let startTime {
                 body["startTime"] = Int(startTime.timeIntervalSince1970 * 1000)
+            } else if let cutoffDate {
+                body["startTime"] = Int(cutoffDate.timeIntervalSince1970 * 1000)
             }
             if let endTime {
                 body["endTime"] = Int(endTime.timeIntervalSince1970 * 1000)
             }
+        } else if let cutoffDate {
+            body["startTime"] = Int(cutoffDate.timeIntervalSince1970 * 1000)
         }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "export", json: body, timeout: 30)
+            let response = try await GatewayHTTPClient.post(path: "logs/export", json: body, timeout: 60)
             guard response.isSuccess else {
                 log.warning("Export API failed with status \(response.statusCode)")
                 writeExportErrorLog(
                     to: directory.appendingPathComponent("export-error.log"),
-                    source: "daemon-export",
+                    source: "service-export",
                     statusCode: response.statusCode,
                     responseData: response.data
                 )
                 return false
             }
 
-            try await extractTarGzResponse(data: response.data, into: directory, subdirectory: "daemon-exports")
+            try await extractTarGzResponse(data: response.data, into: directory, subdirectory: "service-exports")
             return true
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")
             writeExportErrorLog(
                 to: directory.appendingPathComponent("export-error.log"),
-                source: "daemon-export",
+                source: "service-export",
                 error: error
             )
             return false
@@ -635,7 +705,8 @@ enum LogExporter {
     /// included, capped at 5 MB total (newest first).
     private nonisolated static func collectCrashReports(
         into dest: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        cutoffDate: Date? = nil
     ) {
         let home = NSHomeDirectory()
         let reportsDir = URL(fileURLWithPath: home)
@@ -648,7 +719,7 @@ enum LogExporter {
             options: [.skipsHiddenFiles]
         ) else { return }
 
-        let cutoff = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+        let cutoff = cutoffDate ?? Date().addingTimeInterval(-7 * 24 * 60 * 60)
 
         // Filter to matching files, then sort newest-first
         let matching = contents
@@ -716,16 +787,18 @@ enum LogExporter {
     /// for this app's subsystem. Includes CLI audit trail, lifecycle events,
     /// and any other structured log output not written to files on disk.
     ///
-    /// Uses `OSLogStore` to read entries from the last 24 hours. Falls back
-    /// silently if the API is unavailable or the subsystem has no entries.
-    private nonisolated static func collectUnifiedLog(to destination: URL) {
+    /// Uses `OSLogStore` to read entries starting from `cutoffDate`, or the
+    /// last 24 hours when no cutoff is provided. Falls back silently if the
+    /// API is unavailable or the subsystem has no entries.
+    private nonisolated static func collectUnifiedLog(to destination: URL, cutoffDate: Date? = nil) {
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
-            let oneDayAgo = store.position(date: Date().addingTimeInterval(-86400))
+            let logCutoff = cutoffDate ?? Date().addingTimeInterval(-86400)
+            let position = store.position(date: logCutoff)
             let subsystem = Bundle.appBundleIdentifier
 
             let entries = try store.getEntries(
-                at: oneDayAgo,
+                at: position,
                 matching: NSPredicate(format: "subsystem == %@", subsystem)
             )
 

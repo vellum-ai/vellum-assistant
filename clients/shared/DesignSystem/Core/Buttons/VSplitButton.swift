@@ -179,7 +179,9 @@ public struct VSplitButton<MenuContent: View>: View {
     private var foregroundColor: Color {
         guard !isDisabled else { return VColor.contentDisabled }
         switch style {
-        case .primary, .danger, .contrast:
+        case .primary, .contrast:
+            return VColor.contentInset
+        case .danger:
             return VColor.auxWhite
         case .outlined, .ghost:
             return VColor.primaryBase

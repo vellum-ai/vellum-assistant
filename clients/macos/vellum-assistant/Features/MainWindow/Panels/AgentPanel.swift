@@ -37,8 +37,7 @@ struct AgentPanelContent: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.sparkles, size: 14)
                             .foregroundStyle(VColor.primaryBase)
-                        Text("**Tip:** You can [create a new custom skill](vellum://create-skill) by describing what you want in chat.")
-                            .tint(VColor.primaryBase)
+                        tipBannerText
                         Spacer()
                         Button(action: {
                             withAnimation(VAnimation.fast) { bannerDismissed = true }
@@ -120,6 +119,24 @@ struct AgentPanelContent: View {
         }
     }
 
+    // MARK: - Tip Banner
+
+    private static let createSkillURL = URL(string: "vellum://create-skill")!
+
+    private var tipBannerText: some View {
+        HStack(spacing: 0) {
+            Text("**Tip:** You can ")
+            VLink(
+                "create a new custom skill",
+                destination: Self.createSkillURL,
+                font: VFont.bodyMediumDefault,
+                underline: true
+            )
+            .tint(VColor.primaryBase)
+            Text(" by describing what you want in chat.")
+        }
+    }
+
     // MARK: - Filter Bar
 
     @ViewBuilder
@@ -163,6 +180,50 @@ struct AgentPanelContent: View {
         .accessibilityAddTraits(skillsManager.selectedCategory == category ? .isSelected : [])
     }
 
+    // MARK: - Empty State
+
+    private var emptyStateTitle: String {
+        if let category = skillsManager.selectedCategory {
+            return "No \(category.displayName) Skills"
+        }
+        switch skillsManager.skillFilter {
+        case .all: return "No Skills Available"
+        case .installed: return "No Skills Installed"
+        case .available: return "No Skills Available"
+        case .vellum: return "No Vellum Skills"
+        case .community: return "No Community Skills"
+        case .custom: return "No Custom Skills"
+        }
+    }
+
+    private var emptyStateSubtitle: String {
+        if skillsManager.selectedCategory != nil {
+            return "Try selecting a different category or clearing the filter."
+        }
+        switch skillsManager.skillFilter {
+        case .all: return "Check your connection to the Vellum catalog."
+        case .installed: return "Ask your assistant in chat to search for and install new skills."
+        case .available: return "All available skills have been installed."
+        case .vellum: return "No bundled Vellum skills found."
+        case .community: return "No Community skills found. Try installing some from the catalog."
+        case .custom: return "Create a custom skill by describing what you want in chat."
+        }
+    }
+
+    private var emptyStateIcon: String {
+        if skillsManager.selectedCategory != nil {
+            return VIcon.layoutGrid.rawValue
+        }
+        switch skillsManager.skillFilter {
+        case .all: return VIcon.cloudOff.rawValue
+        case .installed: return VIcon.zap.rawValue
+        case .available: return VIcon.circleCheck.rawValue
+        case .vellum: return VIcon.package.rawValue
+        case .community: return VIcon.globe.rawValue
+        case .custom: return VIcon.user.rawValue
+        }
+    }
+
     // MARK: - Content View
 
     @ViewBuilder
@@ -190,15 +251,9 @@ struct AgentPanelContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if skillsManager.filteredSkills.isEmpty {
             VEmptyState(
-                title: skillsManager.skillFilter == .all
-                    ? "No Skills Available"
-                    : (skillsManager.selectedCategory == nil ? "No Skills Installed" : "No \(skillsManager.selectedCategory!.displayName) Skills"),
-                subtitle: skillsManager.skillFilter == .all
-                    ? "Check your connection to the Vellum catalog."
-                    : (skillsManager.selectedCategory == nil
-                        ? "Ask your assistant in chat to search for and install new skills."
-                        : "Try selecting a different category or clearing the filter."),
-                icon: skillsManager.skillFilter == .all ? VIcon.cloudOff.rawValue : VIcon.zap.rawValue
+                title: emptyStateTitle,
+                subtitle: emptyStateSubtitle,
+                icon: emptyStateIcon
             )
         } else {
             ScrollView {
@@ -259,7 +314,7 @@ struct SkillItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        skillTag(for: skill.origin, status: skill.status)
+                        VSkillTypePill(origin: skill.origin)
 
                         Spacer()
                     }
@@ -271,19 +326,22 @@ struct SkillItemRow: View {
                         .truncationMode(.tail)
                 }
 
-                if isRemovable {
-                    VButton(
-                        label: "Delete",
-                        iconOnly: VIcon.trash.rawValue,
-                        style: .dangerGhost,
-                        action: onDelete
-                    )
-                    .accessibilityLabel("Uninstall skill")
-                }
+                VButton(
+                    label: "Remove",
+                    leftIcon: VIcon.trash.rawValue,
+                    style: .dangerOutline,
+                    action: onDelete
+                )
+                .disabled(!isRemovable)
+                .opacity(isRemovable ? 1.0 : 0.3)
+                .if(!isRemovable) { $0.vTooltip("Bundled skills cannot be removed") }
+                .accessibilityLabel(isRemovable ? "Uninstall skill" : "Core skill cannot be removed")
             }
         }
-        .contextMenu {
-            Button("Remove", role: .destructive, action: onDelete)
+        .if(isRemovable) { view in
+            view.contextMenu {
+                Button("Remove", role: .destructive, action: onDelete)
+            }
         }
         .accessibilityElement(children: .combine)
     }
@@ -297,66 +355,39 @@ struct AvailableSkillItemRow: View {
     var isInstalling: Bool = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: VSpacing.lg) {
-            if let emoji = skill.emoji, !emoji.isEmpty {
-                Text(emoji)
-                    .font(.system(size: 32))
-                    .opacity(0.5)
-            }
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    Text(skill.name)
-                        .font(VFont.titleSmall)
+        VCard {
+            HStack(alignment: .center, spacing: VSpacing.lg) {
+                if let emoji = skill.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 32))
+                }
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(alignment: .center, spacing: VSpacing.sm) {
+                        Text(skill.name)
+                            .font(VFont.titleSmall)
+                            .foregroundStyle(VColor.contentEmphasized)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        VSkillTypePill(origin: skill.origin)
+                        Spacer()
+                    }
+                    Text(skill.description)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    skillTag(for: skill.origin, status: skill.status)
-                    Spacer()
                 }
-                Text(skill.description)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            if isInstalling {
-                VLoadingIndicator()
-            } else {
-                VButton(
-                    label: "Install",
-                    style: .outlined,
-                    action: onInstall
-                )
+                if isInstalling {
+                    VLoadingIndicator()
+                } else {
+                    VButton(
+                        label: "Install",
+                        leftIcon: VIcon.arrowDownToLine.rawValue,
+                        style: .primary,
+                        action: onInstall
+                    )
+                }
             }
         }
-        .padding(VSpacing.lg)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .strokeBorder(
-                    VColor.borderDisabled,
-                    style: StrokeStyle(lineWidth: 2, dash: [6, 4])
-                )
-        )
-    }
-}
-
-// MARK: - Skill Tag Helper
-
-private func skillTag(for origin: String, status: String? = nil) -> VTag {
-    if status == "available" {
-        return VTag("Available", color: VColor.funTeal, icon: .arrowDownToLine)
-    }
-    switch origin {
-    case "vellum":
-        return VTag("Core", color: VColor.contentDefault, icon: .package)
-    case "clawhub":
-        return VTag("Community", color: VColor.funPurple, icon: .globe)
-    case "skillssh":
-        return VTag("Community", color: VColor.funTeal, icon: .globe)
-    case "custom":
-        return VTag("Created", color: VColor.contentSecondary, icon: .sparkles)
-    default:
-        return VTag(origin.capitalized, color: VColor.contentTertiary, icon: .puzzle)
     }
 }

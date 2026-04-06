@@ -86,15 +86,18 @@ public struct VToggle: View {
     }
 
     private var trackColor: Color {
-        if !isEnabled {
-            return VColor.surfaceBase
+        if isOn && isEnabled {
+            return VColor.systemPositiveStrong
         }
-        return isOn ? VColor.primaryActive : VColor.surfaceBase
+        if !isEnabled {
+            return VColor.primaryDisabled
+        }
+        return VColor.contentBackground
     }
 
     private var knobColor: Color {
         if !isEnabled {
-            return VColor.surfaceOverlay
+            return VColor.contentDisabled
         }
         return VColor.auxWhite
     }

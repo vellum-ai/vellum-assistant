@@ -27,13 +27,29 @@ struct SettingsAppearanceTab: View {
     @State private var isTimezoneDropdownOpen: Bool = false
     @State private var timezoneSearchDebounceTask: Task<Void, Never>?
     @AppStorage("activationKey") private var activationKey: String = "fn"
+    @AppStorage("themePreference") private var themePreference: String = "system"
     @FocusState private var isTimezoneSearchFocused: Bool
+
+    private var themeBinding: Binding<String> {
+        Binding(
+            get: { themePreference },
+            set: { themePreference = $0; VTheme.applyTheme($0) }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // THEME section
             SettingsCard(title: "Theme") {
-                VThemeToggle(style: .labelPill, showLabel: false)
+                VSegmentControl(
+                    items: [
+                        (label: "System", tag: "system"),
+                        (label: "Light", tag: "light"),
+                        (label: "Dark", tag: "dark"),
+                    ],
+                    selection: themeBinding
+                )
+                .frame(width: 248)
             }
 
             // TIMEZONE section

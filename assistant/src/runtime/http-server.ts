@@ -52,6 +52,7 @@ import { resolveConversationId } from "../memory/conversation-key-store.js";
 import {
   countConversations,
   listConversations,
+  listPinnedConversations,
 } from "../memory/conversation-queries.js";
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
@@ -126,6 +127,7 @@ import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
 } from "./routes/contact-routes.js";
+import { conversationAnalysisRouteDefinitions } from "./routes/conversation-analysis-routes.js";
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import {
   type ConversationManagementDeps,
@@ -171,6 +173,7 @@ import {
   handlePairingStatus,
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
+import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
@@ -185,6 +188,7 @@ import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { ttsRouteDefinitions } from "./routes/tts-routes.js";
 import { upgradeBroadcastRouteDefinitions } from "./routes/upgrade-broadcast-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { userRouteDefinitions } from "./routes/user-routes.js";
 import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
@@ -826,6 +830,7 @@ export class RuntimeHttpServer {
       title: conversation.title ?? "Untitled",
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      lastMessageAt: conversation.lastMessageAt,
       conversationType: conversation.conversationType ?? "standard",
       source: conversation.source ?? "user",
       ...(conversation.scheduleJobId
@@ -961,6 +966,7 @@ export class RuntimeHttpServer {
       ...notificationRouteDefinitions(),
       ...diagnosticsRouteDefinitions(),
       ...logExportRouteDefinitions(),
+      ...profilerRouteDefinitions(),
       ...documentRouteDefinitions(),
       ...workItemRouteDefinitions(
         this.sendMessageDeps
@@ -1025,8 +1031,18 @@ export class RuntimeHttpServer {
           const offset = Number(url.searchParams.get("offset") ?? 0);
           const backgroundOnly =
             url.searchParams.get("conversationType") === "background";
-          const rows = listConversations(limit, backgroundOnly, offset);
+          let rows = listConversations(limit, backgroundOnly, offset);
           const totalCount = countConversations(backgroundOnly);
+          // On the first page, ensure all pinned conversations are included
+          // even if they fall outside the paginated window.
+          if (offset === 0 && !backgroundOnly) {
+            const pinned = listPinnedConversations();
+            const seen = new Set(rows.map((c) => c.id));
+            const missing = pinned.filter((c) => !seen.has(c.id));
+            if (missing.length > 0) {
+              rows = [...rows, ...missing];
+            }
+          }
           const conversationIds = rows.map((c) => c.id);
           const displayMeta = getDisplayMetaForConversations(conversationIds);
           const bindings =
@@ -1036,6 +1052,7 @@ export class RuntimeHttpServer {
           const attentionStates =
             getAttentionStateByConversationIds(conversationIds);
           const parentCache = new Map<string, ConversationRow | null>();
+          const nextOffset = offset + limit;
           const response: Record<string, unknown> = {
             conversations: rows.map((conversation) =>
               this.serializeConversationSummary({
@@ -1046,7 +1063,8 @@ export class RuntimeHttpServer {
                 parentCache,
               }),
             ),
-            hasMore: offset + rows.length < totalCount,
+            nextOffset,
+            hasMore: nextOffset < totalCount,
           };
           // Include groups array on first page only
           if (offset === 0) {
@@ -1065,6 +1083,14 @@ export class RuntimeHttpServer {
 
       ...(conversationManagementDeps
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
+        : []),
+
+      ...(this.sendMessageDeps
+        ? conversationAnalysisRouteDefinitions({
+            sendMessageDeps: this.sendMessageDeps,
+            buildConversationDetailResponse: (id) =>
+              this.buildConversationDetailResponse(id),
+          })
         : []),
 
       ...groupRouteDefinitions(),
@@ -1304,6 +1330,10 @@ export class RuntimeHttpServer {
       ...eventsRouteDefinitions(),
       ...traceEventRouteDefinitions(),
       ...migrationRouteDefinitions(),
+
+      // User-defined routes under /x/* — must be LAST so built-in routes
+      // always take priority.
+      ...userRouteDefinitions(),
 
       // Internal OAuth callback (gateway -> runtime)
       {

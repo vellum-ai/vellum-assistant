@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct ConversationSwitcherDrawer: View {
-    @ObservedObject var conversationManager: ConversationManager
+    var conversationManager: ConversationManager
     @ObservedObject var windowState: MainWindowState
     var sidebar: SidebarInteractionState
     var customGroupsEnabled: Bool = false
@@ -78,6 +78,10 @@ struct ConversationSwitcherDrawer: View {
             onDragStart: {
                 sidebar.beginConversationDrag(conversation.id)
             },
+            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation && conversation.kind != .private ? {
+                selectConversation(conversation)
+                Task<Void, Never> { await conversationManager.analyzeActiveConversation() }
+            } : nil,
             onOpenInNewWindow: conversation.conversationId != nil ? {
                 AppDelegate.shared?.threadWindowManager?.openThread(
                     conversationLocalId: conversation.id,
@@ -97,24 +101,22 @@ struct ConversationSwitcherDrawer: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(drawerEntries.indices, id: \.self) { index in
-                        let entry = drawerEntries[index]
+                    let nonEmptyEntries = drawerEntries.filter { !$0.conversations.isEmpty }
+                    ForEach(nonEmptyEntries.indices, id: \.self) { index in
+                        let entry = nonEmptyEntries[index]
                         let sectionId = entry.group?.id ?? "ungrouped"
-                        let conversations = entry.conversations
                         let isExpanded = expandedSections.contains(sectionId)
 
-                        if !conversations.isEmpty {
-                            if index > 0 {
-                                VMenuDivider()
-                            }
-                            sectionContent(
-                                sectionId: sectionId,
-                                group: entry.group,
-                                title: entry.group?.name ?? "Conversations",
-                                conversations: conversations,
-                                isExpanded: isExpanded
-                            )
+                        if index > 0 {
+                            VMenuDivider()
                         }
+                        sectionContent(
+                            sectionId: sectionId,
+                            group: entry.group,
+                            title: entry.group?.name ?? "Conversations",
+                            conversations: entry.conversations,
+                            isExpanded: isExpanded
+                        )
                     }
                 }
                 .background(GeometryReader { contentGeo in
@@ -160,15 +162,16 @@ struct ConversationSwitcherDrawer: View {
     ) -> some View {
         HStack {
             Text(title)
-                .font(VFont.labelDefault)
+                .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentTertiary)
             Spacer()
             Text("\(conversations.count)")
-                .font(VFont.labelDefault)
+                .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.top, VSpacing.xs)
+        .padding(.bottom, VSpacing.xs)
 
         let isScheduled = group?.id == ConversationGroup.scheduled.id
         let isBackground = group?.id == ConversationGroup.background.id
@@ -254,7 +257,7 @@ struct ConversationSwitcherDrawer: View {
                     .frame(width: 20, height: 20)
 
                 Text(subGroup.label)
-                    .font(VFont.menuCompact)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)

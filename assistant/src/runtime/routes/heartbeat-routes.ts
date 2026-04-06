@@ -47,16 +47,10 @@ function handleUpdateConfig(
   if (typeof body.enabled === "boolean") heartbeat.enabled = body.enabled;
   if (typeof body.intervalMs === "number")
     heartbeat.intervalMs = body.intervalMs;
-  if ("activeHoursStart" in body) {
-    heartbeat.activeHoursStart =
-      typeof body.activeHoursStart === "number"
-        ? body.activeHoursStart
-        : undefined;
-  }
-  if ("activeHoursEnd" in body) {
-    heartbeat.activeHoursEnd =
-      typeof body.activeHoursEnd === "number" ? body.activeHoursEnd : undefined;
-  }
+  if (typeof body.activeHoursStart === "number")
+    heartbeat.activeHoursStart = body.activeHoursStart;
+  if (typeof body.activeHoursEnd === "number")
+    heartbeat.activeHoursEnd = body.activeHoursEnd;
 
   try {
     saveConfig({ ...config, heartbeat });

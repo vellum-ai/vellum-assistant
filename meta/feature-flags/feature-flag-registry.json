@@ -122,6 +122,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "referral-codes",
+      "scope": "macos",
+      "key": "referral-codes",
+      "label": "Referral Codes",
+      "description": "Show the referral invite link and stats panel on the Billing tab in Settings",
+      "defaultEnabled": false
+    },
+    {
       "id": "managed-sign-in",
       "scope": "macos",
       "key": "managed-sign-in",
@@ -199,7 +207,7 @@
       "key": "show-thinking-blocks",
       "label": "Show Thinking Blocks",
       "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "inline-skill-commands",
@@ -271,6 +279,14 @@
       "key": "teleport",
       "label": "Teleport",
       "description": "Enable teleport UI in General settings for moving assistants between hosting environments",
+      "defaultEnabled": true
+    },
+    {
+      "id": "permission-controls-v2",
+      "scope": "assistant",
+      "key": "permission-controls-v2",
+      "label": "Permission Controls V2",
+      "description": "Replace risk-level permission system with two independent controls: 'Ask before acting' (LLM behavior toggle) and 'Host access' (system-enforced gate)",
       "defaultEnabled": false
     }
   ]

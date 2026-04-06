@@ -76,9 +76,9 @@ public final class BillingService {
         guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else { return nil }
 
         // Only attempt bootstrap for all-zero balances
-        let isAllZero = summary.effective_balance_usd == "0.00"
-            && summary.settled_balance_usd == "0.00"
-            && summary.pending_compute_usd == "0.00"
+        let isAllZero = summary.effective_balance == "0.00"
+            && summary.settled_balance == "0.00"
+            && summary.pending_compute == "0.00"
         guard isAllZero else { return nil }
 
         // Skip if we've already attempted bootstrap for this org
@@ -161,8 +161,60 @@ public final class BillingService {
         }
     }
 
+    /// Fetch the current user's referral code and stats.
+    /// The backend lazily creates a referral code if one doesn't exist yet.
+    public func getReferralCode() async throws -> ReferralCodeResponse {
+        let urlString = "\(AuthService.shared.baseURL)/v1/referral-codes/me/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
+            throw PlatformAPIError.authenticationRequired
+        }
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request GET referral-codes/me/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(ReferralCodeResponse.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
     /// Create a top-up checkout session and return the Stripe checkout URL.
-    public func createTopUpCheckout(amountUsd: String) async throws -> URL {
+    public func createTopUpCheckout(amount: String) async throws -> URL {
         let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/top-ups/checkout-session/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
@@ -184,7 +236,7 @@ public final class BillingService {
         }
         urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
-        let requestBody = TopUpCheckoutRequest(amount_usd: amountUsd, return_path: "/billing/top-up/success")
+        let requestBody = TopUpCheckoutRequest(amount: amount, return_path: "/billing/top-up/success")
         let encoder = JSONEncoder()
         urlRequest.httpBody = try encoder.encode(requestBody)
 

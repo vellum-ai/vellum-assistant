@@ -316,9 +316,15 @@ struct VCodeTextView: NSViewRepresentable {
         guard let textView = nsView.documentView as? ClickReportingTextView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return nil }
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        let height = usedRect.height + textView.textContainerInset.height * 2
+        let height: CGFloat
+        if let cached = context.coordinator.cachedHeight {
+            height = cached
+        } else {
+            layoutManager.ensureLayout(for: textContainer)
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            height = usedRect.height + textView.textContainerInset.height * 2
+            context.coordinator.cachedHeight = height
+        }
         return CGSize(width: proposal.width ?? 400, height: height)
     }
 
@@ -331,6 +337,7 @@ struct VCodeTextView: NSViewRepresentable {
         var lastMatchIndex: Int = -1
         var lastMatchCount: Int = 0
         var paragraphStyle: NSParagraphStyle?
+        var cachedHeight: CGFloat?
         private var highlightTask: Task<Void, Never>?
 
         deinit {
@@ -349,6 +356,7 @@ struct VCodeTextView: NSViewRepresentable {
             to textView: NSTextView
         ) {
             lastText = text
+            cachedHeight = nil
 
             // Apply plain text immediately so the view is never empty
             guard let textStorage = textView.textStorage else { return }
@@ -378,6 +386,10 @@ struct VCodeTextView: NSViewRepresentable {
                     storage.beginEditing()
                     storage.setAttributedString(highlighted)
                     storage.endEditing()
+
+                    // Invalidate cached height — font variants from highlighting
+                    // (bold/italic) may change line heights.
+                    self?.cachedHeight = nil
 
                     // Re-apply search highlights that were wiped by setAttributedString
                     if let self, !self.currentMatchRanges.isEmpty {

@@ -348,7 +348,7 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
     // MARK: - ImageURLClassifier for all common extensions
 
     func testImageURLClassifierCommonExtensions() {
-        let extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "tiff", "tif", "avif", "heic"]
+        let extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "tiff", "tif", "avif", "heic", "heif"]
 
         for ext in extensions {
             let url = URL(string: "https://cdn.example.com/image.\(ext)")!

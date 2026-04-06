@@ -33,11 +33,6 @@ import {
   type EventStreamWatcher,
   watchEventStream,
 } from "./signals/event-stream.js";
-import {
-  copyToClipboard,
-  extractLastCodeBlock,
-  formatConversationForExport,
-} from "./util/clipboard.js";
 import { formatDiff, formatNewFileDiff } from "./util/diff.js";
 import { getHistoryPath, getSignalsDir } from "./util/platform.js";
 import { Spinner } from "./util/spinner.js";
@@ -143,7 +138,6 @@ export async function startCli(): Promise<void> {
   let conversationId = "";
   let pendingUserContent: string | null = null;
   let generating = false;
-  let lastResponse = "";
   let lastUsage: {
     inputTokens: number;
     outputTokens: number;
@@ -153,7 +147,6 @@ export async function startCli(): Promise<void> {
     model: string;
   } | null = null;
   let pendingSessionPick = false;
-  let pendingCopySession = false;
   let toolStreaming = false;
   let lastDisplayedError: string | null = null;
   let eventSubscription: EventStreamWatcher | null = null;
@@ -398,7 +391,6 @@ export async function startCli(): Promise<void> {
         if (pendingUserContent) {
           const content = pendingUserContent;
           pendingUserContent = null;
-          lastResponse = "";
           sendUserMessage(content).then((result) => {
             if (result.ok) {
               generating = true;
@@ -408,7 +400,6 @@ export async function startCli(): Promise<void> {
                 process.stdout.write(`${result.message}\n`);
                 rl.question("Send anyway? (y/N): ", (answer) => {
                   if (answer.trim().toLowerCase() === "y") {
-                    lastResponse = "";
                     sendUserMessage(content, {
                       bypassSecretCheck: true,
                     }).then((retryResult) => {
@@ -439,7 +430,6 @@ export async function startCli(): Promise<void> {
 
       case "assistant_text_delta":
         spinner.stop();
-        lastResponse += msg.text;
         process.stdout.write(msg.text);
         break;
 
@@ -595,9 +585,8 @@ export async function startCli(): Promise<void> {
       case "error":
         spinner.stop();
         generating = false;
-        if (pendingSessionPick || pendingCopySession) {
+        if (pendingSessionPick) {
           pendingSessionPick = false;
-          pendingCopySession = false;
           rl.removeAllListeners("line");
           rl.on("line", handleLine);
         }
@@ -646,26 +635,6 @@ export async function startCli(): Promise<void> {
         break;
 
       case "history_response":
-        if (pendingCopySession) {
-          pendingCopySession = false;
-          if (msg.messages.length === 0) {
-            process.stdout.write("\n  No messages to copy.\n\n");
-          } else {
-            try {
-              const formatted = formatConversationForExport(msg.messages);
-              copyToClipboard(formatted);
-              process.stdout.write(
-                `\n  Copied conversation (${msg.messages.length} messages) to clipboard.\n\n`,
-              );
-            } catch (err) {
-              process.stdout.write(
-                `\n  Clipboard error: ${(err as Error).message}\n\n`,
-              );
-            }
-          }
-          prompt();
-          break;
-        }
         process.stdout.write("\n");
         if (msg.messages.length === 0) {
           process.stdout.write("  No messages in this conversation.\n");
@@ -686,7 +655,6 @@ export async function startCli(): Promise<void> {
         if (msg.removedCount === 0) {
           process.stdout.write("\n  Nothing to undo.\n\n");
         } else {
-          lastResponse = "";
           process.stdout.write(
             `\n  Removed last exchange (${msg.removedCount} messages).\n\n`,
           );
@@ -754,21 +722,6 @@ export async function startCli(): Promise<void> {
       /* ignore */
     }
 
-    if (content === "/copy") {
-      if (!lastResponse) {
-        process.stdout.write("No response to copy.\n");
-      } else {
-        try {
-          copyToClipboard(lastResponse);
-          process.stdout.write("Copied to clipboard.\n");
-        } catch (err) {
-          process.stdout.write(`Clipboard error: ${(err as Error).message}\n`);
-        }
-      }
-      prompt();
-      return;
-    }
-
     if (content === "/conversations") {
       pendingSessionPick = true;
       try {
@@ -787,65 +740,6 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === "/copy-code") {
-      const code = extractLastCodeBlock(lastResponse);
-      if (code == null) {
-        process.stdout.write("No code block found.\n");
-      } else {
-        try {
-          copyToClipboard(code);
-          process.stdout.write("Copied code block to clipboard.\n");
-        } catch (err) {
-          process.stdout.write(`Clipboard error: ${(err as Error).message}\n`);
-        }
-      }
-      prompt();
-      return;
-    }
-
-    if (content === "/copy-conversation") {
-      try {
-        const mapping = getConversationByKey(conversationKey);
-        if (!mapping) {
-          process.stdout.write("\n  No messages to copy.\n\n");
-          prompt();
-          return;
-        }
-        const rawMessages = getMessages(mapping.conversationId);
-        if (rawMessages.length === 0) {
-          process.stdout.write("\n  No messages to copy.\n\n");
-        } else {
-          const rendered = rawMessages.map((msg) => {
-            let parsedContent: unknown;
-            try {
-              parsedContent = JSON.parse(msg.content);
-            } catch {
-              parsedContent = msg.content;
-            }
-            return {
-              role: msg.role as "user" | "assistant",
-              text: renderHistoryContent(parsedContent).text,
-            };
-          });
-          try {
-            const formatted = formatConversationForExport(rendered);
-            copyToClipboard(formatted);
-            process.stdout.write(
-              `\n  Copied conversation (${rawMessages.length} messages) to clipboard.\n\n`,
-            );
-          } catch (err) {
-            process.stdout.write(
-              `\n  Clipboard error: ${(err as Error).message}\n\n`,
-            );
-          }
-        }
-      } catch {
-        process.stdout.write("[Failed to fetch history]\n");
-      }
-      prompt();
-      return;
-    }
-
     if (content === "/new") {
       // Create a new conversation by using a unique key
       conversationKey = `builtin-cli:${randomUUID()}`;
@@ -859,7 +753,6 @@ export async function startCli(): Promise<void> {
     }
 
     if (content === "/clear") {
-      lastResponse = "";
       process.stdout.write("\x1b[r");
       process.stdout.write("\x1b[2J\x1b[H");
       mainScreenLayout = renderMainScreen();
@@ -955,7 +848,6 @@ export async function startCli(): Promise<void> {
               if (result.removedCount === 0) {
                 process.stdout.write("\n  Nothing to undo.\n\n");
               } else {
-                lastResponse = "";
                 process.stdout.write(
                   `\n  Removed last exchange (${result.removedCount} messages).\n\n`,
                 );
@@ -1016,15 +908,6 @@ export async function startCli(): Promise<void> {
         "  /undo               Remove last message exchange\n",
       );
       process.stdout.write("  /usage              Show token usage and cost\n");
-      process.stdout.write(
-        "  /copy               Copy last response to clipboard\n",
-      );
-      process.stdout.write(
-        "  /copy-code          Copy last code block to clipboard\n",
-      );
-      process.stdout.write(
-        "  /copy-conversation  Copy entire conversation to clipboard\n",
-      );
       process.stdout.write("  /help               Show this help\n");
       process.stdout.write("\n");
       prompt();
@@ -1032,14 +915,12 @@ export async function startCli(): Promise<void> {
     }
 
     // Regular user message
-    lastResponse = "";
     sendUserMessage(content).then((result) => {
       if (!result.ok) {
         if (result.error === "secret_blocked" && result.message) {
           process.stdout.write(`${result.message}\n`);
           rl.question("Send anyway? (y/N): ", (answer) => {
             if (answer.trim().toLowerCase() === "y") {
-              lastResponse = "";
               sendUserMessage(content, { bypassSecretCheck: true }).then(
                 (retryResult) => {
                   if (retryResult.ok) {

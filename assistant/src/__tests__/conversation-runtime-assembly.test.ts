@@ -7,13 +7,14 @@ import type {
 import {
   applyRuntimeInjections,
   buildUnifiedTurnContextBlock,
+  findLastInjectedNowContent,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
   injectNowScratchpad,
   isGroupChatType,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
-  stripInjectedContext,
+  stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { Message } from "../providers/types.js";
@@ -476,7 +477,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
 // ---------------------------------------------------------------------------
 
 describe("trust-gating via channel capabilities", () => {
-  test("vellum channel with macos interface skips injection (happy path)", () => {
+  test("vellum channel with macos interface injects macOS guidance", () => {
     const caps = resolveChannelCapabilities("vellum", "macos");
     const message: Message = {
       role: "user",
@@ -485,8 +486,14 @@ describe("trust-gating via channel capabilities", () => {
 
     const result = injectChannelCapabilityContext(message, caps);
 
-    // Happy path: message returned unchanged
-    expect(result).toBe(message);
+    // macOS clients now get osascript guidance injected
+    expect(result).not.toBe(message);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).toContain("client_os: macos");
+    expect(injected).toContain("osascript");
+    expect(injected).toContain("host_bash");
+    // No channel constraints — full desktop capabilities
+    expect(injected).not.toContain("CHANNEL CONSTRAINTS");
   });
 
   test("non-dashboard channel adds constraint rules preventing UI references", () => {
@@ -584,8 +591,7 @@ describe("applyRuntimeInjections — injection mode", () => {
   ];
 
   const fullOptions = {
-    workspaceTopLevelContext:
-      "<workspace>\nRoot: /sandbox\n</workspace>",
+    workspaceTopLevelContext: "<workspace>\nRoot: /sandbox\n</workspace>",
     channelCommandContext: { type: "start" } as const,
     activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
     channelCapabilities: {
@@ -840,10 +846,10 @@ describe("stripNowScratchpad", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stripInjectedContext removes NOW.md blocks
+// stripInjectionsForCompaction removes NOW.md blocks
 // ---------------------------------------------------------------------------
 
-describe("stripInjectedContext with NOW.md", () => {
+describe("stripInjectionsForCompaction with NOW.md", () => {
   test("strips NOW.md blocks alongside other injections", () => {
     const messages: Message[] = [
       {
@@ -862,7 +868,7 @@ describe("stripInjectedContext with NOW.md", () => {
       },
     ];
 
-    const result = stripInjectedContext(messages);
+    const result = stripInjectionsForCompaction(messages);
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
     expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
@@ -872,10 +878,10 @@ describe("stripInjectedContext with NOW.md", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stripInjectedContext — persistent blocks
+// stripInjectionsForCompaction — persistent blocks
 // ---------------------------------------------------------------------------
 
-describe("stripInjectedContext preserves persistent blocks", () => {
+describe("stripInjectionsForCompaction preserves persistent blocks", () => {
   test("<turn_context> blocks are NOT stripped", () => {
     const messages: Message[] = [
       {
@@ -890,7 +896,7 @@ describe("stripInjectedContext preserves persistent blocks", () => {
       },
     ];
 
-    const result = stripInjectedContext(messages);
+    const result = stripInjectionsForCompaction(messages);
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
     expect(
@@ -912,7 +918,7 @@ describe("stripInjectedContext preserves persistent blocks", () => {
       },
     ];
 
-    const result = stripInjectedContext(messages);
+    const result = stripInjectionsForCompaction(messages);
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
     expect(
@@ -934,7 +940,7 @@ describe("stripInjectedContext preserves persistent blocks", () => {
       },
     ];
 
-    const result = stripInjectedContext(messages);
+    const result = stripInjectionsForCompaction(messages);
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
     expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
@@ -956,7 +962,7 @@ describe("stripInjectedContext preserves persistent blocks", () => {
       },
     ];
 
-    const result = stripInjectedContext(messages);
+    const result = stripInjectionsForCompaction(messages);
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
     expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
@@ -978,7 +984,7 @@ describe("stripInjectedContext preserves persistent blocks", () => {
       },
     ];
 
-    const result = stripInjectedContext(messages);
+    const result = stripInjectionsForCompaction(messages);
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
     expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
@@ -1360,9 +1366,9 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
       .text;
     expect(injected).toBe(sampleBlock);
     // Original content preserved
-    expect(
-      (result[0].content[1] as { type: "text"; text: string }).text,
-    ).toBe("Hello there");
+    expect((result[0].content[1] as { type: "text"; text: string }).text).toBe(
+      "Hello there",
+    );
   });
 
   test("does not inject when unifiedTurnContext is null", () => {
@@ -1408,5 +1414,83 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 
     expect(allText).toContain("<turn_context>");
   });
+});
 
+// ---------------------------------------------------------------------------
+// findLastInjectedNowContent
+// ---------------------------------------------------------------------------
+
+describe("findLastInjectedNowContent", () => {
+  test("extracts NOW.md content from the last user message", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<NOW.md Always keep this up to date>\nCurrent focus: fix the bug\n</NOW.md>",
+          },
+          { type: "text", text: "Hello" },
+        ],
+      },
+    ];
+
+    expect(findLastInjectedNowContent(messages)).toBe(
+      "Current focus: fix the bug",
+    );
+  });
+
+  test("returns null when no NOW.md injection exists", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+    ];
+
+    expect(findLastInjectedNowContent(messages)).toBeNull();
+  });
+
+  test("returns the most recent injection when multiple exist", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<NOW.md Always keep this up to date>\nOld focus\n</NOW.md>",
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "OK" }] },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<NOW.md Always keep this up to date>\nNew focus\n</NOW.md>",
+          },
+        ],
+      },
+    ];
+
+    expect(findLastInjectedNowContent(messages)).toBe("New focus");
+  });
+
+  test("skips assistant messages", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<NOW.md Always keep this up to date>\nUser focus\n</NOW.md>",
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "response" }] },
+    ];
+
+    expect(findLastInjectedNowContent(messages)).toBe("User focus");
+  });
 });

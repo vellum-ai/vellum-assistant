@@ -12,6 +12,20 @@ enum SettingsTab: String {
     case schedules = "Schedules"
     case developer = "Developer"
 
+    var icon: VIcon {
+        switch self {
+        case .general: return .slidersHorizontal
+        case .modelsAndServices: return .cpu
+        case .voice: return .mic
+        case .sounds: return .volume2
+        case .permissionsAndPrivacy: return .shieldCheck
+        case .billing: return .creditCard
+        case .archivedConversations: return .archive
+        case .schedules: return .calendar
+        case .developer: return .terminal
+        }
+    }
+
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
     static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [.general, .modelsAndServices, .voice]
@@ -29,7 +43,7 @@ struct SettingsPanel: View {
     var onClose: () -> Void
     @ObservedObject var store: SettingsStore
     var connectionManager: GatewayConnectionManager?
-    @ObservedObject var conversationManager: ConversationManager
+    var conversationManager: ConversationManager
     var authManager: AuthManager
     @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     var showToast: (String, ToastInfo.Style) -> Void
@@ -50,7 +64,7 @@ struct SettingsPanel: View {
         self.onClose = onClose
         self._store = ObservedObject(wrappedValue: store)
         self.connectionManager = connectionManager
-        self._conversationManager = ObservedObject(wrappedValue: conversationManager)
+        self.conversationManager = conversationManager
         self.authManager = authManager
         self._assistantFeatureFlagStore = ObservedObject(wrappedValue: assistantFeatureFlagStore)
         self.showToast = showToast
@@ -348,7 +362,7 @@ struct SettingsPanel: View {
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled), id: \.self) { tab in
-                SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
+                VNavItem(icon: tab.icon.rawValue, label: tab.rawValue, isActive: selectedTab == tab) {
                     selectedTab = tab
                 }
             }
@@ -358,7 +372,7 @@ struct SettingsPanel: View {
                     .frame(height: 1)
                     .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
                     .padding(.trailing, VSpacing.md)
-                SettingsNavRow(tab: .developer, isSelected: selectedTab == .developer) {
+                VNavItem(icon: SettingsTab.developer.icon.rawValue, label: "Developer", isActive: selectedTab == .developer) {
                     selectedTab = .developer
                 }
             }
@@ -487,10 +501,6 @@ struct SettingsPanel: View {
             // OAUTH PROVIDERS (dynamic from API)
             if !isIntegrationsGridEnabled {
                 ForEach(store.managedOAuthProviders, id: \.provider_key) { provider in
-                    Divider()
-                        .background(VColor.borderBase)
-                        .padding(.vertical, VSpacing.sm)
-
                     OAuthProviderServiceCard(
                         store: store,
                         authManager: authManager,
@@ -499,10 +509,6 @@ struct SettingsPanel: View {
                     )
                 }
             } else {
-                Divider()
-                    .background(VColor.borderBase)
-                    .padding(.vertical, VSpacing.sm)
-
                 IntegrationsGridView(
                     store: store,
                     authManager: authManager,
@@ -591,7 +597,7 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceOverlay)
+            .vCard()
 
             // TRUST RULES section
             if connectionManager != nil {
@@ -612,7 +618,7 @@ struct SettingsPanel: View {
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
             }
 
             // PRIVACY section
@@ -726,45 +732,6 @@ struct SettingsPanel: View {
 
 }
 
-// MARK: - Settings Nav Row
-
-private struct SettingsNavRow: View {
-    let tab: SettingsTab
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Text(tab.rawValue)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
-                Spacer()
-            }
-            .padding(.leading, VSpacing.sm)
-            .padding(.trailing, VSpacing.sm)
-            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
-            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                (isSelected ? VColor.surfaceActive : VColor.surfaceBase.opacity(isHovered ? 1 : 0))
-                    .animation(VAnimation.fast, value: isHovered)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, VSpacing.md)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .pointerCursor()
-    }
-}
 
 // MARK: - Environment Variables Sheet
 

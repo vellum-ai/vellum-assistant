@@ -27,6 +27,7 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
+import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
@@ -630,6 +631,25 @@ export function handleError(
       state.orderingErrorDetected = true;
       state.deferredOrderingError = event.error.message;
     } else {
+      if (classified.errorCategory === "provider_api_error") {
+        log.error(
+          {
+            conversationId: deps.ctx.conversationId,
+            errorCode: classified.code,
+            errorCategory: classified.errorCategory,
+            statusCode:
+              event.error instanceof ProviderError
+                ? event.error.statusCode
+                : undefined,
+            provider:
+              event.error instanceof ProviderError
+                ? event.error.provider
+                : undefined,
+            errorMessage: event.error.message,
+          },
+          "Provider rejected request with unclassified 4xx error",
+        );
+      }
       deps.onEvent(
         buildConversationErrorMessage(deps.ctx.conversationId, classified),
       );

@@ -49,7 +49,7 @@ private struct ConditionalCardModifier: ViewModifier {
     let showBorder: Bool
     func body(content: Content) -> some View {
         if showBorder {
-            content.vCard(background: VColor.surfaceOverlay)
+            content.vCard(background: VColor.surfaceLift)
         } else {
             content
         }
@@ -60,7 +60,7 @@ private struct ConditionalCardModifier: ViewModifier {
 struct SettingsDivider: View {
     var body: some View {
         Rectangle()
-            .fill(VColor.borderDisabled)
+            .fill(VColor.borderHover)
             .frame(height: 1)
     }
 }

@@ -64,7 +64,6 @@ mock.module("../lib/guardian-token.js", () => ({
 }));
 
 const readPlatformTokenMock = mock((): string | null => "platform-token");
-const fetchOrganizationIdMock = mock(async () => "org-123");
 const getPlatformUrlMock = mock(() => "https://platform.vellum.ai");
 const hatchAssistantMock = mock(async () => ({
   id: "platform-new-id",
@@ -142,7 +141,6 @@ const platformImportBundleFromGcsMock = mock(async () => ({
 
 mock.module("../lib/platform-client.js", () => ({
   readPlatformToken: readPlatformTokenMock,
-  fetchOrganizationId: fetchOrganizationIdMock,
   getPlatformUrl: getPlatformUrlMock,
   hatchAssistant: hatchAssistantMock,
   platformInitiateExport: platformInitiateExportMock,
@@ -240,8 +238,6 @@ beforeEach(() => {
 
   readPlatformTokenMock.mockReset();
   readPlatformTokenMock.mockReturnValue("platform-token");
-  fetchOrganizationIdMock.mockReset();
-  fetchOrganizationIdMock.mockResolvedValue("org-123");
   getPlatformUrlMock.mockReset();
   getPlatformUrlMock.mockReturnValue("https://platform.vellum.ai");
   hatchAssistantMock.mockReset();
@@ -757,10 +753,7 @@ describe("resolveOrHatchTarget", () => {
     findAssistantByNameMock.mockReturnValue(null);
 
     const result = await resolveOrHatchTarget("platform", "nonexistent");
-    expect(hatchAssistantMock).toHaveBeenCalledWith(
-      "platform-token",
-      "org-123",
-    );
+    expect(hatchAssistantMock).toHaveBeenCalledWith("platform-token");
     expect(saveAssistantEntryMock).toHaveBeenCalledWith(
       expect.objectContaining({
         assistantId: "platform-new-id",
@@ -1099,7 +1092,6 @@ describe("signed-URL upload flow", () => {
       expect(platformImportBundleFromGcsMock).toHaveBeenCalledWith(
         "bundle-key-123",
         "platform-token",
-        "org-123",
         "https://platform.vellum.ai",
       );
       // Inline import should NOT be called
@@ -1145,7 +1137,6 @@ describe("signed-URL upload flow", () => {
       expect(platformImportPreflightFromGcsMock).toHaveBeenCalledWith(
         "bundle-key-123",
         "platform-token",
-        "org-123",
         "https://platform.vellum.ai",
       );
       // Inline preflight should NOT be called
@@ -1284,7 +1275,7 @@ describe("signed-URL upload flow", () => {
 // ---------------------------------------------------------------------------
 
 describe("platform teleport org ID and reordered flow", () => {
-  test("hatchAssistant is called with the org ID from fetchOrganizationId", async () => {
+  test("hatchAssistant is called without orgId (authHeaders fetches it internally)", async () => {
     setArgv("--from", "my-local", "--platform");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
@@ -1294,21 +1285,14 @@ describe("platform teleport org ID and reordered flow", () => {
       return null;
     });
 
-    fetchOrganizationIdMock.mockResolvedValue("test-org-456");
-
     const originalFetch = globalThis.fetch;
     globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
 
     try {
       await teleport();
 
-      // fetchOrganizationId should have been called
-      expect(fetchOrganizationIdMock).toHaveBeenCalled();
-      // hatchAssistant must be called with (token, orgId)
-      expect(hatchAssistantMock).toHaveBeenCalledWith(
-        "platform-token",
-        "test-org-456",
-      );
+      // hatchAssistant should be called with just the token (orgId is resolved internally by authHeaders)
+      expect(hatchAssistantMock).toHaveBeenCalledWith("platform-token");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1431,7 +1415,6 @@ describe("platform teleport org ID and reordered flow", () => {
       expect(platformImportBundleFromGcsMock).toHaveBeenCalledWith(
         "pre-uploaded-key-789",
         "platform-token",
-        expect.any(String),
         expect.any(String),
       );
       // Inline import should NOT be used since signed upload succeeded

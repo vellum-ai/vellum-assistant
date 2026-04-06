@@ -113,7 +113,7 @@ extension AppDelegate {
                   let conversation = conversationManager.conversations.first(where: { $0.conversationId == conversationId }) else {
                 return false
             }
-            conversationManager.activeConversationId = conversation.id
+            conversationManager.activateConversation(conversation.id)
             // Switch the main content area to the chat so the user sees it
             // even if they were last viewing a panel, app, or other non-chat view.
             mainWindow?.windowState.selection = nil

@@ -3,6 +3,11 @@ import { z } from "zod";
 import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
+export type { PermissionMode } from "../permissions/permission-mode.js";
+export {
+  DEFAULT_PERMISSION_MODE,
+  PermissionModeSchema,
+} from "../permissions/permission-mode.js";
 export type { AcpAgentConfig, AcpConfig } from "./acp-schema.js";
 export { AcpAgentConfigSchema, AcpConfigSchema } from "./acp-schema.js";
 export type {
@@ -143,6 +148,7 @@ export type {
 export {
   PermissionsConfigSchema,
   SecretDetectionConfigSchema,
+  VALID_PERMISSIONS_MODES,
 } from "./schemas/security.js";
 export type {
   ImageGenerationService,
@@ -197,6 +203,7 @@ import {
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
+import { FilingConfigSchema } from "./schemas/filing.js";
 import { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import {
@@ -272,6 +279,7 @@ export const AssistantConfigSchema = z
       .describe(
         "Custom pricing overrides for specific provider/model combinations",
       ),
+    filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),

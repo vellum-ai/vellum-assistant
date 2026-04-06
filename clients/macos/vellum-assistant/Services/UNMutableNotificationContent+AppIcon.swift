@@ -2,19 +2,13 @@ import AppKit
 import Foundation
 import UserNotifications
 
-/// Caches the rendered notification icon on disk so we don't re-render on every notification.
-/// Invalidated when the avatar changes by updating the mod-date check.
+/// Temporary directory for rendered notification icon.
 private let notificationIconCacheURL: URL = {
     let tmp = FileManager.default.temporaryDirectory
         .appendingPathComponent("com.vellum.vellum-assistant", isDirectory: true)
     try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     return tmp.appendingPathComponent("notification-icon.png")
 }()
-
-/// Tracks the avatar source mod-date so we know when to re-render.
-private var cachedAvatarModDate: Date?
-/// Tracks the avatar source path so cache invalidates on assistant switch.
-private var cachedAvatarPath: String?
 
 extension UNMutableNotificationContent {
     /// Attaches the assistant's avatar (with squircle mask matching the dock icon)
@@ -48,25 +42,11 @@ extension UNMutableNotificationContent {
 
     /// Returns a file URL to the squircle-masked avatar PNG for use as a notification
     /// attachment, or nil if no custom avatar is set.
+    /// Always re-renders — notifications are infrequent so the cost is negligible.
     @MainActor
     private func avatarNotificationIconURL() -> URL? {
         let manager = AvatarAppearanceManager.shared
         guard let avatar = manager.customAvatarImage else { return nil }
-
-        // Use the assistant-specific resolved path so cache invalidation works
-        // correctly after switching assistants.
-        let avatarURL = manager.customAvatarURL
-        let currentModDate = (try? FileManager.default.attributesOfItem(
-            atPath: avatarURL.path))?[.modificationDate] as? Date
-
-        // Cache on both resolved avatar path AND mod-date to prevent collisions
-        // when two assistants have avatar files with the same modification timestamp.
-        if FileManager.default.fileExists(atPath: notificationIconCacheURL.path),
-           let currentModDate, let cachedDate = cachedAvatarModDate,
-           currentModDate == cachedDate,
-           avatarURL.path == cachedAvatarPath {
-            return notificationIconCacheURL
-        }
 
         let size: CGFloat = 256
         let icon = AvatarAppearanceManager.squircleIcon(avatar, size: size)
@@ -90,8 +70,6 @@ extension UNMutableNotificationContent {
 
         do {
             try pngData.write(to: notificationIconCacheURL)
-            cachedAvatarModDate = currentModDate
-            cachedAvatarPath = avatarURL.path
             return notificationIconCacheURL
         } catch {
             return nil

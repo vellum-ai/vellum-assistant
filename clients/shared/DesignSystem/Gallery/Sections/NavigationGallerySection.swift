@@ -6,9 +6,16 @@ struct NavigationGallerySection: View {
 
     @State private var segmentSelection = 0
     @State private var pillSelection = "active"
-    @State private var compactPillSelection = "preview"
     @State private var sidebarRowActive = "Intelligence"
     @State private var sidebarDisclosureExpanded = true
+    @AppStorage("themePreference") private var themePreference: String = "system"
+
+    private var themeBinding: Binding<String> {
+        Binding(
+            get: { themePreference },
+            set: { themePreference = $0; VTheme.applyTheme($0) }
+        )
+    }
 
     private let segmentItems = ["All", "Active", "Archived", "Drafts"]
     var body: some View {
@@ -43,10 +50,10 @@ struct NavigationGallerySection: View {
 
                 Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
-                // MARK: - VTabs (Pill)
+                // MARK: - VSegmentControl
                 GallerySectionHeader(
-                    title: "VTabs (Pill)",
-                    description: "Pill-style segmented control with filled accent background on selection."
+                    title: "VSegmentControl",
+                    description: "Segmented control with pill-style segments for filtering and selection."
                 )
 
                 VCard {
@@ -57,41 +64,15 @@ struct NavigationGallerySection: View {
 
                         Divider().background(VColor.borderBase)
 
-                        VTabs(
+                        VSegmentControl(
                             items: [
                                 (label: "All", tag: "all"),
                                 (label: "Active", tag: "active"),
                                 (label: "Archived", tag: "archived"),
                             ],
-                            selection: $pillSelection,
-                            style: .pill
+                            selection: $pillSelection
                         )
                         .frame(maxWidth: 300)
-                    }
-                }
-
-                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-
-                // MARK: - VTabs (Compact Pill)
-                GallerySectionHeader(
-                    title: "VTabs (Compact Pill)",
-                    description: "Compact pill-style segmented control for inline use in toolbars and headers."
-                )
-
-                VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Divider().background(VColor.borderBase)
-
-                        VTabs(
-                            items: [
-                                (label: "Preview", tag: "preview"),
-                                (label: "Source", tag: "source"),
-                            ],
-                            selection: $compactPillSelection,
-                            style: .pill,
-                            size: .compact
-                        )
-                        .fixedSize()
                     }
                 }
 
@@ -231,31 +212,42 @@ struct NavigationGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "vThemeToggle" {
+            if filter == nil || filter == "vSegmentControl" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - VThemeToggle
+                // MARK: - VSegmentControl (Theme)
                 GallerySectionHeader(
-                    title: "VThemeToggle",
-                    description: "Three-way theme toggle (System / Light / Dark). Reads and writes the themePreference key in UserDefaults and applies the appearance app-wide."
+                    title: "VSegmentControl (Theme)",
+                    description: "Segment control used as a theme toggle. Supports text labels or icons."
                 )
 
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Icon Pill (default)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                            VThemeToggle()
+                            Text("Icons").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VSegmentControl(
+                                items: [
+                                    (label: "System", icon: VIcon.monitor.rawValue, tag: "system"),
+                                    (label: "Light", icon: VIcon.sun.rawValue, tag: "light"),
+                                    (label: "Dark", icon: VIcon.moon.rawValue, tag: "dark"),
+                                ],
+                                selection: themeBinding
+                            )
+                            .frame(width: 104)
                         }
                         Divider().background(VColor.borderBase)
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Label Pill").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                            VThemeToggle(style: .labelPill)
-                        }
-                        Divider().background(VColor.borderBase)
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("No label").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                            VThemeToggle(showLabel: false)
+                            Text("Text labels").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VSegmentControl(
+                                items: [
+                                    (label: "System", tag: "system"),
+                                    (label: "Light", tag: "light"),
+                                    (label: "Dark", tag: "dark"),
+                                ],
+                                selection: themeBinding
+                            )
+                            .frame(width: 248)
                         }
                     }
                 }
@@ -352,7 +344,15 @@ struct NavigationGallerySection: View {
                                         .font(VFont.bodySmallDefault)
                                         .foregroundStyle(VColor.contentDefault)
                                     Spacer()
-                                    VThemeToggle(showLabel: false)
+                                    VSegmentControl(
+                                        items: [
+                                            (label: "System", icon: VIcon.monitor.rawValue, tag: "system"),
+                                            (label: "Light", icon: VIcon.sun.rawValue, tag: "light"),
+                                            (label: "Dark", icon: VIcon.moon.rawValue, tag: "dark"),
+                                        ],
+                                        selection: themeBinding
+                                    )
+                                    .frame(width: 104)
                                 }
                                 .padding(.vertical, VSpacing.xs)
                             }
@@ -481,7 +481,7 @@ extension NavigationGallerySection {
         case "vSegmentedControl": NavigationGallerySection(filter: "vSegmentedControl")
         case "vNavItem": NavigationGallerySection(filter: "vNavItem")
         case "vLink": NavigationGallerySection(filter: "vLink")
-        case "vThemeToggle": NavigationGallerySection(filter: "vThemeToggle")
+        case "vSegmentControl": NavigationGallerySection(filter: "vSegmentControl")
         case "vMenu": NavigationGallerySection(filter: "vMenu")
         case "vSubMenuItem": NavigationGallerySection(filter: "vSubMenuItem")
         default: EmptyView()

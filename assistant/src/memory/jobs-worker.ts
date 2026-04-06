@@ -2,6 +2,7 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
 import { graphExtractJob } from "./graph/extraction-job.js";
@@ -12,7 +13,10 @@ import {
 import { runNarrativeRefinement } from "./graph/narrative.js";
 import { runPatternScan } from "./graph/pattern-scan.js";
 import { backfillJob } from "./job-handlers/backfill.js";
-import { pruneOldConversationsJob } from "./job-handlers/cleanup.js";
+import {
+  pruneOldConversationsJob,
+  pruneOldLlmRequestLogsJob,
+} from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
@@ -39,6 +43,7 @@ import {
   deferMemoryJob,
   enqueueMemoryJob,
   enqueuePruneOldConversationsJob,
+  enqueuePruneOldLlmRequestLogsJob,
   failMemoryJob,
   failStalledJobs,
   type MemoryJob,
@@ -48,6 +53,24 @@ import {
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 
 const log = getLogger("memory-jobs-worker");
+
+/**
+ * Job types whose handlers have been removed. Existing rows may still sit in
+ * the database — the worker completes them silently instead of throwing.
+ */
+const LEGACY_JOB_TYPES = new Set([
+  "embed_item",
+  "extract_items",
+  "batch_extract",
+  "extract_entities",
+  "cleanup_stale_superseded_items",
+  "backfill_entity_relations",
+  "refresh_weekly_summary",
+  "refresh_monthly_summary",
+  "journal_carry_forward",
+  "generate_capability_cards",
+  "generate_thread_starters",
+]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;
 export const POLL_INTERVAL_MAX_MS = 30_000;
@@ -355,31 +378,20 @@ async function processJob(
     case "embed_segment":
       await embedSegmentJob(job, config);
       return;
-    case "embed_item":
-    case "extract_items":
-    case "batch_extract":
-    case "extract_entities":
-    case "cleanup_stale_superseded_items":
-      // Old extraction pipeline replaced by memory graph — silently drop
-      return;
     case "embed_summary":
       await embedSummaryJob(job, config);
       return;
     case "prune_old_conversations":
       pruneOldConversationsJob(job, config);
       return;
+    case "prune_old_llm_request_logs":
+      pruneOldLlmRequestLogsJob(job, config);
+      return;
     case "build_conversation_summary":
       await buildConversationSummaryJob(job, config);
       return;
     case "backfill":
       await backfillJob(job, config);
-      return;
-    case "backfill_entity_relations":
-      // Entity relation backfill has been removed — silently drop legacy jobs
-      return;
-    case "refresh_weekly_summary":
-    case "refresh_monthly_summary":
-      // Global summary rollups have been removed — silently drop legacy jobs
       return;
     case "rebuild_index":
       await rebuildIndexJob();
@@ -395,9 +407,6 @@ async function processJob(
       return;
     case "embed_attachment":
       await embedAttachmentJob(job, config);
-      return;
-    case "journal_carry_forward":
-      // Journal carry-forward replaced by graph extraction — silently drop
       return;
     case "embed_graph_node":
       await embedGraphNodeJob(job, config);
@@ -423,16 +432,18 @@ async function processJob(
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);
       return;
-    case "generate_capability_cards":
-      // Capability cards were removed — silently drop legacy jobs.
+    case "graph_bootstrap":
+      await bootstrapFromHistory();
       return;
-    case "generate_thread_starters":
-      // Thread starters renamed to conversation starters — silently drop legacy jobs
-      return;
-    default:
-      throw new Error(
-        `Unknown memory job type: ${(job as { type: string }).type}`,
-      );
+
+    default: {
+      const rawType = (job as { type: string }).type;
+      if (LEGACY_JOB_TYPES.has(rawType)) {
+        log.debug({ jobId: job.id, type: rawType }, "Dropping legacy job");
+        return;
+      }
+      throw new Error(`Unknown memory job type: ${rawType}`);
+    }
   }
 }
 
@@ -462,12 +473,18 @@ export function maybeEnqueueScheduledCleanupJobs(
     cleanup.conversationRetentionDays > 0
       ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
       : null;
+  const pruneLlmRequestLogsJobId =
+    cleanup.llmRequestLogRetentionMs > 0
+      ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
+      : null;
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug(
     {
       pruneConversationsJobId,
+      pruneLlmRequestLogsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
+      llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
     },
     "Enqueued scheduled memory cleanup jobs",
   );
@@ -529,4 +546,3 @@ function maybeEnqueueGraphMaintenanceJobs(nowMs = Date.now()): void {
     }
   }
 }
-

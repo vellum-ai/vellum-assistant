@@ -28,7 +28,7 @@ When updating any client documentation (README, AGENTS.md, ARCHITECTURE.md), con
 - Keep UI work on the main actor; use async/await and structured concurrency when possible.
 - Avoid deprecated APIs; use availability checks for multi-platform code. See the [Deprecated API Watchlist](#deprecated-api-watchlist) below for specific APIs to avoid.
 - Respect HIG defaults for layout, typography, and controls; only customize when user value is clear.
-- Accessibility is required: labels for icon-only controls, Dynamic Type support, VoiceOver-friendly order.
+- Accessibility is required: see [Accessibility](#accessibility) below for detailed rules derived from past fixes.
 - Localize user-facing strings; format dates/units with locale-aware formatters.
 - Privacy: request the minimum permissions; never log sensitive user content.
 
@@ -39,6 +39,49 @@ APIs that still compile without warning but are deprecated by Apple. Do not intr
 | Deprecated | Replacement | Since | Status | Why |
 |---|---|---|---|---|
 | `.foregroundColor()` | `.foregroundStyle()` | macOS 12 / iOS 15 | **Fully migrated** — do not use `.foregroundColor()` anywhere | `.foregroundStyle()` accepts any `ShapeStyle` (gradients, materials, hierarchical styles), not just `Color`. Drop-in replacement for `Color` values. |
+
+### Accessibility
+
+Every interactive element must be usable via VoiceOver and keyboard navigation. These rules come from real bugs fixed in the codebase — treat them as a checklist when building or modifying components.
+
+**References:**
+- [Apple — Accessibility for SwiftUI](https://developer.apple.com/documentation/swiftui/accessibility)
+- [WWDC24 — Catch up on accessibility in SwiftUI](https://developer.apple.com/videos/play/wwdc2024/10073/)
+- [Apple — Supporting VoiceOver in your app](https://developer.apple.com/documentation/accessibility/supporting-voiceover-in-your-app)
+- [Apple HIG — Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
+
+#### Labels
+
+- **Every interactive element needs an accessibility label.** Icon-only buttons, icon-only menu triggers, and close/dismiss buttons must have `.accessibilityLabel()`. Text buttons get their label from the `Text` content automatically — do not override it with an empty string.
+  - Bad: `.accessibilityLabel(iconOnly != nil ? label : "")` — this blanks the label for text buttons.
+  - Good: `.accessibilityLabel(label)` — always expose the label regardless of visual variant.
+- **Descriptive labels for contextual actions.** Use labels that include the context: `"Remove \(label) filter"`, `"Delete memory"`, `"More options"` — not just `"Close"` or `"Delete"`.
+- **Accessibility labels must match the visual content.** If a value is clamped for display (e.g., a progress ring), the accessibility label must use the same clamped value so VoiceOver reports what the user sees.
+
+#### Hidden & Conditional Elements
+
+- **Opacity-hidden elements need `.allowsHitTesting(false)`.** When using `.opacity(isHovered ? 1 : 0)` to show/hide controls, also add `.allowsHitTesting(isHovered)` to prevent invisible elements from intercepting taps.
+- **Opacity-hidden elements need `.accessibilityHidden()`.** Add `.accessibilityHidden(!isVisible)` so VoiceOver does not announce elements the user cannot see. Without this, VoiceOver users encounter "phantom" buttons.
+- **Decorative dividers and separators must be hidden.** Add `.accessibilityHidden(true)` to visual-only elements like `VMenuDivider`, section separators, and decorative rules.
+
+#### Custom Interactive Elements
+
+- **Custom tap targets need `.accessibilityAddTraits(.isButton)` and `.accessibilityAction`.** When using `.onTapGesture` instead of `Button`, VoiceOver cannot activate the element. Add:
+  ```swift
+  .accessibilityElement(children: .combine)
+  .accessibilityLabel(label)
+  .accessibilityAddTraits(.isButton)
+  .accessibilityAction { action() }
+  ```
+- **Disabled items must guard their accessibility actions.** If a menu item or button is disabled, the `.accessibilityAction` closure must check `isEnabled` before executing: `guard isEnabled else { return }`.
+- **Stateful controls need `.accessibilityValue()` and traits.** Toggle-like or selectable items should expose state: `.accessibilityAddTraits(isActive ? [.isSelected] : [])` and `.accessibilityValue(valueText)`.
+- **Section headers need `.accessibilityAddTraits(.isHeader)`.** Mark section titles in menus and lists with the header trait so VoiceOver users can navigate by section.
+
+#### Custom Panels and Popovers (AppKit)
+
+- **NSPanel-based menus must post VoiceOver notifications.** When presenting a custom `NSPanel` (e.g., `VMenuPanel`), post `NSAccessibility.post(element: panel, notification: .created)` and move VoiceOver focus to the first child element.
+- **Do not wrap `NSHostingView` in intermediate container views.** Use `NSHostingView` directly as `contentView` to preserve the natural `NSPanel → NSHostingView → SwiftUI` accessibility hierarchy. Wrapper views (e.g., `FirstMouseView`) break VoiceOver navigation.
+- **Use `.setAccessibilityRoleDescription("menu")` instead of `.setAccessibilityRole(.menu)` for custom panels.** The `.menu` role expects native `NSMenu`-style children that SwiftUI cannot provide; a role *description* preserves the announcement without breaking navigation.
 
 ### State Management: @Observable vs ObservableObject
 
@@ -65,7 +108,7 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 |---|---|
 | New view models and state objects | Deep Combine integration (`@Published` pipelines with `sink`, `combineLatest`, `debounce`, `removeDuplicates`) |
 | Classes with simple stored properties that drive UI | Classes that rely on `objectWillChange` forwarding from nested ObservableObjects |
-| Leaf-node view models observed by a single view | Hub objects that subscribe to many child `objectWillChange` publishers (e.g., ConversationManager) |
+| Leaf-node view models observed by a single view | Hub objects that subscribe to many child `objectWillChange` publishers |
 | Per-entity state objects in dictionary stores | Classes conforming to protocols requiring `ObservableObject` (e.g., `SessionOverlayProviding`) |
 
 <details>
@@ -73,7 +116,7 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 
 The following classes have been migrated from `ObservableObject` to `@Observable`:
 
-**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState
+**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState, ConversationManager, ConversationListStore, ConversationSelectionStore, ConversationActivityStore
 
 **Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager, ChatViewModel
 
@@ -88,8 +131,7 @@ These classes stay `ObservableObject` because they have deep Combine integration
 |---|---|
 | `SettingsStore` | Heavy `UserDefaults.publisher` + Combine pipelines |
 | `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
-| `VoiceModeManager` | Complex Combine pipelines (audio streams, state machine transitions) |
-| `ConversationManager` | Hub object subscribing to many child `objectWillChange` publishers; complex lifecycle |
+| `VoiceModeManager` | `@Published` state machine properties consumed by SwiftUI views; audio stream delegates |
 | `GatewayConnectionManager` | Combine-based SSE event stream processing |
 | `RecordingManager` | Audio capture Combine pipelines |
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
@@ -131,6 +173,20 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 **Migration:** Existing `ObservableObject` types should be migrated opportunistically. Use Combine (`@Published`, `sink`, `onReceive`) only for reactive stream processing (SSE event streams, debounce pipelines, `UserDefaults.publisher`) — not for simple state management.
 
 **Previews:** Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface. If you encounter existing `#Preview` blocks, remove them.
+
+#### ConversationManager 3-Store Architecture
+
+`ConversationManager` is decomposed into three focused `@Observable` stores, each owning a distinct domain of state. This follows Apple's recommendation to use small, focused model objects for property-level tracking ([Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app), [WWDC21 — Demystify SwiftUI](https://developer.apple.com/videos/play/wwdc2021/10022/)).
+
+| Store | Responsibility | Key State |
+|---|---|---|
+| `ConversationListStore` | Conversation and group arrays, sidebar-derived computed properties, pagination, grouping, pinning, ordering, seen/unseen state | `conversations`, `groups`, `visibleConversations`, `groupedConversations`, `unseenVisibleConversationCount` |
+| `ConversationSelectionStore` | Active conversation selection, draft mode, ChatViewModel LRU cache, pop-out window pinning, restoration | `activeConversationId`, `draftViewModel`, `chatViewModels`, `vmAccessOrder`, `pinnedViewModelIds` |
+| `ConversationActivityStore` | Per-conversation busy flags, interaction states, active message count | `busyConversationIds`, `conversationInteractionStates`, `activeMessageCount` |
+
+`ConversationManager` acts as a thin facade wiring the three stores together with app-layer dependencies (daemon connection, fork/detail clients, conversation restorer). Views continue to inject `ConversationManager` via `@Environment` — the facade forwards all public properties and methods to the appropriate store. Cross-cutting operations that touch multiple stores (fork, archive, background-conversation creation) live on the facade.
+
+**Why this matters:** With `@Observable`, property-level tracking means a sidebar view reading `conversations` is not invalidated when `activeConversationId` changes (owned by a different store). This eliminates the broad invalidation cascade that previously caused 100+ sidebar row rebuilds on every conversation switch.
 
 ---
 
@@ -268,9 +324,9 @@ Three fixes outside the scroll subsystem prevent observation feedback loops that
 
 - **Pagination cooldown.** The pagination sentinel enforces a 500ms cooldown between completions via `lastPaginationCompletedAt` on `MessageListScrollState`. This prevents a feedback loop where scroll triggers pagination, `displayedMessageCount` changes cause body re-evaluation, content/geometry changes fire the sentinel again, and pagination re-enters. The cooldown ensures rapid pagination completions cannot cascade.
 
-- **Body-level circuit breaker.** When `isThrottled` is true (more than 100 body evaluations in 2 seconds), `derivedState` returns a cached `MessageListDerivedState` instead of recomputing O(n) derived properties. This makes body re-evaluation cheap during any loop regardless of its source — scroll state changes, pagination, or parent cascade (e.g., `ConversationManager` `objectWillChange`). The circuit breaker is a safety net that caps the cost of body evaluations even when the root-cause loop is not scroll-related.
+- **Body-level circuit breaker.** When `isThrottled` is true (more than 100 body evaluations in 2 seconds), `derivedState` returns a cached `MessageListDerivedState` instead of recomputing O(n) derived properties. This makes body re-evaluation cheap during any loop regardless of its source — scroll state changes, pagination, or parent cascade. The circuit breaker is a safety net that caps the cost of body evaluations even when the root-cause loop is not scroll-related.
 
-- **AssistantActivitySnapshot equality.** `textLength` is excluded from the `Equatable` conformance of `AssistantActivitySnapshot` so that `.removeDuplicates()` in the assistant activity Combine pipeline filters out per-token streaming deltas. As a result, `handleAssistantMessageArrival` only fires on structural message changes (new message, role change, completion) rather than on every token append. This prevents per-token `objectWillChange` emissions from `ConversationManager`, which would otherwise cascade into `MessageListBody` re-evaluation and scroll-state recomputation on every streamed token.
+- **AssistantActivitySnapshot equality.** `AssistantActivitySnapshot` captures only structural properties (`messageId`, `toolCallCount`, `completedToolCallCount`, `surfaceCount`, `isStreaming`) — not per-token text content. The `withObservationTracking` loop in `ConversationActivityStore` compares the previous and current snapshots (`previousSnapshot != snapshot`) and only invokes `handleAssistantMessageArrival` on structural changes (new message, tool completion, streaming state transition). This prevents per-token mutations from cascading into `MessageListBody` re-evaluation and scroll-state recomputation on every streamed token.
 
 ### Rules
 

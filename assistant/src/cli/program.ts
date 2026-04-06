@@ -26,6 +26,7 @@ import { registerMemoryCommand } from "./commands/memory.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
+import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
@@ -75,6 +76,7 @@ Examples:
   registerNotificationsCommand(program);
   registerPlatformCommand(program);
   registerOAuthCommand(program);
+  registerRoutesCommand(program);
   registerSkillsCommand(program);
   registerBrowserRelayCommand(program);
   registerUsageCommand(program);

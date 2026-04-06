@@ -505,11 +505,13 @@ final class MessageSendCoordinator {
         // currentAssistantMessageId), complete them locally and return —
         // there is nothing to cancel on the daemon side.
         if !messageManager.isSending && !messageManager.isThinking && delegate.currentAssistantMessageId == nil && delegate.hasIncompleteToolCalls {
-            if let lastAssistant = messageManager.messages.last(where: { $0.role == .assistant }),
-               let index = messageManager.messages.firstIndex(where: { $0.id == lastAssistant.id }) {
-                for j in messageManager.messages[index].toolCalls.indices where !messageManager.messages[index].toolCalls[j].isComplete {
-                    messageManager.messages[index].toolCalls[j].isComplete = true
-                    messageManager.messages[index].toolCalls[j].completedAt = Date()
+            messageManager.batchUpdateMessages { msgs in
+                if let lastAssistant = msgs.last(where: { $0.role == .assistant }),
+                   let index = msgs.firstIndex(where: { $0.id == lastAssistant.id }) {
+                    for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
+                        msgs[index].toolCalls[j].isComplete = true
+                        msgs[index].toolCalls[j].completedAt = Date()
+                    }
                 }
             }
             return
@@ -574,16 +576,18 @@ final class MessageSendCoordinator {
         messageManager.isWorkspaceRefinementInFlight = false
         messageManager.isThinking = false
 
-        // Mark current assistant message as stopped and complete any in-progress tool calls
-        // so their chips don't show an endless spinner.
-        if let existingId = delegate.currentAssistantMessageId,
-           let index = messageManager.messages.firstIndex(where: { $0.id == existingId }) {
-            messageManager.messages[index].isStreaming = false
-            messageManager.messages[index].streamingCodePreview = nil
-            messageManager.messages[index].streamingCodeToolName = nil
-            for j in messageManager.messages[index].toolCalls.indices where !messageManager.messages[index].toolCalls[j].isComplete {
-                messageManager.messages[index].toolCalls[j].isComplete = true
-                messageManager.messages[index].toolCalls[j].completedAt = Date()
+        // Mark current assistant message as stopped and complete any in-progress
+        // tool calls in a single batch so their chips don't show an endless spinner.
+        if let existingId = delegate.currentAssistantMessageId {
+            messageManager.batchUpdateMessages { msgs in
+                guard let index = msgs.firstIndex(where: { $0.id == existingId }) else { return }
+                msgs[index].isStreaming = false
+                msgs[index].streamingCodePreview = nil
+                msgs[index].streamingCodeToolName = nil
+                for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
+                    msgs[index].toolCalls[j].isComplete = true
+                    msgs[index].toolCalls[j].completedAt = Date()
+                }
             }
         }
 
@@ -612,15 +616,26 @@ final class MessageSendCoordinator {
         messageManager.isSending = false
         messageManager.isThinking = false
         delegate.isCancelling = false
-        // Mark current assistant message as stopped
-        if let existingId = delegate.currentAssistantMessageId,
-           let index = messageManager.messages.firstIndex(where: { $0.id == existingId }) {
-            messageManager.messages[index].isStreaming = false
-            messageManager.messages[index].streamingCodePreview = nil
-            messageManager.messages[index].streamingCodeToolName = nil
-            for j in messageManager.messages[index].toolCalls.indices where !messageManager.messages[index].toolCalls[j].isComplete {
-                messageManager.messages[index].toolCalls[j].isComplete = true
-                messageManager.messages[index].toolCalls[j].completedAt = Date()
+        // Mark current assistant message as stopped and reset queued statuses
+        // in a single batch to avoid O(n) synchronous Combine pipeline evaluations.
+        let assistantId = delegate.currentAssistantMessageId
+        messageManager.batchUpdateMessages { msgs in
+            if let existingId = assistantId,
+               let index = msgs.firstIndex(where: { $0.id == existingId }) {
+                msgs[index].isStreaming = false
+                msgs[index].streamingCodePreview = nil
+                msgs[index].streamingCodeToolName = nil
+                for j in msgs[index].toolCalls.indices where !msgs[index].toolCalls[j].isComplete {
+                    msgs[index].toolCalls[j].isComplete = true
+                    msgs[index].toolCalls[j].completedAt = Date()
+                }
+            }
+            for i in msgs.indices {
+                if case .queued = msgs[i].status, msgs[i].role == .user {
+                    msgs[i].status = .sent
+                } else if msgs[i].role == .user && msgs[i].status == .processing {
+                    msgs[i].status = .sent
+                }
             }
         }
         delegate.currentAssistantMessageId = nil
@@ -633,13 +648,6 @@ final class MessageSendCoordinator {
         delegate.requestIdToMessageId = [:]
         delegate.activeRequestIdToMessageId = [:]
         delegate.pendingLocalDeletions.removeAll()
-        for i in messageManager.messages.indices {
-            if case .queued = messageManager.messages[i].status, messageManager.messages[i].role == .user {
-                messageManager.messages[i].status = .sent
-            } else if messageManager.messages[i].role == .user && messageManager.messages[i].status == .processing {
-                messageManager.messages[i].status = .sent
-            }
-        }
     }
 
     // MARK: - Offline Queue Flush

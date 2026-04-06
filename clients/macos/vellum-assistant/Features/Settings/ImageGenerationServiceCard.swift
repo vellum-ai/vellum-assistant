@@ -44,7 +44,7 @@ struct ImageGenerationServiceCard: View {
     var body: some View {
         ServiceModeCard(
             title: "Image Generation",
-            subtitle: "Configure which provider and model to use for AI image generation",
+            subtitle: "Configure which model your assistant uses to generate images",
             draftMode: $draftMode,
             managedContent: {
                 if isLoggedIn {
@@ -61,13 +61,7 @@ struct ImageGenerationServiceCard: View {
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     // API Key field
-                    VTextField(
-                        "API Key",
-                        placeholder: "Enter your API key",
-                        text: $apiKeyText,
-                        isSecure: true,
-                        errorMessage: store.imageGenKeySaveError
-                    )
+                    apiKeyField
 
                     // Model picker
                     modelPicker
@@ -75,7 +69,9 @@ struct ImageGenerationServiceCard: View {
                     // Action buttons
                     ServiceCardActions(
                         hasChanges: hasChanges,
+                        isSaving: store.imageGenKeySaving,
                         onSave: { save() },
+                        savingLabel: "Validating...",
                         onReset: {
                             store.clearImageGenKey()
                             apiKeyText = ""
@@ -124,6 +120,25 @@ struct ImageGenerationServiceCard: View {
         }
     }
 
+    // MARK: - API Key Field
+
+    private var apiKeyField: some View {
+        let placeholder: String = {
+            if isConnected {
+                return "••••••••••••••••"
+            }
+            return "Enter your Gemini API key"
+        }()
+        return VTextField(
+            "API Key",
+            placeholder: placeholder,
+            text: $apiKeyText,
+            isSecure: true,
+            errorMessage: store.imageGenKeySaveError
+        )
+        .disabled(store.imageGenKeySaving)
+    }
+
     // MARK: - Model Picker
 
     private var modelPicker: some View {
@@ -144,11 +159,16 @@ struct ImageGenerationServiceCard: View {
     // MARK: - Save
 
     private func save() {
-        // Persist API key if entered and in your-own mode
+        // Persist API key if entered and in your-own mode.
+        // saveImageGenKey is async (validates with the provider before storing).
+        // The key text is kept until validation succeeds so the user can retry.
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
-            store.saveImageGenKey(trimmedKey)
-            apiKeyText = ""
+            let keyTextBinding = $apiKeyText
+            store.saveImageGenKey(trimmedKey, onSuccess: {
+                keyTextBinding.wrappedValue = ""
+                showToast("Gemini API key saved", .success)
+            })
         }
 
         let modeChanged = draftMode != store.imageGenMode

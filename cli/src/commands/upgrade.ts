@@ -18,7 +18,7 @@ import {
 } from "../lib/docker";
 import { resolveImageRefs } from "../lib/platform-releases";
 import {
-  fetchOrganizationId,
+  authHeaders,
   getPlatformUrl,
   readPlatformToken,
 } from "../lib/platform-client";
@@ -707,7 +707,7 @@ async function upgradePlatform(
     process.exit(1);
   }
 
-  const orgId = await fetchOrganizationId(token, entry.runtimeUrl);
+  const headers = await authHeaders(token, entry.runtimeUrl);
 
   const url = `${entry.runtimeUrl || getPlatformUrl()}/v1/assistants/upgrade/`;
   const body: { assistant_id?: string; version?: string } = {
@@ -719,13 +719,27 @@ async function upgradePlatform(
 
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Session-Token": token,
-      "Vellum-Organization-Id": orgId,
-    },
+    headers,
     body: JSON.stringify(body),
   });
+
+  if (response.status === 401 || response.status === 403) {
+    const text = await response.text();
+    console.error(
+      `Authentication failed (${response.status}). Run 'vellum login' to refresh.`,
+    );
+    emitCliError("AUTH_FAILED", "Authentication failed", text);
+    try {
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      );
+    } catch {
+      // Best-effort — broadcast may fail if the assistant is unreachable
+    }
+    process.exit(1);
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -737,11 +751,15 @@ async function upgradePlatform(
       `Platform upgrade failed (${response.status})`,
       text,
     );
-    await broadcastUpgradeEvent(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
-    );
+    try {
+      await broadcastUpgradeEvent(
+        entry.runtimeUrl,
+        entry.assistantId,
+        buildCompleteEvent(entry.serviceGroupVersion ?? "unknown", false),
+      );
+    } catch {
+      // Best-effort — broadcast may fail if the assistant is unreachable
+    }
     process.exit(1);
   }
 

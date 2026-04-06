@@ -130,6 +130,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations", scopes: ["chat.read"] },
   { endpoint: "conversations:POST", scopes: ["chat.write"] },
   { endpoint: "conversations/fork", scopes: ["chat.write"] },
+  { endpoint: "conversations/analyze", scopes: ["chat.write"] },
   { endpoint: "conversations/switch", scopes: ["chat.write"] },
   { endpoint: "conversations/name", scopes: ["chat.write"] },
   { endpoint: "conversations/cancel", scopes: ["chat.write"] },
@@ -480,6 +481,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Tools
   { endpoint: "tools", scopes: ["settings.read"] },
   { endpoint: "tools/simulate-permission", scopes: ["settings.read"] },
+
+  // Permission mode
+  { endpoint: "permission-mode:GET", scopes: ["settings.read"] },
+  { endpoint: "permission-mode", scopes: ["settings.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
@@ -531,4 +536,21 @@ registerPolicy("admin/workspace-commit", {
 registerPolicy("admin/rollback-migrations", {
   requiredScopes: ["internal.write"],
   allowedPrincipalTypes: ["svc_gateway"],
+});
+
+// Profiler management: gateway-only control-plane endpoints
+registerPolicy("profiler/runs", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
+registerPolicy("profiler/runs/export", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
+// User-defined routes under /x/*
+registerPolicy("x", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
 });

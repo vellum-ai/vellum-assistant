@@ -160,6 +160,7 @@ export class Conversation {
   /** @internal */ allowedToolNames?: Set<string>;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
+  /** @internal */ subagentAllowedTools?: Set<string>;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
@@ -174,6 +175,7 @@ export class Conversation {
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
+  /** @internal */ isSubagent = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -279,6 +281,7 @@ export class Conversation {
     memoryPolicy?: ConversationMemoryPolicy,
     sharedCesClient?: CesClient,
     speedOverride?: Speed,
+    cacheTtl?: "5m" | "1h",
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
@@ -417,6 +420,7 @@ export class Conversation {
         ...(fastModeEnabled && resolvedSpeed === "fast"
           ? { speed: resolvedSpeed }
           : {}),
+        ...(cacheTtl ? { cacheTtl } : {}),
       },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
@@ -441,6 +445,7 @@ export class Conversation {
   async loadFromDb(): Promise<void> {
     await loadFromDbImpl(this);
     this.restoreSurfaceStateFromHistory();
+    this.graphMemory.restoreState();
   }
 
   /**
@@ -539,6 +544,14 @@ export class Conversation {
     this.sandboxOverride = enabled;
   }
 
+  setSubagentAllowedTools(tools: Set<string> | undefined): void {
+    this.subagentAllowedTools = tools;
+  }
+
+  setIsSubagent(value: boolean): void {
+    this.isSubagent = value;
+  }
+
   isProcessing(): boolean {
     return this.processing;
   }
@@ -568,6 +581,7 @@ export class Conversation {
     this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
     this.memoryScopeId = this.memoryPolicy.scopeId;
+    this.graphMemory.persistState();
     disposeConversation(this);
   }
 

@@ -238,7 +238,7 @@ export const Header: FunctionComponent<HeaderProps> = ({ title, count }) => (
 
 file_write("{workspaceDir}/data/apps/project-tracker/src/styles.css", `.app { padding: var(--v-spacing-lg); }
 .header { display: flex; justify-content: space-between; align-items: center; }
-.badge { background: var(--v-accent); color: white; padding: var(--v-spacing-xs) var(--v-spacing-sm); border-radius: var(--v-radius-pill); }`)
+.badge { background: var(--v-accent); color: var(--v-aux-white); padding: var(--v-spacing-xs) var(--v-spacing-sm); border-radius: var(--v-radius-pill); }`)
 
 # After all files are written, compile and refresh:
 app_refresh(app_id)
@@ -290,8 +290,11 @@ Available design tokens:
 | **Typography**  | `--v-font-family`, `--v-font-mono`, `--v-font-size-xs` (10px) / `-sm` (11px) / `-base` (14px) / `-lg` (17px) / `-xl` (22px) / `-2xl` (26px), `--v-line-height` |
 | **Animation**   | `--v-duration-fast` (0.15s) / `-standard` (0.25s) / `-slow` (0.4s)                                                                                             |
 | **Palettes**    | `--v-slate-{950..50}`, `--v-emerald-*`, `--v-violet-*`, `--v-indigo-*`, `--v-rose-*`, `--v-amber-*`                                                            |
+| **Constant**    | `--v-aux-white` (always `#FFFFFF` in both modes — use for text on filled/accent backgrounds)                                                                    |
 
 Utility classes: `.v-button` (`.secondary`/`.danger`/`.ghost`), `.v-card`, `.v-list`/`.v-list-item`, `.v-badge` (`.success`/`.warning`/`.danger`), `.v-input-row`, `.v-empty-state`, `.v-toggle`.
+
+**Never hardcode `color: white` or `color: #fff`.** Use `var(--v-aux-white)` for text on filled/accent backgrounds, or `var(--v-text)` / `var(--v-text-secondary)` for text on surface backgrounds. Hardcoded white causes invisible text on light surfaces.
 
 **Custom themes:** When the user wants a specific branded look, write complete CSS with hardcoded colors and `@media (prefers-color-scheme: dark)` for dark variants. Don't mix `--v-*` auto-switching variables with hardcoded colors in the same element.
 

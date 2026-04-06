@@ -29,9 +29,15 @@ export interface ResolvedImage {
 // InContextTracker — tracks which node IDs are visible to the LLM
 // ---------------------------------------------------------------------------
 
-interface InjectionLogEntry {
+export interface InjectionLogEntry {
   nodeId: string;
   turn: number;
+}
+
+export interface InContextTrackerSnapshot {
+  inContext: string[];
+  log: InjectionLogEntry[];
+  currentTurn: number;
 }
 
 /**
@@ -105,6 +111,22 @@ export class InContextTracker {
   /** Current turn number. */
   getTurn(): number {
     return this.currentTurn;
+  }
+
+  /** Serialize tracker state for persistence across eviction. */
+  toJSON(): InContextTrackerSnapshot {
+    return {
+      inContext: [...this.inContext],
+      log: [...this.log],
+      currentTurn: this.currentTurn,
+    };
+  }
+
+  /** Restore tracker state from a persisted snapshot. Replaces current state. */
+  restoreFrom(snapshot: InContextTrackerSnapshot): void {
+    this.inContext = new Set(snapshot.inContext);
+    this.log = [...snapshot.log];
+    this.currentTurn = snapshot.currentTurn;
   }
 }
 
@@ -317,7 +339,10 @@ export function assembleContextBlock(
   if (capabilities.length > 0) {
     const entries = capabilities.slice(0, 5).map((scored) => {
       const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
-      return `- ${content} → use skill_load to activate`;
+      const suffix = /skill \(/.test(content)
+        ? " → use skill_load to activate"
+        : "";
+      return `- ${content}${suffix}`;
     });
     parts.push(`### Skills You Can Use\n${entries.join("\n")}`);
   }
@@ -373,7 +398,10 @@ export function assembleInjectionBlock(nodes: ScoredNode[]): string {
     .map((scored) => {
       if (isCapabilityNode(scored.node)) {
         const content = scored.node.content.replace(/^(?:skill|cli):\S+\n/, "");
-        return `- [skill] ${content} → use skill_load to activate`;
+        if (/skill \(/.test(content)) {
+          return `- [skill] ${content} → use skill_load to activate`;
+        }
+        return `- ${content}`;
       }
       if (scored.node.eventDate != null) {
         return formatUpcomingEntry(scored);

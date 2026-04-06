@@ -46,9 +46,9 @@ import os
     }
 
     /// Maximum Sentry attachment size (100 MB). The SDK default is 20 MB,
-    /// but workspace files included in log archives can exceed that. Sentry's
-    /// server-side limit is 200 MB uncompressed / 40 MB compressed, so 100 MB
-    /// provides sufficient headroom.
+    /// but large log archives can exceed that. Sentry's server-side limit is
+    /// 200 MB uncompressed / 40 MB compressed, so 100 MB provides sufficient
+    /// headroom.
     nonisolated static let sentryMaxAttachmentSize: UInt = 100 * 1024 * 1024
 
     /// DSN for the macOS app Sentry project. Read from SENTRY_DSN_MACOS env var;

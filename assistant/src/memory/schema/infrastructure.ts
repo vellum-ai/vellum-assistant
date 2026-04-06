@@ -25,6 +25,9 @@ export const cronJobs = sqliteTable("cron_jobs", {
   routingHintsJson: text("routing_hints_json").notNull().default("{}"),
   status: text("status").notNull().default("active"), // 'active' | 'firing' | 'fired' | 'cancelled'
   quiet: integer("quiet", { mode: "boolean" }).notNull().default(false), // suppress completion notifications
+  reuseConversation: integer("reuse_conversation", { mode: "boolean" })
+    .notNull()
+    .default(false), // reuse the same conversation across runs
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -118,7 +121,10 @@ export const llmRequestLogs = sqliteTable(
     responsePayload: text("response_payload").notNull(),
     createdAt: integer("created_at").notNull(),
   },
-  (table) => [index("idx_llm_request_logs_message_id").on(table.messageId)],
+  (table) => [
+    index("idx_llm_request_logs_message_id").on(table.messageId),
+    index("idx_llm_request_logs_created_at").on(table.createdAt),
+  ],
 );
 
 export const memoryRecallLogs = sqliteTable(
@@ -144,6 +150,7 @@ export const memoryRecallLogs = sqliteTable(
     topCandidatesJson: text("top_candidates_json").notNull(),
     injectedText: text("injected_text"),
     reason: text("reason"),
+    queryContext: text("query_context"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [

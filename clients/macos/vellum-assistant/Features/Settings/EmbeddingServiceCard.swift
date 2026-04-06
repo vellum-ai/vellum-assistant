@@ -115,7 +115,7 @@ struct EmbeddingServiceCard: View {
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(radius: VRadius.xl, background: VColor.surfaceOverlay)
+        .vCard(radius: VRadius.xl)
         .onAppear {
             draftProvider = store.embeddingProvider
             draftModel = store.embeddingModel ?? ""

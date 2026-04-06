@@ -62,6 +62,8 @@ struct InlineAudioAttachmentView: View {
     @State private var hasRetriedOnce = false
     @State private var isSaving = false
     @State private var isHovering = false
+    /// Width of the progress bar track, measured via `.onGeometryChange()`.
+    @State private var trackWidth: CGFloat = 0
 
     /// Coordinator object that acts as AVAudioPlayerDelegate to detect playback
     /// completion and relay it back to the SwiftUI state.
@@ -176,31 +178,34 @@ struct InlineAudioAttachmentView: View {
 
     private var progressBar: some View {
         TimelineView(.periodic(from: .now, by: isPlaying ? 0.1 : 60)) { _ in
-            GeometryReader { geo in
-                let dur = currentDuration
-                let prog = currentProgress
-                ZStack(alignment: .leading) {
-                    // Track
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(VColor.borderBase.opacity(0.5))
-                        .frame(height: 3)
+            let dur = currentDuration
+            let prog = currentProgress
+            ZStack(alignment: .leading) {
+                // Track
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(VColor.borderBase.opacity(0.5))
+                    .frame(height: 3)
 
-                    // Filled portion
-                    if dur > 0 {
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(VColor.systemPositiveStrong)
-                            .frame(width: max(0, geo.size.width * CGFloat(prog / dur)), height: 3)
-                    }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { location in
-                    guard dur > 0, let player = audioPlayer else { return }
-                    let fraction = max(0, min(1, location.x / geo.size.width))
-                    player.currentTime = fraction * dur
+                // Filled portion
+                if dur > 0, trackWidth > 0 {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(VColor.systemPositiveStrong)
+                        .frame(width: max(0, trackWidth * CGFloat(prog / dur)), height: 3)
                 }
             }
-            .frame(height: 3)
+            .contentShape(Rectangle())
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { newWidth in
+                trackWidth = newWidth
+            }
+            .onTapGesture { location in
+                guard dur > 0, let player = audioPlayer, trackWidth > 0 else { return }
+                let fraction = max(0, min(1, location.x / trackWidth))
+                player.currentTime = fraction * dur
+            }
         }
+        .frame(height: 3)
     }
 
     private var timeDisplay: some View {

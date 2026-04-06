@@ -52,10 +52,11 @@ extension MainWindowView {
     }
 
     /// Unread count in the Scheduled section, used to trigger auto-expand.
+    /// Filters `conversations` directly instead of calling `visibleConversations` to avoid
+    /// an unnecessary O(N log N) sort — only the count is needed.
     private var scheduledUnreadCount: Int {
-        conversationManager.visibleConversations
-            .filter { $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
-            .count
+        conversationManager.conversations
+            .count { !$0.isArchived && $0.kind != .private && $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
     }
 
     var displayedApps: [AppListManager.AppItem] {
@@ -119,6 +120,7 @@ extension MainWindowView {
     /// Builds a `SidebarSectionView` for a group. Extracted from the ForEach body
     /// to reduce type-checker pressure (the init has many parameters).
     private func makeSectionView(group: ConversationGroup, conversations: [ConversationModel]) -> SidebarSectionView {
+        let isPinned = group.id == ConversationGroup.pinned.id
         let isScheduled = group.id == ConversationGroup.scheduled.id
         let isBackground = group.id == ConversationGroup.background.id
         let countMode: SidebarSectionView.CountMode = isScheduled
@@ -139,7 +141,7 @@ extension MainWindowView {
             conversations: conversations,
             isExpanded: sidebar.expandedSections.contains(group.id),
             showAll: sidebar.showAllInSection.contains(group.id),
-            maxCollapsed: 5,
+            maxCollapsed: isPinned ? .max : 5,
             isDropTarget: sidebar.dropTargetSectionId == group.id,
             countMode: countMode,
             isRenaming: sidebar.renamingGroupId == group.id,
@@ -208,6 +210,10 @@ extension MainWindowView {
             onDragStart: {
                 sidebar.beginConversationDrag(conversation.id)
             },
+            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation && conversation.kind != .private ? {
+                selectConversation(conversation)
+                Task<Void, Never> { await conversationManager.analyzeActiveConversation() }
+            } : nil,
             onOpenInNewWindow: conversation.conversationId != nil ? {
                 AppDelegate.shared?.threadWindowManager?.openThread(
                     conversationLocalId: conversation.id,
@@ -339,6 +345,44 @@ extension MainWindowView {
             }
             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
             .padding(.bottom, VSpacing.xs)
+        }
+
+        // Fallback pagination: the ungrouped section is always the last
+        // rendered section. When every section fits within its collapse
+        // limit (no "Show more" buttons visible) but the server has more
+        // conversations, auto-trigger loading so users can reach them.
+        // Gate on ALL sections — not just ungrouped — to avoid eager
+        // full-load in grouped-heavy workspaces.
+        if conversations.count <= 5,
+           conversationManager.hasMoreConversations,
+           !conversationManager.groupedConversations.contains(where: { entry in
+               guard let group = entry.group else { return false }
+               // Skip custom groups when feature flag is off — rendering
+               // hides them and folds their conversations into ungrouped.
+               if !group.isSystemGroup && !assistantFeatureFlagStore.isEnabled("conversation-groups-ui") {
+                   return false
+               }
+               let isPinned = group.id == ConversationGroup.pinned.id
+               let isScheduled = group.id == ConversationGroup.scheduled.id
+               let isBackground = group.id == ConversationGroup.background.id
+               let maxCollapsed = isPinned ? Int.max : 5
+               if isScheduled || isBackground {
+                   // Subgroup count mode — "Show more" triggers on distinct
+                   // subgroup count, not total conversation count.
+                   let grouper: (ConversationModel) -> String? = isScheduled
+                       ? { $0.scheduleJobId }
+                       : { $0.source }
+                   var keys = Set<String>()
+                   for c in entry.conversations { keys.insert(grouper(c) ?? c.id.uuidString) }
+                   return keys.count > maxCollapsed
+               }
+               return entry.conversations.count > maxCollapsed
+           }) {
+            Color.clear
+                .frame(height: 0)
+                .onAppear {
+                    conversationManager.loadAllRemainingConversations()
+                }
         }
     }
 

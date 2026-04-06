@@ -410,8 +410,15 @@ export function handleListMessages(
     rawMessages = getMessages(resolvedConversationId);
   }
 
+  // During streaming, tool_use (assistant) and tool_result (user) events are
+  // assembled client-side into a single assistant ChatMessage. On reload, they
+  // are separate DB rows. Merge tool_result blocks from user messages into the
+  // preceding assistant message so renderHistoryContent can pair them via its
+  // pendingToolUses map — otherwise they render as "Unknown" tool calls.
+  const mergedMessages = mergeToolResultsIntoAssistantMessages(rawMessages);
+
   // Parse content blocks and extract text + tool calls
-  const parsed = rawMessages.map((msg) => {
+  const parsed = mergedMessages.map((msg) => {
     let content: unknown;
     try {
       content = JSON.parse(msg.content);
@@ -424,10 +431,33 @@ export function handleListMessages(
     // was queued or its persistence was delayed (long assistant generation),
     // sentAt captures the actual event time. Falls back to createdAt.
     let sentAt: number | undefined;
+    let subagentNotification:
+      | {
+          subagentId: string;
+          label: string;
+          status: string;
+          error?: string;
+          conversationId?: string;
+        }
+      | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+        if (meta.subagentNotification) {
+          const n = meta.subagentNotification;
+          if (typeof n.subagentId === "string" && typeof n.label === "string") {
+            subagentNotification = {
+              subagentId: n.subagentId,
+              label: n.label,
+              status: typeof n.status === "string" ? n.status : "completed",
+              ...(typeof n.error === "string" ? { error: n.error } : {}),
+              ...(typeof n.conversationId === "string"
+                ? { conversationId: n.conversationId }
+                : {}),
+            };
+          }
+        }
       } catch {
         // Ignore malformed metadata
       }
@@ -475,6 +505,7 @@ export function handleListMessages(
           ? { thinkingSegments: rendered.thinkingSegments }
           : {}),
         id: msg.id,
+        subagentNotification,
       };
     }
 
@@ -492,6 +523,7 @@ export function handleListMessages(
         ? { thinkingSegments: rendered.thinkingSegments }
         : {}),
       id: msg.id,
+      subagentNotification,
     };
   });
 
@@ -580,6 +612,9 @@ export function handleListMessages(
         ? { thinkingSegments: m.thinkingSegments }
         : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
+      ...(m.subagentNotification
+        ? { subagentNotification: m.subagentNotification }
+        : {}),
     };
   });
 
@@ -597,6 +632,155 @@ export function handleListMessages(
   }
 
   return Response.json({ messages });
+}
+
+// ── Tool-result merging ─────────────────────────────────────────────
+
+function isToolResultType(type: string): boolean {
+  return type === "tool_result" || type === "web_search_tool_result";
+}
+
+function isSystemNoticeText(block: Record<string, unknown>): boolean {
+  if (block.type !== "text") return false;
+  const text = typeof block.text === "string" ? block.text : "";
+  return text.startsWith("<system_notice>") && text.endsWith("</system_notice>");
+}
+
+/**
+ * Merge tool_result blocks from user messages into the preceding assistant
+ * message's content array. This lets renderHistoryContent's pendingToolUses
+ * map pair tool_use and tool_result blocks, preventing "unknown" tool names.
+ *
+ * User messages that consist entirely of tool_result blocks (and optional
+ * system_notice text) are removed from the output. Mixed messages (tool_result
+ * + real user text) keep only the non-tool-result blocks.
+ */
+function mergeToolResultsIntoAssistantMessages(
+  messages: MessageRow[],
+): MessageRow[] {
+  // Index of the most recent assistant message in the output array.
+  let lastAssistantIdx = -1;
+  // Parsed content caches — lazily populated per assistant message.
+  const parsedAssistantContent = new Map<number, unknown[]>();
+
+  const result: MessageRow[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === "assistant") {
+      lastAssistantIdx = result.length;
+      result.push(msg);
+      continue;
+    }
+
+    // Only process user messages — other roles pass through.
+    if (msg.role !== "user") {
+      result.push(msg);
+      continue;
+    }
+
+    let blocks: unknown[];
+    try {
+      const parsed = JSON.parse(msg.content);
+      if (!Array.isArray(parsed)) {
+        result.push(msg);
+        continue;
+      }
+      blocks = parsed;
+    } catch {
+      result.push(msg);
+      continue;
+    }
+
+    // Separate tool-result blocks from real user content.
+    const toolResultBlocks: unknown[] = [];
+    const otherBlocks: unknown[] = [];
+    for (const block of blocks) {
+      if (
+        typeof block === "object" &&
+        block !== null &&
+        typeof (block as Record<string, unknown>).type === "string"
+      ) {
+        const rec = block as Record<string, unknown>;
+        if (isToolResultType(rec.type as string)) {
+          toolResultBlocks.push(block);
+        } else if (isSystemNoticeText(rec)) {
+          // System notices don't count as user content — drop them when
+          // the message is otherwise tool-result-only.
+          otherBlocks.push(block);
+        } else {
+          otherBlocks.push(block);
+        }
+      } else {
+        otherBlocks.push(block);
+      }
+    }
+
+    // No tool results → pass through unchanged.
+    if (toolResultBlocks.length === 0) {
+      result.push(msg);
+      continue;
+    }
+
+    // Append tool_result blocks to the preceding assistant message's content.
+    if (lastAssistantIdx >= 0) {
+      const assistant = result[lastAssistantIdx];
+      let assistantContent = parsedAssistantContent.get(lastAssistantIdx);
+      if (!assistantContent) {
+        try {
+          const parsed = JSON.parse(assistant.content);
+          assistantContent = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          assistantContent = [];
+        }
+        parsedAssistantContent.set(lastAssistantIdx, assistantContent);
+      }
+      assistantContent.push(...toolResultBlocks);
+    } else {
+      // No preceding assistant message (pagination boundary) — keep the
+      // original message as-is to avoid permanent data loss. The preceding
+      // assistant tool_use lives in the previous page; dropping the result
+      // here would be unrecoverable.
+      // Still strip system notices so internal prompt text isn't exposed.
+      const filteredBlocks = blocks.filter(
+        (b) =>
+          !(
+            typeof b === "object" &&
+            b !== null &&
+            isSystemNoticeText(b as Record<string, unknown>)
+          ),
+      );
+      result.push({
+        ...msg,
+        content:
+          filteredBlocks.length === blocks.length
+            ? msg.content
+            : JSON.stringify(filteredBlocks),
+      });
+      continue;
+    }
+
+    // If the user message had only tool_result (+ system_notice) blocks,
+    // suppress it entirely. Otherwise keep the non-tool-result content.
+    const realUserContent = otherBlocks.filter(
+      (b) =>
+        !(
+          typeof b === "object" &&
+          b !== null &&
+          isSystemNoticeText(b as Record<string, unknown>)
+        ),
+    );
+    if (realUserContent.length > 0) {
+      result.push({ ...msg, content: JSON.stringify(otherBlocks) });
+    }
+    // else: tool-result-only → suppressed (results already merged above)
+  }
+
+  // Write back any modified assistant message content.
+  for (const [idx, content] of parsedAssistantContent) {
+    result[idx] = { ...result[idx], content: JSON.stringify(content) };
+  }
+
+  return result;
 }
 
 /**
@@ -658,13 +842,10 @@ function makeHubPublisher(
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           commandPreview:
-            redactSecrets(
-              summarizeToolInput(msg.toolName, inputRecord),
-            ) || undefined,
+            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+            undefined,
           riskLevel: msg.riskLevel,
-          activityText: activityRaw
-            ? redactSecrets(activityRaw)
-            : undefined,
+          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
           executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
@@ -791,9 +972,11 @@ export async function handleSendMessage(
     );
   }
 
-  if (!conversationKey) {
-    return httpError("BAD_REQUEST", "conversationKey is required", 400);
-  }
+  // When conversationKey is omitted, derive a stable default from
+  // sourceChannel + sourceInterface so that repeated calls from the same
+  // channel/interface pair share a single conversation thread.
+  const resolvedConversationKey =
+    conversationKey ?? `default:${sourceChannel}:${sourceInterface}`;
 
   // Reject non-string content values (numbers, objects, etc.)
   if (content != null && typeof content !== "string") {
@@ -856,7 +1039,7 @@ export async function handleSendMessage(
 
   const conversationType =
     body.conversationType === "private" ? ("private" as const) : undefined;
-  const mapping = getOrCreateConversation(conversationKey, {
+  const mapping = getOrCreateConversation(resolvedConversationKey, {
     conversationType,
   });
   const smDeps = deps.sendMessageDeps;
@@ -1143,36 +1326,47 @@ export async function handleSendMessage(
     // Auto-deny pending confirmations only after enqueue succeeds, so we
     // don't cancel approval-gated workflows when the replacement message
     // is itself rejected by the queue budget.
-    if (conversation.hasAnyPendingConfirmation()) {
-      // Emit authoritative denial state for each pending request.
-      // sendToClient (wired to the SSE hub) delivers these to the client.
-      for (const interaction of pendingInteractions.getByConversation(
-        mapping.conversationId,
-      )) {
-        if (
-          interaction.conversation === conversation &&
-          interaction.kind === "confirmation"
-        ) {
-          conversation.emitConfirmationStateChanged({
-            conversationId: mapping.conversationId,
-            requestId: interaction.requestId,
-            state: "denied" as const,
-            source: "auto_deny" as const,
-          });
-          // Sync canonical guardian request status so stale "pending" DB
-          // records don't get matched by later guardian reply routing.
-          resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
-            status: "denied",
-          });
+    // Wrapped in try-catch: the message is already enqueued, so a failure
+    // here must not turn the 202 response into a 500 — that would leave
+    // the client showing "Failed to send" for a message the daemon will
+    // process from the queue.
+    try {
+      if (conversation.hasAnyPendingConfirmation()) {
+        // Emit authoritative denial state for each pending request.
+        // sendToClient (wired to the SSE hub) delivers these to the client.
+        for (const interaction of pendingInteractions.getByConversation(
+          mapping.conversationId,
+        )) {
+          if (
+            interaction.conversation === conversation &&
+            interaction.kind === "confirmation"
+          ) {
+            conversation.emitConfirmationStateChanged({
+              conversationId: mapping.conversationId,
+              requestId: interaction.requestId,
+              state: "denied" as const,
+              source: "auto_deny" as const,
+            });
+            // Sync canonical guardian request status so stale "pending" DB
+            // records don't get matched by later guardian reply routing.
+            resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+              status: "denied",
+            });
+          }
         }
+        conversation.denyAllPendingConfirmations();
+        pendingInteractions.removeByConversation(conversation);
       }
-      conversation.denyAllPendingConfirmations();
-      pendingInteractions.removeByConversation(conversation);
-    }
 
-    // Expire any orphaned canonical requests that survived without a
-    // matching in-memory pending interaction (e.g. prompter timeouts).
-    expireOrphanedCanonicalRequests(mapping.conversationId);
+      // Expire any orphaned canonical requests that survived without a
+      // matching in-memory pending interaction (e.g. prompter timeouts).
+      expireOrphanedCanonicalRequests(mapping.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: mapping.conversationId },
+        "Post-enqueue auto-deny failed — queued message unaffected",
+      );
+    }
 
     return Response.json(
       { accepted: true, queued: true, conversationId: mapping.conversationId },
@@ -1397,7 +1591,10 @@ export async function handleSendMessage(
           conversationId,
         });
         conversation.processing = false;
-        silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
+        silentlyWithLog(
+          conversation.drainQueue(),
+          "compact-command queue drain",
+        );
       }, 0);
 
       cleanupDeferred = true;
@@ -1713,7 +1910,7 @@ export function conversationRouteDefinitions(deps: {
         "Send a user message to a conversation and trigger the assistant response.",
       tags: ["messages"],
       requestBody: z.object({
-        conversationKey: z.string(),
+        conversationKey: z.string().optional(),
         content: z.string().describe("Message text content"),
         attachments: z
           .array(z.unknown())

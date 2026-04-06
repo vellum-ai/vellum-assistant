@@ -1000,18 +1000,20 @@ public enum EmojiCatalog {
         EmojiEntry(shortcode: "zzz", emoji: "\u{1F4A4}"),
     ]
 
-    public static func search(prefix: String, limit: Int = 8) -> [EmojiEntry] {
-        let lowered = prefix.lowercased()
+    public static func search(query: String, limit: Int = 8) -> [EmojiEntry] {
+        let lowered = query.lowercased()
         if lowered.isEmpty {
             return Array(all.prefix(limit))
         }
-        var results: [EmojiEntry] = []
+        var prefixMatches: [EmojiEntry] = []
+        var substringMatches: [EmojiEntry] = []
         for entry in all {
             if entry.shortcode.hasPrefix(lowered) {
-                results.append(entry)
-                if results.count >= limit { break }
+                prefixMatches.append(entry)
+            } else if entry.shortcode.contains(lowered) {
+                substringMatches.append(entry)
             }
         }
-        return results
+        return Array((prefixMatches + substringMatches).prefix(limit))
     }
 }

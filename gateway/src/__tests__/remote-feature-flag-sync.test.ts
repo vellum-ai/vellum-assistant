@@ -428,6 +428,43 @@ describe("RemoteFeatureFlagSync", () => {
     );
   });
 
+  test("ignores remote false for GA flags (defaultEnabled: true in registry)", async () => {
+    // The platform sends false for all flags it knows about (blanket-deny).
+    // GA flags (defaultEnabled: true in the registry) should not be disabled
+    // by remote overrides — only local persisted overrides can do that.
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: {
+          // GA flag (defaultEnabled: true) — remote false should be dropped
+          "conversation-starters": false,
+          // Gated flag (defaultEnabled: false) — remote false is kept
+          "email-channel": false,
+          // GA flag set to true — should be kept (redundant but harmless)
+          browser: true,
+          // Unknown flag — remote false is kept (not in registry)
+          "unknown-flag": false,
+        },
+      }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
+    await sync.start();
+    sync.stop();
+
+    clearRemoteFeatureFlagStoreCache();
+    const cached = readRemoteFeatureFlags();
+    // conversation-starters (GA, remote false) should be absent
+    expect(cached["conversation-starters"]).toBeUndefined();
+    // email-channel (gated, remote false) should be present
+    expect(cached["email-channel"]).toBe(false);
+    // browser (GA, remote true) should be present
+    expect(cached.browser).toBe(true);
+    // unknown-flag (not in registry, remote false) should be present
+    expect(cached["unknown-flag"]).toBe(false);
+  });
+
   test("trims whitespace from credential values", async () => {
     fetchMock = mock(async () => Response.json({ flags: {} }));
 

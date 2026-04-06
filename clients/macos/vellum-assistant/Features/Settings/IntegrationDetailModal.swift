@@ -75,13 +75,12 @@ struct IntegrationDetailModal: View {
         ) {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Mode tabs
-                VTabs(
+                VSegmentControl(
                     items: [
                         (label: "Managed", tag: "managed"),
                         (label: "Your Own", tag: "your-own"),
                     ],
-                    selection: $draftMode,
-                    style: .pill
+                    selection: $draftMode
                 )
                 .frame(maxWidth: .infinity)
 

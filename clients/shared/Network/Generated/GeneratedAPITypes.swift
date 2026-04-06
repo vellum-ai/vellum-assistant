@@ -2025,7 +2025,7 @@ public struct HistoryResponseMessage: Codable, Sendable {
     public let contentOrder: [String]?
     /// UI surfaces (widgets) embedded in the message.
     public let surfaces: [HistoryResponseSurface]?
-    /// Present when this message is a subagent lifecycle notification (completed/failed/aborted).
+    /// Present when this message is a subagent lifecycle notification (running/completed/failed/aborted).
     public let subagentNotification: HistoryResponseMessageSubagentNotification?
     /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
     public let wasTruncated: Bool?
@@ -3457,13 +3457,17 @@ public struct ConversationListResponse: Codable, Sendable {
     public let conversations: [ConversationListResponseItem]
     /// Whether more conversations exist beyond the returned page.
     public let hasMore: Bool?
+    /// The offset to use for the next page request. Based on DB-level
+    /// pagination so injected pinned conversations don't inflate the value.
+    public let nextOffset: Int?
     /// Available conversation groups. Sent with the first page only.
     public let groups: [ConversationGroupResponse]?
 
-    public init(type: String, conversations: [ConversationListResponseItem], hasMore: Bool? = nil, groups: [ConversationGroupResponse]? = nil) {
+    public init(type: String, conversations: [ConversationListResponseItem], hasMore: Bool? = nil, nextOffset: Int? = nil, groups: [ConversationGroupResponse]? = nil) {
         self.type = type
         self.conversations = conversations
         self.hasMore = hasMore
+        self.nextOffset = nextOffset
         self.groups = groups
     }
 }
@@ -3473,6 +3477,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let title: String
     public let createdAt: Int?
     public let updatedAt: Int
+    public let lastMessageAt: Int?
     public let conversationType: String?
     public let source: String?
     public let scheduleJobId: String?
@@ -3487,11 +3492,12 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let groupId: String?
     public let forkParent: ConversationForkParent?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.lastMessageAt = lastMessageAt
         self.conversationType = conversationType
         self.source = source
         self.scheduleJobId = scheduleJobId
@@ -3714,6 +3720,15 @@ public struct SignBundlePayloadResponse: Codable, Sendable {
         self.keyId = keyId
         self.publicKey = publicKey
         self.error = error
+    }
+}
+
+/// Sent by the daemon when sounds config or sound files change on disk.
+public struct SoundsConfigUpdated: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
     }
 }
 

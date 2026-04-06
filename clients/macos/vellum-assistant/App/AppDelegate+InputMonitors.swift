@@ -669,7 +669,7 @@ extension AppDelegate {
     func handleQuickInputSelectConversation(_ conversationId: UUID) {
         showMainWindow()
         guard let mainWindow else { return }
-        mainWindow.conversationManager.activeConversationId = conversationId
+        mainWindow.conversationManager.activateConversation(conversationId)
     }
 
     /// Tears down and re-registers the global "Open Vellum" hotkey based on

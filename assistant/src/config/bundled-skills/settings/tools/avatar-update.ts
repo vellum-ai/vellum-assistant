@@ -9,14 +9,17 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import {
+  getAvatarImagePath,
+  getWorkspaceDir,
+} from "../../../../util/platform.js";
 import { updateIdentityAvatarSection } from "./identity-avatar.js";
 
 const log = getLogger("avatar-update");
 
 /** Canonical path where the custom avatar PNG is stored. */
 function getAvatarPath(): string {
-  return join(getWorkspaceDir(), "data", "avatar", "avatar-image.png");
+  return getAvatarImagePath();
 }
 
 export async function run(

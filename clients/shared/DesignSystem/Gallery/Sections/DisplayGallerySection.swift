@@ -166,7 +166,7 @@ struct DisplayGallerySection: View {
                         .foregroundStyle(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
 
                 VDisclosureSection(
                     title: "With Subtitle",
@@ -178,7 +178,7 @@ struct DisplayGallerySection: View {
                         .foregroundStyle(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceOverlay)
+                .vCard()
 
             }
 

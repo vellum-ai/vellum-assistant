@@ -278,6 +278,7 @@ private struct CodeTextView: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? CodeNSTextView else { return }
         if textView.string != text {
+            context.coordinator.cachedHeight = nil
             let selectedRanges = textView.selectedRanges
             textView.string = text
             let length = (text as NSString).length
@@ -303,9 +304,15 @@ private struct CodeTextView: NSViewRepresentable {
         guard let textView = nsView.documentView as? CodeNSTextView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return nil }
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        let height = usedRect.height + textView.textContainerInset.height * 2
+        let height: CGFloat
+        if let cached = context.coordinator.cachedHeight {
+            height = cached
+        } else {
+            layoutManager.ensureLayout(for: textContainer)
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            height = usedRect.height + textView.textContainerInset.height * 2
+            context.coordinator.cachedHeight = height
+        }
         return CGSize(width: proposal.width ?? 400, height: height)
     }
 
@@ -315,6 +322,7 @@ private struct CodeTextView: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CodeTextView
+        var cachedHeight: CGFloat?
 
         init(parent: CodeTextView) {
             self.parent = parent
@@ -322,6 +330,7 @@ private struct CodeTextView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            cachedHeight = nil
             parent.text = textView.string
             parent.onTextChange?(textView.string)
         }

@@ -5,4 +5,5 @@ export type {
   TelegramInboundEvent,
   WhatsAppInboundEvent,
   SlackInboundEvent,
+  EmailInboundEvent,
 } from "./channels/inbound-event.js";

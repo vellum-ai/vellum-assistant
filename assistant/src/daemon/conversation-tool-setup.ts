@@ -7,6 +7,7 @@
  */
 
 import { isHttpAuthDisabled } from "../config/env.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import {
@@ -192,6 +193,7 @@ export function createToolExecutor(
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
       hostFileProxy: ctx.hostFileProxy,
+      isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
@@ -320,8 +322,7 @@ export function createProxyApprovalCallback(
       input.matching_patterns = decision.matchingPatterns;
     }
 
-    const riskLevel =
-      decision.kind === "ask_missing_credential" ? "high" : "medium";
+    const riskLevel: string = "medium";
 
     // Check trust store before prompting — build candidates that mirror
     // buildCommandCandidates() in checker.ts for network_request.
@@ -342,10 +343,7 @@ export function createProxyApprovalCallback(
     );
     if (existingRule && existingRule.decision !== "ask") {
       if (existingRule.decision === "deny") return false;
-      // For high-risk proxy decisions, a plain allow rule (without allowHighRisk)
-      // must fall through to prompting — mirroring the checker's behavior.
-      if (riskLevel !== "high" || existingRule.allowHighRisk === true)
-        return true;
+      return true;
     }
 
     // Use the checker's built-in allowlist generation for network_request
@@ -384,12 +382,13 @@ export function createProxyApprovalCallback(
       response.selectedPattern &&
       response.selectedScope
     ) {
+      const allowHighRisk = response.decision === "always_allow_high_risk";
       log.info(
         {
           toolName,
           pattern: response.selectedPattern,
           scope: response.selectedScope,
-          highRisk: response.decision === "always_allow_high_risk",
+          allowHighRisk,
         },
         "Persisting always-allow trust rule (proxy)",
       );
@@ -399,9 +398,7 @@ export function createProxyApprovalCallback(
         response.selectedScope,
         "allow",
         100,
-        response.decision === "always_allow_high_risk"
-          ? { allowHighRisk: true }
-          : undefined,
+        allowHighRisk ? { allowHighRisk: true } : undefined,
       );
     }
     if (
@@ -436,7 +433,7 @@ export function createProxyApprovalCallback(
  * history or explicit preactivation. Without this, their tools are
  * unavailable in fresh conversations until `skill_load` is called.
  */
-const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications"];
+const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications", "subagent"];
 
 /**
  * Subset of Conversation state that the resolveTools callback reads at each
@@ -454,9 +451,14 @@ export interface SkillProjectionContext {
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
+    clientOS?: string;
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
+  /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
+  subagentAllowedTools?: Set<string>;
+  /** True when this conversation belongs to a subagent spawned by SubagentManager. */
+  readonly isSubagent?: boolean;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -470,6 +472,16 @@ const HOST_TOOL_NAMES = new Set([
 ]);
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
+
+/**
+ * Tools that should only be visible to subagent conversations. Main (parent)
+ * conversations never see these in the LLM tool definitions. Subsequent PRs
+ * will populate this set; it starts empty so there is no behavioral change.
+ */
+export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
+  "file_list",
+  "notify_parent",
+]);
 
 /**
  * Determine whether a tool should be included in the LLM tool definitions
@@ -495,7 +507,12 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
-    return process.platform === "darwin" && !ctx.hasNoClient;
+    // Check the *client's* platform, not the daemon's process.platform.
+    // In Docker the daemon runs on Linux but the connected client may be macOS.
+    return ctx.channelCapabilities?.clientOS === "macos" && !ctx.hasNoClient;
+  }
+  if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
+    return ctx.isSubagent === true;
   }
   return true;
 }
@@ -548,18 +565,27 @@ export function createResolveToolsCallback(
       isToolActiveForContext(d.name, ctx),
     );
 
+    // When the conversation is acting as a subagent, restrict core tools to
+    // only those explicitly allowed by the parent orchestrator.
+    const scopedCoreDefs = ctx.subagentAllowedTools
+      ? filteredCoreDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+      : filteredCoreDefs;
+
     // Re-read MCP tool definitions from the registry each turn so conversations
     // automatically pick up tools added/removed by `vellum mcp reload`.
     const currentMcpDefs = getMcpToolDefinitions();
     log.debug(
       {
-        coreCount: filteredCoreDefs.length,
+        coreCount: scopedCoreDefs.length,
         mcpCount: currentMcpDefs.length,
         mcpTools: currentMcpDefs.map((d) => d.name),
       },
       "MCP tools resolved for turn",
     );
-    const allBaseDefs = [...filteredCoreDefs, ...currentMcpDefs];
+    const scopedMcpDefs = ctx.subagentAllowedTools
+      ? currentMcpDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+      : currentMcpDefs;
+    const allBaseDefs = [...scopedCoreDefs, ...scopedMcpDefs];
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
@@ -572,6 +598,10 @@ export function createResolveToolsCallback(
     });
     const turnAllowed = new Set(allBaseDefs.map((d) => d.name));
     for (const name of projection.allowedToolNames) {
+      // When a subagent allowlist is active, exclude skill tools not on it.
+      if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+        continue;
+      }
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;

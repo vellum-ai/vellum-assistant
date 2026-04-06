@@ -24,10 +24,29 @@ export async function downloadSlackFile(
     throw new Error(`Slack file ${file.id} has no download URL`);
   }
 
-  const response = await fetchImpl(url, {
+  // Use manual redirect handling — Slack may redirect to a CDN subdomain
+  // (e.g. files-edge.slack.com) and the Fetch spec strips the Authorization
+  // header on cross-origin redirects, causing the CDN request to fail.
+  let response = await fetchImpl(url, {
     headers: { Authorization: `Bearer ${botToken}` },
+    redirect: "manual",
     signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
   });
+
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get("Location");
+    if (!location) {
+      throw new Error(
+        `Slack file ${file.id} returned ${response.status} redirect with no Location header`,
+      );
+    }
+    // CDN redirect URLs are signed — no Authorization needed.
+    // Resolve against the original URL to handle relative Location headers.
+    const resolvedLocation = new URL(location, url).href;
+    response = await fetchImpl(resolvedLocation, {
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+    });
+  }
 
   if (!response.ok) {
     throw new Error(

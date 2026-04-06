@@ -1,5 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -130,10 +131,11 @@ export function startNgrokProcess(
   logFilePath?: string,
 ): ChildProcess {
   let stdio: ("ignore" | "pipe" | number)[] = ["ignore", "pipe", "pipe"];
+  let fd: number | undefined;
   if (logFilePath) {
     const dir = dirname(logFilePath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const fd = openSync(logFilePath, "a");
+    fd = openSync(logFilePath, "a");
     stdio = ["ignore", fd, fd];
   }
 
@@ -141,6 +143,14 @@ export function startNgrokProcess(
     detached: true,
     stdio,
   });
+
+  // The child process inherits a duplicate of the fd via dup2, so the
+  // parent's copy is no longer needed. Close it to avoid leaking the
+  // file descriptor for the lifetime of the parent process.
+  if (fd !== undefined) {
+    closeSync(fd);
+  }
+
   return child;
 }
 

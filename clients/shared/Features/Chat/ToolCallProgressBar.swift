@@ -250,7 +250,7 @@ public struct ToolCallProgressBar: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
-                        .frame(maxHeight: 200)
+                        .adaptiveScrollFrame(for: result, maxHeight: 200)
                     }
                 }
             }

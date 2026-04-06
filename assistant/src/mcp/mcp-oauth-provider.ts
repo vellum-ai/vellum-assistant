@@ -2,9 +2,21 @@
  * OAuthClientProvider implementation for MCP servers.
  *
  * Uses secure-keys (credential store) for persistent credential storage
- * and a loopback HTTP server for the browser callback.
+ * and either a loopback HTTP server or the gateway callback registry
+ * for the browser callback.
+ *
+ * Two callback transports:
+ *
+ * 1. **Loopback** (default) — starts a temporary HTTP server on localhost.
+ *    Works when the daemon runs on the user's machine (desktop app).
+ *
+ * 2. **Gateway** — routes callbacks through the platform's public ingress
+ *    URL and the in-memory oauth-callback-registry. Used when the daemon
+ *    runs inside Docker/platform where localhost is unreachable from the
+ *    user's browser.
  */
 
+import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 
 import type {
@@ -46,24 +58,41 @@ export interface McpOAuthCallbackResult {
   codePromise: Promise<string>;
 }
 
+/** Which callback transport to use for receiving the OAuth redirect. */
+export type McpOAuthCallbackTransport = "loopback" | "gateway";
+
 export class McpOAuthProvider implements OAuthClientProvider {
   private readonly serverId: string;
   private readonly serverUrl: string;
   private readonly interactive: boolean;
+  private readonly callbackTransport: McpOAuthCallbackTransport;
   private _codeVerifier: string | undefined;
+  private _state: string | undefined;
   private _redirectUrl: string | undefined;
   private _codePromise: Promise<string> | null = null;
   private callbackServer: Server | null = null;
   private callbackTimeout: ReturnType<typeof setTimeout> | null = null;
+  /** Deferred resolver/rejector for the gateway code promise. */
+  private _gatewayCodeResolve: ((code: string) => void) | undefined;
+  private _gatewayCodeReject: ((err: Error) => void) | undefined;
 
   /**
    * @param interactive When true (e.g. `mcp auth` CLI), opens browser for OAuth.
    *                    When false (daemon), logs a message instead.
+   * @param callbackTransport Which transport to use for the OAuth redirect.
+   *   - `"loopback"` (default): localhost HTTP server — for desktop clients.
+   *   - `"gateway"`: platform ingress + callback registry — for Docker/platform.
    */
-  constructor(serverId: string, serverUrl: string, interactive = false) {
+  constructor(
+    serverId: string,
+    serverUrl: string,
+    interactive = false,
+    callbackTransport: McpOAuthCallbackTransport = "loopback",
+  ) {
     this.serverId = serverId;
     this.serverUrl = serverUrl;
     this.interactive = interactive;
+    this.callbackTransport = callbackTransport;
   }
 
   // --- redirectUrl ---
@@ -161,6 +190,26 @@ export class McpOAuthProvider implements OAuthClientProvider {
     return this._codeVerifier;
   }
 
+  // --- State (CSRF token for OAuth) ---
+
+  /**
+   * Return a `state` value for the authorization URL.
+   *
+   * The MCP SDK calls `provider.state?.()` and, when the return value is
+   * truthy, appends it as the `state` query parameter.  For the **gateway**
+   * transport the state is mandatory because it is the key used by the
+   * `oauth-callback-registry` to route the redirect back to this flow.
+   * For the **loopback** transport the state is optional (the loopback
+   * server matches on the callback URL itself), but we generate one anyway
+   * for defense-in-depth.
+   */
+  async state(): Promise<string> {
+    if (!this._state) {
+      this._state = randomBytes(16).toString("hex");
+    }
+    return this._state;
+  }
+
   // --- Discovery State ---
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
@@ -190,6 +239,35 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
     const url = authorizationUrl.toString();
+
+    // For gateway transport, extract the SDK-generated `state` from the
+    // authorization URL and register it with the callback registry now.
+    if (
+      this.callbackTransport === "gateway" &&
+      this._gatewayCodeResolve &&
+      this._gatewayCodeReject
+    ) {
+      const sdkState = authorizationUrl.searchParams.get("state");
+      if (sdkState) {
+        // Dynamic import to avoid circular deps
+        const { registerPendingCallback } =
+          await import("../security/oauth-callback-registry.js");
+        registerPendingCallback(
+          sdkState,
+          this._gatewayCodeResolve,
+          this._gatewayCodeReject,
+        );
+        log.info(
+          { serverId: this.serverId, state: sdkState },
+          "MCP OAuth gateway callback registered with SDK state",
+        );
+      } else {
+        log.warn(
+          { serverId: this.serverId },
+          "Authorization URL missing state parameter — gateway callback may not resolve",
+        );
+      }
+    }
 
     if (!this.interactive) {
       // Daemon mode — don't open browser, just log guidance
@@ -252,6 +330,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     }
     if (scope === "all" || scope === "verifier") {
       this._codeVerifier = undefined;
+      this._state = undefined;
     }
     if (scope === "all" || scope === "discovery") {
       const result = await deleteSecureKeyAsync(discoveryKey(this.serverId));
@@ -272,10 +351,64 @@ export class McpOAuthProvider implements OAuthClientProvider {
   // --- Callback Server ---
 
   /**
-   * Start a loopback HTTP server to receive the OAuth callback.
-   * Returns a promise that resolves with the authorization code.
+   * Start listening for the OAuth callback.
+   *
+   * - **Loopback transport**: starts a temporary HTTP server on localhost.
+   * - **Gateway transport**: registers a pending callback with the
+   *   oauth-callback-registry and resolves a public redirect URL via
+   *   the platform callback registration system.
+   *
+   * Returns a promise that resolves with the authorization code promise.
    */
   startCallbackServer(): Promise<McpOAuthCallbackResult> {
+    if (this.callbackTransport === "gateway") {
+      return this.startGatewayCallback();
+    }
+    return this.startLoopbackServer();
+  }
+
+  /**
+   * Gateway transport: resolve the public redirect URL and create a
+   * deferred code promise.  The actual `registerPendingCallback` call
+   * is deferred until `redirectToAuthorization` where we can extract
+   * the SDK-generated `state` parameter from the authorization URL.
+   */
+  private async startGatewayCallback(): Promise<McpOAuthCallbackResult> {
+    const { resolveCallbackUrl } =
+      await import("../inbound/platform-callback-registration.js");
+    const { getOAuthCallbackUrl } =
+      await import("../inbound/public-ingress-urls.js");
+    const { loadConfig } = await import("../config/loader.js");
+
+    const appConfig = loadConfig();
+    const redirectUrl = await resolveCallbackUrl(
+      () => getOAuthCallbackUrl(appConfig),
+      "webhooks/oauth/callback",
+      "mcp_oauth",
+    );
+
+    this._redirectUrl = redirectUrl;
+
+    // Create a deferred promise — it will be wired to the callback
+    // registry in redirectToAuthorization() once we know the SDK's state.
+    const codePromise = new Promise<string>((resolve, reject) => {
+      this._gatewayCodeResolve = resolve;
+      this._gatewayCodeReject = reject;
+    });
+    this._codePromise = codePromise;
+
+    log.info(
+      { serverId: this.serverId, redirectUrl },
+      "MCP OAuth gateway callback prepared (awaiting state from auth URL)",
+    );
+
+    return { codePromise };
+  }
+
+  /**
+   * Loopback transport: start a temporary HTTP server on localhost.
+   */
+  private startLoopbackServer(): Promise<McpOAuthCallbackResult> {
     return new Promise((resolveSetup, rejectSetup) => {
       let settled = false;
       let listening = false;
@@ -402,6 +535,15 @@ export class McpOAuthProvider implements OAuthClientProvider {
     if (this.callbackServer) {
       this.callbackServer.close();
       this.callbackServer = null;
+    }
+    // Gateway transport cleanup — reject the deferred promise so callers
+    // awaiting codePromise don't hang indefinitely.
+    if (this._gatewayCodeReject) {
+      this._gatewayCodeReject(
+        new Error("MCP OAuth gateway callback cancelled"),
+      );
+      this._gatewayCodeResolve = undefined;
+      this._gatewayCodeReject = undefined;
     }
   }
 }

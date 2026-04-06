@@ -9,22 +9,28 @@ import SwiftUI
 /// ```swift
 /// VLink("@botname", destination: telegramURL, font: VFont.bodyMediumLighter)
 /// VLink(slackUserId, destination: slackDeepLink)
+/// VLink("Terms of Service", destination: tosURL, underline: true)
 /// ```
 public struct VLink: View {
     private let text: String
     private let destination: URL
     private let font: Font
+    private let underline: Bool
 
-    public init(_ text: String, destination: URL, font: Font = VFont.labelDefault) {
+    public init(_ text: String, destination: URL, font: Font = VFont.labelDefault, underline: Bool = false) {
         self.text = text
         self.destination = destination
         self.font = font
+        self.underline = underline
     }
 
     public var body: some View {
-        Link(text, destination: destination)
-            .font(font)
-            .lineLimit(1)
-            .pointerCursor()
+        Link(destination: destination) {
+            Text(text)
+                .underline(underline)
+        }
+        .font(font)
+        .lineLimit(1)
+        .pointerCursor()
     }
 }

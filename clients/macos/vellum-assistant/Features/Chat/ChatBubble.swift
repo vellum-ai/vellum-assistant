@@ -76,7 +76,8 @@ struct ChatBubble: View, Equatable {
     var processingStatusText: String?
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
-    /// When true, hide the inline avatar (e.g. thinking indicator is showing it instead).
+    /// When true, suppress the inline avatar on this bubble because
+    /// `thinkingAvatarRow` is rendering one below the thinking indicator.
     var hideInlineAvatar: Bool = false
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
@@ -89,12 +90,20 @@ struct ChatBubble: View, Equatable {
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     // Cached interleaved content state — updated via .onChange(of:) to avoid
     // recomputing O(n) grouping on every body evaluation.
-    // Eagerly initialized in init() to prevent first-frame flash where the
-    // wrong layout path renders before .onAppear fires.
+    // Eagerly initialized in init() so the first body evaluation uses the
+    // correct layout path instead of flashing through the fallback layout.
     @State var cachedHasInterleavedContent: Bool
     @State var cachedContentGroups: [ContentGroup]
     /// Set of stableIds for tool-call groups that have non-empty text after them.
     @State var cachedToolGroupsWithTrailingText: Set<String>
+
+    /// Tracks which step detail rows the user has expanded (keyed by ToolCallData.id).
+    /// Lives here (not in AssistantProgressView) so it survives the trailing→interleaved
+    /// rendering path switch that destroys and recreates AssistantProgressView mid-stream.
+    @State var expandedStepIds: Set<UUID> = []
+    /// Tracks user-initiated card expansion/collapse (keyed by first tool call UUID in group).
+    /// `nil` = no user interaction (auto-expand logic applies); `true`/`false` = user override.
+    @State var cardExpansionOverrides: [UUID: Bool] = [:]
 
     init(
         message: ChatMessage,
@@ -228,34 +237,31 @@ struct ChatBubble: View, Equatable {
         }
     }
 
-    private var bubbleBorderOverlay: some View {
-        // Always produce a non-Optional view type. Using @ViewBuilder with
-        // a bare `if` (no else) wraps the result in Optional<StrokeBorderShapeView>.
-        // Combined with the simplified textBubble return type (no _ConditionalContent),
-        // the Optional variant triggers a SwiftUI attribute graph bug during lazy
-        // list layout: the .none payload's undefined bytes get misinterpreted as
-        // ARC references, causing swift_retain on read-only metadata (SIGBUS).
-        RoundedRectangle(cornerRadius: VRadius.lg)
-            .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
-            .opacity((message.isError || (isUser && message.status == .sendFailed)) ? 1 : 0)
-    }
-
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
+        // Single padding, inner frame for error full-width expansion,
+        // and background + border combined into one modifier so the
+        // border lives in the background layer outside the content
+        // measurement path.
         return content()
-            .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
-            .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
-            // Inner frame: let content determine natural width (shrink-wrap for
-            // user bubbles). Error messages expand to fill available width.
+            .padding(isPlainAssistant
+                ? EdgeInsets()
+                : EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
+                             bottom: VSpacing.md, trailing: VSpacing.lg))
+            // Error messages expand to fill available width so the
+            // background and border cover the full-width bubble.
             .frame(maxWidth: message.isError ? .infinity : nil)
-            .background(
+            .background {
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
-            )
-            .overlay {
-                bubbleBorderOverlay
+                // Border rendered in the background layer — always present
+                // but 0 opacity when not an error/failed message. Avoids
+                // an Optional return type which can trigger a SwiftUI AG
+                // bug (swift_retain on read-only metadata / SIGBUS).
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
+                    .opacity((message.isError || (isUser && message.status == .sendFailed)) ? 1 : 0)
             }
-            // Outer frame: cap the maximum width and position the bubble.
             .frame(maxWidth: message.isError ? .infinity : bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
     }
 
@@ -291,11 +297,9 @@ struct ChatBubble: View, Equatable {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         #endif
-        // Outer HStack: Spacer pushes the content group to the correct side.
-        HStack(alignment: .top, spacing: 0) {
-            if isUser { Spacer(minLength: 0) }
-
-            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+        // Frame alignment replaces the former HStack + Spacer pattern,
+        // removing two layout nodes (HStack, Spacer) from the measurement chain.
+        VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                     if !isUser && cachedHasInterleavedContent {
                         interleavedContent
                     } else {
@@ -363,19 +367,9 @@ struct ChatBubble: View, Equatable {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
-                // For non-streaming, non-interleaved messages, flatten the render
-                // tree into a single compositing layer to reduce layout passes.
-                // Skipped during streaming to avoid re-compositing on every token delta.
-                // Also skipped for interleaved messages (text + tool calls + images)
-                // where the complex view hierarchy makes re-compositing expensive —
-                // async task completions (markdown parsing, image decoding) would
-                // trigger full re-compositing of the entire message on every change.
-                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming && !cachedHasInterleavedContent))
-
-            if !isUser { Spacer(minLength: 0) }
-        }
+                .compositingGroup()
+                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
-        .onAppear { recomputeInterleavedContentCache() }
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
@@ -394,11 +388,9 @@ struct ChatBubble: View, Equatable {
 
         // Avatar below the latest assistant message, left-aligned
         if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
-            HStack {
-                inlineAvatar
-                Spacer()
-            }
-            .padding(.top, VSpacing.sm)
+            inlineAvatar
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, VSpacing.sm)
         }
     }
 
@@ -625,18 +617,6 @@ final class SegmentCacheEntry: NSObject {
     init(_ segments: [MarkdownSegment]) { self.segments = segments }
 }
 
-/// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.
-private struct ConditionalCompositingGroup: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content.compositingGroup()
-        } else {
-            content
-        }
-    }
-}
 
 // MARK: - Avatar Wiggle Modifier
 

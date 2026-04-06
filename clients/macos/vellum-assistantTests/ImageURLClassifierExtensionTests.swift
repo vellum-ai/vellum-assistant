@@ -69,6 +69,11 @@ final class ImageURLClassifierExtensionTests: XCTestCase {
         XCTAssertEqual(ImageURLClassifier.classify(url), .image)
     }
 
+    func testHEIF() {
+        let url = URL(string: "https://example.com/apple.heif")!
+        XCTAssertEqual(ImageURLClassifier.classify(url), .image)
+    }
+
     // MARK: - Case insensitivity
 
     func testUppercasePNG() {

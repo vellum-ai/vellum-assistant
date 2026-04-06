@@ -484,12 +484,11 @@ private extension KeyedEncodingContainer where Key == LLMContextCodingKey {
 }
 
 public struct MemoryRecallCandidate: Codable, Sendable, Equatable {
-    public let key: String
+    public let nodeId: String
     public let type: String
-    public let kind: String
-    public let finalScore: Double
-    public let semantic: Double
-    public let recency: Double
+    public let score: Double
+    public let semanticSimilarity: Double
+    public let recencyBoost: Double
 }
 
 public struct MemoryRecallDegradation: Codable, Sendable, Equatable {
@@ -516,6 +515,7 @@ public struct MemoryRecallData: Codable, Sendable, Equatable {
     public let reason: String?
     public let topCandidates: [MemoryRecallCandidate]
     public let injectedText: String?
+    public let queryContext: String?
 }
 
 /// A single LLM request/response log entry returned by the context endpoint.
@@ -581,29 +581,65 @@ public struct LLMContextClient: LLMContextClientProtocol {
     }
 
     public func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult {
+        let response: GatewayHTTPClient.Response
         do {
             try Task.checkCancellation()
-            let response = try await GatewayHTTPClient.get(
+            response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/messages/\(messageId)/llm-context",
                 timeout: 15
             )
             try Task.checkCancellation()
-            guard response.isSuccess else {
-                log.error("fetchContext failed (HTTP \(response.statusCode))")
-                return .failed
-            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            log.error("fetchContext network error: \(error.localizedDescription)")
+            return .failed
+        }
+
+        guard response.isSuccess else {
+            log.error("fetchContext failed (HTTP \(response.statusCode))")
+            return .failed
+        }
+
+        do {
             let decoded = try JSONDecoder().decode(LLMContextResponse.self, from: response.data)
             try Task.checkCancellation()
             return decoded.logs.isEmpty ? .empty : .loaded(decoded)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            if Task.isCancelled {
-                throw CancellationError()
-            }
-            log.error("fetchContext error: \(error.localizedDescription)")
+            if Task.isCancelled { throw CancellationError() }
+            log.error("fetchContext decode error: \(Self.describeDecodingError(error))")
+            let snippet = String(data: response.data.prefix(2048), encoding: .utf8) ?? "<non-utf8>"
+            log.error("fetchContext body prefix (\(response.data.count) bytes): \(snippet)")
             return .failed
         }
+    }
+
+    private static func describeDecodingError(_ error: Error) -> String {
+        guard let decodingError = error as? DecodingError else {
+            return error.localizedDescription
+        }
+        let path: String
+        let detail: String
+        switch decodingError {
+        case .typeMismatch(let type, let context):
+            path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            detail = "typeMismatch(\(type)) — \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            detail = "valueNotFound(\(type)) — \(context.debugDescription)"
+        case .keyNotFound(let key, let context):
+            path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            detail = "keyNotFound(\(key.stringValue)) — \(context.debugDescription)"
+        case .dataCorrupted(let context):
+            path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            detail = "dataCorrupted — \(context.debugDescription)"
+        @unknown default:
+            return decodingError.localizedDescription
+        }
+        return "at \(path.isEmpty ? "<root>" : path): \(detail)"
     }
 
     public func fetchLogPayload(logId: String) async -> LLMLogPayloadResponse? {

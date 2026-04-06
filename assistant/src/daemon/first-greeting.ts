@@ -8,7 +8,7 @@ import { getWorkspacePromptPath } from "../util/platform.js";
  * time," "I'm ready to be useful," and "you're in control."
  */
 export const CANNED_FIRST_GREETING =
-  "Hey. I'm brand new, no name, no memories, nothing yet. The more we work together, the more context and memory I build, and the better I get. But let's not wait around. Throw a question at me, give me a task, or ask what I can do.";
+  "Hey, I'm brand new. No name, no memories, nothing yet. Think of me like a new colleague on their first day: I'll get better the more we work together. First things first, let's figure out how we work best. What should I call you?";
 
 /**
  * Returns `true` when all of the following are true:

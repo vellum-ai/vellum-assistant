@@ -128,13 +128,19 @@ public final class MemoryItemsStore {
         if let idx = items.firstIndex(where: { $0.id == id }) {
             items[idx] = detail
         }
+        if let idx = allLoadedItems.firstIndex(where: { $0.id == id }) {
+            allLoadedItems[idx] = detail
+        }
         return detail
     }
 
     /// Delete a memory item and refresh the list on success.
     public func deleteItem(id: String) async -> Bool {
         let success = await memoryItemClient.deleteMemoryItem(id: id)
-        if success { await loadItems() }
+        if success {
+            allLoadedItems.removeAll { $0.id == id }
+            await loadItems()
+        }
         return success
     }
 

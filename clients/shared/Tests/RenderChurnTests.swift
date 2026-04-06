@@ -3,7 +3,8 @@ import XCTest
 
 /// Regression tests for render-churn reduction and memory-retention fixes.
 /// Validates: SubagentDetailStore coalesced event recording, stripHeavyContent surface stripping,
-/// attachment lifecycle clearing guards, and ToolCallData Equatable exclusions.
+/// attachment lifecycle clearing guards, ToolCallData Equatable exclusions, and
+/// ChatMessage.toolCallsRevision O(1) equality.
 @MainActor
 final class RenderChurnTests: XCTestCase {
 
@@ -225,6 +226,110 @@ final class RenderChurnTests: XCTestCase {
         XCTAssertNotEqual(a, b,
                           "ToolCallData instances differing in toolName should NOT be equal")
     }
+
+    // MARK: - ChatMessage toolCallsRevision
+
+    /// ChatMessages with identical content should compare equal via toolCallsRevision.
+    func testChatMessageEqualityWithSameToolCalls() {
+        // GIVEN two messages constructed with identical tool calls
+        let tcId = UUID()
+        let msgId = UUID()
+        let a = ChatMessage(
+            id: msgId,
+            role: .assistant,
+            text: "Hello",
+            toolCalls: [ToolCallData(id: tcId, toolName: "bash", inputSummary: "ls", isComplete: true)]
+        )
+        let b = ChatMessage(
+            id: msgId,
+            role: .assistant,
+            text: "Hello",
+            toolCalls: [ToolCallData(id: tcId, toolName: "bash", inputSummary: "ls", isComplete: true)]
+        )
+
+        // WHEN we compare them
+        // THEN they should be equal (same fingerprint)
+        XCTAssertEqual(a, b)
+    }
+
+    /// Mutating a tool call property should make the message compare as not-equal.
+    func testChatMessageInequalityAfterToolCallMutation() {
+        // GIVEN a message with a tool call
+        var a = ChatMessage(
+            role: .assistant,
+            text: "Hello",
+            toolCalls: [ToolCallData(toolName: "bash", inputSummary: "ls")]
+        )
+        let revisionBefore = a.toolCallsRevision
+
+        // WHEN we mutate a tool call property
+        a.toolCalls[0].isComplete = true
+
+        // THEN the revision should have changed
+        XCTAssertNotEqual(a.toolCallsRevision, revisionBefore)
+    }
+
+    /// Appending a tool call should bump the revision.
+    func testChatMessageRevisionBumpsOnAppend() {
+        // GIVEN a message with no tool calls
+        var message = ChatMessage(role: .assistant, text: "Hello")
+        let revisionBefore = message.toolCallsRevision
+
+        // WHEN we append a tool call
+        message.toolCalls.append(ToolCallData(toolName: "bash", inputSummary: "ls"))
+
+        // THEN the revision should have changed
+        XCTAssertNotEqual(message.toolCallsRevision, revisionBefore)
+    }
+
+    /// Messages constructed with different tool call content should have different revisions.
+    func testChatMessageDifferentToolCallContentProducesDifferentRevisions() {
+        // GIVEN two messages with different tool call arrays
+        let msgId = UUID()
+        let a = ChatMessage(
+            id: msgId,
+            role: .assistant,
+            text: "Hello",
+            toolCalls: [ToolCallData(toolName: "bash", inputSummary: "ls", isComplete: false)]
+        )
+        let b = ChatMessage(
+            id: msgId,
+            role: .assistant,
+            text: "Hello",
+            toolCalls: [ToolCallData(toolName: "bash", inputSummary: "ls", isComplete: true)]
+        )
+
+        // WHEN we compare their revisions
+        // THEN they should differ (different isComplete → different fingerprint)
+        XCTAssertNotEqual(a.toolCallsRevision, b.toolCallsRevision)
+    }
+
+    /// Messages with different tool call counts should have different revisions.
+    func testChatMessageDifferentToolCallCountProducesDifferentRevisions() {
+        // GIVEN two messages with different numbers of tool calls
+        let msgId = UUID()
+        let a = ChatMessage(
+            id: msgId,
+            role: .assistant,
+            text: "Hello",
+            toolCalls: [ToolCallData(toolName: "bash", inputSummary: "ls")]
+        )
+        let b = ChatMessage(
+            id: msgId,
+            role: .assistant,
+            text: "Hello",
+            toolCalls: [
+                ToolCallData(toolName: "bash", inputSummary: "ls"),
+                ToolCallData(toolName: "file_read", inputSummary: "cat")
+            ]
+        )
+
+        // WHEN we compare their revisions
+        // THEN they should differ (different count)
+        XCTAssertNotEqual(a.toolCallsRevision, b.toolCallsRevision)
+    }
+
+    // MARK: - ToolCallData Equatable (inputFullLength sentinel)
 
     /// Two ToolCallData instances that differ in inputFullLength should NOT be equal
     /// (detects rehydration changes without comparing full strings).

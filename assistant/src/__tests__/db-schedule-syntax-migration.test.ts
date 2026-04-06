@@ -42,6 +42,7 @@ describe("schedule_syntax column migration", () => {
         routing_hints_json TEXT NOT NULL DEFAULT '{}',
         status TEXT NOT NULL DEFAULT 'active',
         quiet INTEGER NOT NULL DEFAULT 0,
+        reuse_conversation INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -108,10 +109,17 @@ describe("schedule_syntax column migration", () => {
       `INSERT INTO cron_jobs (id, name, enabled, cron_expression, timezone, message, next_run_at, last_run_at, last_status, retry_count, created_by, created_at, updated_at) VALUES ('old-1', 'Old Job', 1, '0 9 * * *', NULL, 'hello', ${now + 60000}, NULL, NULL, 0, 'agent', ${now}, ${now})`,
     );
 
-    // Run the migration
+    // Run the migrations
     try {
       raw.exec(
         `ALTER TABLE cron_jobs ADD COLUMN schedule_syntax TEXT NOT NULL DEFAULT 'cron'`,
+      );
+    } catch {
+      /* already exists */
+    }
+    try {
+      raw.exec(
+        `ALTER TABLE cron_jobs ADD COLUMN reuse_conversation INTEGER NOT NULL DEFAULT 0`,
       );
     } catch {
       /* already exists */
@@ -163,6 +171,13 @@ describe("schedule_syntax column migration", () => {
     try {
       raw.exec(
         `ALTER TABLE cron_jobs ADD COLUMN schedule_syntax TEXT NOT NULL DEFAULT 'cron'`,
+      );
+    } catch {
+      /* ok */
+    }
+    try {
+      raw.exec(
+        `ALTER TABLE cron_jobs ADD COLUMN reuse_conversation INTEGER NOT NULL DEFAULT 0`,
       );
     } catch {
       /* ok */

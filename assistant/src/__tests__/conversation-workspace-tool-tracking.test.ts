@@ -120,7 +120,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
   updateConversationContextWindow: () => {},
-  deleteMessageById: () => ({ segmentIds: [], orphanedItemIds: [] }),
+  deleteMessageById: () => ({ segmentIds: [], deletedSummaryIds: [] }),
   deleteLastExchange: () => 0,
 }));
 

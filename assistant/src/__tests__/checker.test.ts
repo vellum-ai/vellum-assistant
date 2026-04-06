@@ -4400,7 +4400,7 @@ describe("Permission Checker", () => {
   });
 });
 
-describe("bash network_mode=proxied — no special-casing", () => {
+describe("bash network_mode=proxied — risk capped at medium", () => {
   beforeEach(() => {
     clearCache();
     testConfig.permissions = { mode: "workspace" };
@@ -4408,11 +4408,44 @@ describe("bash network_mode=proxied — no special-casing", () => {
   });
 
   test("proxied bash follows normal rules (auto-allowed by default rule)", async () => {
-    // Proxied bash is no longer force-prompted — the default allow-bash rule
-    // auto-allows low/medium risk commands regardless of network_mode.
     const result = await check(
       "bash",
       { command: "curl https://api.example.com", network_mode: "proxied" },
+      "/tmp",
+    );
+    expect(result.decision).toBe("allow");
+  });
+
+  test("proxied bash caps high-risk commands to medium", async () => {
+    // pipe-to-interpreter (stdin exec) is normally High risk, but proxied mode caps at Medium
+    const risk = await classifyRisk("bash", {
+      command: "cat exploit.py | python3",
+      network_mode: "proxied",
+    });
+    expect(risk).toBe(RiskLevel.Medium);
+  });
+
+  test("pipe to python3 -c is not high risk (inline code, not stdin exec)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: 'cat data.json | python3 -c "import sys; print(sys.stdin.read())"',
+    });
+    expect(risk).toBe(RiskLevel.Low);
+  });
+
+  test("pipe to python3 without -c is high risk (stdin exec)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "cat exploit.py | python3",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("proxied bash with high-risk command is auto-allowed by default rule", async () => {
+    const result = await check(
+      "bash",
+      {
+        command: "cat exploit.py | python3",
+        network_mode: "proxied",
+      },
       "/tmp",
     );
     expect(result.decision).toBe("allow");
@@ -4790,15 +4823,14 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     }
   });
 
-  // ── proxied bash — follows normal rules (no special-casing) ──
+  // ── proxied bash — risk capped at medium ──
 
-  test("bash with network_mode=proxied → allow (follows normal rules in workspace mode)", async () => {
+  test("bash with network_mode=proxied → allow (risk capped at medium)", async () => {
     const result = await check(
       "bash",
       { command: "curl https://api.example.com", network_mode: "proxied" },
       workspaceDir,
     );
-    // Default allow-bash rule auto-allows; proxied mode is not special-cased.
     expect(result.decision).toBe("allow");
   });
 

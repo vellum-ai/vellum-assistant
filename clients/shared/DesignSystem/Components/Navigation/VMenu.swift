@@ -295,7 +295,7 @@ public enum VMenuItemSize {
     /// Regular menu item — delegates to `VNavItem` (14pt `VFont.bodyMediumDefault`).
     case regular
 
-    fileprivate var font: Font { self == .compact ? VFont.menuCompact : VFont.bodyMediumDefault }
+    fileprivate var font: Font { VFont.bodyMediumDefault }
 }
 
 // MARK: - VMenuItem
@@ -565,7 +565,7 @@ public struct VSubMenuItem<Content: View>: View {
                     .frame(width: VSize.iconSlot, height: VSize.iconSlot)
             }
             Text(label)
-                .font(VFont.menuCompact)
+                .font(VFont.bodyMediumDefault)
                 .foregroundStyle(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
                 .lineLimit(1)
                 .truncationMode(.tail)

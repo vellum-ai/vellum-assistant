@@ -23,7 +23,7 @@ struct ButtonsGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         // Controls
                         HStack(spacing: VSpacing.xl) {
-                            VTabs(
+                            VSegmentControl(
                                 items: [
                                     (label: "Primary", tag: VButton.Style.primary),
                                     (label: "Outlined", tag: VButton.Style.outlined),
@@ -32,8 +32,7 @@ struct ButtonsGallerySection: View {
                                     (label: "Ghost", tag: VButton.Style.ghost),
                                     (label: "Contrast", tag: VButton.Style.contrast),
                                 ],
-                                selection: $selectedStyle,
-                                style: .pill
+                                selection: $selectedStyle
                             )
                             .frame(maxWidth: 600)
 

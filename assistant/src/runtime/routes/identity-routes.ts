@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
+import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
 import {
   getWorkspaceDir,
@@ -144,6 +145,13 @@ export function handleHealth(): Response {
 }
 
 export function handleDetailedHealth(): Response {
+  let profiler: ReturnType<typeof getProfilerRuntimeStatus> | undefined;
+  try {
+    profiler = getProfilerRuntimeStatus();
+  } catch {
+    // Profiler status is non-critical — omit on error
+  }
+
   return Response.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
@@ -156,6 +164,7 @@ export function handleDetailedHealth(): Response {
       lastWorkspaceMigrationId:
         getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS),
     },
+    ...(profiler ? { profiler } : {}),
   });
 }
 
@@ -240,6 +249,48 @@ export function handleGetIdentityIntro(): Response {
 }
 
 // ---------------------------------------------------------------------------
+// Zod schemas for profiler health metadata
+// ---------------------------------------------------------------------------
+
+const profilerBudgetSchema = z.object({
+  maxBytes: z.number(),
+  remainingBytes: z.number(),
+  minFreeMb: z.number(),
+  freeMb: z.number(),
+  overBudget: z.boolean(),
+});
+
+const profilerLastCompletedRunSchema = z.object({
+  runId: z.string(),
+  totalBytes: z.number(),
+  artifactCount: z.number(),
+  hasSummaries: z.boolean(),
+  completedAt: z.string(),
+});
+
+const profilerStatusSchema = z.object({
+  enabled: z.boolean(),
+  mode: z.string().nullable(),
+  runId: z.string().nullable(),
+  runDir: z.string().nullable(),
+  totalBytes: z.number(),
+  artifactCount: z.number(),
+  budget: profilerBudgetSchema.nullable(),
+  lastCompletedRun: profilerLastCompletedRunSchema.nullable(),
+});
+
+const detailedHealthSchema = z.object({
+  status: z.string(),
+  timestamp: z.string(),
+  version: z.string(),
+  disk: z.object({}).passthrough(),
+  memory: z.object({}).passthrough(),
+  cpu: z.object({}).passthrough(),
+  migrations: z.object({}).passthrough(),
+  profiler: profilerStatusSchema.optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -253,15 +304,7 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       description:
         "Returns runtime health including version, disk, memory, CPU, and migration status.",
       tags: ["system"],
-      responseBody: z.object({
-        status: z.string(),
-        timestamp: z.string(),
-        version: z.string(),
-        disk: z.object({}).passthrough(),
-        memory: z.object({}).passthrough(),
-        cpu: z.object({}).passthrough(),
-        migrations: z.object({}).passthrough(),
-      }),
+      responseBody: detailedHealthSchema,
     },
     {
       endpoint: "healthz",
@@ -272,15 +315,7 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       description:
         "Alias for /v1/health. Returns runtime health including version, disk, memory, CPU, and migration status.",
       tags: ["system"],
-      responseBody: z.object({
-        status: z.string(),
-        timestamp: z.string(),
-        version: z.string(),
-        disk: z.object({}).passthrough(),
-        memory: z.object({}).passthrough(),
-        cpu: z.object({}).passthrough(),
-        migrations: z.object({}).passthrough(),
-      }),
+      responseBody: detailedHealthSchema,
     },
     {
       endpoint: "identity",

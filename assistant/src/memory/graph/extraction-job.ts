@@ -22,10 +22,10 @@ const log = getLogger("graph-extraction-job");
  * Checkpoint key: `graph_extract:<conversationId>:last_ts`
  * Value: epoch ms of the most recent message processed.
  *
- * This mirrors the old batch_extract pattern:
- * - Triggered by indexer after batchSize messages (default 10)
- * - Also triggered by indexer idle debounce (default 300s)
- * - Also triggered by conversation dispose (end of conversation)
+ * Trigger sources:
+ * - Indexer after batchSize messages (default 10)
+ * - Indexer idle debounce (default 300s)
+ * - Conversation dispose (end of conversation)
  */
 export async function graphExtractJob(
   job: MemoryJob,

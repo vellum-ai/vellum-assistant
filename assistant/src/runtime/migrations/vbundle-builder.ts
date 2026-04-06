@@ -9,10 +9,24 @@
  * - trust/trust.json: trust rules (optional, lives in protected/ outside workspace)
  */
 
-import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  closeSync,
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  lstatSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+} from "node:fs";
+import { stat, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { gzipSync } from "node:zlib";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createGzip, gzipSync } from "node:zlib";
 
 import type {
   ManifestFileEntryType,
@@ -44,6 +58,12 @@ export interface BuildVBundleResult {
   archive: Uint8Array;
   /** The manifest that was embedded in the archive. */
   manifest: ManifestType;
+}
+
+interface FileMetadata {
+  archivePath: string;
+  diskPath: string;
+  size: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -479,4 +499,370 @@ export function buildExportVBundle(
     source: source ?? "runtime-export",
     description: description ?? "Runtime export bundle",
   });
+}
+
+// ---------------------------------------------------------------------------
+// Streaming export builder — two-pass approach for bounded memory usage
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk a directory tree and collect file metadata (paths + sizes) without
+ * reading file contents into memory. Uses the same filtering logic as
+ * `walkDirectory` (symlink skip, SQLite auxiliary skip, binary detection,
+ * skip dirs).
+ */
+function walkDirectoryForMetadata(
+  dir: string,
+  archivePrefix: string,
+  options: WalkDirectoryOptions = {},
+): FileMetadata[] {
+  const { includeBinary = false, skipDirs = [] } = options;
+  const entries: FileMetadata[] = [];
+
+  function walk(currentDir: string): void {
+    const dirEntries = readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of dirEntries) {
+      const fullPath = join(currentDir, entry.name);
+
+      // Skip symlinks
+      const fileStat = lstatSync(fullPath);
+      if (fileStat.isSymbolicLink()) continue;
+
+      if (fileStat.isDirectory()) {
+        // Check skip list against the relative path from the walk root
+        const relDir = relative(dir, fullPath);
+        if (skipDirs.some((s) => relDir === s || relDir.startsWith(s + "/"))) {
+          continue;
+        }
+        walk(fullPath);
+      } else if (fileStat.isFile()) {
+        // Skip SQLite auxiliary files — these are ephemeral and race-prone
+        if (
+          entry.name.endsWith(".db-wal") ||
+          entry.name.endsWith(".db-shm") ||
+          entry.name.endsWith(".db-journal")
+        ) {
+          continue;
+        }
+
+        // Skip binary files unless explicitly included
+        if (!includeBinary) {
+          // Read only the first 8 KB to check for null bytes
+          const checkLength = Math.min(fileStat.size, 8192);
+          if (checkLength > 0) {
+            const buf = Buffer.alloc(checkLength);
+            const fd = openSync(fullPath, "r");
+            try {
+              readSync(fd, buf, 0, checkLength, 0);
+            } finally {
+              closeSync(fd);
+            }
+            let isBinary = false;
+            for (let i = 0; i < checkLength; i++) {
+              if (buf[i] === 0) {
+                isBinary = true;
+                break;
+              }
+            }
+            if (isBinary) continue;
+          }
+        }
+
+        const relativePath = relative(dir, fullPath);
+        entries.push({
+          archivePath: `${archivePrefix}/${relativePath}`,
+          diskPath: fullPath,
+          size: fileStat.size,
+        });
+      }
+    }
+  }
+
+  walk(dir);
+  return entries;
+}
+
+/**
+ * Compute SHA-256 hex digest of a file by streaming — never buffers the
+ * entire file in memory. When `size` is provided, only hashes the first
+ * `size` bytes to match what will be archived in the tar entry.
+ */
+async function computeFileSha256(
+  filePath: string,
+  size?: number,
+): Promise<string> {
+  const hash = createHash("sha256");
+  if (size === 0) return hash.digest("hex");
+  const streamOpts =
+    size !== undefined ? { start: 0, end: size - 1 } : undefined;
+  const stream = createReadStream(filePath, streamOpts);
+  for await (const chunk of stream) {
+    hash.update(chunk);
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * Create just the 512-byte tar header block for a regular file entry.
+ * Extracted from `createTarEntry` logic — does NOT include data or padding.
+ */
+function createTarHeaderBlock(name: string, size: number): Uint8Array {
+  const encoder = new TextEncoder();
+  const nameBytes = encoder.encode(name);
+
+  const header = new Uint8Array(BLOCK_SIZE);
+
+  // File name (0-99) — truncated if >100 bytes
+  header.set(nameBytes.subarray(0, 100), 0);
+
+  // File mode (100-107): 0644
+  writeOctal(header, 100, 8, 0o644);
+
+  // Owner ID (108-115)
+  writeOctal(header, 108, 8, 0);
+
+  // Group ID (116-123)
+  writeOctal(header, 116, 8, 0);
+
+  // File size (124-135)
+  writeOctal(header, 124, 12, size);
+
+  // Modification time (136-147)
+  writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
+
+  // Type flag (156): regular file
+  header[156] = "0".charCodeAt(0);
+
+  // USTAR magic (257-262)
+  const magic = encoder.encode("ustar\0");
+  header.set(magic, 257);
+
+  // USTAR version (263-264)
+  header[263] = "0".charCodeAt(0);
+  header[264] = "0".charCodeAt(0);
+
+  // Compute and write checksum (148-155)
+  const checksum = computeHeaderChecksum(header);
+  writeOctal(header, 148, 7, checksum);
+  header[155] = 0x20; // trailing space
+
+  return header;
+}
+
+/**
+ * If name exceeds 100 bytes, returns the PAX extended header entry
+ * concatenated with the regular header block. Otherwise returns just
+ * the header block.
+ */
+function createPaxAndHeaderBlocks(name: string, size: number): Uint8Array {
+  const encoder = new TextEncoder();
+  const nameBytes = encoder.encode(name);
+  const needsPax = nameBytes.length > 100;
+
+  const header = createTarHeaderBlock(name, size);
+
+  if (needsPax) {
+    const paxEntry = createPaxPathEntry(name);
+    const result = new Uint8Array(paxEntry.length + header.length);
+    result.set(paxEntry, 0);
+    result.set(header, paxEntry.length);
+    return result;
+  }
+
+  return header;
+}
+
+/**
+ * Returns zero-filled padding bytes to align data to the tar block boundary.
+ */
+function tarPaddingBytes(dataSize: number): Uint8Array {
+  const remainder = dataSize % BLOCK_SIZE;
+  if (remainder === 0) return new Uint8Array(0);
+  return new Uint8Array(BLOCK_SIZE - remainder);
+}
+
+/**
+ * Async generator that yields raw tar bytes in order:
+ * manifest entry, then each file entry, then end-of-archive marker.
+ * Each file is streamed from disk — never fully buffered in memory.
+ */
+async function* generateTarStream(
+  manifestJson: Uint8Array,
+  files: FileMetadata[],
+): AsyncGenerator<Uint8Array> {
+  // Manifest entry
+  yield createPaxAndHeaderBlocks("manifest.json", manifestJson.length);
+  yield manifestJson;
+  yield tarPaddingBytes(manifestJson.length);
+
+  // File entries
+  for (const file of files) {
+    yield createPaxAndHeaderBlocks(file.archivePath, file.size);
+
+    // Stream exactly file.size bytes from disk. Capping the read at the
+    // declared size keeps the tar structure valid even if the file grows
+    // between passes (common for log files on active assistants). If the
+    // file shrinks below the declared size, zero-pad to maintain block
+    // alignment. The WAL checkpoint before export is the primary
+    // consistency mechanism for the database.
+    let bytesWritten = 0;
+    if (file.size > 0) {
+      try {
+        const stream = createReadStream(file.diskPath, {
+          start: 0,
+          end: file.size - 1,
+        });
+        for await (const chunk of stream) {
+          const data =
+            chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+          bytesWritten += data.length;
+          yield data;
+        }
+      } catch {
+        // File was deleted or rotated between passes — emit zeros for
+        // the full declared size so the tar structure stays valid
+      }
+    }
+
+    // If the file shrank, pad with zeros in bounded chunks to reach
+    // the declared size without a large single allocation
+    let remaining = file.size - bytesWritten;
+    while (remaining > 0) {
+      const chunkSize = Math.min(remaining, 65536);
+      yield new Uint8Array(chunkSize);
+      remaining -= chunkSize;
+    }
+
+    yield tarPaddingBytes(file.size);
+  }
+
+  // End-of-archive: two zero blocks
+  yield new Uint8Array(BLOCK_SIZE * 2);
+}
+
+// ---------------------------------------------------------------------------
+// Streaming export result type
+// ---------------------------------------------------------------------------
+
+export interface StreamExportVBundleResult {
+  tempPath: string;
+  size: number;
+  manifest: ManifestType;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Build a .vbundle archive using a streaming two-pass approach that keeps
+ * peak memory usage bounded to ~1 MB regardless of workspace size.
+ *
+ * Pass 1: Walk directory metadata and compute SHA-256 checksums without
+ *         loading file contents into memory (builds manifest).
+ * Pass 2: Stream tar entries through gzip into a temp file on disk.
+ *
+ * Returns a result with the temp file path, size, manifest, and a cleanup
+ * function to remove the temp file when done.
+ */
+export async function streamExportVBundle(
+  options: BuildExportVBundleOptions,
+): Promise<StreamExportVBundleResult> {
+  const { source, description, checkpoint, trustPath, workspaceDir, hooksDir } =
+    options;
+
+  // Flush WAL to the main database file before reading
+  if (checkpoint) {
+    checkpoint();
+  }
+
+  const allFileMetadata: FileMetadata[] = [];
+
+  // Walk the entire workspace directory, including binary files
+  if (
+    workspaceDir &&
+    existsSync(workspaceDir) &&
+    lstatSync(workspaceDir).isDirectory()
+  ) {
+    allFileMetadata.push(
+      ...walkDirectoryForMetadata(workspaceDir, "workspace", {
+        includeBinary: true,
+        skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
+      }),
+    );
+  }
+
+  // Include hooks directory if it exists
+  if (hooksDir && existsSync(hooksDir) && lstatSync(hooksDir).isDirectory()) {
+    allFileMetadata.push(...walkDirectoryForMetadata(hooksDir, "hooks"));
+  }
+
+  // Include trust rules if the file exists
+  if (trustPath && existsSync(trustPath)) {
+    const trustStat = lstatSync(trustPath);
+    if (trustStat.isFile()) {
+      allFileMetadata.push({
+        archivePath: "trust/trust.json",
+        diskPath: trustPath,
+        size: trustStat.size,
+      });
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Pass 1: Compute SHA-256 checksums to build the manifest
+  // ------------------------------------------------------------------
+
+  const fileEntries: ManifestFileEntryType[] = [];
+  for (const file of allFileMetadata) {
+    const sha256 = await computeFileSha256(file.diskPath, file.size);
+    fileEntries.push({
+      path: file.archivePath,
+      sha256,
+      size: file.size,
+    });
+  }
+
+  const manifestWithoutChecksum = {
+    schema_version: "1.0",
+    created_at: new Date().toISOString(),
+    source: source ?? "runtime-export",
+    description: description ?? "Runtime export bundle",
+    files: fileEntries,
+  };
+
+  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
+  const manifest: ManifestType = {
+    ...manifestWithoutChecksum,
+    manifest_sha256: manifestSha256,
+  };
+
+  const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
+
+  // ------------------------------------------------------------------
+  // Pass 2: Stream tar through gzip into a temp file
+  // ------------------------------------------------------------------
+
+  const tempPath = join(tmpdir(), `vbundle-export-${randomUUID()}.tmp`);
+
+  const tarGenerator = generateTarStream(manifestData, allFileMetadata);
+  const tarReadable = Readable.from(tarGenerator);
+  const gzipStream = createGzip();
+  const writeStream = createWriteStream(tempPath, { mode: 0o600 });
+
+  try {
+    await pipeline(tarReadable, gzipStream, writeStream);
+  } catch (error) {
+    await unlink(tempPath).catch(() => {});
+    throw error;
+  }
+
+  const tempStat = await stat(tempPath);
+
+  const cleanup = async () => {
+    try {
+      await unlink(tempPath);
+    } catch {
+      // Ignore errors during cleanup
+    }
+  };
+
+  return { tempPath, size: tempStat.size, manifest, cleanup };
 }

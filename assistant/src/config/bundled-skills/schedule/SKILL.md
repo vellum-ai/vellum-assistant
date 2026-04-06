@@ -87,6 +87,14 @@ The `mode` parameter controls what happens when a schedule fires:
 
 Use `notify` for simple reminders ("remind me to take medicine at 9am") and `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest").
 
+## Conversation Reuse
+
+By default, each schedule run creates a new conversation. For recurring schedules that benefit from accumulating context across runs (e.g. polling-style jobs, daily digests that reference prior results), set `reuse_conversation: true`. When enabled, subsequent runs reuse the conversation from the last successful run instead of creating a new one.
+
+- Only applies to **recurring** schedules; ignored for one-shot schedules.
+- If the prior conversation has been deleted, a new one is created automatically.
+- On the first run (no prior conversation), a new conversation is created as usual.
+
 ## Routing (notify mode)
 
 Control how notify-mode schedules are delivered at trigger time with `routing_intent`:
@@ -101,9 +109,20 @@ Optionally pass `routing_hints` (a JSON object) to influence routing decisions (
 
 - **Default to `all_channels`** for most notifications. Users usually want to be notified wherever they are.
 - **Use `single_channel`** only when the user explicitly specifies a single channel (e.g. "remind me on Telegram").
-- **Check the `interface` field** from the `<turn_context>` block. If the user is currently active on a specific interface (e.g. `macos`, `slack`, `telegram`), include it as a routing hint:
+- **Determine the originating channel** for routing hints using this priority:
+  1. **`source_channel`** from `<turn_context>` — use directly if present. This is the authoritative channel name.
+  2. **`interface` fallback** — if `source_channel` is absent (common for guardian/direct users), map the `interface` value to a channel name:
+     | `interface` value | Channel name |
+     | --- | --- |
+     | `macos`, `ios` | `vellum` |
+     | `telegram` | `telegram` |
+     | `slack` | `slack` |
+     | `cli` | _(omit — no routable channel)_ |
+  3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
+
+  When a channel is determined, include it as a routing hint:
   ```
-  routing_hints: { preferred_channels: ["vellum"] }
+  routing_hints: { preferred_channels: ["<resolved channel>"] }
   routing_intent: "all_channels"
   ```
 
@@ -119,6 +138,7 @@ Use `syntax` + `expression` to specify the schedule type explicitly, or just `ex
 
 ## Tips
 
+- **When the user specifies a name for the schedule, use it exactly as given.** Do not paraphrase, embellish, or generate a descriptive name.
 - Use `schedule_create` for both recurring automation ("every day at 9am") and one-time reminders ("remind me at 3pm").
 - For task tracking ("add to my tasks", "add to my queue"), use task_list_add instead.
 - `fire_at` must be a strict ISO 8601 timestamp with timezone offset or Z (e.g. `2025-03-15T09:00:00-05:00`).

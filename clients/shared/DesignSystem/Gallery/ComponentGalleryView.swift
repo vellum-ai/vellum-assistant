@@ -133,10 +133,10 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
             ]
         case .navigation:
             return [
-                GalleryComponent("vSegmentedControl", "VTabs", keywords: ["segmented control", "tabs"], description: "Segmented control with underline, pill, or compact pill styles for switching between views."),
+                GalleryComponent("vSegmentedControl", "VTabs", keywords: ["segmented control", "tabs", "underline"], description: "Underline-style tab bar for switching between major views."),
                 GalleryComponent("vNavItem", "VNavItem", keywords: ["sidebar row", "navigation row"], description: "Sidebar navigation row with icon, label, hover/active states, trailing disclosure icon, and collapsed mode."),
                 GalleryComponent("vLink", "VLink", keywords: ["link", "url", "external link", "hyperlink"], description: "Styled external link that opens a URL in the default browser. Applies pointer cursor, single-line truncation, and caption font by default."),
-                GalleryComponent("vThemeToggle", "VThemeToggle", keywords: ["theme toggle", "dark mode", "light mode"], description: "Three-way theme toggle (System / Light / Dark). Reads and writes themePreference in UserDefaults."),
+                GalleryComponent("vSegmentControl", "VSegmentControl", keywords: ["segment control", "pill tabs", "theme toggle", "dark mode"], description: "Segmented control with pill-style segments for filtering and selection. Supports text and icon content."),
                 GalleryComponent("vMenu", "VMenu", keywords: ["menu", "popover", "dropdown", "drawer", "overflow"], description: "Reusable popover container with section headers, dividers, action items, and custom rows. Use instead of manual drawer chrome."),
                 GalleryComponent("vSubMenuItem", "VSubMenuItem", keywords: ["submenu", "cascading menu", "nested menu", "flyout"], description: "Cascading submenu item that opens a child VMenuPanel on hover/click. Anchored positioning with screen-edge flip, grace-period close. iOS falls back to native SwiftUI Menu."),
             ]
@@ -164,6 +164,14 @@ struct ComponentGalleryView: View {
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
     @State private var searchText: String = ""
     @State private var expandedCategories: Set<ComponentGalleryCategory> = [.buttons]
+    @AppStorage("themePreference") private var themePreference: String = "system"
+
+    private var themeBinding: Binding<String> {
+        Binding(
+            get: { themePreference },
+            set: { themePreference = $0; VTheme.applyTheme($0) }
+        )
+    }
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespaces).isEmpty
@@ -240,7 +248,14 @@ struct ComponentGalleryView: View {
 
                 Divider()
 
-                VThemeToggle()
+                VSegmentControl(
+                    items: [
+                        (label: "System", icon: VIcon.monitor.rawValue, tag: "system"),
+                        (label: "Light", icon: VIcon.sun.rawValue, tag: "light"),
+                        (label: "Dark", icon: VIcon.moon.rawValue, tag: "dark"),
+                    ],
+                    selection: themeBinding
+                )
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.sm)
             }

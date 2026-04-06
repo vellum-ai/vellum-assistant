@@ -9,26 +9,34 @@ struct SettingsBillingTab: View {
     @State private var summary: BillingSummaryResponse?
     @State private var isLoading: Bool = true
     @State private var error: String?
-    @State private var topUpAmount: String = ""
+    @State private var selectedAmount: String = ""
+
+    private var topUpAmounts: [String] {
+        summary?.allowed_top_up_amounts ?? []
+    }
+
+    private var effectiveAmount: String {
+        topUpAmounts.contains(selectedAmount) ? selectedAmount : topUpAmounts.first ?? ""
+    }
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
-    @State private var inviteCode: String = ""
-    private var devModeManager: DevModeManager { DevModeManager.shared }
+    @State private var isReferralCodesEnabled: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             balanceCard
             if isLoading {
                 addFundsSkeleton
-            } else if summary != nil {
+            } else if !topUpAmounts.isEmpty {
                 addFundsCard
             }
-            if devModeManager.isDevMode {
-                inviteCodeCard
+            if isReferralCodesEnabled {
+                SettingsBillingReferralCard()
             }
         }
         .task {
+            isReferralCodesEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("referral-codes")
             await loadSummary()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
@@ -39,12 +47,19 @@ struct SettingsBillingTab: View {
             }
         }
         .background(WindowReader(window: $hostWindow))
+        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+            if let key = notification.userInfo?["key"] as? String,
+               key == "referral-codes",
+               let enabled = notification.userInfo?["enabled"] as? Bool {
+                isReferralCodesEnabled = enabled
+            }
+        }
     }
 
     // MARK: - Balance Card
 
     private var balanceCard: some View {
-        SettingsCard(title: "Balance") {
+        SettingsCard(title: "Credit Balance") {
             if isLoading {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     // Effective balance skeleton
@@ -94,10 +109,10 @@ struct SettingsBillingTab: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Effective balance — large display
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Effective Balance")
+                Text("Balance")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
-                Text("$\(summary.effective_balance_usd)")
+                Text(summary.effective_balance)
                     .font(VFont.titleMedium)
                     .foregroundStyle(VColor.contentEmphasized)
             }
@@ -125,15 +140,15 @@ struct SettingsBillingTab: View {
                     Text("Settled Balance")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text("$\(summary.settled_balance_usd)")
+                    Text(summary.settled_balance)
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
                 }
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(summary.is_degraded ? "Pending Charges (estimated)" : "Pending Charges")
+                    Text(summary.is_degraded ? "Pending Usage (estimated)" : "Pending Usage")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text("$\(summary.pending_compute_usd)")
+                    Text(summary.pending_compute)
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
@@ -141,10 +156,10 @@ struct SettingsBillingTab: View {
         }
     }
 
-    // MARK: - Add Funds Skeleton
+    // MARK: - Add Credits Skeleton
 
     private var addFundsSkeleton: some View {
-        SettingsCard(title: "Add Funds") {
+        SettingsCard(title: "Add Credits") {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VSkeletonBone(width: 90, height: 12)
@@ -156,10 +171,10 @@ struct SettingsBillingTab: View {
         }
     }
 
-    // MARK: - Add Funds Card
+    // MARK: - Add Credits Card
 
     private var addFundsCard: some View {
-        SettingsCard(title: "Add Funds") {
+        SettingsCard(title: "Add Credits") {
             topUpContent
         }
     }
@@ -168,20 +183,39 @@ struct SettingsBillingTab: View {
     private var topUpContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Amount (USD)")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                VTextField(
-                    placeholder: "Enter amount",
-                    text: $topUpAmount
+                VDropdown(
+                    "Amount",
+                    placeholder: "",
+                    selection: Binding(
+                        get: { effectiveAmount },
+                        set: { selectedAmount = $0 }
+                    ),
+                    options: topUpAmounts.map { amount in
+                        let credits = amount.replacingOccurrences(of: ".00", with: "")
+                        return (label: "\(credits) credits", value: amount)
+                    }
                 )
                 .frame(maxWidth: 200)
+                if let summary {
+                    let maxFormatted: String = {
+                        let value = Int(Double(summary.maximum_balance) ?? 0)
+                        if value > 0 {
+                            let formatter = NumberFormatter()
+                            formatter.numberStyle = .decimal
+                            return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
+                        }
+                        return summary.maximum_balance
+                    }()
+                    Text("1 credit = $1 USD. \(maxFormatted) max credit balance. Credits expire 12 months after purchase.")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             }
 
             VButton(
-                label: isProcessingTopUp ? "Processing..." : "Add funds",
+                label: isProcessingTopUp ? "Processing..." : "Add credits",
                 style: .primary,
-                isDisabled: isProcessingTopUp || topUpAmount.isEmpty
+                isDisabled: isProcessingTopUp
             ) {
                 Task { await handleTopUp() }
             }
@@ -193,33 +227,6 @@ struct SettingsBillingTab: View {
                     Text(topUpError)
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.systemNegativeStrong)
-                }
-            }
-        }
-    }
-
-    // MARK: - Invite Code Card
-
-    private var inviteCodeCard: some View {
-        SettingsCard(title: "Invite Code") {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Code")
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    VTextField(
-                        placeholder: "Enter invite code",
-                        text: $inviteCode
-                    )
-                    .frame(maxWidth: 200)
-                }
-
-                VButton(
-                    label: "Submit",
-                    style: .primary,
-                    isDisabled: inviteCode.isEmpty
-                ) {
-                    // No backend connection yet
                 }
             }
         }
@@ -239,6 +246,23 @@ struct SettingsBillingTab: View {
         func updateNSView(_ nsView: NSView, context: Context) {
             DispatchQueue.main.async { self.window = nsView.window }
         }
+    }
+
+    /// Extract the first validation error message from an API error response body.
+    private static func parseValidationError(_ body: String?) -> String? {
+        guard let body, let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        for value in json.values {
+            if let messages = value as? [String], let first = messages.first {
+                return first
+            }
+        }
+        if let detail = json["detail"] as? String {
+            return detail
+        }
+        return nil
     }
 
     // MARK: - Actions
@@ -265,26 +289,35 @@ struct SettingsBillingTab: View {
     }
 
     private func handleTopUp() async {
-        guard let amount = Double(topUpAmount) else {
-            topUpError = "Please enter a valid amount."
+        let amountStr = effectiveAmount
+        let amount = Double(amountStr) ?? 0
+
+        if let summary,
+           let maxBalance = Double(summary.maximum_balance),
+           let currentBalance = Double(summary.effective_balance),
+           currentBalance + amount > maxBalance {
+            let maxFormatted: String = {
+                let value = Int(maxBalance)
+                if value > 0 {
+                    let formatter = NumberFormatter()
+                    formatter.numberStyle = .decimal
+                    return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
+                }
+                return summary.maximum_balance
+            }()
+            topUpError = "This top-up would exceed the maximum credit balance of \(maxFormatted)."
             return
         }
-
-        if let summary, let minimum = Double(summary.minimum_top_up_usd), amount < minimum {
-            topUpError = "Minimum top-up amount is $\(summary.minimum_top_up_usd)."
-            return
-        }
-
-        let normalizedAmount = String(format: "%.2f", amount)
 
         isProcessingTopUp = true
         topUpError = nil
         defer { isProcessingTopUp = false }
 
         do {
-            let checkoutURL = try await BillingService.shared.createTopUpCheckout(amountUsd: normalizedAmount)
+            let checkoutURL = try await BillingService.shared.createTopUpCheckout(amount: amountStr)
             NSWorkspace.shared.open(checkoutURL)
-            topUpAmount = ""
+        } catch let PlatformAPIError.serverError(_, detail) {
+            self.topUpError = Self.parseValidationError(detail) ?? "Failed to create checkout session. Please try again."
         } catch {
             self.topUpError = "Failed to create checkout session. Please try again."
         }

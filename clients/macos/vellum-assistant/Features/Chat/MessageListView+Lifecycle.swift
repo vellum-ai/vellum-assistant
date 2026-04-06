@@ -142,6 +142,7 @@ extension MessageListView {
             // First-message detection.
             if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                 hasEverSentMessage = true
+                UserDefaults.standard.set(true, forKey: "hasEverSentMessage")
             }
         }
     }

@@ -14,10 +14,9 @@ struct MessageInspectorMemoryTabModel: Equatable {
 
     struct CandidateRow: Identifiable, Equatable {
         let id: String
-        let key: String
+        let nodeId: String
         let type: String
-        let kind: String
-        let finalScore: String
+        let score: String
         let semanticScore: String
         let recencyScore: String
     }
@@ -30,6 +29,7 @@ struct MessageInspectorMemoryTabModel: Equatable {
     let searchRows: [Row]
     let candidates: [CandidateRow]
     let injectedText: String?
+    let queryContext: String?
     let degradationReason: String?
     let degradationSemanticUnavailable: Bool
     let degradationFallbackSources: String?
@@ -44,6 +44,7 @@ struct MessageInspectorMemoryTabModel: Equatable {
             searchRows = []
             candidates = []
             injectedText = nil
+            queryContext = nil
             degradationReason = nil
             degradationSemanticUnavailable = false
             degradationFallbackSources = nil
@@ -60,6 +61,7 @@ struct MessageInspectorMemoryTabModel: Equatable {
             searchRows = []
             candidates = []
             injectedText = nil
+            queryContext = nil
             degradationReason = nil
             degradationSemanticUnavailable = false
             degradationFallbackSources = nil
@@ -90,21 +92,21 @@ struct MessageInspectorMemoryTabModel: Equatable {
         ]
 
         candidates = recall.topCandidates
-            .sorted { $0.finalScore > $1.finalScore }
+            .sorted { $0.score > $1.score }
             .enumerated()
             .map { index, candidate in
                 CandidateRow(
-                    id: "\(index)-\(candidate.key)",
-                    key: candidate.key,
+                    id: "\(index)-\(candidate.nodeId)",
+                    nodeId: candidate.nodeId,
                     type: candidate.type,
-                    kind: candidate.kind,
-                    finalScore: Self.formatScore(candidate.finalScore),
-                    semanticScore: Self.formatScore(candidate.semantic),
-                    recencyScore: Self.formatScore(candidate.recency)
+                    score: Self.formatScore(candidate.score),
+                    semanticScore: Self.formatScore(candidate.semanticSimilarity),
+                    recencyScore: Self.formatScore(candidate.recencyBoost)
                 )
             }
 
         injectedText = recall.injectedText
+        queryContext = recall.queryContext
 
         if let degradation = recall.degradation {
             degradationReason = degradation.reason
@@ -173,6 +175,10 @@ struct MessageInspectorMemoryTab: View {
                 statusCard
                 funnelCard
                 searchDetailsCard
+
+                if model.queryContext != nil {
+                    queryContextCard
+                }
 
                 if !model.candidates.isEmpty {
                     candidatesCard
@@ -279,21 +285,18 @@ struct MessageInspectorMemoryTab: View {
     private func candidateRow(_ candidate: MessageInspectorMemoryTabModel.CandidateRow) -> some View {
         HStack(alignment: .top, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text(candidate.key)
+                Text(candidate.nodeId)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
 
-                HStack(spacing: VSpacing.xs) {
-                    chip(candidate.type)
-                    chip(candidate.kind)
-                }
+                chip(candidate.type)
             }
 
             Spacer(minLength: VSpacing.sm)
 
             VStack(alignment: .trailing, spacing: VSpacing.xxs) {
-                Text(candidate.finalScore)
+                Text(candidate.score)
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
 
@@ -321,6 +324,36 @@ struct MessageInspectorMemoryTab: View {
             .padding(.vertical, VSpacing.xxs)
             .background(VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+    }
+
+    // MARK: - Query context card
+
+    private var queryContextCard: some View {
+        VCard {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
+                    cardHeader(title: "Query context", subtitle: "The text embedded as the search vector for semantic retrieval.")
+
+                    Spacer(minLength: VSpacing.md)
+
+                    VCopyButton(
+                        text: model.queryContext ?? "",
+                        size: .compact,
+                        accessibilityHint: "Copy query context"
+                    )
+                }
+
+                HighlightedTextView(
+                    text: .constant(model.queryContext ?? ""),
+                    language: .plain,
+                    isEditable: false,
+                    isActivelyEditing: .constant(false)
+                )
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 80, maxHeight: 300)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            }
+        }
     }
 
     // MARK: - Injected text card

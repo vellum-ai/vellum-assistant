@@ -181,6 +181,8 @@ export interface ToolContext {
   hostBashProxy?: import("../daemon/host-bash-proxy.js").HostBashProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
   hostFileProxy?: import("../daemon/host-file-proxy.js").HostFileProxy;
+  /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
+  isPlatformHosted?: boolean;
   /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
   cesClient?: CesClient;
 }

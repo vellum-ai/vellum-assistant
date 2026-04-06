@@ -72,7 +72,6 @@ struct ComposerView: View {
     #endif
     @State private var composerFocus: Bool = false
     @State private var isComposerFocused = false
-    @State private var measuredTextHeight: CGFloat = 32
     @State private var textViewIsFocused: Bool = false
     @State var cursorPosition: Int = 0
 
@@ -237,7 +236,6 @@ struct ComposerView: View {
                 .padding(.top, ComposerTextEditor.textInsetY)
             ComposerTextEditor(
                 text: $inputText,
-                measuredHeight: $measuredTextHeight,
                 isFocused: $textViewIsFocused,
                 font: nsFont,
                 lineSpacing: 4,
@@ -679,4 +677,3 @@ VStreamingWaveform(
     }
 
 }
-

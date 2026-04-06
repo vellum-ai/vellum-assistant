@@ -2,7 +2,6 @@ import {
   blob,
   index,
   integer,
-  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -30,56 +29,6 @@ export const memorySegments = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [index("idx_memory_segments_scope_id").on(table.scopeId)],
-);
-
-export const memoryItems = sqliteTable(
-  "memory_items",
-  {
-    id: text("id").primaryKey(),
-    kind: text("kind").notNull(),
-    subject: text("subject").notNull(),
-    statement: text("statement").notNull(),
-    status: text("status").notNull(),
-    confidence: real("confidence").notNull(),
-    importance: real("importance"),
-    accessCount: integer("access_count").notNull().default(0),
-    fingerprint: text("fingerprint").notNull(),
-    verificationState: text("verification_state")
-      .notNull()
-      .default("assistant_inferred"),
-    scopeId: text("scope_id").notNull().default("default"),
-    firstSeenAt: integer("first_seen_at").notNull(),
-    lastSeenAt: integer("last_seen_at").notNull(),
-    lastUsedAt: integer("last_used_at"),
-    validFrom: integer("valid_from"),
-    invalidAt: integer("invalid_at"),
-    supersedes: text("supersedes"),
-    supersededBy: text("superseded_by"),
-    overrideConfidence: text("override_confidence").default("inferred"),
-    sourceType: text("source_type").notNull().default("extraction"),
-    sourceMessageRole: text("source_message_role"),
-  },
-  (table) => [
-    index("idx_memory_items_scope_id").on(table.scopeId),
-    index("idx_memory_items_fingerprint").on(table.fingerprint),
-  ],
-);
-
-export const memoryItemSources = sqliteTable(
-  "memory_item_sources",
-  {
-    memoryItemId: text("memory_item_id")
-      .notNull()
-      .references(() => memoryItems.id, { onDelete: "cascade" }),
-    messageId: text("message_id")
-      .notNull()
-      .references(() => messages.id, { onDelete: "cascade" }),
-    evidence: text("evidence"),
-    createdAt: integer("created_at").notNull(),
-  },
-  (table) => [
-    index("idx_memory_item_sources_memory_item_id").on(table.memoryItemId),
-  ],
 );
 
 export const memorySummaries = sqliteTable(

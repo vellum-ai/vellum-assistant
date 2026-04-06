@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 import Observation
 import VellumAssistantShared
 import os
@@ -53,12 +52,11 @@ final class VoiceModeManager: ObservableObject {
     private var conversationTimeoutPaused = false
     /// Permission request IDs currently being handled via voice.
     var pendingPermissionIds: [String] = []
-    /// Combine subscription to detect new confirmations in chat messages.
-    private var messageCancellable: AnyCancellable?
-    /// Combine subscription to pause/resume conversation timeout during tool execution.
-    private var isThinkingCancellable: AnyCancellable?
     /// Generation counter controlling the lifetime of the voice-service observation loop.
     private var voiceObservationGeneration: Int = 0
+    /// Last observed value from the isThinking observation loop, used to
+    /// deduplicate redundant same-value writes and only act on actual transitions.
+    private var lastObservedIsThinking: Bool = false
 
     init(voiceService: any VoiceServiceProtocol = OpenAIVoiceService()) {
         self.voiceService = voiceService
@@ -125,27 +123,11 @@ final class VoiceModeManager: ObservableObject {
         }
         chatViewModel.isVoiceModeActive = true
 
-        // Monitor for permission requests during voice mode
-        messageCancellable = chatViewModel.messageManager.messagesPublisher
-            .sink { [weak self] messages in
-                self?.checkForConfirmations(in: messages)
-            }
-
-        // Pause the conversation timeout while the agent is executing tools,
-        // preventing auto-deactivation during multi-step tool sequences.
-        isThinkingCancellable = chatViewModel.messageManager.isThinkingPublisher
-            .removeDuplicates()
-            .sink { [weak self] thinking in
-                guard let self, self.state == .idle else { return }
-                if thinking {
-                    self.cancelConversationTimeout()
-                } else if !self.conversationTimeoutPaused {
-                    self.startConversationTimeout()
-                }
-            }
-
-        // Forward live partial transcription when listening
+        // Start observation loops for messages, isThinking, and voice partial text.
+        // All loops share voiceObservationGeneration and are invalidated on deactivate.
         startVoiceServiceObservation()
+        observeMessages(generation: voiceObservationGeneration, messageManager: chatViewModel.messageManager)
+        observeIsThinking(generation: voiceObservationGeneration, messageManager: chatViewModel.messageManager)
 
         // Pre-warm audio engine so first recording starts instantly
         voiceService.prewarmEngine()
@@ -198,10 +180,6 @@ final class VoiceModeManager: ObservableObject {
         }
         previousOnVoiceResponseComplete = nil
         previousOnVoiceTextDelta = nil
-        messageCancellable?.cancel()
-        messageCancellable = nil
-        isThinkingCancellable?.cancel()
-        isThinkingCancellable = nil
         stopVoiceServiceObservation()
         pendingPermissionIds = []
 
@@ -604,6 +582,58 @@ final class VoiceModeManager: ObservableObject {
                     self.liveTranscription = service.livePartialText
                 }
                 self.observeVoiceServiceLoop(generation: generation) // re-arm
+            }
+        }
+    }
+
+    // MARK: - Message & Thinking Observation
+
+    private func observeMessages(generation: Int, messageManager: ChatMessageManager) {
+        guard generation == voiceObservationGeneration else { return }
+        // Check current state immediately so confirmations already pending
+        // before voice activation are spoken without waiting for the next
+        // messages mutation.
+        checkForConfirmations(in: messageManager.messages)
+        withObservationTracking {
+            _ = messageManager.messages
+        } onChange: { [weak self, weak messageManager] in
+            Task { @MainActor [weak self, weak messageManager] in
+                guard let self, let messageManager,
+                      generation == self.voiceObservationGeneration else { return }
+                self.checkForConfirmations(in: messageManager.messages)
+                self.observeMessages(generation: generation, messageManager: messageManager)
+            }
+        }
+    }
+
+    private func observeIsThinking(generation: Int, messageManager: ChatMessageManager) {
+        guard generation == voiceObservationGeneration else { return }
+        // Seed deduplication state so we only act on actual transitions.
+        lastObservedIsThinking = messageManager.isThinking
+        withObservationTracking {
+            _ = messageManager.isThinking
+        } onChange: { [weak self, weak messageManager] in
+            Task { @MainActor [weak self, weak messageManager] in
+                guard let self, let messageManager,
+                      generation == self.voiceObservationGeneration else { return }
+                let thinking = messageManager.isThinking
+                // Deduplicate redundant same-value writes (equivalent to
+                // the removed Combine .removeDuplicates()).
+                guard thinking != self.lastObservedIsThinking else {
+                    self.observeIsThinking(generation: generation, messageManager: messageManager)
+                    return
+                }
+                self.lastObservedIsThinking = thinking
+                guard self.state == .idle else {
+                    self.observeIsThinking(generation: generation, messageManager: messageManager)
+                    return
+                }
+                if thinking {
+                    self.cancelConversationTimeout()
+                } else if !self.conversationTimeoutPaused {
+                    self.startConversationTimeout()
+                }
+                self.observeIsThinking(generation: generation, messageManager: messageManager)
             }
         }
     }

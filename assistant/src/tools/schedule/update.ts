@@ -102,6 +102,11 @@ export async function executeScheduleUpdate(
     updates.quiet = input.quiet;
   }
 
+  // Conversation reuse
+  if (input.reuse_conversation !== undefined) {
+    updates.reuseConversation = input.reuse_conversation;
+  }
+
   // Auto-detect syntax when expression changes without explicit syntax
   if (input.expression !== undefined || input.syntax !== undefined) {
     const resolved = normalizeScheduleSyntax({
@@ -165,6 +170,7 @@ export async function executeScheduleUpdate(
         routingIntent?: RoutingIntent;
         routingHints?: Record<string, unknown>;
         quiet?: boolean;
+        reuseConversation?: boolean;
       },
     );
 

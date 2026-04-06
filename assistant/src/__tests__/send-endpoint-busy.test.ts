@@ -17,7 +17,10 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
+import {
+  getConversationByKey,
+  getOrCreateConversation,
+} from "../memory/conversation-key-store.js";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -855,7 +858,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     await stopServer();
   });
 
-  test("returns 400 when conversationKey is missing", async () => {
+  test("accepts message when conversationKey is omitted (defaults to stable channel key)", async () => {
     await startServer(() => makeCompletingConversation());
 
     const res = await fetch(messagesUrl(), {
@@ -867,7 +870,43 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
         interface: "macos",
       }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(202);
+
+    await stopServer();
+  });
+
+  test("two calls without conversationKey use the same conversation", async () => {
+    await startServer(() => makeCompletingConversation());
+
+    // First message — no conversationKey
+    const res1 = await fetch(messagesUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({
+        content: "First",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+    expect(res1.status).toBe(202);
+
+    // Second message — same channel/interface, still no conversationKey
+    const res2 = await fetch(messagesUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({
+        content: "Second",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+    expect(res2.status).toBe(202);
+
+    // Both should have resolved to the same default conversation key
+    // ("default:vellum:macos"), which maps to the same conversationId.
+    const mapping = getConversationByKey("default:vellum:macos");
+    expect(mapping).not.toBeNull();
+    expect(mapping!.conversationId).toBeTruthy();
 
     await stopServer();
   });
