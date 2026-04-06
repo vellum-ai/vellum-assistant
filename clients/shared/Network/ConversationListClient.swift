@@ -59,6 +59,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
                 type: "conversation_list_response",
                 conversations: items,
                 hasMore: decoded.hasMore,
+                nextOffset: decoded.nextOffset,
                 groups: decoded.groups
             )
         } catch {
@@ -385,6 +386,7 @@ private struct HTTPConversationsListResponse: Decodable {
     }
     let conversations: [Conversation]
     let hasMore: Bool?
+    let nextOffset: Int?
     let groups: [ConversationGroupResponse]?
 }
 
