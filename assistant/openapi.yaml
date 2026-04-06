@@ -3119,7 +3119,7 @@ paths:
     post:
       operationId: export_post
       summary: Export logs and audit data
-      description: Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
+      description: Export audit records, assistant logs, and config as a tar.gz archive.
       tags:
         - export
       responses:
@@ -4277,7 +4277,7 @@ paths:
     post:
       operationId: logs_export_post
       summary: Export logs and audit data (alias)
-      description: Alias for /v1/export. Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
+      description: Alias for /v1/export. Export audit records, assistant logs, and config as a tar.gz archive.
       tags:
         - export
       responses:
