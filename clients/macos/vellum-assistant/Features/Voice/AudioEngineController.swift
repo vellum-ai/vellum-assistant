@@ -16,14 +16,49 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Audio
 /// ensure `prewarm()` has run first so `inputNode` is already initialized and
 /// sync calls complete in sub-milliseconds.
 ///
+/// Listens for `AVAudioEngineConfigurationChange` notifications to re-warm
+/// `inputNode` after audio route changes (Bluetooth connect/disconnect,
+/// AirPods mode switch, USB mic plug/unplug).
+///
 /// See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
 final class AudioEngineController: @unchecked Sendable {
 
     private let audioEngine = AVAudioEngine()
     private let queue: DispatchQueue
+    private var configChangeObserver: (any NSObjectProtocol)?
 
     init(label: String = "com.vellum.audioEngine") {
         self.queue = DispatchQueue(label: label, qos: .userInitiated)
+        observeConfigurationChanges()
+    }
+
+    deinit {
+        if let observer = configChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    // MARK: - Configuration Change Monitoring
+
+    /// Re-prewarm `inputNode` when the audio hardware configuration changes
+    /// (Bluetooth device connect/disconnect, USB mic plug/unplug, AirPods
+    /// mode switch). Keeps the cached inputNode format fresh so subsequent
+    /// `installTapAndStart` calls complete in sub-milliseconds.
+    ///
+    /// See: https://developer.apple.com/documentation/avfaudio/avaudioengine/1386063-configurationchangenotification
+    private func observeConfigurationChanges() {
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: audioEngine,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            log.info("Audio configuration changed — re-warming inputNode")
+            self.queue.async {
+                let _ = self.audioEngine.inputNode
+                log.info("Audio engine re-warmed after configuration change")
+            }
+        }
     }
 
     // MARK: - Pre-warm
@@ -94,25 +129,52 @@ final class AudioEngineController: @unchecked Sendable {
         block: @escaping AVAudioNodeTapBlock
     ) -> Bool {
         queue.sync { [self] in
-            let inputNode = audioEngine.inputNode
-            let format = inputNode.outputFormat(forBus: 0)
-            guard format.channelCount > 0, format.sampleRate > 0 else {
-                log.error("Invalid audio format — channels: \(format.channelCount), sampleRate: \(format.sampleRate)")
-                return false
-            }
+            installTapAndStartImpl(bufferSize: bufferSize, block: block)
+        }
+    }
 
+    /// Non-blocking variant of `installTapAndStart` using Swift concurrency.
+    /// Dispatches to the audio queue asynchronously and returns the result via
+    /// async/await, keeping the caller's thread free during engine initialization.
+    ///
+    /// Use this for latency-sensitive flows (e.g. PTT dictation) where showing
+    /// immediate UI feedback before the engine is ready improves perceived
+    /// responsiveness.
+    func installTapAndStartAsync(
+        bufferSize: AVAudioFrameCount,
+        block: @escaping AVAudioNodeTapBlock
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                let success = installTapAndStartImpl(bufferSize: bufferSize, block: block)
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
+    /// Shared implementation for both sync and async tap+start paths.
+    private func installTapAndStartImpl(
+        bufferSize: AVAudioFrameCount,
+        block: @escaping AVAudioNodeTapBlock
+    ) -> Bool {
+        let inputNode = audioEngine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            log.error("Invalid audio format — channels: \(format.channelCount), sampleRate: \(format.sampleRate)")
+            return false
+        }
+
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil, block: block)
+
+        audioEngine.prepare()
+        do {
+            try audioEngine.start()
+            return true
+        } catch {
+            log.error("Failed to start audio engine: \(error.localizedDescription)")
             inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil, block: block)
-
-            audioEngine.prepare()
-            do {
-                try audioEngine.start()
-                return true
-            } catch {
-                log.error("Failed to start audio engine: \(error.localizedDescription)")
-                inputNode.removeTap(onBus: 0)
-                return false
-            }
+            return false
         }
     }
 

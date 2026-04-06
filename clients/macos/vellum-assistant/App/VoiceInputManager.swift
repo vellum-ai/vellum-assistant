@@ -110,7 +110,7 @@ final class VoiceInputManager {
         PTTActivator.cached
     }
 
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private var speechRecognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let engineController = AudioEngineController(label: "com.vellum.audioEngine.voiceInput")
@@ -549,18 +549,22 @@ final class VoiceInputManager {
         holdTask = nil
     }
 
-    /// Capture frontmost app context (for dictation) and begin recording.
+    /// Start recording immediately for instant UI feedback, then capture
+    /// frontmost app context. The engine starts asynchronously on its audio
+    /// queue while context capture runs on the main thread — both happen
+    /// concurrently, eliminating the sequential 600ms + 2s worst-case delay.
+    ///
     /// When Vellum itself is the frontmost app, skip context capture so the
     /// transcription falls through to the conversation path (auto-submit to chat)
     /// instead of going through DictationTextInserter which would double-insert.
     private func captureContextAndBeginRecording() {
+        beginRecording()
         if currentMode == .dictation {
             let isVellumFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
             if !isVellumFrontmost {
                 currentDictationContext = DictationContextCapture.capture()
             }
         }
-        beginRecording()
     }
 
     /// Stop recording using the appropriate method for the current mode.
@@ -592,6 +596,12 @@ final class VoiceInputManager {
     // MARK: - Recording
 
     private func beginRecording() {
+        // Recreate speech recognizer if transiently unavailable (e.g. after
+        // sleep/wake, heavy use, or audio route changes).
+        if speechRecognizer?.isAvailable != true {
+            log.warning("Speech recognizer unavailable — recreating")
+            speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        }
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
             log.error("Speech recognizer not available")
             currentDictationContext = nil
@@ -637,6 +647,9 @@ final class VoiceInputManager {
             return
         }
 
+        // Show recording state and play chime immediately for instant feedback.
+        // The audio engine starts asynchronously below — the user hears/sees the
+        // activation before the engine is ready, hiding hardware latency.
         isRecording = true
         onRecordingStateChanged?(true)
         if currentMode == .dictation {
@@ -647,6 +660,7 @@ final class VoiceInputManager {
             }
         }
         log.info("Voice recording started")
+        VoiceFeedback.playActivationChime()
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -655,87 +669,93 @@ final class VoiceInputManager {
         let ampState = amplitudeState
         ampState.reset()
 
-        // Atomically read the hardware format, install the tap, and start the
-        // engine in a single dispatch to the audio queue. This prevents the
-        // TOCTOU race where a format read via `inputNodeFormat()` becomes stale
-        // before a separate `installTap()` async block executes — which crashes
-        // with NSInternalInconsistencyException on first use after permission grant.
-        guard engineController.installTapAndStart(
-            bufferSize: 1024,
-            block: { [weak self] buffer, _ in
-                request.append(buffer)
+        let tapBlock: AVAudioNodeTapBlock = { [weak self] buffer, _ in
+            request.append(buffer)
 
-                guard let channelData = buffer.floatChannelData else { return }
-                let frameLength = Int(buffer.frameLength)
-                guard frameLength > 0 else { return }
+            guard let channelData = buffer.floatChannelData else { return }
+            let frameLength = Int(buffer.frameLength)
+            guard frameLength > 0 else { return }
 
-                let channelDataArray = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-                let rawRMS = vDSP.rootMeanSquare(channelDataArray)
+            let channelDataArray = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
+            let rawRMS = vDSP.rootMeanSquare(channelDataArray)
 
-                let smoothed = 0.5 * rawRMS + 0.5 * ampState.previousSmoothed
-                ampState.previousSmoothed = smoothed
+            let smoothed = 0.5 * rawRMS + 0.5 * ampState.previousSmoothed
+            ampState.previousSmoothed = smoothed
 
-                // Scale amplitude to 0-1 range for waveform visualization.
-                // Speech RMS is typically 0.01-0.1; multiply to fill the visual range.
-                let scaled = min(smoothed * 14.0, 1.0)
+            // Scale amplitude to 0-1 range for waveform visualization.
+            // Speech RMS is typically 0.01-0.1; multiply to fill the visual range.
+            let scaled = min(smoothed * 14.0, 1.0)
 
-                let now = CFAbsoluteTimeGetCurrent()
-                guard now - ampState.lastEmissionTime >= 0.033 else { return }
-                ampState.lastEmissionTime = now
+            let now = CFAbsoluteTimeGetCurrent()
+            guard now - ampState.lastEmissionTime >= 0.033 else { return }
+            ampState.lastEmissionTime = now
 
-                VoiceInputManager.amplitudeSubject.send(scaled)
-                DispatchQueue.main.async { [weak self] in
-                    self?.onAmplitudeChanged?(scaled)
-                }
+            VoiceInputManager.amplitudeSubject.send(scaled)
+            DispatchQueue.main.async { [weak self] in
+                self?.onAmplitudeChanged?(scaled)
             }
-        ) else {
-            log.error("Audio engine failed to start — invalid format or engine error")
-            isRecording = false
-            onRecordingStateChanged?(false)
-            currentDictationContext = nil
-            recognitionRequest = nil
-            overlayWindow.dismiss()
-            resetAudioEngine()
-            return
         }
-        hasInstalledTap = true
 
-        recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
-            Task { @MainActor in
-                guard let self = self else { return }
-                // Ignore late callbacks delivered after recording was stopped
-                // (e.g. endAudio() triggering a delayed isFinal via Task dispatch).
-                guard self.isRecording else { return }
+        // Start the audio engine asynchronously to avoid blocking the main
+        // thread during Bluetooth negotiation or hardware initialization.
+        // The recognition task is started in the completion after the engine
+        // is running. This eliminates the 2+ second main-thread stall that
+        // occurs with queue.sync when coreaudiod is contended.
+        Task { [weak self] in
+            guard let self else { return }
+            let success = await self.engineController.installTapAndStartAsync(
+                bufferSize: 1024,
+                block: tapBlock
+            )
+            // Recording may have been stopped while the engine was starting
+            guard self.isRecording else { return }
+            guard success else {
+                log.error("Audio engine failed to start — invalid format or engine error")
+                self.isRecording = false
+                self.onRecordingStateChanged?(false)
+                self.currentDictationContext = nil
+                self.recognitionRequest = nil
+                self.overlayWindow.dismiss()
+                self.resetAudioEngine()
+                return
+            }
+            self.hasInstalledTap = true
 
-                if let result = result {
-                    let text = result.bestTranscription.formattedString
-                    if result.isFinal {
-                        log.info("Transcription: \(text, privacy: .public)")
-                        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            self.handleFinalTranscription(text)
+            self.recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    // Ignore late callbacks delivered after recording was stopped
+                    // (e.g. endAudio() triggering a delayed isFinal via Task dispatch).
+                    guard self.isRecording else { return }
+
+                    if let result = result {
+                        let text = result.bestTranscription.formattedString
+                        if result.isFinal {
+                            log.info("Transcription: \(text, privacy: .public)")
+                            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                self.handleFinalTranscription(text)
+                            } else {
+                                VoiceFeedback.playDeactivationChime()
+                            }
+                            self.recognitionTask = nil
+                            self.stopRecording()
                         } else {
-                            VoiceFeedback.playDeactivationChime()
-                        }
-                        self.recognitionTask = nil
-                        self.stopRecording()
-                    } else {
-                        self.onPartialTranscription?(text)
-                        if self.currentMode == .dictation {
-                            self.overlayWindow.updatePartialTranscription(text)
+                            self.onPartialTranscription?(text)
+                            if self.currentMode == .dictation {
+                                self.overlayWindow.updatePartialTranscription(text)
+                            }
                         }
                     }
-                }
 
-                if let error = error {
-                    log.error("Recognition error: \(error.localizedDescription)")
-                    self.recognitionTask = nil
-                    VoiceFeedback.playDeactivationChime()
-                    self.stopRecording()
+                    if let error = error {
+                        log.error("Recognition error: \(error.localizedDescription)")
+                        self.recognitionTask = nil
+                        VoiceFeedback.playDeactivationChime()
+                        self.stopRecording()
+                    }
                 }
             }
         }
-
-        VoiceFeedback.playActivationChime()
     }
 
     // MARK: - Permission Prompt
@@ -765,10 +785,10 @@ final class VoiceInputManager {
 
         log.info("Permissions granted — starting recording")
         prewarmEngine()
+        self.beginRecording()
         if self.currentMode == .dictation {
             self.currentDictationContext = DictationContextCapture.capture()
         }
-        self.beginRecording()
     }
 
 
@@ -843,6 +863,23 @@ final class VoiceInputManager {
             engineController.stopAndRemoveTap()
         }
         hasInstalledTap = false
+
+        // If the recognition task hasn't been started yet (async engine start
+        // still in progress), there's no callback to deliver isFinal.
+        // Clean up directly instead of waiting for a callback that won't come.
+        guard recognitionTask != nil else {
+            log.info("Recognition task not yet started — cleaning up directly")
+            recognitionRequest = nil
+            isRecording = false
+            currentDictationContext = nil
+            activeOrigin = .hotkey
+            amplitudeState.reset()
+            Self.amplitudeSubject.send(0)
+            onAmplitudeChanged?(0)
+            overlayWindow.dismiss()
+            VoiceFeedback.playDeactivationChime()
+            return
+        }
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
