@@ -149,7 +149,7 @@ extension MainWindowView {
                 get: { sidebar.renamingGroupName },
                 set: { sidebar.renamingGroupName = $0 }
             ),
-            onRename: { name in
+            onRename: group.isSystemGroup ? nil : { name in
                 sidebar.renamingGroupId = group.id
                 sidebar.renamingGroupName = name
             },
