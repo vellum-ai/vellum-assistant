@@ -124,35 +124,38 @@ struct APIKeyEntryStepView: View {
         .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
-        .onAppear {
-            if let existingKey = APIKeyManager.getKey(for: state.selectedProvider) {
-                apiKey = existingKey
-                hasExistingKey = true
-            }
+        .task {
+            // Start entrance animations immediately — don't block on the
+            // network call to pre-fill an existing key.
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
             }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 800_000_000)
-                guard !Task.isCancelled else { return }
-                keyFieldFocused = true
+            // Pre-fill existing key asynchronously (gateway call with 5s timeout).
+            if let existingKey = await APIKeyManager.getKey(for: state.selectedProvider) {
+                apiKey = existingKey
+                hasExistingKey = true
             }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else { return }
+            keyFieldFocused = true
         }
         .onChange(of: state.selectedProvider) { _, newProvider in
             if let entry = providerCatalog.first(where: { $0.id == newProvider }) {
                 state.selectedModel = entry.defaultModel
             }
-            if let existingKey = APIKeyManager.getKey(for: newProvider) {
-                apiKey = existingKey
-                hasExistingKey = true
-                isEditing = false
-            } else {
-                apiKey = ""
-                hasExistingKey = false
-                isEditing = false
+            Task {
+                if let existingKey = await APIKeyManager.getKey(for: newProvider) {
+                    apiKey = existingKey
+                    hasExistingKey = true
+                    isEditing = false
+                } else {
+                    apiKey = ""
+                    hasExistingKey = false
+                    isEditing = false
+                }
             }
         }
     }
@@ -237,8 +240,20 @@ struct APIKeyEntryStepView: View {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !providerRequiresKey || !trimmed.isEmpty else { return }
         if providerRequiresKey {
-            APIKeyManager.setKey(trimmed, for: state.selectedProvider)
+            // Store the raw key in OnboardingState so the hatch step can
+            // pass it to the CLI even before a daemon exists to store it.
+            state.onboardingApiKey = trimmed
+            let provider = state.selectedProvider
+            Task {
+                // Best-effort write to daemon (succeeds on re-hatch when a
+                // daemon is already running; silently fails on first hatch).
+                await APIKeyManager.setKey(trimmed, for: provider)
+            }
+            // Advance immediately — don't block on the network call which
+            // has a 5s timeout and will fail during first-time onboarding.
+            state.advance()
+        } else {
+            state.advance()
         }
-        state.advance()
     }
 }

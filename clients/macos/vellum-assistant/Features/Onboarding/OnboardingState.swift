@@ -88,6 +88,9 @@ final class OnboardingState {
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = "claude-opus-4-6"
     var selectedProvider: String = "anthropic"
+    /// Raw API key entered during onboarding, held in memory so the hatch
+    /// step can pass it to the CLI even before a daemon exists to store it.
+    var onboardingApiKey: String?
     /// When true, the onboarding flow was launched from the developer tab's
     /// "Hatch New Assistant" button. This prevents auto-completing when the user
     /// already has a managed assistant, forcing the hosting selector to appear so
@@ -208,13 +211,16 @@ final class OnboardingState {
         // Reset ToS acceptance so the user must re-accept on re-hatch
         UserDefaults.standard.set(false, forKey: "tosAccepted")
 
-        // Clear API key for whichever provider was selected during onboarding
-        if selectedProvider != "anthropic" {
-            APIKeyManager.deleteKey(for: selectedProvider)
-        }
-        APIKeyManager.deleteKey(for: "anthropic")
-
+        // Clear API key for whichever provider was selected during onboarding.
+        // Capture provider before resetting so the Task sees the original value.
+        let providerToDelete = selectedProvider
         selectedProvider = "anthropic"
+        Task {
+            if providerToDelete != "anthropic" {
+                await APIKeyManager.deleteKey(for: providerToDelete)
+            }
+            await APIKeyManager.deleteKey(for: "anthropic")
+        }
         selectedModel = "claude-opus-4-6"
 
         // Reset hosting selection and cloud credentials
