@@ -34,7 +34,12 @@ import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
 import { registerUsageCommand } from "./commands/usage.js";
 
-export function buildCliProgram(): Command {
+/**
+ * Build the CLI program tree. Pre-populates the feature flag cache from
+ * the gateway so flag-gated commands are registered correctly.
+ */
+export async function buildCliProgram(): Promise<Command> {
+  await initFeatureFlagOverrides();
   const program = new Command();
 
   program
@@ -87,18 +92,4 @@ Examples:
   registerSequenceCommand(program);
 
   return program;
-}
-
-/**
- * Async program builder — pre-populates the feature flag cache from the
- * gateway before constructing the Commander tree so flag-gated commands
- * (e.g. email) are registered correctly.
- *
- * Preferred entry point for CLI invocations and tests. The sync
- * `buildCliProgram()` is still available for callers that don't need
- * flag resolution (e.g. capability graph seeding).
- */
-export async function buildCliProgramAsync(): Promise<Command> {
-  await initFeatureFlagOverrides();
-  return buildCliProgram();
 }

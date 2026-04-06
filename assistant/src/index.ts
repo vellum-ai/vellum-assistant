@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
 
-import { buildCliProgramAsync } from "./cli/program.js";
+import { buildCliProgram } from "./cli/program.js";
 
-(await buildCliProgramAsync()).parse();
+(await buildCliProgram()).parse();

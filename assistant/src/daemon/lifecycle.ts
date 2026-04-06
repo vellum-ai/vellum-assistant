@@ -700,7 +700,7 @@ export async function runDaemon(): Promise<void> {
           seedUninstalledCatalogSkillMemories,
         } = await import("../memory/graph/capability-seed.js");
         seedSkillGraphNodes();
-        seedCliGraphNodes();
+        await seedCliGraphNodes();
         void seedUninstalledCatalogSkillMemories().catch((err) =>
           log.warn(
             { err },

@@ -55,7 +55,7 @@ function expectLowRisk(command: string, actual: RiskLevel): void {
 // Dynamically extract subcommand names from the CLI program definition.
 // This ensures new commands added to program.ts are automatically covered
 // by this guard test without manual list maintenance.
-const program = buildCliProgram();
+const program = await buildCliProgram();
 const ASSISTANT_SUBCOMMANDS = program.commands.map((c) => c.name());
 
 describe("CLI command risk guard: assistant commands", () => {

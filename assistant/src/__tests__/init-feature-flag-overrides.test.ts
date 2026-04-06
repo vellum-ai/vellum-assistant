@@ -10,11 +10,7 @@ import {
   isAssistantFeatureFlagEnabled,
 } from "../config/assistant-feature-flags.js";
 import * as tokenService from "../runtime/auth/token-service.js";
-import {
-  getMockFetchCalls,
-  mockFetch,
-  resetMockFetch,
-} from "./mock-fetch.js";
+import { getMockFetchCalls, mockFetch, resetMockFetch } from "./mock-fetch.js";
 
 const VALID_HEX_KEY = "ab".repeat(32);
 
@@ -43,16 +39,16 @@ describe("initFeatureFlagOverrides", () => {
         body: {
           flags: [
             {
-              key: "email-channel",
+              key: "foo-enabled",
               enabled: true,
-              label: "Email",
+              label: "Foo",
               defaultEnabled: false,
               description: "",
             },
             {
-              key: "browser",
+              key: "bar-enabled",
               enabled: true,
-              label: "Browser",
+              label: "Bar",
               defaultEnabled: true,
               description: "",
             },
@@ -64,9 +60,9 @@ describe("initFeatureFlagOverrides", () => {
 
     await initFeatureFlagOverrides();
 
-    // email-channel defaults to false in the registry — should now be true
     const config = {} as any;
-    expect(isAssistantFeatureFlagEnabled("email-channel", config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("bar-enabled", config)).toBe(true);
 
     // Verify fetch was called with correct URL and auth header
     const calls = getMockFetchCalls();
@@ -99,27 +95,18 @@ describe("initFeatureFlagOverrides", () => {
     expect(parts.length).toBe(3);
   });
 
-  it("falls back to file when gateway is unreachable", async () => {
-    // Register a mock that returns a network error via a Response with
-    // status 500. The shared mock-fetch utility doesn't support rejecting
-    // promises directly, but fetchOverridesFromGateway treats non-OK as
-    // a failure and returns {}.
-    mockFetch(
-      "/v1/feature-flags",
-      { method: "GET" },
-      { status: 500 },
-    );
+  it("falls back gracefully when gateway is unreachable", async () => {
+    mockFetch("/v1/feature-flags", { method: "GET" }, { status: 500 });
 
-    // Should not throw — graceful fallback
+    // Should not throw
     await initFeatureFlagOverrides();
 
-    // Without gateway data or file, email-channel falls through to
-    // registry default (false)
+    // Without gateway data or file, undeclared flags default to true
     const config = {} as any;
-    expect(isAssistantFeatureFlagEnabled("email-channel", config)).toBe(false);
+    expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
   });
 
-  it("falls back to file on non-OK HTTP status", async () => {
+  it("falls back gracefully on non-OK HTTP status", async () => {
     mockFetch(
       "/v1/feature-flags",
       { method: "GET" },
@@ -128,8 +115,9 @@ describe("initFeatureFlagOverrides", () => {
 
     await initFeatureFlagOverrides();
 
+    // Undeclared flags default to true without overrides
     const config = {} as any;
-    expect(isAssistantFeatureFlagEnabled("email-channel", config)).toBe(false);
+    expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
   });
 
   it("initializes signing key lazily when not yet set", async () => {
@@ -137,14 +125,15 @@ describe("initFeatureFlagOverrides", () => {
     tokenService._resetSigningKeyForTesting();
     delete process.env.ACTOR_TOKEN_SIGNING_KEY;
 
-    // resolveSigningKey() will generate a key from disk when env var is unset
     expect(tokenService.isSigningKeyInitialized()).toBe(false);
 
     mockFetch(
       "/v1/feature-flags",
       { method: "GET" },
       {
-        body: { flags: [{ key: "email-channel", enabled: true }] },
+        body: {
+          flags: [{ key: "expected-enabled", enabled: true }],
+        },
         status: 200,
       },
     );
@@ -156,6 +145,23 @@ describe("initFeatureFlagOverrides", () => {
 
     // And the flag should be resolved correctly
     const config = {} as any;
-    expect(isAssistantFeatureFlagEnabled("email-channel", config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("expected-enabled", config)).toBe(
+      true,
+    );
+  });
+
+  it("does not cache empty gateway response", async () => {
+    mockFetch(
+      "/v1/feature-flags",
+      { method: "GET" },
+      { body: { flags: [] }, status: 200 },
+    );
+
+    await initFeatureFlagOverrides();
+
+    // Undeclared flags without overrides default to true (not false from
+    // a cached empty map)
+    const config = {} as any;
+    expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
   });
 });

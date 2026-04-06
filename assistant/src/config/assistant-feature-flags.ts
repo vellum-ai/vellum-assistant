@@ -20,7 +20,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { getIsContainerized } from "./env-registry.js";
 import type { AssistantConfig } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -239,6 +238,10 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  * `isAssistantFeatureFlagEnabled` calls. In containerized mode, always
  * uses the gateway. In local mode, falls back to the local file when
  * the gateway is unreachable.
+ *
+ * On failure, the cache is left unset so subsequent sync calls fall
+ * through to the file-based fallback rather than caching an empty map
+ * that masks all overrides for the process lifetime.
  */
 export async function initFeatureFlagOverrides(): Promise<void> {
   const gatewayOverrides = await fetchOverridesFromGateway();
@@ -247,15 +250,9 @@ export async function initFeatureFlagOverrides(): Promise<void> {
     return;
   }
 
-  // Gateway returned empty or failed. In containerized mode, leave the
-  // cache unset so later calls retry via loadOverrides() → file fallback,
-  // rather than caching an empty map that hides all overrides for the
-  // process lifetime.
-  if (getIsContainerized()) return;
-
-  // Graceful fallback: in local mode, if the gateway hasn't started yet
-  // (empty response), read overrides from file as a temporary measure.
-  cachedOverrides = loadOverridesFromFile();
+  // Gateway returned empty or failed. Leave the cache unset so
+  // loadOverrides() falls through to file on the next sync read,
+  // regardless of containerized vs local mode.
 }
 
 /**

@@ -127,9 +127,7 @@ export function seedSkillGraphNodes(): void {
       // skip catalog-based pruning to avoid incorrectly marking valid
       // uninstalled catalog nodes as gone. But still prune locally disabled
       // skills so stale capability nodes don't linger after cold start.
-      log.info(
-        "Catalog cache is cold — pruning only locally disabled skills",
-      );
+      log.info("Catalog cache is cold — pruning only locally disabled skills");
       const disabled = resolved.filter((r) => r.state !== "enabled");
       for (const { summary } of disabled) {
         deleteSkillCapabilityNode(summary.id);
@@ -158,9 +156,9 @@ export function seedSkillGraphNodes(): void {
  * Seed graph nodes for all CLI commands.
  * Prunes stale nodes whose commands are no longer registered.
  */
-export function seedCliGraphNodes(): void {
+export async function seedCliGraphNodes(): Promise<void> {
   try {
-    const program = buildCliProgram();
+    const program = await buildCliProgram();
 
     const seenKeys = new Set<string>();
     for (const cmd of program.commands) {

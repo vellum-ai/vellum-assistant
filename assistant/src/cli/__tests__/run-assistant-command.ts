@@ -13,8 +13,8 @@ export interface AssistantCommandResult {
 export async function runAssistantCommandFull(
   ...args: string[]
 ): Promise<AssistantCommandResult> {
-  const { buildCliProgramAsync } = await import("../program.js");
-  const program = await buildCliProgramAsync();
+  const { buildCliProgram } = await import("../program.js");
+  const program = await buildCliProgram();
   program.exitOverride();
 
   const stderrChunks: string[] = [];
