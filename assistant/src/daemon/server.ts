@@ -92,6 +92,7 @@ import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import { buildTransportHints } from "./transport-hints.js";
 
 const log = getLogger("server");
 
@@ -374,28 +375,7 @@ export class DaemonServer {
       { channelId: transport.channelId },
       "Transport metadata received",
     );
-
-    // Build enriched hints: interface ID first, then host environment (macOS
-    // only), then any client-provided hints.
-    const enrichedHints: string[] = [];
-
-    const interfaceLabel = parseInterfaceId(transport.interfaceId) ?? "vellum";
-    enrichedHints.push(`User is messaging from interface: ${interfaceLabel}`);
-
-    if (transport.interfaceId === "macos") {
-      if (transport.hostHomeDir) {
-        enrichedHints.push(`Host home directory: ${transport.hostHomeDir}`);
-      }
-      if (transport.hostUsername) {
-        enrichedHints.push(`Host username: ${transport.hostUsername}`);
-      }
-    }
-
-    if (transport.hints) {
-      enrichedHints.push(...transport.hints);
-    }
-
-    conversation.setTransportHints(enrichedHints);
+    conversation.setTransportHints(buildTransportHints(transport));
   }
 
   constructor() {

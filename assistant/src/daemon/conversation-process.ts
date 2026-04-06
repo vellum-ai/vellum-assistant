@@ -48,6 +48,7 @@ import type {
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { TraceEmitter } from "./trace-emitter.js";
+import { buildTransportHints } from "./transport-hints.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -161,6 +162,8 @@ export interface ProcessConversationContext {
   ): void;
   /** Force context compaction regardless of threshold/cooldown. */
   forceCompact(): Promise<ContextWindowResult>;
+  /** Set transport-derived hints for the conversation. */
+  setTransportHints(hints: string[] | undefined): void;
 }
 
 function resolveQueuedTurnContext(
@@ -292,6 +295,13 @@ export async function drainQueue(
   );
   if (queuedInterfaceCtx) {
     conversation.setTurnInterfaceContext(queuedInterfaceCtx);
+  }
+
+  // Apply transport hints from the queued message so each turn uses the
+  // transport metadata that arrived with its message, not whatever the
+  // conversation happened to have from a previous turn.
+  if (next.transport) {
+    conversation.setTransportHints(buildTransportHints(next.transport));
   }
 
   // Non-interactive queued messages (channel requests) must not execute tools
