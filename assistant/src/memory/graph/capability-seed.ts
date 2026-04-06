@@ -118,12 +118,22 @@ export function seedSkillGraphNodes(): void {
     // Protect uninstalled catalog skills from pruning — they are seeded
     // asynchronously by seedUninstalledCatalogSkillMemories() and should
     // not be marked as "gone" just because they aren't locally installed.
-    // Skip pruning entirely when the catalog cache is cold (empty before
-    // the async fetch completes) to avoid incorrectly marking valid
-    // uninstalled catalog nodes as gone during cold start.
+    // When the catalog cache is cold (empty before the async fetch
+    // completes), we can only prune locally managed skills; full
+    // catalog-based pruning waits until the cache is populated.
     const cachedCatalog = getCachedCatalogSync();
     if (cachedCatalog.length === 0) {
-      log.info("Skipping skill capability pruning — catalog cache is cold");
+      // Catalog cache is cold — we can't enumerate remote catalog skills, so
+      // skip catalog-based pruning to avoid incorrectly marking valid
+      // uninstalled catalog nodes as gone. But still prune locally disabled
+      // skills so stale capability nodes don't linger after cold start.
+      log.info(
+        "Catalog cache is cold — pruning only locally disabled skills",
+      );
+      const disabled = resolved.filter((r) => r.state !== "enabled");
+      for (const { summary } of disabled) {
+        deleteSkillCapabilityNode(summary.id);
+      }
     } else {
       for (const entry of cachedCatalog) {
         const flagKey = entry.metadata?.vellum?.["feature-flag"];
