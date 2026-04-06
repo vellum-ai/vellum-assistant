@@ -419,8 +419,10 @@ final class MessageListScrollState {
     /// Tracks overlapping stabilization windows. Stabilization only ends
     /// when all active windows have completed, so concurrent reasons
     /// (e.g. resize during pagination) don't prematurely restore the mode.
-    /// Re-entering the same reason refreshes that window instead of stacking
-    /// duplicate counts that would require extra `endStabilization()` calls.
+    /// Re-entering the same reason increments the count like any other entry.
+    /// Callers are structured so that each `beginStabilization` has a matching
+    /// `endStabilization` (cancelled task cleanup for resize, preceding
+    /// `endStabilization` in `suppressAutoScroll` for expansion).
     @ObservationIgnored private var activeStabilizationCount = 0
 
     // MARK: - Deep-Link Anchor Tracking
