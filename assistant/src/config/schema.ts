@@ -203,6 +203,7 @@ import {
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
+import { FilingConfigSchema } from "./schemas/filing.js";
 import { FishAudioConfigSchema } from "./schemas/fish-audio.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import {
@@ -278,6 +279,7 @@ export const AssistantConfigSchema = z
       .describe(
         "Custom pricing overrides for specific provider/model combinations",
       ),
+    filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),

@@ -32,6 +32,7 @@ import {
   awaitCesClientWithTimeout,
   DEFAULT_CES_STARTUP_TIMEOUT_MS,
 } from "../credential-execution/startup-timeout.js";
+import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -1253,6 +1254,26 @@ export async function runDaemon(): Promise<void> {
       "Heartbeat service configured",
     );
 
+    const filingConfig = config.filing;
+    const filing = new FilingService({
+      processMessage: (conversationId, content, options) =>
+        server.processMessage(conversationId, content, undefined, {
+          trustContext: {
+            sourceChannel: "vellum",
+            trustClass: "guardian",
+          },
+          ...options,
+        }),
+    });
+    filing.start();
+    log.info(
+      {
+        enabled: filingConfig.enabled,
+        intervalMs: filingConfig.intervalMs,
+      },
+      "Filing service configured",
+    );
+
     // Retrieve the MCP manager if MCP servers were configured.
     // The manager is a singleton created during initializeProvidersAndTools().
     const mcpManager =
@@ -1264,6 +1285,7 @@ export async function runDaemon(): Promise<void> {
       server,
       workspaceHeartbeat,
       heartbeat,
+      filing,
       hookManager,
       runtimeHttp,
       scheduler,

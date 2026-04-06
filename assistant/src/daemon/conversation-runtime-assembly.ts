@@ -13,7 +13,7 @@ import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
-import { getWorkspacePromptPath } from "../util/platform.js";
+import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 /**
@@ -529,6 +529,79 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
   ]);
 }
 
+// ---------------------------------------------------------------------------
+// PKB (Personal Knowledge Base) injection
+// ---------------------------------------------------------------------------
+
+const PKB_FILES = ["INDEX.md", "essentials.md", "threads.md", "buffer.md"];
+
+/**
+ * Read the always-loaded PKB files (INDEX, essentials, threads, buffer).
+ * Returns the concatenated content ready for injection, or `null` if all
+ * files are missing or empty.
+ */
+export function readPkbContext(): string | null {
+  const pkbDir = join(getWorkspaceDir(), "pkb");
+  if (!existsSync(pkbDir)) return null;
+
+  const parts: string[] = [];
+  for (const file of PKB_FILES) {
+    const filePath = join(pkbDir, file);
+    if (!existsSync(filePath)) continue;
+    try {
+      const content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
+      if (content.length > 0) parts.push(content);
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+/**
+ * Insert PKB context into the user message, after any injected memory
+ * blocks but before NOW.md and the user's original content.
+ */
+export function injectPkbContext(message: Message, content: string): Message {
+  const pkbBlock = {
+    type: "text" as const,
+    text: `<pkb>\n${content}\n</pkb>`,
+  };
+
+  // Find insertion point: skip any leading memory/image blocks
+  let insertIdx = 0;
+  for (let i = 0; i < message.content.length; i++) {
+    const block = message.content[i];
+    if (
+      block.type === "text" &&
+      (block.text.startsWith("<memory") ||
+        block.text.startsWith("<memory_context"))
+    ) {
+      insertIdx = i + 1;
+    } else if (block.type === "image") {
+      // Memory images precede the memory text block
+      insertIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    ...message,
+    content: [
+      ...message.content.slice(0, insertIdx),
+      pkbBlock,
+      ...message.content.slice(insertIdx),
+    ],
+  };
+}
+
+/** Strip `<pkb>` blocks injected by `injectPkbContext`. */
+export function stripPkbContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ["<pkb>"]);
+}
+
 /**
  * Prepend channel capability context to the last user message so the
  * model knows what the current channel can and cannot do.
@@ -953,6 +1026,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<non_interactive_context>",
   "<NOW.md Always keep this up to date>",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
+  "<pkb>",
   "<transport_hints>",
 ];
 
@@ -1014,6 +1088,7 @@ export function applyRuntimeInjections(
     channelCommandContext?: ChannelCommandContext | null;
     unifiedTurnContext?: string | null;
     voiceCallControlPrompt?: string | null;
+    pkbContext?: string | null;
     nowScratchpad?: string | null;
     isNonInteractive?: boolean;
     transportHints?: string[] | null;
@@ -1050,6 +1125,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectVoiceCallControlContext(userTail, options.voiceCallControlPrompt),
+      ];
+    }
+  }
+
+  if (mode === "full" && options.pkbContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        injectPkbContext(userTail, options.pkbContext),
       ];
     }
   }

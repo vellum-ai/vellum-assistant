@@ -1,32 +1,21 @@
 // ---------------------------------------------------------------------------
 // Memory Graph — Tool handlers for recall and remember
 //
-// These are the implementations behind the recall/remember tool definitions.
 // recall: search the living graph or raw archive
-// remember: immediate CRUD on graph nodes (replaces NOW.md)
+// remember: save facts to the PKB (buffer.md + daily archive)
 // ---------------------------------------------------------------------------
+
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import { buildExcerpt, buildFtsMatchQuery } from "../conversation-queries.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
-import { enqueueGraphNodeEmbed, searchGraphNodes } from "./graph-search.js";
-import {
-  createNode,
-  deleteNode,
-  getNode,
-  getNodesByIds,
-  updateNode,
-} from "./store.js";
-import type {
-  DecayCurve,
-  EmotionalCharge,
-  Fidelity,
-  MemoryType,
-  NewNode,
-  SourceType,
-} from "./types.js";
+import { searchGraphNodes } from "./graph-search.js";
+import { getNodesByIds } from "./store.js";
 
 const log = getLogger("graph-tool-handlers");
 
@@ -182,9 +171,7 @@ async function handleArchiveRecall(
       dateParams.push(beforeMs);
     }
     const dateClause =
-      dateConditions.length > 0
-        ? " AND " + dateConditions.join(" AND ")
-        : "";
+      dateConditions.length > 0 ? " AND " + dateConditions.join(" AND ") : "";
 
     type ArchiveRow = {
       id: string;
@@ -257,199 +244,58 @@ async function handleArchiveRecall(
 }
 
 // ---------------------------------------------------------------------------
-// remember handler
+// remember handler — writes to PKB buffer + daily archive
 // ---------------------------------------------------------------------------
 
 export interface RememberInput {
-  op: "save" | "update" | "delete";
-  memory_id?: string;
-  content?: string;
-  type?: string;
-  significance?: number;
-  emotional_charge?: {
-    valence?: number;
-    intensity?: number;
-  };
+  content: string;
 }
 
 export interface RememberResult {
   success: boolean;
-  op: string;
-  memory_id?: string;
   message: string;
 }
 
-const VALID_TYPES = new Set<MemoryType>([
-  "episodic",
-  "semantic",
-  "procedural",
-  "emotional",
-  "prospective",
-  "behavioral",
-  "narrative",
-  "shared",
-]);
-
 export function handleRemember(
   input: RememberInput,
-  conversationId: string,
-  scopeId: string,
+  _conversationId: string,
+  _scopeId: string,
 ): RememberResult {
-  switch (input.op) {
-    case "save":
-      return handleSave(input, conversationId, scopeId);
-    case "update":
-      return handleUpdate(input);
-    case "delete":
-      return handleDelete(input);
-    default:
-      return {
-        success: false,
-        op: input.op,
-        message: `Unknown operation: ${input.op}`,
-      };
-  }
-}
-
-function handleSave(
-  input: RememberInput,
-  conversationId: string,
-  scopeId: string,
-): RememberResult {
-  if (!input.content) {
-    return {
-      success: false,
-      op: "save",
-      message: "content is required for save",
-    };
-  }
-  if (!input.type || !VALID_TYPES.has(input.type as MemoryType)) {
-    return {
-      success: false,
-      op: "save",
-      message: `type is required and must be one of: ${[...VALID_TYPES].join(", ")}`,
-    };
+  if (!input.content || input.content.trim().length === 0) {
+    return { success: false, message: "content is required" };
   }
 
-  const now = Date.now();
-  const emotionalCharge: EmotionalCharge = {
-    valence: clamp(input.emotional_charge?.valence ?? 0, -1, 1),
-    intensity: clamp(input.emotional_charge?.intensity ?? 0, 0, 1),
-    decayCurve: "linear" as DecayCurve,
-    decayRate: 0.05,
-    originalIntensity: clamp(input.emotional_charge?.intensity ?? 0, 0, 1),
-  };
+  const workspaceDir = getWorkspaceDir();
+  const pkbDir = join(workspaceDir, "pkb");
+  const archiveDir = join(pkbDir, "archive");
 
-  const node: NewNode = {
-    content: input.content,
-    type: input.type as MemoryType,
-    created: now,
-    lastAccessed: now,
-    lastConsolidated: now,
-    eventDate: null,
-    emotionalCharge,
-    fidelity: "vivid" as Fidelity,
-    confidence: 0.95, // Explicitly saved = high confidence
-    significance: clamp(input.significance ?? 0.5, 0, 1),
-    stability: 14,
-    reinforcementCount: 0,
-    lastReinforced: now,
-    sourceConversations: [conversationId],
-    sourceType: "direct" as SourceType,
-    narrativeRole: null,
-    partOfStory: null,
-    imageRefs: null,
-    scopeId,
-  };
+  // Ensure directories exist
+  mkdirSync(pkbDir, { recursive: true });
+  mkdirSync(archiveDir, { recursive: true });
 
-  const created = createNode(node);
+  // Build timestamped entry
+  const now = new Date();
+  const month = now.toLocaleString("en-US", { month: "short" });
+  const day = now.getDate();
+  const hours = now.getHours();
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  const entry = `- [${month} ${day}, ${displayHour}:${minutes} ${ampm}] ${input.content.trim()}\n`;
 
-  // Enqueue embedding job immediately
-  enqueueGraphNodeEmbed(created.id);
+  // Append to buffer.md
+  const bufferPath = join(pkbDir, "buffer.md");
+  appendFileSync(bufferPath, entry, "utf-8");
 
-  return {
-    success: true,
-    op: "save",
-    memory_id: created.id,
-    message: "Memory saved.",
-  };
-}
-
-function handleUpdate(input: RememberInput): RememberResult {
-  if (!input.memory_id) {
-    return {
-      success: false,
-      op: "update",
-      message: "memory_id is required for update",
-    };
+  // Append to daily archive
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const archivePath = join(archiveDir, `${yyyy}-${mm}-${dd}.md`);
+  if (!existsSync(archivePath)) {
+    appendFileSync(archivePath, `# ${month} ${day}, ${yyyy}\n\n`, "utf-8");
   }
+  appendFileSync(archivePath, entry, "utf-8");
 
-  const existing = getNode(input.memory_id);
-  if (!existing) {
-    return {
-      success: false,
-      op: "update",
-      memory_id: input.memory_id,
-      message: "Memory not found",
-    };
-  }
-
-  const changes: Record<string, unknown> = {};
-  if (input.content) changes.content = input.content;
-  if (input.significance != null)
-    changes.significance = clamp(input.significance, 0, 1);
-  if (input.type && VALID_TYPES.has(input.type as MemoryType))
-    changes.type = input.type;
-
-  if (Object.keys(changes).length > 0) {
-    updateNode(input.memory_id, changes);
-    // Re-embed if content changed
-    if (input.content) {
-      enqueueGraphNodeEmbed(input.memory_id);
-    }
-  }
-
-  return {
-    success: true,
-    op: "update",
-    memory_id: input.memory_id,
-    message: "Memory updated.",
-  };
-}
-
-function handleDelete(input: RememberInput): RememberResult {
-  if (!input.memory_id) {
-    return {
-      success: false,
-      op: "delete",
-      message: "memory_id is required for delete",
-    };
-  }
-
-  const existing = getNode(input.memory_id);
-  if (!existing) {
-    return {
-      success: false,
-      op: "delete",
-      memory_id: input.memory_id,
-      message: "Memory not found",
-    };
-  }
-
-  deleteNode(input.memory_id);
-
-  return {
-    success: true,
-    op: "delete",
-    memory_id: input.memory_id,
-    message: "Memory deleted.",
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v));
+  return { success: true, message: "Saved to knowledge base." };
 }
