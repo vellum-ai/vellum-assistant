@@ -735,9 +735,14 @@ function mergeToolResultsIntoAssistantMessages(
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
       assistantContent.push(...toolResultBlocks);
+    } else {
+      // No preceding assistant message (pagination boundary) — keep the
+      // original message as-is to avoid permanent data loss. The preceding
+      // assistant tool_use lives in the previous page; dropping the result
+      // here would be unrecoverable.
+      result.push(msg);
+      continue;
     }
-    // else: no preceding assistant message (pagination boundary) — drop the
-    // tool_result blocks to avoid rendering "unknown" chips.
 
     // If the user message had only tool_result (+ system_notice) blocks,
     // suppress it entirely. Otherwise keep the non-tool-result content.
@@ -752,7 +757,7 @@ function mergeToolResultsIntoAssistantMessages(
     if (realUserContent.length > 0) {
       result.push({ ...msg, content: JSON.stringify(otherBlocks) });
     }
-    // else: tool-result-only → suppressed
+    // else: tool-result-only → suppressed (results already merged above)
   }
 
   // Write back any modified assistant message content.
