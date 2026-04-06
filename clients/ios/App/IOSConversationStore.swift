@@ -28,6 +28,9 @@ struct IOSConversation: Identifiable {
     var forkParent: ConversationForkParent?
     /// The conversation group this conversation belongs to, if any.
     var groupId: String?
+    /// The source that created this conversation (e.g. "heartbeat", "task", "schedule", "reminder", "notification").
+    /// Immutable after creation — pinning/moving a conversation changes groupId but never source.
+    var source: String?
     var hasUnseenLatestAssistantMessage: Bool
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
@@ -39,16 +42,18 @@ struct IOSConversation: Identifiable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
-    /// Whether this conversation is automated (schedule, background) and should never
-    /// show unread indicators. Per Apple HIG, badges and unread indicators should only
-    /// reflect content requiring user attention — system-generated messages do not qualify.
+    /// Whether this conversation is automated (heartbeat, schedule, background/task)
+    /// and should never show unread indicators. Per Apple HIG, badges and unread
+    /// indicators should only reflect content requiring user attention — system-generated
+    /// messages from automated threads do not qualify.
+    ///
+    /// Uses `source` (immutable) rather than `groupId` (mutable on pin/move) so that
+    /// suppression is stable regardless of group changes.
     var shouldSuppressUnreadIndicator: Bool {
-        if isScheduleConversation { return true }
-        guard let groupId else { return false }
-        return groupId == ConversationGroup.background.id
+        isScheduleConversation || source == "heartbeat" || source == "task"
     }
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, groupId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, groupId: String? = nil, source: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -61,6 +66,7 @@ struct IOSConversation: Identifiable {
         self.scheduleJobId = scheduleJobId
         self.forkParent = forkParent
         self.groupId = groupId
+        self.source = source
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
         self.latestAssistantMessageAt = latestAssistantMessageAt
         self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
@@ -82,6 +88,7 @@ private struct PersistedConversation: Codable {
     var conversationId: String?
     var scheduleJobId: String?
     var forkParent: ConversationForkParent?
+    var source: String?
     var hasUnseenLatestAssistantMessage: Bool?
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
@@ -92,7 +99,7 @@ private struct PersistedConversation: Codable {
     enum CodingKeys: String, CodingKey {
         case id, title, createdAt, lastActivityAt, isArchived, isPinned, displayOrder, isPrivate
         case conversationId
-        case scheduleJobId, forkParent, hasUnseenLatestAssistantMessage, latestAssistantMessageAt, lastSeenAssistantMessageAt
+        case scheduleJobId, forkParent, source, hasUnseenLatestAssistantMessage, latestAssistantMessageAt, lastSeenAssistantMessageAt
         // Legacy key used before the session-to-conversation rename.
         case legacySessionId = "sessionId"
     }
@@ -117,6 +124,7 @@ extension PersistedConversation {
             ?? container.decodeIfPresent(String.self, forKey: .legacySessionId)
         scheduleJobId = try container.decodeIfPresent(String.self, forKey: .scheduleJobId)
         forkParent = try container.decodeIfPresent(ConversationForkParent.self, forKey: .forkParent)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
         hasUnseenLatestAssistantMessage = try container.decodeIfPresent(Bool.self, forKey: .hasUnseenLatestAssistantMessage)
         latestAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .latestAssistantMessageAt)
         lastSeenAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastSeenAssistantMessageAt)
@@ -136,6 +144,7 @@ extension PersistedConversation {
         try container.encodeIfPresent(conversationId, forKey: .conversationId)
         try container.encodeIfPresent(scheduleJobId, forKey: .scheduleJobId)
         try container.encodeIfPresent(forkParent, forKey: .forkParent)
+        try container.encodeIfPresent(source, forKey: .source)
         try container.encodeIfPresent(hasUnseenLatestAssistantMessage, forKey: .hasUnseenLatestAssistantMessage)
         try container.encodeIfPresent(latestAssistantMessageAt, forKey: .latestAssistantMessageAt)
         try container.encodeIfPresent(lastSeenAssistantMessageAt, forKey: .lastSeenAssistantMessageAt)
@@ -255,6 +264,7 @@ class IOSConversationStore: ObservableObject {
         conversation.isPinned = item.isPinned ?? false
         conversation.displayOrder = item.displayOrder.map { Int($0) }
         conversation.groupId = item.groupId
+        conversation.source = item.source
         let serverUnseen = item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
         conversation.hasUnseenLatestAssistantMessage =
             conversation.shouldSuppressUnreadIndicator ? false : serverUnseen
@@ -276,6 +286,7 @@ class IOSConversationStore: ObservableObject {
     private func mergeConversationMetadata(from restored: IOSConversation, into conversation: inout IOSConversation) {
         conversation.conversationId = restored.conversationId ?? conversation.conversationId
         conversation.scheduleJobId = restored.scheduleJobId ?? conversation.scheduleJobId
+        conversation.source = restored.source ?? conversation.source
         conversation.forkParent = restored.forkParent
         let hasLocalPinEdit = conversation.conversationId.map { locallyEditedPinConversationIds.contains($0) } ?? false
         if !hasLocalPinEdit {
@@ -347,7 +358,8 @@ class IOSConversationStore: ObservableObject {
     }
 
     private func canMarkConversationUnread(at index: Int) -> Bool {
-        guard !conversations[index].hasUnseenLatestAssistantMessage else { return false }
+        guard !conversations[index].hasUnseenLatestAssistantMessage,
+              !conversations[index].shouldSuppressUnreadIndicator else { return false }
         return conversations[index].latestAssistantMessageAt != nil
             || latestLoadedAssistantMessageTimestamp(for: conversations[index].id) != nil
     }
@@ -367,7 +379,8 @@ class IOSConversationStore: ObservableObject {
             conversationId: item.id,
             isPrivate: item.conversationType == "private",
             scheduleJobId: item.scheduleJobId,
-            forkParent: item.forkParent
+            forkParent: item.forkParent,
+            source: item.source
         )
         applyConversationMetadata(item, to: &conversation)
         return conversation
@@ -1480,6 +1493,7 @@ class IOSConversationStore: ObservableObject {
                 conversationId: $0.conversationId,
                 scheduleJobId: $0.scheduleJobId,
                 forkParent: $0.forkParent,
+                source: $0.source,
                 hasUnseenLatestAssistantMessage: $0.hasUnseenLatestAssistantMessage,
                 latestAssistantMessageAt: $0.latestAssistantMessageAt,
                 lastSeenAssistantMessageAt: $0.lastSeenAssistantMessageAt
@@ -1509,6 +1523,7 @@ class IOSConversationStore: ObservableObject {
                 isPrivate: false,
                 scheduleJobId: p.scheduleJobId,
                 forkParent: p.forkParent,
+                source: p.source,
                 hasUnseenLatestAssistantMessage: p.hasUnseenLatestAssistantMessage ?? false,
                 latestAssistantMessageAt: p.latestAssistantMessageAt,
                 lastSeenAssistantMessageAt: p.lastSeenAssistantMessageAt
@@ -1533,7 +1548,8 @@ class IOSConversationStore: ObservableObject {
                 isPrivate: $0.isPrivate,
                 conversationId: $0.conversationId,
                 scheduleJobId: $0.scheduleJobId,
-                forkParent: $0.forkParent
+                forkParent: $0.forkParent,
+                source: $0.source
             )
         }
         if let data = try? JSONEncoder().encode(persisted) {
@@ -1556,7 +1572,8 @@ class IOSConversationStore: ObservableObject {
                 isArchived: $0.isArchived ?? false,
                 isPrivate: $0.isPrivate ?? false,
                 scheduleJobId: $0.scheduleJobId,
-                forkParent: $0.forkParent
+                forkParent: $0.forkParent,
+                source: $0.source
             )
         }
     }

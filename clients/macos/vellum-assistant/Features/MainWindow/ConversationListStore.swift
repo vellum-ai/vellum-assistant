@@ -969,7 +969,8 @@ final class ConversationListStore {
 
     func canMarkConversationUnread(conversationId: UUID, at conversationIndex: Int) -> Bool {
         guard conversations[conversationIndex].conversationId != nil,
-              !conversations[conversationIndex].hasUnseenLatestAssistantMessage else { return false }
+              !conversations[conversationIndex].hasUnseenLatestAssistantMessage,
+              !conversations[conversationIndex].shouldSuppressUnreadIndicator else { return false }
         // Live assistant replies update the in-memory activity snapshot before
         // conversation-list hydration backfills latestAssistantMessageAt.
         return conversations[conversationIndex].latestAssistantMessageAt != nil
