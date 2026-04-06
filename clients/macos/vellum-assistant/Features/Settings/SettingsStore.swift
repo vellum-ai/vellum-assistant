@@ -193,6 +193,13 @@ public final class SettingsStore: ObservableObject {
     /// Values: "not_configured", "incomplete", "ready".
     @Published var channelSetupStatus: [String: String] = [:]
 
+    // MARK: - Provider Key Cache
+
+    /// Cached key presence and masked values for arbitrary providers.
+    /// Populated by `refreshAPIKeyState()` so sync callers (SwiftUI views)
+    /// can query key state without awaiting the gateway.
+    var providerKeyCache: [String: (hasKey: Bool, masked: String)] = [:]
+
     // MARK: - Provider Routing Sources
 
     /// Per-provider routing source from the daemon debug endpoint.
@@ -928,6 +935,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearAPIKeyForProvider(_ provider: String) {
+        providerKeyCache[provider] = (false, "")
         APIKeyManager.deleteKey(for: provider)
         addDeletionTombstone(type: "api_key", name: provider)
         deleteKeyFromDaemon(provider: provider)
@@ -950,6 +958,9 @@ public final class SettingsStore: ObservableObject {
 
         // Persist locally first
         APIKeyManager.setKey(trimmed, for: provider)
+        // Optimistically update the cache so hasKeyForProvider/maskedKeyForProvider
+        // return correct results immediately while the async validation runs.
+        providerKeyCache[provider] = (true, Self.maskKey(trimmed))
 
         // Remove any stale deletion tombstone eagerly — the user's intent is to
         // save a new key, so any prior clear is superseded. Deferring this until
@@ -975,6 +986,8 @@ public final class SettingsStore: ObservableObject {
                 if !result.isTransient {
                     // Definitive validation failure — revert optimistic local state
                     APIKeyManager.deleteKey(for: provider)
+                    // Revert the optimistic cache entry on permanent failure.
+                    providerKeyCache[provider] = (false, "")
                     // Restore the deletion tombstone if one existed before we
                     // removed it, so pending offline clears are not lost.
                     if hadTombstone {
@@ -993,35 +1006,54 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func refreshAPIKeyState() {
-        let anthropicKey = APIKeyManager.getKey(for: "anthropic")
+    /// Async implementation that fetches key state from the gateway.
+    private func refreshAPIKeyStateAsync() async {
+        let anthropicKey = await APIKeyManager.getKey(for: "anthropic")
         hasKey = anthropicKey != nil
         maskedKey = Self.maskKey(anthropicKey)
+        providerKeyCache["anthropic"] = (anthropicKey != nil, Self.maskKey(anthropicKey))
 
-        let braveKey = APIKeyManager.getKey(for: "brave")
+        let braveKey = await APIKeyManager.getKey(for: "brave")
         hasBraveKey = braveKey != nil
         maskedBraveKey = Self.maskKey(braveKey)
+        providerKeyCache["brave"] = (braveKey != nil, Self.maskKey(braveKey))
 
-        let perplexityKey = APIKeyManager.getKey(for: "perplexity")
+        let perplexityKey = await APIKeyManager.getKey(for: "perplexity")
         hasPerplexityKey = perplexityKey != nil
         maskedPerplexityKey = Self.maskKey(perplexityKey)
+        providerKeyCache["perplexity"] = (perplexityKey != nil, Self.maskKey(perplexityKey))
 
-        let imageGenKey = APIKeyManager.getKey(for: "gemini")
+        let imageGenKey = await APIKeyManager.getKey(for: "gemini")
         hasImageGenKey = imageGenKey != nil
         maskedImageGenKey = Self.maskKey(imageGenKey)
+        providerKeyCache["gemini"] = (imageGenKey != nil, Self.maskKey(imageGenKey))
 
-        let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
+        let elevenLabsKey = await APIKeyManager.getKey(for: "elevenlabs")
         hasElevenLabsKey = elevenLabsKey != nil
         maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
+        providerKeyCache["elevenlabs"] = (elevenLabsKey != nil, Self.maskKey(elevenLabsKey))
 
+        // Also populate cache for dynamic catalog providers (openai, fireworks,
+        // openrouter, etc.) that aren't covered by the hardcoded properties above
+        // so that hasKeyForProvider/maskedKeyForProvider return correct results.
+        let coveredProviders: Set<String> = ["anthropic", "brave", "perplexity", "gemini", "elevenlabs"]
+        for provider in providerCatalog where !coveredProviders.contains(provider.id) {
+            let key = await APIKeyManager.getKey(for: provider.id)
+            providerKeyCache[provider.id] = (key != nil, Self.maskKey(key))
+        }
+    }
+
+    /// Trigger an async key-state refresh from a sync context.
+    func refreshAPIKeyState() {
+        Task { await refreshAPIKeyStateAsync() }
     }
 
     func hasKeyForProvider(_ provider: String) -> Bool {
-        APIKeyManager.getKey(for: provider) != nil
+        providerKeyCache[provider]?.hasKey ?? false
     }
 
     func maskedKeyForProvider(_ provider: String) -> String {
-        Self.maskKey(APIKeyManager.getKey(for: provider))
+        providerKeyCache[provider]?.masked ?? ""
     }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".
@@ -1365,7 +1397,7 @@ public final class SettingsStore: ObservableObject {
             }
 
             for provider in APIKeyManager.allSyncableProviders {
-                if let key = APIKeyManager.getKey(for: provider) {
+                if let key = await APIKeyManager.getKey(for: provider) {
                     syncKeyToDaemon(provider: provider, value: key)
                 }
             }
