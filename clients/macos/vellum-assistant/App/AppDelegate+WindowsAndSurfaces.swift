@@ -698,7 +698,7 @@ extension AppDelegate {
         // without gating on feature flags.
         let settingsTab: SettingsTab?
         switch tab {
-        case "Archived Threads": settingsTab = .archivedConversations
+        case "Archived Threads", "Archived Conversations": settingsTab = .archivedConversations
         default: settingsTab = SettingsTab(rawValue: tab)
         }
         if let settingsTab {

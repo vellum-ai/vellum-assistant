@@ -14,7 +14,7 @@ const CANONICAL_TABS = [
   "Sounds",
   "Permissions & Privacy",
   "Billing",
-  "Archived Conversations",
+  "Archive",
   "Schedules",
   "Developer",
 ];
