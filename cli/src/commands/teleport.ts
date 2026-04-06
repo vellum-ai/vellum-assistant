@@ -706,7 +706,7 @@ async function importToAssistant(
         : await platformImportBundle(bundleData, token, entry.runtimeUrl);
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
-        console.error("Error: Import request timed out after 2 minutes.");
+        console.error("Error: Import request timed out after 5 minutes.");
         process.exit(1);
       }
       throw err;
