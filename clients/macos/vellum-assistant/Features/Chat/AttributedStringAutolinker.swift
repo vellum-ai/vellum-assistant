@@ -13,6 +13,10 @@ enum AttributedStringAutolinker {
         try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     }()
 
+    /// Characters that commonly trail a URL in natural prose but aren't
+    /// part of the URL itself.
+    private static let trailingPunctuationToTrim = CharacterSet(charactersIn: ".,;:!?)>\"'")
+
     /// Adds `.link` attributes to bare URLs, preserving existing links and
     /// skipping code spans. No-op when no bare URLs are present.
     static func autolinkBareURLs(in attributed: inout AttributedString) {
@@ -42,7 +46,37 @@ enum AttributedStringAutolinker {
             }
             if skip { continue }
 
-            attributed[attrRange].link = url
+            let cleaned = trimTrailingPunctuation(url)
+            let trimmedCount = url.absoluteString.count - cleaned.absoluteString.count
+
+            if trimmedCount > 0,
+               let newEnd = attributed.characters.index(
+                   hi, offsetBy: -trimmedCount, limitedBy: lo
+               ) {
+                attributed[lo..<newEnd].link = cleaned
+            } else {
+                attributed[attrRange].link = cleaned
+            }
         }
+    }
+
+    /// Strips trailing prose punctuation from a URL that `NSDataDetector`
+    /// may have over-eagerly included.
+    private static func trimTrailingPunctuation(_ url: URL) -> URL {
+        var str = url.absoluteString
+
+        while let last = str.unicodeScalars.last,
+              trailingPunctuationToTrim.contains(last) {
+            // Don't strip a closing paren if there's a matching opening
+            // paren earlier in the URL (common in Wikipedia links).
+            if last == ")" {
+                let openCount = str.filter { $0 == "(" }.count
+                let closeCount = str.filter { $0 == ")" }.count
+                if openCount >= closeCount { break }
+            }
+            str = String(str.dropLast())
+        }
+
+        return URL(string: str) ?? url
     }
 }
