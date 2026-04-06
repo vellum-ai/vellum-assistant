@@ -535,6 +535,9 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
 
 const PKB_FILES = ["INDEX.md", "essentials.md", "threads.md", "buffer.md"];
 
+/** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
+const MAX_BUFFER_LINES = 50;
+
 const PKB_NUDGE =
   "\n\n---\n" +
   "Your knowledge base has topic files beyond what's loaded here — " +
@@ -560,7 +563,14 @@ export function readPkbContext(): string | null {
     const filePath = join(pkbDir, file);
     if (!existsSync(filePath)) continue;
     try {
-      const content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
+      let content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
+      if (file === "buffer.md" && content.length > 0) {
+        // Cap buffer entries to prevent unbounded growth when filing is disabled
+        const lines = content.split("\n");
+        if (lines.length > MAX_BUFFER_LINES) {
+          content = lines.slice(-MAX_BUFFER_LINES).join("\n");
+        }
+      }
       if (content.length > 0) parts.push(content);
     } catch {
       // Skip unreadable files
@@ -575,9 +585,11 @@ export function readPkbContext(): string | null {
  * blocks but before NOW.md and the user's original content.
  */
 export function injectPkbContext(message: Message, content: string): Message {
+  // Escape closing tags that could break out of the XML wrapper
+  const escaped = content.replace(/<\/pkb>/gi, "&lt;/pkb&gt;");
   const pkbBlock = {
     type: "text" as const,
-    text: `<pkb>\n${content}\n</pkb>`,
+    text: `<pkb>\n${escaped}\n</pkb>`,
   };
 
   // Find insertion point: skip any leading memory/image blocks
