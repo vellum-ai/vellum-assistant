@@ -710,6 +710,10 @@ final class ConversationManager: ConversationRestorerDelegate {
     func selectConversation(id: UUID) {
         guard let conversation = listStore.conversations.first(where: { $0.id == id }) else { return }
 
+        // Clear stale streaming segment data from previous conversation to prevent
+        // cross-conversation cache pollution from the single-entry streaming dedup cache.
+        ChatBubble.lastStreamingSegments = nil
+
         selectionStore.removeAbandonedEmptyConversation(switching: id)
 
         let previousActiveId = selectionStore.activeConversationId

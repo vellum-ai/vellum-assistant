@@ -315,7 +315,7 @@ struct MarkdownSegmentView: View, Equatable {
 
         os_signpost(.begin, log: PerfSignposts.log, name: "selectableRunMeasure")
         let attributed = buildCombinedAttributedString(from: runSegments)
-        let nsAttributed = Self.convertToNSAttributedString(
+        let (nsAttributed, hasUnresolvedEmphasis) = Self.convertToNSAttributedString(
             attributed, font: VFont.nsChat, textColor: NSColor(textColor)
         )
         let size = VSelectableTextView.measureSize(
@@ -325,8 +325,10 @@ struct MarkdownSegmentView: View, Equatable {
         )
         os_signpost(.end, log: PerfSignposts.log, name: "selectableRunMeasure")
 
+        // Don't cache results where emphasis was expected but not applied —
+        // the next render will rebuild from scratch, which may succeed.
         let textLen = Self.segmentTextLength(runSegments)
-        if textLen <= Self.maxCacheableTextLength {
+        if !hasUnresolvedEmphasis && textLen <= Self.maxCacheableTextLength {
             Self.measuredTextCache.setObject(
                 MeasuredTextCacheEntry(nsAttributedString: nsAttributed, size: size),
                 forKey: keyNS,
@@ -359,14 +361,24 @@ struct MarkdownSegmentView: View, Equatable {
 
             switch segment {
             case .text(let text):
-                var attributed = (try? AttributedString(markdown: text, options: mdOptions))
-                    ?? AttributedString(text)
+                var attributed: AttributedString
+                do {
+                    attributed = try AttributedString(markdown: text, options: mdOptions)
+                } catch {
+                    mdConvertLog.warning("AttributedString(markdown:) failed for .text segment: \(error.localizedDescription, privacy: .public)")
+                    attributed = AttributedString(text)
+                }
                 AttributedStringAutolinker.autolinkBareURLs(in: &attributed)
                 result += attributed
 
             case .heading(let level, let text):
-                var headingAttr = (try? AttributedString(markdown: text, options: mdOptions))
-                    ?? AttributedString(text)
+                var headingAttr: AttributedString
+                do {
+                    headingAttr = try AttributedString(markdown: text, options: mdOptions)
+                } catch {
+                    mdConvertLog.warning("AttributedString(markdown:) failed for .heading segment: \(error.localizedDescription, privacy: .public)")
+                    headingAttr = AttributedString(text)
+                }
                 AttributedStringAutolinker.autolinkBareURLs(in: &headingAttr)
                 let headingSize: CGFloat = switch level {
                 case 1: 20
@@ -401,8 +413,13 @@ struct MarkdownSegmentView: View, Equatable {
                     var prefixAttr = AttributedString(indentString + prefix)
                     prefixAttr.foregroundColor = secondaryTextColor
 
-                    var itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
-                        ?? AttributedString(item.text)
+                    var itemAttr: AttributedString
+                    do {
+                        itemAttr = try AttributedString(markdown: item.text, options: mdOptions)
+                    } catch {
+                        mdConvertLog.warning("AttributedString(markdown:) failed for .list item: \(error.localizedDescription, privacy: .public)")
+                        itemAttr = AttributedString(item.text)
+                    }
                     AttributedStringAutolinker.autolinkBareURLs(in: &itemAttr)
 
                     // Apply hanging indent so wrapped lines align with item text
@@ -465,16 +482,23 @@ struct MarkdownSegmentView: View, Equatable {
 
     // MARK: - NSAttributedString Conversion
 
+    private static let mdConvertLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "MarkdownConvert")
+
     #if os(macOS)
     /// Converts a SwiftUI `AttributedString` to `NSAttributedString` with a
     /// base font and text color applied as defaults. Runs that already carry
     /// explicit font or color attributes (e.g. inline code, bold, italic)
     /// keep their values; the defaults fill in where no attribute is set.
+    ///
+    /// Returns the converted `NSAttributedString` and a flag indicating
+    /// whether emphasis runs were detected but none could be applied
+    /// (all skipped by guards). When `true`, the caller should avoid
+    /// caching the result so the next render can retry.
     static func convertToNSAttributedString(
         _ source: AttributedString,
         font: NSFont,
         textColor: NSColor
-    ) -> NSAttributedString {
+    ) -> (NSAttributedString, Bool) {
         // Pre-collect emphasis info from the source AttributedString.
         // Reading inlinePresentationIntent directly from AttributedString.runs
         // avoids relying on NSAttributedString attribute bridging, which can
@@ -505,6 +529,28 @@ struct MarkdownSegmentView: View, Equatable {
         let ns = NSMutableAttributedString(source)
         let fullRange = NSRange(location: 0, length: ns.length)
 
+        // Validate offset consistency — if the AttributedString→NSAttributedString
+        // conversion changed the text encoding (e.g. Unicode normalization), the
+        // pre-computed offsets are wrong. Recompute from the source ranges directly.
+        if utf16Offset != ns.length && !emphasisRuns.isEmpty {
+            mdConvertLog.warning("UTF-16 offset mismatch: computed \(utf16Offset) vs NSAttributedString length \(ns.length) — recomputing emphasis offsets")
+            emphasisRuns.removeAll()
+            for run in source.runs {
+                if let intent = source[run.range].inlinePresentationIntent {
+                    let prefixStr = String(source.characters[source.startIndex..<run.range.lowerBound])
+                    let nsOffset = (prefixStr as NSString).length
+                    let runStr = String(source[run.range].characters)
+                    let nsLen = (runStr as NSString).length
+                    emphasisRuns.append(EmphasisRun(
+                        utf16Offset: nsOffset,
+                        utf16Length: nsLen,
+                        intent: intent,
+                        hasExplicitFont: source[run.range].font != nil
+                    ))
+                }
+            }
+        }
+
         // Apply synthetic italic/bold to emphasized runs.
         // DM Sans doesn't ship an italic font face, so we apply a synthetic
         // oblique via affine transform. This is done on the NSMutableAttributedString
@@ -526,20 +572,33 @@ struct MarkdownSegmentView: View, Equatable {
             CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
         ) as NSFont
 
+        var emphasisAppliedCount = 0
         for emphRun in emphasisRuns {
             guard !emphRun.intent.contains(.code) else { continue }
             // Skip runs that already have an explicit font (e.g. headings)
             guard !emphRun.hasExplicitFont else { continue }
             let nsRange = NSRange(location: emphRun.utf16Offset, length: emphRun.utf16Length)
+            guard nsRange.location + nsRange.length <= ns.length else {
+                mdConvertLog.warning("Emphasis range \(nsRange.location)+\(nsRange.length) exceeds NSAttributedString length \(ns.length) — skipping")
+                continue
+            }
             let isEmph = emphRun.intent.contains(.emphasized)
             let isBold = emphRun.intent.contains(.stronglyEmphasized)
             if isEmph && isBold {
                 ns.addAttribute(.font, value: boldItalicNS, range: nsRange)
+                emphasisAppliedCount += 1
             } else if isEmph {
                 ns.addAttribute(.font, value: italicNS, range: nsRange)
+                emphasisAppliedCount += 1
             } else if isBold {
                 ns.addAttribute(.font, value: boldNS, range: nsRange)
+                emphasisAppliedCount += 1
             }
+        }
+
+        let hasUnresolvedEmphasis = !emphasisRuns.isEmpty && emphasisAppliedCount == 0
+        if hasUnresolvedEmphasis {
+            mdConvertLog.warning("Emphasis runs detected (\(emphasisRuns.count)) but none applied — italic/bold will be missing")
         }
 
         // Apply base font where no explicit font attribute exists
@@ -556,7 +615,7 @@ struct MarkdownSegmentView: View, Equatable {
             }
         }
 
-        return ns
+        return (ns, hasUnresolvedEmphasis)
     }
     #endif
 }
