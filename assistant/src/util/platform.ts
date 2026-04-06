@@ -220,7 +220,7 @@ export function getHistoryPath(): string {
  * overrides, device approval lists — live here.
  *
  * This directory is:
- * - Outside the workspace (not included in diagnostic exports)
+ * - Outside the workspace
  * - Outside the sandbox write boundary (tools cannot modify it)
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
