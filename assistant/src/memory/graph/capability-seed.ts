@@ -115,16 +115,21 @@ export function seedSkillGraphNodes(): void {
     // Protect uninstalled catalog skills from pruning — they are seeded
     // asynchronously by seedUninstalledCatalogSkillMemories() and should
     // not be marked as "gone" just because they aren't locally installed.
-    // Only include catalog entries whose feature-flag is enabled, matching
-    // the filter in seedUninstalledCatalogSkillMemories().
+    // Skip pruning entirely when the catalog cache is cold (empty before
+    // the async fetch completes) to avoid incorrectly marking valid
+    // uninstalled catalog nodes as gone during cold start.
     const cachedCatalog = getCachedCatalogSync();
-    for (const entry of cachedCatalog) {
-      const flagKey = entry.metadata?.vellum?.["feature-flag"];
-      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
-      seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
+    if (cachedCatalog.length === 0) {
+      log.info("Skipping skill capability pruning — catalog cache is cold");
+    } else {
+      for (const entry of cachedCatalog) {
+        const flagKey = entry.metadata?.vellum?.["feature-flag"];
+        if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
+          continue;
+        seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
+      }
+      pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
     }
-
-    pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
 
     // Clean up old-format capability nodes (skill:* and cli:*) that use the
     // legacy "{prefix}:{id}\n..." content format. Mark them as gone so they
