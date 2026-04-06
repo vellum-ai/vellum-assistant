@@ -205,18 +205,28 @@ export class HeartbeatService {
 
     const run = this.executeRun();
     this.activeRun = run;
+    // Clear activeRun only once executeRun actually finishes, so the overlap
+    // guard keeps blocking even after a timeout.
+    run.finally(() => {
+      if (this.activeRun === run) {
+        this.activeRun = null;
+      }
+    });
+
+    let timerId: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Promise.race([
-        run,
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Heartbeat execution timed out")),
-            HEARTBEAT_TIMEOUT_MS,
-          ),
-        ),
-      ]);
+      const timeout = new Promise<never>((_, reject) => {
+        timerId = setTimeout(
+          () => reject(new Error("Heartbeat execution timed out")),
+          HEARTBEAT_TIMEOUT_MS,
+        );
+      });
+      timeout.catch(() => {}); // Prevent unhandled rejection if run resolves first
+      await Promise.race([run, timeout]);
+    } catch (err) {
+      log.warn({ err }, "Heartbeat run timed out");
     } finally {
-      this.activeRun = null;
+      clearTimeout(timerId);
       this._lastRunAt = Date.now();
       this.scheduleNextRun(getConfig().heartbeat.intervalMs);
     }
