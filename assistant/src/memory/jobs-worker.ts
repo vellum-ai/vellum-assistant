@@ -2,6 +2,7 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
 import { graphExtractJob } from "./graph/extraction-job.js";
@@ -430,6 +431,9 @@ async function processJob(
       return;
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);
+      return;
+    case "graph_bootstrap":
+      await bootstrapFromHistory();
       return;
 
     default: {
