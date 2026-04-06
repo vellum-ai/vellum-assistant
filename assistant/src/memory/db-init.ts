@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { getLogger } from "../util/logger.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { getDb, getSqlite } from "./db-connection.js";
+import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   addCoreColumns,
   createActorRefreshTokenRecordsTable,
@@ -163,8 +164,8 @@ function getTemplateDbPath(): string {
       hash.update(readFileSync(join(migrationsDir, name), "utf-8"));
     }
   }
-  // Include bootstrap.ts which contains cleanup migrations (cleanupStaleItemVectors)
-  // that run during initializeDb but live outside the migrations/ directory.
+  // Include the bootstrap migration (migrateToolCreatedItems) which also runs
+  // during initializeDb but lives outside the migrations/ directory.
   const bootstrapFile = join(dirname(thisFile), "graph", "bootstrap.ts");
   if (existsSync(bootstrapFile)) {
     hash.update(readFileSync(bootstrapFile, "utf-8"));
@@ -333,7 +334,14 @@ export function initializeDb(): void {
     migrateOAuthProvidersFeatureFlag,
     migrateDropCallbackTransportColumn,
     migrateCreateMemoryGraphTables,
+    // 101a. Add nullable image_refs column — must run before migrateToolCreatedItems
+    // which inserts rows into memory_graph_nodes including the image_refs column.
     migrateMemoryGraphImageRefs,
+    // 101b. Migrate tool-created items from legacy memory_items → graph nodes.
+    // Must run before migrateDropMemoryItemsTables so data is preserved.
+    function migrateToolCreatedItemsStep() {
+      migrateToolCreatedItems();
+    },
     migrateDropMemoryItemsTables,
     migrateRenameMemoryGraphTypeValues,
     migrateCreateMemoryGraphNodeEdits,
