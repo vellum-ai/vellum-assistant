@@ -23,7 +23,7 @@ struct IntelligencePanel: View {
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
     private static let emailFeatureFlagKey = "email-channel"
-    private static let integrationsFeatureFlagKey = "intelligence-integrations"
+    private static let integrationsFeatureFlagKey = "settings-integrations-grid"
 
     init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
