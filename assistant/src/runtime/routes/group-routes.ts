@@ -63,8 +63,22 @@ export function groupRouteDefinitions(): RouteDefinition[] {
         if (!body.name || typeof body.name !== "string") {
           return httpError("BAD_REQUEST", "Missing or invalid name", 400);
         }
-        const group = createGroup(body.name);
-        return Response.json(serializeGroup(group), { status: 201 });
+        try {
+          const group = createGroup(body.name);
+          return Response.json(serializeGroup(group), { status: 201 });
+        } catch (err) {
+          if (
+            err instanceof Error &&
+            err.message.includes("sort_position must be < 999999")
+          ) {
+            return httpError(
+              "BAD_REQUEST",
+              "Too many custom groups — sort_position ceiling reached",
+              400,
+            );
+          }
+          throw err;
+        }
       },
     },
     {
