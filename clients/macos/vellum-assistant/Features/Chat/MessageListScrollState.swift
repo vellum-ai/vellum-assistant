@@ -222,12 +222,14 @@ final class MessageListScrollState {
     /// Container (viewport) height from scroll geometry.
     @ObservationIgnored var scrollContainerHeight: CGFloat = 0
 
-    /// Deadline until which the persistent bottom-recovery fires
-    /// unconditionally (ignoring `isAtBottom`). Set by `reset()` and
-    /// `handleAppear` to cover the LazyVStack materialization window
-    /// where estimated content height can be wrong, making `isAtBottom`
-    /// unreliable. After the deadline, the recovery falls back to the
-    /// normal `!isAtBottom` check.
+    /// Marker that a recovery window is active. When non-nil AND
+    /// `bottomAnchorAppeared` is false, persistent bottom-recovery fires
+    /// unconditionally (ignoring `isAtBottom`) until the bottom anchor
+    /// materializes. Set by `reset()`, `handleAppear`,
+    /// `requestPinToBottom(userInitiated:)`, and resize/send handlers.
+    /// The time value is kept for diagnostics but is no longer used as
+    /// a hard cutoff — the primary termination signal is
+    /// `bottomAnchorAppeared`.
     @ObservationIgnored var recoveryDeadline: Date?
 
     /// Whether the "scroll-bottom-anchor" view has appeared in the view
@@ -712,9 +714,8 @@ final class MessageListScrollState {
         // hasn't materialized yet. Until it does, isAtBottom is unreliable.
         bottomAnchorAppeared = false
         lastRecoveryAttempt = .distantPast
-        // Hard time limit for unconditional recovery. The primary signal
-        // is bottomAnchorAppeared, but this prevents infinite recovery
-        // in edge cases where the anchor never materializes.
+        // Mark that a recovery window is active. Recovery fires
+        // unconditionally until bottomAnchorAppeared becomes true.
         recoveryDeadline = Date().addingTimeInterval(2.0)
         scrollIndicatorRestoreTask?.cancel()
         if !_hideScrollIndicators { _hideScrollIndicators = true }

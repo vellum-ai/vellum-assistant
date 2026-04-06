@@ -155,8 +155,17 @@ extension MessageListView {
         if scrollState.bottomAnchorAppeared {
             // Anchor materialized — isAtBottom is reliable now.
             isInRecoveryWindow = false
-        } else if let deadline = scrollState.recoveryDeadline {
-            isInRecoveryWindow = Date() < deadline
+        } else if scrollState.recoveryDeadline != nil {
+            // Bottom anchor hasn't materialized yet — keep recovering
+            // regardless of the time-based deadline. Each recovery
+            // attempt scrolls closer to the actual bottom, materializing
+            // more views. Eventually the bottom anchor materializes and
+            // recovery ends. The 100ms throttle limits this to at most
+            // 10 attempts/second. Recovery naturally stops via:
+            //   • bottomAnchorAppeared (anchor materializes)
+            //   • User scroll-up (mode → freeBrowsing)
+            //   • Conversation switch (reset())
+            isInRecoveryWindow = true
         } else {
             isInRecoveryWindow = false
         }
@@ -324,8 +333,17 @@ extension MessageListView {
                 binding.wrappedValue = ScrollPosition(id: stringId, anchor: anchor)
             }
         }
+        // Replace the entire ScrollPosition value (same as the ID-based
+        // closure above) instead of calling the mutating `.scrollTo(edge:)`
+        // method. Value replacement forces SwiftUI to process a fresh
+        // scroll command every time. The mutating method can be silently
+        // deduped when SwiftUI considers the position "already at that
+        // edge" — the same class of bug that affected `.scrollTo(id:)`.
+        // After SwiftUI processes the edge scroll, it updates the binding
+        // to the actual content offset, so the next value replacement
+        // with ScrollPosition(edge:) is always a new value.
         scrollState.scrollToEdge = { edge in
-            binding.wrappedValue.scrollTo(edge: edge)
+            binding.wrappedValue = ScrollPosition(edge: edge)
         }
         scrollState.currentConversationId = conversationId
     }
