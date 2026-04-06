@@ -110,12 +110,32 @@ jobs:
   notify-release-start:
     name: Slack Notification (Release Build Started)
     needs: extract-version
+    # Only fire for push events — workflow_dispatch releases already get a
+    # "Release Started" notification from create-release-branch.yml.
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Skip if this is the initial branch-creation push
+        id: check
+        run: |
+          # create-release-branch.yml commits with "Release vX.Y.Z" — skip
+          # to avoid duplicating its own Slack notification.
+          HEAD_MSG=$(git log -1 --format=%s)
+          if [[ "$HEAD_MSG" =~ ^Release\ v[0-9] ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping notification — initial branch-creation commit: $HEAD_MSG"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build Slack payload
+        if: steps.check.outputs.skip != 'true'
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
@@ -124,12 +144,12 @@ jobs:
           PUSHER="${{ github.actor }}"
 
           if [ "$IS_STAGING" = "true" ]; then
-            HEADER="🔄 Staging Release v${VERSION} Building"
+            HEADER="🔄 Staging Release v${VERSION} Building (cherry-pick)"
           else
-            HEADER="🔄 Release v${VERSION} Building"
+            HEADER="🔄 Release v${VERSION} Building (cherry-pick)"
           fi
 
-          BODY=$(printf 'A release build was triggered by a push to `%s` (e.g. cherry-pick merge).\n\n*Version:* `%s`\n*Branch:* `%s`\n*Pushed by:* %s' "$BRANCH" "$VERSION" "$BRANCH" "$PUSHER")
+          BODY=$(printf 'A release build was triggered by a cherry-pick merge to `%s`.\n\n*Version:* `%s`\n*Branch:* `%s`\n*Pushed by:* %s' "$BRANCH" "$VERSION" "$BRANCH" "$PUSHER")
 
           BLOCKS="[]"
           BLOCKS=$(echo "$BLOCKS" | jq --arg header "$HEADER" '. + [{ type: "header", text: { type: "plain_text", text: $header } }]')
@@ -150,6 +170,7 @@ jobs:
 
       - name: Notify Slack
         id: slack
+        if: steps.check.outputs.skip != 'true'
         continue-on-error: true
         uses: slackapi/slack-github-action@v2.1.0
         with:
@@ -159,7 +180,7 @@ jobs:
           errors: true
 
       - name: Log Slack notification result
-        if: always()
+        if: always() && steps.check.outputs.skip != 'true'
         run: |
           echo "Slack step outcome: ${{ steps.slack.outcome }}"
           if [ "${{ steps.slack.outcome }}" != "success" ]; then
