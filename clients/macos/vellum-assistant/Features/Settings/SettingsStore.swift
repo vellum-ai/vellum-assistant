@@ -987,6 +987,15 @@ public final class SettingsStore: ObservableObject {
         hasElevenLabsKey = elevenLabsKey != nil
         maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
         providerKeyCache["elevenlabs"] = (elevenLabsKey != nil, Self.maskKey(elevenLabsKey))
+
+        // Also populate cache for dynamic catalog providers (openai, fireworks,
+        // openrouter, etc.) that aren't covered by the hardcoded properties above
+        // so that hasKeyForProvider/maskedKeyForProvider return correct results.
+        let coveredProviders: Set<String> = ["anthropic", "brave", "perplexity", "gemini", "elevenlabs"]
+        for provider in providerCatalog where !coveredProviders.contains(provider.id) {
+            let key = await APIKeyManager.getKey(for: provider.id)
+            providerKeyCache[provider.id] = (key != nil, Self.maskKey(key))
+        }
     }
 
     /// Trigger an async key-state refresh from a sync context.

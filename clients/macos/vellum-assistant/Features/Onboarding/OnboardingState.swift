@@ -208,15 +208,16 @@ final class OnboardingState {
         // Reset ToS acceptance so the user must re-accept on re-hatch
         UserDefaults.standard.set(false, forKey: "tosAccepted")
 
-        // Clear API key for whichever provider was selected during onboarding
+        // Clear API key for whichever provider was selected during onboarding.
+        // Capture provider before resetting so the Task sees the original value.
+        let providerToDelete = selectedProvider
+        selectedProvider = "anthropic"
         Task {
-            if selectedProvider != "anthropic" {
-                await APIKeyManager.deleteKey(for: selectedProvider)
+            if providerToDelete != "anthropic" {
+                await APIKeyManager.deleteKey(for: providerToDelete)
             }
             await APIKeyManager.deleteKey(for: "anthropic")
         }
-
-        selectedProvider = "anthropic"
         selectedModel = "claude-opus-4-6"
 
         // Reset hosting selection and cloud credentials
