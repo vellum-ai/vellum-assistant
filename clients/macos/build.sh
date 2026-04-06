@@ -1151,6 +1151,28 @@ if [ -f "$MACOS_DIR/vellum-daemon" ]; then
     echo "Daemon binary signed with entitlements"
 fi
 
+# Pre-flight: detect stray files in the .app bundle root that would cause
+# codesign to fail with the cryptic "unsealed contents present in the bundle
+# root" error. Only Contents/ belongs at the top level of a macOS .app bundle.
+STRAY_ITEMS=()
+for item in "$APP_DIR"/*; do
+    [ -e "$item" ] || continue
+    if [ "$(basename "$item")" != "Contents" ]; then
+        STRAY_ITEMS+=("$(basename "$item")")
+    fi
+done
+if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
+    echo ""
+    echo "ERROR: The .app bundle contains unexpected items in its root directory:"
+    printf '  - %s\n' "${STRAY_ITEMS[@]}"
+    echo ""
+    echo "macOS codesign rejects bundles with files outside Contents/."
+    echo "This is usually caused by stale artifacts from a previous build."
+    echo "Fix: run './build.sh clean' and rebuild, or delete the items above from:"
+    echo "  $APP_DIR/"
+    exit 1
+fi
+
 # Sign the outer app bundle with audio-input entitlement (without --deep to preserve nested signatures)
 APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist")
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
