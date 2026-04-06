@@ -167,9 +167,11 @@ describe("handleListMessages tool_result merging", () => {
     expect(body.messages[2].content).toBe("how are you?");
   });
 
-  test("tool_result at start of array (no preceding assistant) is suppressed", async () => {
+  test("tool_result at start of array (no preceding assistant) is preserved", async () => {
     const conv = createConversation();
-    // Orphan tool_result with no preceding assistant (pagination boundary)
+    // Orphan tool_result with no preceding assistant (pagination boundary).
+    // The preceding assistant tool_use lives in the previous page — dropping
+    // the result would be unrecoverable, so it is kept as-is.
     await addMessage(
       conv.id,
       "user",
@@ -186,10 +188,11 @@ describe("handleListMessages tool_result merging", () => {
     const response = handleListMessages(createTestUrl(conv.id), null);
     const body = (await response.json()) as { messages: MessagePayload[] };
 
-    // Orphan tool_result user message should be suppressed
-    expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].role).toBe("assistant");
-    expect(body.messages[0].content).toBe("response");
+    // Orphan tool_result is preserved (not suppressed) to avoid data loss
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0].role).toBe("user");
+    expect(body.messages[1].role).toBe("assistant");
+    expect(body.messages[1].content).toBe("response");
   });
 
   test("multi-turn: each tool_result merges into correct assistant", async () => {
