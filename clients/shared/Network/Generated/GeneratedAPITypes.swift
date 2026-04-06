@@ -3747,6 +3747,15 @@ public struct SoundsConfigUpdated: Codable, Sendable {
     }
 }
 
+/// Sent by the daemon when feature flag files change on disk.
+public struct FeatureFlagsChanged: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
 public struct SkillDetailRequest: Codable, Sendable {
     public let type: String
     public let skillId: String
