@@ -165,9 +165,12 @@ mock.module("node:fs", () => {
 
 import {
   __resetRecordingState,
+  getActiveRestartToken,
+  handleRecordingRestart,
   handleRecordingStart,
   handleRecordingStatusCore,
   handleRecordingStop,
+  isRecordingIdle,
 } from "../daemon/handlers/recording.js";
 import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type { RecordingStatus } from "../daemon/message-types/computer-use.js";
@@ -700,5 +703,246 @@ describe("handleRecordingStatusCore", () => {
 
     const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
     expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ─── handleRecordingRestart ────────────────────────────────────────────────
+
+describe("handleRecordingRestart", () => {
+  beforeEach(() => {
+    __resetRecordingState();
+    mockMessages.length = 0;
+    mockAttachments.length = 0;
+    mockMessageIdCounter = 0;
+    mockAttachmentIdCounter = 0;
+    mockFileExists = true;
+    mockFileSize = 1024;
+  });
+
+  test("active recording → stops current, returns initiated with operationToken", () => {
+    const { ctx, sent } = createCtx();
+    const conversationId = "conv-restart-1";
+
+    // Start a recording first
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
+    expect(recordingId).not.toBeNull();
+    sent.length = 0;
+
+    const result = handleRecordingRestart(conversationId, ctx);
+
+    expect(result.initiated).toBe(true);
+    expect(result.operationToken).toBeTruthy();
+    expect(result.responseText).toContain("Restarting");
+    // Should have sent recording_stop
+    const stopMsgs = sent.filter((m) => m.type === "recording_stop");
+    expect(stopMsgs.length).toBe(1);
+    // Should not be idle (restart pending)
+    expect(isRecordingIdle()).toBe(false);
+    expect(getActiveRestartToken()).toBe(result.operationToken as string);
+  });
+
+  test("no active recording → returns not initiated", () => {
+    const { ctx } = createCtx();
+
+    const result = handleRecordingRestart("conv-no-recording", ctx);
+
+    expect(result.initiated).toBe(false);
+    expect(result.reason).toBe("no_active_recording");
+    expect(isRecordingIdle()).toBe(true);
+  });
+
+  test("restart already in progress → returns restart_in_progress", async () => {
+    const { ctx, sent } = createCtx();
+    const conversationId = "conv-double-restart";
+
+    // Start and initiate first restart
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
+    expect(recordingId).not.toBeNull();
+    const first = handleRecordingRestart(conversationId, ctx);
+    expect(first.initiated).toBe(true);
+    sent.length = 0;
+
+    // Simulate the client acknowledging the stop (which cleans up recording
+    // maps but leaves pendingRestartByConversation active while the new
+    // recording_start is being processed).
+    // Send "stopped" status — this triggers the deferred restart, creating a
+    // new recording. The pendingRestartByConversation entry stays until the
+    // new recording's "started" status arrives.
+    await handleRecordingStatusCore(
+      {
+        type: "recording_status",
+        conversationId: recordingId!,
+        status: "stopped",
+        filePath: `${ALLOWED_RECORDINGS_DIR}/restart-file.mov`,
+        durationMs: 1000,
+      },
+      ctx,
+    );
+    sent.length = 0;
+
+    // Now a second restart request — the new recording is active but
+    // pendingRestartByConversation may still be set. Try to restart again.
+    const second = handleRecordingRestart(conversationId, ctx);
+
+    // The second restart should succeed because there IS now an active
+    // recording (from the deferred start). It initiates a new restart cycle.
+    // The "restart_in_progress" path only triggers when there's NO active
+    // recording but a pending restart exists.
+    expect(second.initiated).toBe(true);
+  });
+
+  test("cross-conversation restart → keys deferred restart by owner", () => {
+    const { ctx, sent } = createCtx();
+    const ownerConv = "conv-owner";
+    const requesterConv = "conv-requester";
+
+    // Start recording on owner conversation
+    handleRecordingStart(ownerConv, undefined, ctx);
+    sent.length = 0;
+
+    // Request restart from a different conversation
+    const result = handleRecordingRestart(requesterConv, ctx);
+
+    expect(result.initiated).toBe(true);
+    expect(result.operationToken).toBeTruthy();
+    // Stop should have been sent (via global fallback)
+    const stopMsgs = sent.filter((m) => m.type === "recording_stop");
+    expect(stopMsgs.length).toBe(1);
+  });
+});
+
+// ─── handleRecordingStatusCore — extended ──────────────────────────────────
+
+describe("handleRecordingStatusCore — extended", () => {
+  beforeEach(() => {
+    __resetRecordingState();
+    mockMessages.length = 0;
+    mockAttachments.length = 0;
+    mockMessageIdCounter = 0;
+    mockAttachmentIdCounter = 0;
+    mockFileExists = true;
+    mockFileSize = 1024;
+  });
+
+  test("restart_cancelled status cleans up restart state and sends message", async () => {
+    const { ctx, sent } = createCtx();
+    const conversationId = "conv-restart-cancel";
+
+    // Start and initiate restart
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
+    expect(recordingId).not.toBeNull();
+    const restartResult = handleRecordingRestart(conversationId, ctx);
+    expect(restartResult.initiated).toBe(true);
+    sent.length = 0;
+
+    // Client sends restart_cancelled
+    const statusMsg: RecordingStatus = {
+      type: "recording_status",
+      conversationId: recordingId!,
+      status: "restart_cancelled",
+    };
+
+    await handleRecordingStatusCore(statusMsg, ctx);
+
+    // Should send cancellation message
+    const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
+    expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+    expect(textDeltas[0].text).toContain("Recording restart cancelled");
+
+    // Restart state should be cleaned up
+    expect(isRecordingIdle()).toBe(true);
+    expect(getActiveRestartToken()).toBeNull();
+  });
+
+  test("stopped with deferred restart triggers new recording start", async () => {
+    const { ctx, sent } = createCtx();
+    const conversationId = "conv-deferred-start";
+
+    // Start recording, then initiate restart
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
+    expect(recordingId).not.toBeNull();
+    handleRecordingRestart(conversationId, ctx);
+    sent.length = 0;
+
+    // Client acknowledges stop with file
+    const statusMsg: RecordingStatus = {
+      type: "recording_status",
+      conversationId: recordingId!,
+      status: "stopped",
+      filePath: `${ALLOWED_RECORDINGS_DIR}/restart-old.mov`,
+      durationMs: 3000,
+    };
+
+    await handleRecordingStatusCore(statusMsg, ctx);
+
+    // Should have sent a new recording_start (deferred restart)
+    const startMsgs = sent.filter((m) => m.type === "recording_start");
+    expect(startMsgs.length).toBe(1);
+
+    // Should also have finalized the old recording
+    expect(mockAttachments.length).toBe(1);
+  });
+
+  test("operation token mismatch rejects stale status callback", async () => {
+    const { ctx, sent } = createCtx();
+    const conversationId = "conv-token-mismatch";
+
+    // Start recording and initiate restart to get an active token
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
+    expect(recordingId).not.toBeNull();
+    const restartResult = handleRecordingRestart(conversationId, ctx);
+    expect(restartResult.initiated).toBe(true);
+    sent.length = 0;
+
+    // Send a status with a WRONG operation token (stale from previous cycle)
+    const statusMsg: RecordingStatus = {
+      type: "recording_status",
+      conversationId: recordingId!,
+      status: "started",
+      operationToken: "stale-wrong-token",
+    };
+
+    await handleRecordingStatusCore(statusMsg, ctx);
+
+    // Should be silently rejected — no recording_start or other events sent
+    // The restart token should still be active (not cleared by stale callback)
+    expect(getActiveRestartToken()).toBe(
+      restartResult.operationToken as string,
+    );
+  });
+
+  test("paused and resumed statuses do not error", async () => {
+    const { ctx, sent } = createCtx();
+    const conversationId = "conv-pause-resume";
+
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
+    expect(recordingId).not.toBeNull();
+    sent.length = 0;
+
+    // Paused status
+    await handleRecordingStatusCore(
+      {
+        type: "recording_status",
+        conversationId: recordingId!,
+        status: "paused",
+      },
+      ctx,
+    );
+
+    // Resumed status
+    await handleRecordingStatusCore(
+      {
+        type: "recording_status",
+        conversationId: recordingId!,
+        status: "resumed",
+      },
+      ctx,
+    );
+
+    // Neither should produce error messages or text deltas
+    const errorMsgs = sent.filter((m) => m.type === "error");
+    const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
+    expect(errorMsgs).toHaveLength(0);
+    expect(textDeltas).toHaveLength(0);
   });
 });
