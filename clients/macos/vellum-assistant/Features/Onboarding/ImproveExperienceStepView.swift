@@ -107,7 +107,7 @@ struct ImproveExperienceStepView: View {
 
                 if tosAccepted {
                     VIconView(.check, size: 12)
-                        .foregroundStyle(VColor.auxWhite)
+                        .foregroundStyle(VColor.contentInset)
                 }
             }
             .frame(width: 20, height: 20)
