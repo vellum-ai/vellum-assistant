@@ -104,11 +104,12 @@ describe("onboarding template contracts", () => {
       expect(bootstrap).toContain("Check my email");
     });
 
-    test("includes daily briefing and channel suggestions in getting set up", () => {
+    test("keeps momentum by chaining off the first task", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("daily briefing");
-      expect(lower).toContain("slack");
-      expect(lower).toContain("telegram");
+      expect(lower).toContain("keep the momentum");
+      expect(lower).toContain("don't pivot to setup");
+      expect(lower).toContain("chain off the task");
+      expect(lower).toContain("while we're at it");
     });
   });
 
