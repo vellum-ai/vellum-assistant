@@ -33,7 +33,7 @@ export function listGroups(): ConversationGroupRow[] {
     created_at: number;
     updated_at: number;
   }>(
-    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id NOT IN ('_backfill_complete', '_backfill_all_complete') ORDER BY sort_position ASC",
+    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id NOT IN ('_backfill_complete', '_backfill_all_complete', '_sort_shift_complete') ORDER BY sort_position ASC",
   );
   return rows.map((r) => ({
     id: r.id,

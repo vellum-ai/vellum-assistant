@@ -68,14 +68,24 @@ export function ensureGroupMigration(): void {
       ('system:all', 'Recents', 3, TRUE, ${now}, ${now})
   `);
 
-  // Ensure system:all has sortPosition 3 (migrates from 999999 for existing installs).
-  // Bump any custom groups at position 3+ up by 1 first to make room.
-  rawRun(
-    "UPDATE conversation_groups SET sort_position = sort_position + 1 WHERE is_system_group = 0 AND sort_position >= 3",
+  // One-time migration: move system:all to sortPosition 3 (from 999999).
+  // Bump custom groups at position 3+ up by 1 to make room. Guarded by
+  // sentinel so the shift only runs once.
+  const sortShiftDone = rawGet<{ id: string }>(
+    "SELECT id FROM conversation_groups WHERE id = '_sort_shift_complete'",
   );
-  rawRun(
-    "UPDATE conversation_groups SET sort_position = 3 WHERE id = 'system:all' AND sort_position != 3",
-  );
+  if (!sortShiftDone) {
+    rawRun(
+      "UPDATE conversation_groups SET sort_position = sort_position + 1 WHERE is_system_group = 0 AND sort_position >= 3",
+    );
+    rawRun(
+      "UPDATE conversation_groups SET sort_position = 3 WHERE id = 'system:all' AND sort_position != 3",
+    );
+    rawRun(
+      `INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group, created_at, updated_at)
+       VALUES ('_sort_shift_complete', '_sort_shift_complete', -1, TRUE, ${now}, ${now})`,
+    );
+  }
 
   // 4. One-time backfill (guard: persistent marker prevents re-running on restart)
   //
