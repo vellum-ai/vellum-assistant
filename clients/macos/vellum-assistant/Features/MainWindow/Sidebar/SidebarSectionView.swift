@@ -176,12 +176,24 @@ struct SidebarSectionView: View {
                             sidebar.endConversationDrag()
                             return false
                         }
+                        // Block within-section reorder for Recents — it uses recency sorting.
+                        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceUUID })?.groupId
+                        if sourceGroup == ConversationGroup.all.id && group.id == ConversationGroup.all.id {
+                            sidebar.endConversationDrag()
+                            return false
+                        }
                         let insertAfter = sidebar.dropIndicatorAtBottom
                         let moved = conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id, insertAfterTarget: insertAfter)
                         sidebar.endConversationDrag()
                         return moved
                     } isTargeted: { isTargeted in
                         if isTargeted && conversation.id != sidebar.draggingConversationId {
+                            // Suppress drop indicator for within-Recents drags
+                            if group.id == ConversationGroup.all.id,
+                               let dragId = sidebar.draggingConversationId,
+                               conversationManager.conversations.first(where: { $0.id == dragId })?.groupId == ConversationGroup.all.id {
+                                return
+                            }
                             sidebar.dropTargetConversationId = conversation.id
                             if let dragId = sidebar.draggingConversationId {
                                 let groupConversations = conversationManager.groupedConversations
