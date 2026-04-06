@@ -41,8 +41,13 @@ extension ChatBubble {
     func resolveSegments(for text: String, isStreaming: Bool) -> [MarkdownSegment] {
         // Check the synchronous cache first (fast path for all sizes)
         if let cached = Self.segmentCache.object(forKey: text as NSString) {
-            // Clear stale streaming data now that we have a stable cached result.
-            if !isStreaming { Self.lastStreamingSegments = nil }
+            // Clear stale streaming data only for the specific bubble that
+            // transitioned from streaming to finalized. Other non-streaming
+            // bubbles must not wipe the streaming cache or active streaming
+            // bubbles lose their dedup/throttle entry.
+            if !isStreaming, let last = Self.lastStreamingSegments, last.text == text {
+                Self.lastStreamingSegments = nil
+            }
             return cached.segments
         }
         // For large text with a cache miss, parse synchronously and cache.
