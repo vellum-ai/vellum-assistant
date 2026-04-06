@@ -7,7 +7,8 @@ final class MockVoiceService: VoiceServiceProtocol {
     var onMicrophoneAuthorized: (() -> Void)?
     var onBargeInDetected: (() -> Void)?
     var livePartialText: String = ""
-    var hasElevenLabsKey: Bool = false
+    var _hasElevenLabsKey: Bool = false
+    func hasElevenLabsKey() async -> Bool { _hasElevenLabsKey }
 
     // MARK: - Spy Flags
 
