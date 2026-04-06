@@ -44,6 +44,24 @@ public struct MessageClient: MessageClientProtocol {
         #endif
     }
 
+    /// The host home directory, populated automatically on macOS.
+    private static var hostHomeDir: String? {
+        #if os(macOS)
+        return NSHomeDirectory()
+        #else
+        return nil
+        #endif
+    }
+
+    /// The host username, populated automatically on macOS.
+    private static var hostUsername: String? {
+        #if os(macOS)
+        return NSUserName()
+        #else
+        return nil
+        #endif
+    }
+
     public func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String? = nil) async -> AttachmentUploadResult {
         log.info("[send-pipeline] attachment upload start — filename=\(filename, privacy: .public), mimeType=\(mimeType, privacy: .public)")
 
@@ -105,6 +123,12 @@ public struct MessageClient: MessageClientProtocol {
         }
         if bypassSecretCheck == true {
             body["bypassSecretCheck"] = true
+        }
+        if let hostHomeDir = Self.hostHomeDir {
+            body["hostHomeDir"] = hostHomeDir
+        }
+        if let hostUsername = Self.hostUsername {
+            body["hostUsername"] = hostUsername
         }
 
         do {

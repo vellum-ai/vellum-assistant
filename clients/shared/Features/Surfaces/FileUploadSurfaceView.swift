@@ -93,32 +93,13 @@ public struct FileUploadSurfaceView: View {
                 HStack(spacing: VSpacing.lg) {
                     Spacer()
 
-                    Button(action: { onCancel() }) {
-                        Text("Cancel")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.vertical, VSpacing.sm)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.sm)
-                                    .stroke(VColor.borderBase, lineWidth: 1)
-                            )
+                    VButton(label: "Cancel", style: .outlined, size: .compact) {
+                        onCancel()
                     }
-                    .buttonStyle(.plain)
 
-                    Button(action: { submitFiles() }) {
-                        Text("Upload")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(selectedFiles.isEmpty ? VColor.contentTertiary : VColor.auxWhite)
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.vertical, VSpacing.sm)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.sm)
-                                    .fill(selectedFiles.isEmpty ? VColor.surfaceOverlay : VColor.primaryBase)
-                            )
+                    VButton(label: "Upload", style: .primary, size: .compact, isDisabled: selectedFiles.isEmpty) {
+                        submitFiles()
                     }
-                    .buttonStyle(.plain)
-                    .disabled(selectedFiles.isEmpty)
                 }
             }
         }
