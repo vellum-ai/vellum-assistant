@@ -643,6 +643,18 @@ final class MessageListScrollState {
         case .freeBrowsing, .programmaticScroll:
             break
         }
+        // Cancel the active recovery window. Without this, recovery
+        // fires `scrollToEdge(.bottom)` in the brief `.idle` gap between
+        // user scroll gestures (trackpad lift → re-touch), yanking the
+        // viewport back to bottom and creating a "scroll lock" effect.
+        // User intent to scroll away always takes priority over recovery.
+        // The mode transition to .freeBrowsing blocks the `mode.allows-
+        // AutoScroll` check, but a recovery call from the PREVIOUS
+        // geometry update (before this handler ran) may already be
+        // in the pipeline. Clearing recoveryDeadline ensures the
+        // `isInRecoveryWindow` condition is false for ALL subsequent
+        // geometry updates, eliminating any race window.
+        recoveryDeadline = nil
     }
 
     /// Handles the user arriving at the bottom of the scroll view.
