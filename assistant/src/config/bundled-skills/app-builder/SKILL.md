@@ -448,6 +448,92 @@ Important:
 - All operations are async - use `async/await`
 - Wrap all calls in `try/catch`
 
+#### Custom route handlers (user-defined routes)
+
+When the user asks for file-based persistence (e.g. "store each item as a markdown file"), workspace integration, or a custom API backend, use **user-defined routes** instead of the data bridge. Route handlers are TypeScript or JavaScript files that live in the workspace `routes/` directory and are served under the `/x/` URL prefix.
+
+**When to use routes vs the data bridge:**
+
+| Use case | Mechanism |
+|---|---|
+| Simple CRUD with structured JSON records | `window.vellum.data` (data bridge) |
+| File-based storage (markdown, CSV, etc.) | Custom routes |
+| Custom API logic (search, aggregation, transforms) | Custom routes |
+| Workspace file integration (user wants files they can browse) | Custom routes |
+| External API proxy or webhook receiver | Custom routes |
+
+**Handler file convention:**
+
+Each handler file exports named functions for the HTTP methods it supports (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). Handlers use the standard Web API `Request`/`Response` signature.
+
+```
+{workspaceDir}/routes/
+  essays.ts              # Handles /x/essays
+  essays/
+    [id].ts              # Not supported — use query params instead
+    index.ts             # Also handles /x/essays (index convention)
+```
+
+**Example — markdown file persistence:**
+
+```typescript
+// routes/essays.ts
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
+
+export const description = "Essay CRUD — stores each essay as a markdown file";
+
+const ESSAYS_DIR = join(process.env.VELLUM_WORKSPACE_DIR!, "data", "essays");
+
+export function GET(request: Request): Response {
+  mkdirSync(ESSAYS_DIR, { recursive: true });
+  const files = readdirSync(ESSAYS_DIR).filter(f => f.endsWith(".md"));
+  const essays = files.map(f => {
+    const id = f.replace(".md", "");
+    const content = readFileSync(join(ESSAYS_DIR, f), "utf-8");
+    const titleMatch = content.match(/^#\s+(.+)/m);
+    return { id, title: titleMatch?.[1] ?? id, filename: f };
+  });
+  return Response.json(essays);
+}
+
+export async function POST(request: Request): Promise<Response> {
+  mkdirSync(ESSAYS_DIR, { recursive: true });
+  const body = await request.json();
+  const id = crypto.randomUUID();
+  const content = `# ${body.title ?? "Untitled"}\n\n${body.content ?? ""}`;
+  writeFileSync(join(ESSAYS_DIR, `${id}.md`), content);
+  return Response.json({ id, title: body.title ?? "Untitled" }, { status: 201 });
+}
+```
+
+**Calling routes from the app frontend:**
+
+Apps call custom routes via `fetch()` using the `/x/` prefix. The assistant's local server handles the routing.
+
+```typescript
+// In a TSX component or HTML script
+const res = await fetch("/x/essays");
+const essays = await res.json();
+
+// Create a new essay
+await fetch("/x/essays", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ title: "My Essay", content: "Draft..." }),
+});
+```
+
+**Key rules:**
+
+- Always create the route handler files via `file_write` before calling `app_refresh`
+- Export an optional `description` string for CLI discoverability (`assistant routes list`)
+- Handlers have full Node.js API access — `fs`, `path`, `crypto`, etc.
+- Handlers get a 30-second timeout per request
+- Files are hot-reloaded on change (mtime-based cache)
+- Use `.ts` (preferred) or `.js` extensions
+- Route resolution: `routes/foo.ts` → `/x/foo`, `routes/bar/index.ts` → `/x/bar`
+
 #### Client-side state management
 
 `localStorage` and `sessionStorage` are available for ephemeral UI state (filters, view modes, collapsed state, preferences, form drafts). Use `window.vellum.data` for persistent app records, `localStorage` for UI preferences.
