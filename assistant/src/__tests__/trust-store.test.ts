@@ -909,15 +909,14 @@ describe("Trust Store", () => {
       expect(match!.id).toBe("default:allow-bash-rm-bootstrap");
       expect(match!.decision).toBe("allow");
       expect(match!.allowHighRisk).toBe(true);
-      // Outside workspace, the bootstrap rule doesn't match — but the
-      // global bash allow rule (default:allow-bash-global) still matches.
+      // Outside workspace, the bootstrap rule doesn't match — without
+      // IS_CONTAINERIZED there is no catch-all bash allow rule either.
       const other = findHighestPriorityRule(
         "bash",
         ["rm BOOTSTRAP.md"],
         "/tmp/other-project",
       );
-      expect(other).not.toBeNull();
-      expect(other!.id).toBe("default:allow-bash-global");
+      expect(other).toBeNull();
     });
 
     test("updates delete rule matches only when workingDir is the workspace dir", () => {
@@ -931,15 +930,14 @@ describe("Trust Store", () => {
       expect(match!.id).toBe("default:allow-bash-rm-updates");
       expect(match!.decision).toBe("allow");
       expect(match!.allowHighRisk).toBe(true);
-      // Outside workspace, should NOT match the updates rule — but the
-      // global bash allow rule (default:allow-bash-global) still matches.
+      // Outside workspace, should NOT match the updates rule — without
+      // IS_CONTAINERIZED there is no catch-all bash allow rule either.
       const other = findHighestPriorityRule(
         "bash",
         ["rm UPDATES.md"],
         "/tmp/other-project",
       );
-      expect(other).not.toBeNull();
-      expect(other!.id).toBe("default:allow-bash-global");
+      expect(other).toBeNull();
     });
 
     test("default ask does not affect files outside protected directory", () => {

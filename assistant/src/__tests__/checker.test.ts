@@ -149,6 +149,8 @@ describe("Permission Checker", () => {
   beforeEach(() => {
     // Reset trust-store state between tests
     clearCache();
+    // Simulate containerized environment so the default bash allow rule is emitted
+    process.env.IS_CONTAINERIZED = "true";
     // Reset permissions mode to workspace (default) so existing tests are not affected
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
@@ -638,7 +640,7 @@ describe("Permission Checker", () => {
   // ── check (decision logic) ─────────────────────────────────────
 
   describe("check", () => {
-    test("bash auto-allows all risk levels via default rule", async () => {
+    test("containerized bash auto-allows all risk levels via default rule", async () => {
       // High risk
       const high = await check("bash", { command: "sudo rm -rf /" }, "/tmp");
       expect(high.decision).toBe("allow");
@@ -657,6 +659,30 @@ describe("Permission Checker", () => {
       const low = await check("bash", { command: "ls" }, "/tmp");
       expect(low.decision).toBe("allow");
       expect(low.matchedRule?.id).toBe("default:allow-bash-global");
+    });
+
+    test("bash prompts when not containerized (no global allow rule)", async () => {
+      delete process.env.IS_CONTAINERIZED;
+      clearCache();
+      try {
+        const high = await check("bash", { command: "sudo rm -rf /" }, "/tmp");
+        expect(high.decision).toBe("prompt");
+
+        const med = await check(
+          "bash",
+          { command: "curl https://example.com" },
+          "/tmp",
+        );
+        expect(med.decision).toBe("prompt");
+
+        // Low risk still auto-allows via the normal risk-based fallback
+        const low = await check("bash", { command: "ls" }, "/tmp");
+        expect(low.decision).toBe("allow");
+        expect(low.reason).toContain("Low risk");
+      } finally {
+        process.env.IS_CONTAINERIZED = "true";
+        clearCache();
+      }
     });
 
     test("host_bash high risk → always prompt", async () => {
@@ -4731,13 +4757,60 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.reason).toContain("Low risk");
   });
 
-  // ── bash — default rule matches, workspace mode not reached ──
+  // ── bash (containerized) — default rule matches, workspace mode not reached ──
 
   test("bash in workspace (non-proxied) → allow via default rule", async () => {
     const result = await check("bash", { command: "ls -la" }, workspaceDir);
     expect(result.decision).toBe("allow");
-    // Allowed via the default bash rule, not workspace mode
+    // Allowed via the default containerized bash rule, not workspace mode
     expect(result.matchedRule?.id).toBe("default:allow-bash-global");
+  });
+
+  // ── bash containerized gate — workspace auto-allow depends on IS_CONTAINERIZED ──
+
+  test("bash without container in workspace mode → falls through to risk-based policy (not auto-allowed)", async () => {
+    delete process.env.IS_CONTAINERIZED;
+    clearCache();
+    try {
+      const result = await check(
+        "bash",
+        { command: "echo hello" },
+        workspaceDir,
+      );
+      // Should NOT be auto-allowed via workspace mode
+      expect(result.reason).not.toContain("Workspace mode");
+      // Without container, no default bash allow rule either, so it falls through to risk-based policy
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("Low risk");
+    } finally {
+      process.env.IS_CONTAINERIZED = "true";
+      clearCache();
+    }
+  });
+
+  test("bash with container in workspace mode → auto-allowed via default rule", async () => {
+    const result = await check("bash", { command: "echo hello" }, workspaceDir);
+    expect(result.decision).toBe("allow");
+    // With container, the default bash allow rule matches before workspace mode
+    expect(result.matchedRule?.id).toBe("default:allow-bash-global");
+  });
+
+  test("bash without container in workspace mode — medium risk command → prompt (not auto-allowed)", async () => {
+    delete process.env.IS_CONTAINERIZED;
+    clearCache();
+    try {
+      // An unknown program is medium risk; without container, workspace auto-allow is blocked
+      const result = await check(
+        "bash",
+        { command: "some-unknown-program --flag" },
+        workspaceDir,
+      );
+      expect(result.reason).not.toContain("Workspace mode");
+      expect(result.decision).toBe("prompt");
+    } finally {
+      process.env.IS_CONTAINERIZED = "true";
+      clearCache();
+    }
   });
 
   // ── proxied bash — risk capped at medium ──

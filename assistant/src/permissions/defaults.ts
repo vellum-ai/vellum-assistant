@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getBundledSkillsDir } from "../config/skills.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -66,17 +67,21 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 50,
   };
 
-  // Bash commands run in an isolated environment (Docker/platform-managed) —
-  // auto-allow all of them (including high-risk) so the user is never prompted.
-  const bashShellRule: DefaultRuleTemplate = {
-    id: "default:allow-bash-global",
-    tool: "bash",
-    pattern: "**",
-    scope: "everywhere",
-    decision: "allow",
-    priority: 50,
-    allowHighRisk: true,
-  };
+  // When running inside a container (IS_CONTAINERIZED=true), bash commands
+  // execute in an isolated environment — auto-allow all of them (including
+  // high-risk) so the user is never prompted.  Outside a container, bash
+  // commands run on the host and go through normal permission checks.
+  const bashShellRule: DefaultRuleTemplate | null = getIsContainerized()
+    ? {
+        id: "default:allow-bash-global",
+        tool: "bash",
+        pattern: "**",
+        scope: "everywhere",
+        decision: "allow",
+        priority: 50,
+        allowHighRisk: true,
+      }
+    : null;
 
   // Standalone "**" globstar — minimatch only treats ** as globstar when it is
   // its own path segment, so a "tool:**" prefix would collapse to single-star
@@ -294,7 +299,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   return [
     ...hostFileRules,
     hostShellRule,
-    bashShellRule,
+    ...(bashShellRule ? [bashShellRule] : []),
     ...computerUseRules,
     ...managedSkillRules,
     ...workspacePromptRules,
