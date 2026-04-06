@@ -7,7 +7,7 @@ final class SentryMaxAttachmentSizeTests: XCTestCase {
         XCTAssertEqual(
             MetricKitManager.sentryMaxAttachmentSize,
             expectedSize,
-            "Sentry maxAttachmentSize should be 100 MB to accommodate workspace file exports"
+            "Sentry maxAttachmentSize should be 100 MB to accommodate large log archives"
         )
     }
 }

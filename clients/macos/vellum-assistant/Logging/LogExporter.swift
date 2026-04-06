@@ -21,7 +21,6 @@ private let log = Logger(
 /// - Multi-service logs via `POST /v1/logs/export` gateway HTTP API — the gateway orchestrates
 ///   collection from all services (gateway, daemon, CES), returning a combined archive that
 ///   includes gateway logs, CES logs, daemon logs, audit data, and sanitized config
-/// - Workspace files via the gateway export — full workspace contents (config, skills, prompts, hooks, DB dump, logs)
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
@@ -613,7 +612,7 @@ enum LogExporter {
 
     /// Calls POST /v1/logs/export on the gateway to download a tar.gz archive
     /// containing logs from all services (gateway, daemon, CES), along with
-    /// audit data, workspace files, and config snapshot.
+    /// audit data and config snapshot.
     /// Extracts the archive into `directory/service-exports/`.
     /// Returns `true` if the export succeeded, `false` if the assistant was unreachable.
     ///
