@@ -230,6 +230,16 @@ extension MessageListView {
                     scrollState.bottomAnchorAppeared = false
                     scrollState.recoveryDeadline = Date().addingTimeInterval(2.0)
                     scrollState.requestPinToBottom()
+                } else if case .freeBrowsing = scrollState.mode,
+                          anchorMessageId == nil,
+                          let visibleId = scrollState.cachedFirstVisibleMessageId {
+                    // User was scrolled up when resize happened. LazyVStack
+                    // re-estimates heights for the new container width, which
+                    // can shift content — the viewport may now show blank
+                    // estimated space instead of the message the user was
+                    // reading. Re-anchor at the first visible message to
+                    // maintain the user's reading position.
+                    scrollState.performScrollTo(visibleId, anchor: .top)
                 }
         }
     }

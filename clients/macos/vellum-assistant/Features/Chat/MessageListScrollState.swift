@@ -697,10 +697,21 @@ final class MessageListScrollState {
         // gesture drives it upward — creating visible jitter/lock that
         // persists until the spring settles (~300-500ms).
         //
-        // Only cancel when leaving a following state — if mode was already
-        // .freeBrowsing or .programmaticScroll, there's no animation to
-        // cancel (avoids unnecessary binding writes during normal scrolling).
-        if wasFollowingOrInitial {
+        // Guard conditions:
+        //   1. wasFollowingOrInitial — only cancel when leaving a following
+        //      state (if already .freeBrowsing, there's no animation).
+        //   2. scrollPhase == .interacting — only cancel when the user has
+        //      active touch. During .interacting the user's gesture has
+        //      priority over programmatic position writes, so the empty
+        //      ScrollPosition() is safe (viewport doesn't jump).
+        //      During .decelerating (passive momentum), writing an empty
+        //      ScrollPosition() could interrupt the momentum or cause a
+        //      viewport jump since there's no active gesture to override it.
+        //      The .decelerating case is handled separately: the 500ms
+        //      cooldown suppresses stale pre-CTA momentum, and by the time
+        //      the cooldown expires the spring animation has already
+        //      completed (~300ms), so there's nothing to cancel.
+        if wasFollowingOrInitial, scrollPhase == .interacting {
             cancelScrollAnimation?()
         }
     }
