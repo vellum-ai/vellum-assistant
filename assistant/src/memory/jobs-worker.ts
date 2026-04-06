@@ -53,6 +53,24 @@ import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 
 const log = getLogger("memory-jobs-worker");
 
+/**
+ * Job types whose handlers have been removed. Existing rows may still sit in
+ * the database — the worker completes them silently instead of throwing.
+ */
+const LEGACY_JOB_TYPES = new Set([
+  "embed_item",
+  "extract_items",
+  "batch_extract",
+  "extract_entities",
+  "cleanup_stale_superseded_items",
+  "backfill_entity_relations",
+  "refresh_weekly_summary",
+  "refresh_monthly_summary",
+  "journal_carry_forward",
+  "generate_capability_cards",
+  "generate_thread_starters",
+]);
+
 export const POLL_INTERVAL_MIN_MS = 1_500;
 export const POLL_INTERVAL_MAX_MS = 30_000;
 
@@ -413,10 +431,15 @@ async function processJob(
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);
       return;
-    default:
-      throw new Error(
-        `Unknown memory job type: ${(job as { type: string }).type}`,
-      );
+
+    default: {
+      const rawType = (job as { type: string }).type;
+      if (LEGACY_JOB_TYPES.has(rawType)) {
+        log.debug({ jobId: job.id, type: rawType }, "Dropping legacy job");
+        return;
+      }
+      throw new Error(`Unknown memory job type: ${rawType}`);
+    }
   }
 }
 
