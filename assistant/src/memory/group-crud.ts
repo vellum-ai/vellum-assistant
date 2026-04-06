@@ -33,7 +33,7 @@ export function listGroups(): ConversationGroupRow[] {
     created_at: number;
     updated_at: number;
   }>(
-    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id != '_backfill_complete' ORDER BY sort_position ASC",
+    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id NOT IN ('_backfill_complete', '_backfill_all_complete') ORDER BY sort_position ASC",
   );
   return rows.map((r) => ({
     id: r.id,
@@ -90,6 +90,11 @@ export function createGroup(name: string): ConversationGroupRow {
       "SELECT MAX(sort_position) as max FROM conversation_groups WHERE is_system_group = 0",
     )?.max ?? 2;
   const sortPosition = maxPos + 1;
+  if (sortPosition >= 999999) {
+    throw new Error(
+      "Custom group sort_position must be < 999999 (reserved for system:all)",
+    );
+  }
   const id = uuid();
   const now = Math.floor(Date.now() / 1000);
   rawRun(
@@ -172,6 +177,13 @@ export function reorderGroups(
   updates: Array<{ groupId: string; sortPosition: number }>,
 ): void {
   ensureGroupMigration();
+  for (const update of updates) {
+    if (update.sortPosition >= 999999) {
+      throw new Error(
+        `Custom group sort_position must be < 999999 (got ${update.sortPosition} for ${update.groupId})`,
+      );
+    }
+  }
   const now = Math.floor(Date.now() / 1000);
   rawExec("BEGIN");
   try {

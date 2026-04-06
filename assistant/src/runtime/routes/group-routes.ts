@@ -105,16 +105,17 @@ export function groupRouteDefinitions(): RouteDefinition[] {
             403,
           );
         }
-        // Custom group sort_position must be >= 3
+        // Custom group sort_position must be >= 3 and < 999999
         if (
           body.sortPosition !== undefined &&
           (typeof body.sortPosition !== "number" ||
             !isFinite(body.sortPosition) ||
-            body.sortPosition < 3)
+            body.sortPosition < 3 ||
+            body.sortPosition >= 999999)
         ) {
           return httpError(
             "BAD_REQUEST",
-            "Custom group sort_position must be >= 3",
+            "Custom group sort_position must be >= 3 and < 999999",
             400,
           );
         }
@@ -190,11 +191,12 @@ export function groupRouteDefinitions(): RouteDefinition[] {
           if (
             typeof update.sortPosition !== "number" ||
             !isFinite(update.sortPosition) ||
-            update.sortPosition < 3
+            update.sortPosition < 3 ||
+            update.sortPosition >= 999999
           ) {
             return httpError(
               "BAD_REQUEST",
-              `Custom group sort_position must be >= 3 (got ${update.sortPosition} for ${update.groupId})`,
+              `Custom group sort_position must be >= 3 and < 999999 (got ${update.sortPosition} for ${update.groupId})`,
               400,
             );
           }
