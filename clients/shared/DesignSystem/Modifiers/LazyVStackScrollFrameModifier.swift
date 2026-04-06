@@ -8,8 +8,8 @@ extension View {
     /// proposal through `_FlexFrameLayout`, triggering a full content measurement
     /// that can hang for tens of seconds on very long text.
     ///
-    /// - Parameter maxHeight: The fixed height applied to the ScrollView.
-    func vAdaptiveScrollFrame(maxHeight: CGFloat) -> some View {
-        self.frame(height: maxHeight)
+    /// - Parameter height: The fixed height applied to the ScrollView.
+    func vAdaptiveScrollFrame(height: CGFloat) -> some View {
+        self.frame(height: height)
     }
 }

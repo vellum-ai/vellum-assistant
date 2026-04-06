@@ -11,14 +11,6 @@ public struct ToolCallProgressBar: View {
         self.toolCalls = toolCalls
     }
 
-    /// Counts newlines without allocating N substrings.
-    /// Equivalent to `text.components(separatedBy: "\n").count` but O(1) memory.
-    private static func countLines(in text: String) -> Int {
-        var count = 1
-        for byte in text.utf8 where byte == 0x0A { count += 1 }
-        return count
-    }
-
     public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             // Progress bar with steps
@@ -63,7 +55,7 @@ public struct ToolCallProgressBar: View {
         .onChange(of: expandedStepId) { _, newId in
             if let newId, let call = toolCalls.first(where: { $0.id == newId }),
                let result = call.result {
-                cachedResult = (stepId: newId, lineCount: Self.countLines(in: result))
+                cachedResult = (stepId: newId, lineCount: VStringUtils.countLines(in: result))
             } else {
                 cachedResult = nil
             }
@@ -72,7 +64,7 @@ public struct ToolCallProgressBar: View {
             if let expandedId = expandedStepId,
                let call = toolCalls.first(where: { $0.id == expandedId }),
                let result = call.result {
-                cachedResult = (stepId: expandedId, lineCount: Self.countLines(in: result))
+                cachedResult = (stepId: expandedId, lineCount: VStringUtils.countLines(in: result))
             }
         }
     }
@@ -268,7 +260,7 @@ public struct ToolCallProgressBar: View {
                         }
                     } else {
                         let lineCount = (cachedResult?.stepId == toolCall.id ? cachedResult?.lineCount : nil)
-                            ?? Self.countLines(in: result)
+                            ?? VStringUtils.countLines(in: result)
                         if lineCount > 500 || result.count > 50_000 {
                             ScrollView {
                                 Text(result)
@@ -277,14 +269,16 @@ public struct ToolCallProgressBar: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
                             }
-                            .vAdaptiveScrollFrame(maxHeight: 200)
+                            .vAdaptiveScrollFrame(height: 200)
                         } else {
-                            Text(result)
-                                .font(VFont.bodySmallDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
+                            ScrollView {
+                                Text(result)
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
+                            .frame(maxHeight: 200)
                         }
                     }
                 }
@@ -301,7 +295,7 @@ public struct ToolCallProgressBar: View {
         )
         .onAppear {
             if cachedResult == nil, let result = toolCall.result {
-                cachedResult = (stepId: toolCall.id, lineCount: Self.countLines(in: result))
+                cachedResult = (stepId: toolCall.id, lineCount: VStringUtils.countLines(in: result))
             }
         }
     }
