@@ -1339,6 +1339,8 @@ export async function handleSendMessage(
         ...(body.automated === true ? { automated: true } : {}),
       },
       { isInteractive },
+      undefined, // displayContent
+      transport,
     );
     if (enqueueResult.rejected) {
       return Response.json(
