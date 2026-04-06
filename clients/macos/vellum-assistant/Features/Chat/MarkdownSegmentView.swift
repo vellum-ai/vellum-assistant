@@ -298,7 +298,6 @@ struct MarkdownSegmentView: View, Equatable {
     @MainActor func resolveSelectableRunMeasurement(
         _ runSegments: [MarkdownSegment]
     ) -> (NSAttributedString, CGSize) {
-        let chatFonts = VFont.resolvedChatMarkdownFontSet()
         var hasher = Hasher()
         for segment in runSegments { hasher.combine(segment) }
         hasher.combine(textColor.description)
@@ -315,6 +314,7 @@ struct MarkdownSegmentView: View, Equatable {
             return (cached.nsAttributedString, cached.size)
         }
 
+        let chatFonts = VFont.resolvedChatMarkdownFontSet()
         os_signpost(.begin, log: PerfSignposts.log, name: "selectableRunMeasure")
         let attributed = buildCombinedAttributedString(from: runSegments)
         let (nsAttributed, hasUnresolvedEmphasis) = Self.convertToNSAttributedString(
