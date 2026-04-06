@@ -126,4 +126,83 @@ describe("parseIdentityFields", () => {
     expect(fields.emoji).toBe("");
     expect(fields.home).toBe("");
   });
+
+  // --- Edge cases (extended coverage) ---
+
+  test("multiple colons in value — captures full value after :**", () => {
+    const content = "- **Name:** Dr. Who: Time Lord";
+    const fields = parseIdentityFields(content);
+    expect(fields.name).toBe("Dr. Who: Time Lord");
+  });
+
+  test("**Vibe:** as alternate key for personality", () => {
+    const content = "- **Vibe:** Chill and laid-back";
+    const fields = parseIdentityFields(content);
+    expect(fields.personality).toBe("Chill and laid-back");
+  });
+
+  test("empty string input → all fields empty", () => {
+    const fields = parseIdentityFields("");
+    expect(fields.name).toBe("");
+    expect(fields.role).toBe("");
+    expect(fields.personality).toBe("");
+    expect(fields.emoji).toBe("");
+    expect(fields.home).toBe("");
+  });
+
+  test("no matching field lines (random text) → all fields empty", () => {
+    const content =
+      "This is just some random text.\nNothing to see here.\nNo fields at all.";
+    const fields = parseIdentityFields(content);
+    expect(fields.name).toBe("");
+    expect(fields.role).toBe("");
+    expect(fields.personality).toBe("");
+    expect(fields.emoji).toBe("");
+    expect(fields.home).toBe("");
+  });
+
+  test("extra blank lines between fields → still parses all fields", () => {
+    const content = [
+      "- **Name:** Alice",
+      "",
+      "",
+      "- **Role:** Developer",
+      "",
+      "- **Personality:** Focused",
+      "",
+      "",
+      "- **Emoji:** 💻",
+      "",
+      "- **Home:** /home/alice",
+    ].join("\n");
+
+    const fields = parseIdentityFields(content);
+    expect(fields.name).toBe("Alice");
+    expect(fields.role).toBe("Developer");
+    expect(fields.personality).toBe("Focused");
+    expect(fields.emoji).toBe("💻");
+    expect(fields.home).toBe("/home/alice");
+  });
+
+  test("markdown with non-field content mixed in → ignores noise, parses fields", () => {
+    const content = [
+      "# My Assistant Identity",
+      "",
+      "Some introductory paragraph about the assistant.",
+      "",
+      "- **Name:** Bot9000",
+      "- Some other bullet point",
+      "- **Role:** General purpose helper",
+      "",
+      "## Additional Section",
+      "",
+      "More text here that should be ignored.",
+      "- **Emoji:** 🤖",
+    ].join("\n");
+
+    const fields = parseIdentityFields(content);
+    expect(fields.name).toBe("Bot9000");
+    expect(fields.role).toBe("General purpose helper");
+    expect(fields.emoji).toBe("🤖");
+  });
 });
