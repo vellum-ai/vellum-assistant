@@ -211,7 +211,7 @@ export class HeartbeatService {
       if (this.activeRun === run) {
         this.activeRun = null;
       }
-    });
+    }).catch(() => {}); // Suppress unhandled rejection if executeRun rejects
 
     let timerId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -225,6 +225,9 @@ export class HeartbeatService {
       await Promise.race([run, timeout]);
     } catch (err) {
       log.warn({ err }, "Heartbeat run timed out");
+      // Release activeRun so the overlap guard doesn't permanently block
+      // future heartbeat runs when executeRun hangs past the timeout.
+      this.activeRun = null;
     } finally {
       clearTimeout(timerId);
       this._lastRunAt = Date.now();
