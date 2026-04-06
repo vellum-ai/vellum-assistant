@@ -160,7 +160,7 @@ struct AssistantProgressView: View {
 
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool
-    @State private var startDate: Date = Date()
+    @State private var startDate: Date
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
@@ -211,6 +211,12 @@ struct AssistantProgressView: View {
         let isDenied = derived.hasDeniedToolCalls && derived.hasTools && !derived.allComplete
         let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         let shouldAutoExpand = (isComplete || isDenied) && expandFlag
+        let initialStartDate = derived.earliestStartedAt ?? Date()
+        let initialProcessingStartDate: Date? = if isProcessing && (derived.allComplete || !derived.hasTools) {
+            Date()
+        } else {
+            nil
+        }
         // Seed from user override if one exists, otherwise use auto-expand logic.
         if let key = toolCalls.first?.id,
            let override = cardExpansionOverrides.wrappedValue[key] {
@@ -218,6 +224,8 @@ struct AssistantProgressView: View {
         } else {
             _isExpanded = State(initialValue: shouldAutoExpand || derived.hasPendingConfirmation)
         }
+        _startDate = State(initialValue: initialStartDate)
+        _processingStartDate = State(initialValue: initialProcessingStartDate)
     }
 
     /// Stable key for this progress card in `cardExpansionOverrides`.
@@ -386,10 +394,12 @@ struct AssistantProgressView: View {
 
     private func handleToolCallsChange(_ newToolCalls: [ToolCallData]) {
         derived = DerivedProgressState.compute(toolCalls: newToolCalls, decidedConfirmations: decidedConfirmations)
+        syncStartDateFromDerivedIfNeeded()
     }
 
     private func handleConfirmationsChange(_ newConfirmations: [ToolConfirmationData]) {
         derived = DerivedProgressState.compute(toolCalls: toolCalls, decidedConfirmations: newConfirmations)
+        syncStartDateFromDerivedIfNeeded()
     }
 
     private func handlePhaseChange(_ newPhase: ProgressPhase) {
@@ -399,27 +409,29 @@ struct AssistantProgressView: View {
             reason: "phase_change:\(newPhase) group=\(derived.groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(derived.completedToolCount)/\(derived.totalToolCount) denied=\(derived.deniedCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
             toolCallCount: derived.totalToolCount
         ))
-        if newPhase == .processing {
-            processingStartDate = Date()
-            startDate = Date()
-        }
         // Auto-expand when a step group completes, if the flag is enabled.
         // Skip if the user has explicitly set a preference for this card.
         let hasUserCardPreference = cardKey != nil && cardExpansionOverrides[cardKey!] != nil
-        if (newPhase == .complete || newPhase == .denied),
-           !isExpanded,
-           !hasUserCardPreference,
-           MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
-        {
-            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                kind: .progressCardTransition,
-                reason: "auto_expand:completed_steps_flag group=\(derived.groupId) phase=\(newPhase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                toolCallCount: derived.totalToolCount
-            ))
-            withAnimation(VAnimation.fast) {
-                isExpanded = true
+        let shouldAutoExpandOnPhaseChange = (newPhase == .complete || newPhase == .denied)
+            && !hasUserCardPreference
+            && MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
+        deferProgressStateMutation {
+            if newPhase == .processing, phase == .processing {
+                processingStartDate = Date()
+                if derived.earliestStartedAt == nil {
+                    startDate = Date()
+                }
             }
-            if let key = cardKey { cardExpansionOverrides[key] = true }
+            if shouldAutoExpandOnPhaseChange, !isExpanded {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:completed_steps_flag group=\(derived.groupId) phase=\(newPhase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                    toolCallCount: derived.totalToolCount
+                ))
+                withAnimation(VAnimation.fast) {
+                    isExpanded = true
+                }
+            }
         }
     }
 
@@ -436,7 +448,9 @@ struct AssistantProgressView: View {
     private func handlePendingConfirmationChange(_ pending: Bool) {
         // Pending confirmations always force-expand — user must be able to
         // see and interact with the approval UI.
-        if pending && !isExpanded {
+        guard pending else { return }
+        deferProgressStateMutation {
+            guard derived.hasPendingConfirmation, !isExpanded else { return }
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
                 reason: "auto_expand:pending_confirmation",
@@ -445,58 +459,35 @@ struct AssistantProgressView: View {
             withAnimation(VAnimation.fast) {
                 isExpanded = true
             }
-            if let key = cardKey { cardExpansionOverrides[key] = true }
         }
     }
 
     private func handleOnAppear() {
         let wasExpandedOnEntry = isExpanded
-        if phase == .processing && processingStartDate == nil {
-            processingStartDate = Date()
-        }
-        // Seed startDate from persisted timestamps so the header timer
-        // shows correct elapsed time after history restore.
-        if let earliest = derived.earliestStartedAt {
-            startDate = earliest
-        }
-        // Auto-expand completed step groups when the flag is enabled.
-        // Skip if the user has explicitly set a preference for this card.
-        let hasUserCardPreference = cardKey != nil && cardExpansionOverrides[cardKey!] != nil
-        if !isExpanded,
-           !hasUserCardPreference,
-           (phase == .complete || phase == .denied),
-           MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
-        {
-            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                kind: .progressCardTransition,
-                reason: "auto_expand:completed_steps_flag_on_appear group=\(derived.groupId) phase=\(phase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                toolCallCount: derived.totalToolCount
-            ))
-            isExpanded = true
-            if let key = cardKey { cardExpansionOverrides[key] = true }
-            // Rehydration is handled by onChange(of: isExpanded) above.
-        }
-        // Auto-expand when a pending confirmation exists on appear —
-        // always force-expand so the user can interact with the approval UI.
-        if derived.hasPendingConfirmation && !isExpanded {
-            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                kind: .progressCardTransition,
-                reason: "auto_expand:pending_confirmation_on_appear",
-                toolCallCount: derived.totalToolCount
-            ))
-            withAnimation(VAnimation.fast) {
-                isExpanded = true
-            }
-            if let key = cardKey { cardExpansionOverrides[key] = true }
-        }
+        let shouldAutoExpandPendingOnAppear = derived.hasPendingConfirmation && !isExpanded
+        let shouldRehydrateOnAppear = wasExpandedOnEntry && onRehydrate != nil && hasStrippedToolCalls
 
-        // Rehydrate stripped tool calls for cards that start expanded.
-        // When isExpanded is set to true in init(), onChange(of: isExpanded)
-        // never fires (no false→true transition), so we must check here.
-        // Gate on wasExpandedOnEntry so cards that just expanded above
-        // don't double-fire — onChange already handles their rehydration.
-        if wasExpandedOnEntry, onRehydrate != nil {
-            if hasStrippedToolCalls {
+        deferProgressStateMutation {
+            syncStartDateFromDerivedIfNeeded()
+            if phase == .processing && processingStartDate == nil {
+                processingStartDate = Date()
+                if derived.earliestStartedAt == nil {
+                    startDate = Date()
+                }
+            }
+
+            if shouldAutoExpandPendingOnAppear && derived.hasPendingConfirmation && !isExpanded {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:pending_confirmation_on_appear",
+                    toolCallCount: derived.totalToolCount
+                ))
+                withAnimation(VAnimation.fast) {
+                    isExpanded = true
+                }
+            }
+
+            if shouldRehydrateOnAppear {
                 onRehydrate?()
             }
         }
@@ -510,6 +501,19 @@ struct AssistantProgressView: View {
                 && tc.result == nil
                 && tc.inputRawDict == nil
                 && tc.cachedImages.isEmpty
+        }
+    }
+
+    private func deferProgressStateMutation(_ update: @escaping @MainActor () -> Void) {
+        Task { @MainActor in
+            update()
+        }
+    }
+
+    @MainActor
+    private func syncStartDateFromDerivedIfNeeded() {
+        if let earliest = derived.earliestStartedAt, startDate != earliest {
+            startDate = earliest
         }
     }
 
@@ -795,15 +799,13 @@ private struct StepDetailRow: View {
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
     @State private var isHovered = false
-    /// Cached formatted input — computed once on first expand.
-    @State private var cachedInputFull: String?
     @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     /// Lazily resolved full input text.
     private var resolvedInputFull: String {
-        if let cached = cachedInputFull { return cached }
         if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+        if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
         return ""
     }
 
@@ -924,31 +926,15 @@ private struct StepDetailRow: View {
             if isDetailExpanded {
                 stepDetailContent
                     .transition(.opacity)
-                    .onAppear {
-                        if cachedInputFull == nil {
-                            if !toolCall.inputFull.isEmpty {
-                                cachedInputFull = toolCall.inputFull
-                            } else if let dict = toolCall.inputRawDict {
-                                cachedInputFull = ToolCallData.formatAllToolInput(dict)
-                            }
-                        }
-                        // Trigger on-demand rehydration when expanding truncated content.
-                        onRehydrate?()
-                    }
             }
         }
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
-            if newValue, cachedInputFull == nil {
-                if !toolCall.inputFull.isEmpty {
-                    cachedInputFull = toolCall.inputFull
-                } else if let dict = toolCall.inputRawDict {
-                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
+            if newValue {
+                Task { @MainActor in
+                    onRehydrate?()
                 }
             }
-        }
-        .onChange(of: toolCall.inputFull) {
-            cachedInputFull = nil
         }
     }
 
@@ -1212,7 +1198,10 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
                 Animation.easeInOut(duration: 1.8).repeatForever(autoreverses: true),
                 value: isPulsing
             )
-            .onAppear { isPulsing = true }
+            .task {
+                guard !isPulsing else { return }
+                isPulsing = true
+            }
     }
 }
 
