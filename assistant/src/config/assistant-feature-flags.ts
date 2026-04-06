@@ -242,10 +242,16 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  */
 export async function initFeatureFlagOverrides(): Promise<void> {
   const gatewayOverrides = await fetchOverridesFromGateway();
-  if (Object.keys(gatewayOverrides).length > 0 || getIsContainerized()) {
+  if (Object.keys(gatewayOverrides).length > 0) {
     cachedOverrides = gatewayOverrides;
     return;
   }
+
+  // Gateway returned empty or failed. In containerized mode, leave the
+  // cache unset so later calls retry via loadOverrides() → file fallback,
+  // rather than caching an empty map that hides all overrides for the
+  // process lifetime.
+  if (getIsContainerized()) return;
 
   // Graceful fallback: in local mode, if the gateway hasn't started yet
   // (empty response), read overrides from file as a temporary measure.

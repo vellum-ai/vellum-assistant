@@ -272,7 +272,12 @@ export async function runDaemon(): Promise<void> {
 
     // Pre-populate the feature flag cache from the gateway so all
     // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
-    await initFeatureFlagOverrides();
+    // Fired non-blocking so a slow or unreachable gateway doesn't delay
+    // daemon startup (the fetch has a 10s timeout that would otherwise
+    // stall the critical path).
+    void initFeatureFlagOverrides().catch((err) =>
+      log.warn({ err }, "Background feature flag init failed"),
+    );
 
     seedInterfaceFiles();
 

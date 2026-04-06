@@ -1,5 +1,6 @@
 import { Command } from "commander";
 
+import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
 import { registerHooksCommand } from "../hooks/cli.js";
@@ -86,4 +87,18 @@ Examples:
   registerSequenceCommand(program);
 
   return program;
+}
+
+/**
+ * Async program builder — pre-populates the feature flag cache from the
+ * gateway before constructing the Commander tree so flag-gated commands
+ * (e.g. email) are registered correctly.
+ *
+ * Preferred entry point for CLI invocations and tests. The sync
+ * `buildCliProgram()` is still available for callers that don't need
+ * flag resolution (e.g. capability graph seeding).
+ */
+export async function buildCliProgramAsync(): Promise<Command> {
+  await initFeatureFlagOverrides();
+  return buildCliProgram();
 }
