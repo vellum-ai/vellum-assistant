@@ -174,9 +174,23 @@ struct SettingsBillingTab: View {
     // MARK: - Add Credits Card
 
     private var addFundsCard: some View {
-        SettingsCard(title: "Add Credits") {
+        SettingsCard(title: "Add Credits", subtitle: addCreditsSubtitle) {
             topUpContent
         }
+    }
+
+    private var addCreditsSubtitle: String? {
+        guard let summary else { return nil }
+        let maxFormatted: String = {
+            let value = Int(Double(summary.maximum_balance) ?? 0)
+            if value > 0 {
+                let formatter = NumberFormatter()
+                formatter.numberStyle = .decimal
+                return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
+            }
+            return summary.maximum_balance
+        }()
+        return "Credits cost $1 each, with a maximum balance of \(maxFormatted). Unused credits expire 12 months after purchase."
     }
 
     @ViewBuilder
@@ -196,20 +210,6 @@ struct SettingsBillingTab: View {
                     }
                 )
                 .frame(maxWidth: 200)
-                if let summary {
-                    let maxFormatted: String = {
-                        let value = Int(Double(summary.maximum_balance) ?? 0)
-                        if value > 0 {
-                            let formatter = NumberFormatter()
-                            formatter.numberStyle = .decimal
-                            return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
-                        }
-                        return summary.maximum_balance
-                    }()
-                    Text("1 credit = $1 USD. \(maxFormatted) max credit balance. Credits expire 12 months after purchase.")
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
             }
 
             VButton(
