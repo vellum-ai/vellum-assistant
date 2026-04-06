@@ -25,9 +25,14 @@ final class MessageListScrollStateTests: XCTestCase {
 
     // MARK: - Initial State
 
-    func testInitialStateIsFollowingBottom() {
-        XCTAssertTrue(state.isFollowingBottom)
+    func testInitialStateAllowsAutoScrollWithoutInteraction() {
+        XCTAssertFalse(state.isFollowingBottom)
         XCTAssertFalse(state.hasBeenInteracted)
+        XCTAssertTrue(state.mode.allowsAutoScroll)
+
+        let result = state.requestPinToBottom()
+        XCTAssertTrue(result, "initialLoad should still allow bottom pinning")
+        XCTAssertEqual(scrollToCalls.first?.id, "scroll-bottom-anchor" as AnyHashable)
     }
 
     func testInitialModeIsInitialLoad() {
@@ -306,12 +311,18 @@ final class MessageListScrollStateTests: XCTestCase {
 
         state.reset(for: newId)
 
-        XCTAssertTrue(state.isFollowingBottom, "Should restore following state")
+        if case .initialLoad = state.mode {
+            // correct
+        } else {
+            XCTFail("Reset should return to .initialLoad mode")
+        }
+        XCTAssertFalse(state.isFollowingBottom, "initialLoad is distinct from followingBottom")
+        XCTAssertTrue(state.mode.allowsAutoScroll, "Reset should restore auto-scroll eligibility")
         XCTAssertFalse(state.showScrollToLatest, "Should sync showScrollToLatest immediately on reset")
         XCTAssertFalse(state.isSuppressed, "Should clear stabilization")
         XCTAssertFalse(state.isPaginationInFlight, "Should clear pagination flag")
         XCTAssertFalse(state.wasPaginationTriggerInRange, "Should clear trigger range flag")
-        XCTAssertTrue(state.isAtBottom, "Should reset isAtBottom to true")
+        XCTAssertFalse(state.isAtBottom, "Should wait for fresh geometry before claiming bottom")
         XCTAssertFalse(state.hasBeenInteracted, "Should reset to initialLoad mode")
         XCTAssertEqual(state.currentConversationId, newId, "Should update conversation ID")
         XCTAssertNil(state.mode.pushToTopMessageId, "Should clear pushToTopMessageId")

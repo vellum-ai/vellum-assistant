@@ -93,3 +93,46 @@ struct MessageListDerivedState {
     let shouldShowThinkingIndicator: Bool
     let hasMessages: Bool
 }
+
+// MARK: - Derived-State Cache
+
+/// Non-observable cache used by `MessageListView` during body evaluation.
+///
+/// SwiftUI logs "Modifying state during view update" when a view mutates
+/// `@State` / `@Observable` storage while computing its body. The message-list
+/// pipeline needs memoization for performance, but those cache writes must not
+/// flow through SwiftUI-managed state. This helper keeps the cache off the
+/// observation graph while preserving the existing hot-path behavior.
+@MainActor
+final class MessageListDerivedStateCache {
+    var cachedLayoutKey: PrecomputedCacheKey?
+    var cachedLayoutMetadata: CachedMessageLayoutMetadata?
+    var messageListVersion = 0
+    var lastKnownRawMessageCount = 0
+    var lastKnownVisibleMessageCount = 0
+    var lastKnownLastMessageStreaming = false
+    var lastKnownIncompleteToolCallCount = 0
+    var lastKnownVisibleIdFingerprint = 0
+    var cachedFirstVisibleMessageId: UUID?
+    var bodyEvalTimestamps: [CFAbsoluteTime] = []
+    var isThrottled = false
+    var cachedDerivedState: MessageListDerivedState?
+    var throttleRecoveryTask: Task<Void, Never>?
+
+    func reset() {
+        cachedLayoutKey = nil
+        cachedLayoutMetadata = nil
+        messageListVersion = 0
+        lastKnownRawMessageCount = 0
+        lastKnownVisibleMessageCount = 0
+        lastKnownLastMessageStreaming = false
+        lastKnownIncompleteToolCallCount = 0
+        lastKnownVisibleIdFingerprint = 0
+        cachedFirstVisibleMessageId = nil
+        cachedDerivedState = nil
+        bodyEvalTimestamps.removeAll()
+        throttleRecoveryTask?.cancel()
+        throttleRecoveryTask = nil
+        isThrottled = false
+    }
+}

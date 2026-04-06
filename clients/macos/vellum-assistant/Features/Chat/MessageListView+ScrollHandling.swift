@@ -120,7 +120,7 @@ extension MessageListView {
         // (including cooldown) don't consume the one-shot rising edge.
         scrollState.wasPaginationTriggerInRange = isInRange
         scrollState.isPaginationInFlight = true
-        let anchorId = scrollState.cachedFirstVisibleMessageId
+        let anchorId = scrollState.derivedStateCache.cachedFirstVisibleMessageId
         let taskConversationId = scrollState.currentConversationId
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         scrollState.paginationTask = Task { [scrollState] in
