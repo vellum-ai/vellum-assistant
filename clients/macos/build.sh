@@ -1574,14 +1574,11 @@ for item in "$APP_DIR"/* "$APP_DIR"/.*; do
 done
 if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
     echo ""
-    echo "ERROR: The .app bundle contains unexpected items in its root directory:"
+    echo "warning: Removing unexpected items from .app bundle root (stale build artifacts):"
     printf '  - %s\n' "${STRAY_ITEMS[@]}"
-    echo ""
-    echo "macOS codesign rejects bundles with files outside Contents/."
-    echo "This is usually caused by stale artifacts from a previous build."
-    echo "Fix: run './build.sh clean' and rebuild, or delete the items above from:"
-    echo "  $APP_DIR/"
-    exit 1
+    for item in "${STRAY_ITEMS[@]}"; do
+        rm -rf "$APP_DIR/$item"
+    done
 fi
 
 # Sign the outer app bundle with entitlements (without --deep to preserve nested signatures)
