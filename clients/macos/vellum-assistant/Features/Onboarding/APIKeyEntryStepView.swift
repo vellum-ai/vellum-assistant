@@ -237,8 +237,13 @@ struct APIKeyEntryStepView: View {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !providerRequiresKey || !trimmed.isEmpty else { return }
         if providerRequiresKey {
+            // Store the raw key in OnboardingState so the hatch step can
+            // pass it to the CLI even before a daemon exists to store it.
+            state.onboardingApiKey = trimmed
             let provider = state.selectedProvider
             Task {
+                // Best-effort write to daemon (succeeds on re-hatch when a
+                // daemon is already running; silently fails on first hatch).
                 await APIKeyManager.setKey(trimmed, for: provider)
                 await MainActor.run { state.advance() }
             }

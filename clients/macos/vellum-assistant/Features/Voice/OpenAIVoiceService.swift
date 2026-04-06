@@ -377,7 +377,6 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         }
 
         ttsOnComplete = onComplete
-        startSpeakingAmplitudePolling()
 
         ttsTask = Task {
             // Fetch the key once at the start of the task.
@@ -388,6 +387,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                 self.ttsOnComplete = nil
                 return
             }
+            self.startSpeakingAmplitudePolling()
             do {
                 let audioData = try await fetchElevenLabsTTS(text: text)
                 guard !Task.isCancelled else { return }

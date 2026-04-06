@@ -381,10 +381,15 @@ struct HatchingStepView: View {
 
     private func startRemoteHatch() async {
         var providerApiKeys: [String: String] = [:]
-        if let envVar = VellumCli.providerEnvVars[state.selectedProvider],
-           let key = await APIKeyManager.getKey(for: state.selectedProvider),
-           !key.isEmpty {
-            providerApiKeys[envVar] = key
+        if let envVar = VellumCli.providerEnvVars[state.selectedProvider] {
+            // Prefer the in-memory key from onboarding (always available, even
+            // before a daemon exists). Fall back to the daemon for re-hatch
+            // flows where the key was persisted on a previous run.
+            let key = state.onboardingApiKey
+                ?? await APIKeyManager.getKey(for: state.selectedProvider)
+            if let key, !key.isEmpty {
+                providerApiKeys[envVar] = key
+            }
         }
 
         let config = VellumCli.RemoteHatchConfig(

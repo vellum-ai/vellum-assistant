@@ -88,6 +88,9 @@ final class OnboardingState {
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = "claude-opus-4-6"
     var selectedProvider: String = "anthropic"
+    /// Raw API key entered during onboarding, held in memory so the hatch
+    /// step can pass it to the CLI even before a daemon exists to store it.
+    var onboardingApiKey: String?
     /// When true, the onboarding flow was launched from the developer tab's
     /// "Hatch New Assistant" button. This prevents auto-completing when the user
     /// already has a managed assistant, forcing the hosting selector to appear so

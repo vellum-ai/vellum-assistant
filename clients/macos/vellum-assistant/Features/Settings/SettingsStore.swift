@@ -934,6 +934,7 @@ public final class SettingsStore: ObservableObject {
                 apiKeySaving = false
             }
             if result.success {
+                providerKeyCache[provider] = (true, Self.maskKey(trimmed))
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
                 refreshModelInfo()
