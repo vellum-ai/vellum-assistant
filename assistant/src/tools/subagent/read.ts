@@ -55,27 +55,32 @@ export async function executeSubagentRead(
   }
 
   // Extract assistant messages only - that's the subagent's output.
-  const output: string[] = [];
+  // Group text blocks by message so last_n slices messages, not blocks.
+  const messageTexts: string[] = [];
   for (const msg of dbMessages) {
     if (msg.role !== "assistant") continue;
+    const blocks: string[] = [];
     try {
       const content = JSON.parse(msg.content);
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === "text" && typeof block.text === "string") {
-            output.push(block.text);
+            blocks.push(block.text);
           }
         }
       } else if (typeof content === "string") {
-        output.push(content);
+        blocks.push(content);
       }
     } catch {
       // Content might be plain text.
-      output.push(msg.content);
+      blocks.push(msg.content);
+    }
+    if (blocks.length > 0) {
+      messageTexts.push(blocks.join("\n\n"));
     }
   }
 
-  if (output.length === 0) {
+  if (messageTexts.length === 0) {
     return { content: "Subagent produced no text output.", isError: false };
   }
 
@@ -83,7 +88,7 @@ export async function executeSubagentRead(
     typeof input.last_n === "number" && input.last_n > 0
       ? input.last_n
       : undefined;
-  const sliced = lastN ? output.slice(-lastN) : output;
+  const sliced = lastN ? messageTexts.slice(-lastN) : messageTexts;
 
   return {
     content: sliced.join("\n\n"),
