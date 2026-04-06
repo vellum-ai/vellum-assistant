@@ -273,6 +273,22 @@ extension MainWindowView {
                 makeSectionView(group: entry.group, conversations: entry.conversations)
             }
 
+            // Pagination fallback sentinel: when every non-pinned section fits
+            // within its collapse limit (maxCollapsed = 5), no "Show more" button
+            // appears, yet the server may have additional conversations beyond the
+            // initial page. Render an invisible trigger to load them automatically.
+            let maxCollapsed = 5
+            let allSectionsFit = groupEntries.allSatisfy { entry in
+                entry.group.id == ConversationGroup.pinned.id || entry.conversations.count <= maxCollapsed
+            }
+            if conversationManager.hasMoreConversations && allSectionsFit {
+                Color.clear
+                    .frame(height: 0)
+                    .onAppear {
+                        conversationManager.loadAllRemainingConversations()
+                    }
+            }
+
         }
     }
 
