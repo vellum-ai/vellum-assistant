@@ -26,14 +26,14 @@ public struct UsageClient: UsageClientProtocol {
 
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
         let result: (UsageTotalsResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "usage/totals?from=\(from)&to=\(to)", timeout: 10
+            path: "assistants/{assistantId}/usage/totals?from=\(from)&to=\(to)", timeout: 10
         )
         return result?.0
     }
 
     public func fetchUsageDaily(from: Int, to: Int, granularity: String = "daily") async -> UsageDailyResponse? {
         let result: (UsageDailyResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "usage/daily?from=\(from)&to=\(to)&granularity=\(granularity)", timeout: 10
+            path: "assistants/{assistantId}/usage/daily?from=\(from)&to=\(to)&granularity=\(granularity)", timeout: 10
         )
         return result?.0
     }
@@ -41,7 +41,7 @@ public struct UsageClient: UsageClientProtocol {
     public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
         let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
         let result: (UsageBreakdownResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10
+            path: "assistants/{assistantId}/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10
         )
         return result?.0
     }
