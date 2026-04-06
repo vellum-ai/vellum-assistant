@@ -314,12 +314,14 @@ export function createConversation(
 
   // group_id is NOT in the Drizzle schema (raw-query-only pattern).
   // Set via raw SQL after the INSERT succeeds.
-  if (groupId) {
+  // Always set group_id — default to "system:all" when none provided.
+  {
+    const effectiveGroupId = groupId ?? "system:all";
     for (let attempt = 0; ; attempt++) {
       try {
         rawRun(
           "UPDATE conversations SET group_id = ? WHERE id = ?",
-          groupId,
+          effectiveGroupId,
           id,
         );
         break;
@@ -469,7 +471,7 @@ export function forkConversation(params: {
     const fc = createConversation({
       title: forkTitle,
       conversationType: "standard",
-      groupId: parentGroupId ?? undefined,
+      groupId: parentGroupId ?? "system:all",
     });
 
     db.update(conversations)
@@ -1557,7 +1559,7 @@ export function batchSetDisplayOrders(
             safeGroupId,
           )
         ) {
-          safeGroupId = null;
+          safeGroupId = "system:all";
         }
         rawRun(
           "UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ? WHERE id = ?",
@@ -1587,7 +1589,7 @@ export function batchSetDisplayOrders(
                  WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
                  WHEN source IN ('heartbeat', 'task') THEN 'system:background'
                  WHEN conversation_type = 'background' AND COALESCE(source, '') != 'notification' THEN 'system:background'
-                 ELSE NULL
+                 ELSE 'system:all'
                END
              ELSE group_id END
              WHERE id = ?`,
