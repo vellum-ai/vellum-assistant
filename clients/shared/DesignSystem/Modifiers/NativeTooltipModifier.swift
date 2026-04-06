@@ -36,6 +36,36 @@ public extension View {
     }
 }
 
+// MARK: - VTooltip Coordinator (singleton — one tooltip at a time)
+
+/// Ensures only one `.vTooltip()` panel is visible at any time, matching
+/// native macOS tooltip behavior where the system never shows multiple
+/// tooltips simultaneously.
+private final class VTooltipCoordinator {
+    static let shared = VTooltipCoordinator()
+    private init() {}
+
+    /// The tracker view that currently owns the visible tooltip.
+    /// Weak so we don't prevent deallocation of removed views.
+    private(set) weak var activeTracker: VTooltipTrackerView?
+
+    /// Register a tracker as the active tooltip owner, dismissing any
+    /// previously active tooltip first.
+    func activate(_ tracker: VTooltipTrackerView) {
+        if let previous = activeTracker, previous !== tracker {
+            previous.dismissTooltip()
+        }
+        activeTracker = tracker
+    }
+
+    /// Clear the active tracker if it matches the given view.
+    func deactivate(_ tracker: VTooltipTrackerView) {
+        if activeTracker === tracker {
+            activeTracker = nil
+        }
+    }
+}
+
 // MARK: - Fast Tooltip (NSPanel — custom delay, escapes clipping)
 
 /// A floating tooltip that uses a non-activating `NSPanel` window.
@@ -45,6 +75,9 @@ public extension View {
 /// - Escapes parent `.clipShape()` boundaries (renders in its own window)
 /// - Never steals clicks or interferes with hover/button states
 /// - Works on any view: `VButton`, `Text`, `Image`, `HStack`, etc.
+/// - Only one tooltip is visible at a time (coordinator-managed singleton)
+/// - Respects view occlusion: won't show if the source view is covered
+///   by another view (e.g., settings panel over sidebar)
 ///
 /// Usage:
 /// ```swift
@@ -92,6 +125,10 @@ private struct VTooltipTracker: NSViewRepresentable {
 /// Returns `nil` from `hitTest` so all mouse events pass through to the
 /// view underneath. The tooltip panel uses `ignoresMouseEvents = true`
 /// so it never interferes with interaction.
+///
+/// Coordinates with `VTooltipCoordinator` so only one tooltip is visible
+/// at a time. Before showing, checks `isEffectivelyVisible` to suppress
+/// tooltips for views that are clipped or covered by another layer.
 private final class VTooltipTrackerView: NSView {
     var tooltipText: String = ""
     var tooltipEdge: Edge = .top
@@ -123,7 +160,8 @@ private final class VTooltipTrackerView: NSView {
         guard !Self.isScrolling else { return }
         showTimer?.invalidate()
         showTimer = Timer.scheduledTimer(withTimeInterval: showDelay, repeats: false) { [weak self] _ in
-            self?.showTooltip()
+            guard let self, self.isEffectivelyVisible else { return }
+            self.showTooltip()
         }
     }
 
@@ -212,6 +250,54 @@ private final class VTooltipTrackerView: NSView {
         }
     }
 
+    /// Dismiss the tooltip and cancel any pending show timer.
+    /// Called by `VTooltipCoordinator` when another tooltip activates.
+    fileprivate func dismissTooltip() {
+        showTimer?.invalidate()
+        showTimer = nil
+        hideTooltip()
+    }
+
+    /// Whether this view is actually visible and reachable by the user.
+    ///
+    /// Guards against two scenarios where `NSTrackingArea` fires
+    /// `mouseEntered` even though the view isn't user-visible:
+    ///
+    /// 1. **Clipped to zero size** — The sidebar is set to `width: 0` +
+    ///    `.clipped()` when the settings panel opens. `visibleRect` becomes
+    ///    empty because the clipping ancestor's bounds exclude us.
+    ///
+    /// 2. **Covered by an opaque layer** — An overlay (settings, modal)
+    ///    sits on top in the same window. We detect this via a window-level
+    ///    hit test: if the deepest interactive view under the mouse isn't
+    ///    a descendant of (or equal to) our superview, something else is
+    ///    blocking us.
+    ///
+    /// Both checks are O(depth-of-view-tree) and only run once per tooltip
+    /// show attempt (after the 0.2 s delay fires), not per mouse-move.
+    private var isEffectivelyVisible: Bool {
+        guard let window, let parent = superview else { return false }
+
+        // The view is clipped to nothing (zero-width sidebar, off-screen, etc.)
+        guard !visibleRect.isEmpty else { return false }
+
+        // Hit test at the current mouse location in window coordinates.
+        // Since VTooltipTrackerView returns nil from hitTest (pass-through),
+        // the result is the deepest *interactive* view at that point.
+        let mouseInWindow = window.mouseLocationOutsideOfEventStream
+        guard let contentView = window.contentView,
+              let hitView = contentView.hitTest(contentView.convert(mouseInWindow, from: nil)) else {
+            return false
+        }
+
+        // Check if the hit view lives inside our parent's subtree.
+        // The tracker is installed via `.overlay()`, so our parent is the
+        // SwiftUI hosting container for the target view. If an unrelated
+        // layer (settings panel, modal overlay) covers us, the hit view
+        // will be outside this subtree.
+        return hitView.isDescendant(of: parent)
+    }
+
     private func showTooltip() {
         guard panel == nil, let window else { return }
 
@@ -254,6 +340,7 @@ private final class VTooltipTrackerView: NSView {
             p.animator().alphaValue = 1
         }
         panel = p
+        VTooltipCoordinator.shared.activate(self)
     }
 
     private func hideTooltip() {
@@ -263,6 +350,7 @@ private final class VTooltipTrackerView: NSView {
         if let parentWindow = p.parent {
             parentWindow.removeChildWindow(p)
         }
+        VTooltipCoordinator.shared.deactivate(self)
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.08
             p.animator().alphaValue = 0
