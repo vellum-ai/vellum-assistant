@@ -556,9 +556,10 @@ final class VoiceInputManager {
     }
 
     /// Start recording immediately for instant UI feedback, then capture
-    /// frontmost app context. The engine starts asynchronously on its audio
-    /// queue while context capture runs on the main thread — both happen
-    /// concurrently, eliminating the sequential 600ms + 2s worst-case delay.
+    /// frontmost app context off the main actor. The engine starts
+    /// asynchronously on its audio queue while context capture runs on a
+    /// detached Task — both happen concurrently without blocking the main
+    /// actor, so key-up events are processed immediately.
     ///
     /// When Vellum itself is the frontmost app, skip context capture so the
     /// transcription falls through to the conversation path (auto-submit to chat)
@@ -569,7 +570,15 @@ final class VoiceInputManager {
         if currentMode == .dictation {
             let isVellumFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
             if !isVellumFrontmost {
-                currentDictationContext = DictationContextCapture.capture()
+                let generation = recordingGeneration
+                Task.detached { [weak self] in
+                    let context = DictationContextCapture.capture()
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        guard self.isRecording, self.recordingGeneration == generation else { return }
+                        self.currentDictationContext = context
+                    }
+                }
             }
         }
     }
@@ -811,7 +820,15 @@ final class VoiceInputManager {
         self.beginRecording()
         guard self.isRecording else { return }
         if self.currentMode == .dictation {
-            self.currentDictationContext = DictationContextCapture.capture()
+            let generation = self.recordingGeneration
+            Task.detached { [weak self] in
+                let context = DictationContextCapture.capture()
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    guard self.isRecording, self.recordingGeneration == generation else { return }
+                    self.currentDictationContext = context
+                }
+            }
         }
     }
 
