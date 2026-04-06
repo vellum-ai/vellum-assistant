@@ -247,6 +247,10 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **`@Observable` → `ObservableObject` bridge**: When an `@Observable` child is owned by an `ObservableObject` parent, use a recursive `withObservationTracking` loop to forward changes. See `MainWindowState.observeNavigationHistory()`.
 - **Dependency injection**: Pass dependencies through init parameters, not singletons. Session dependencies use protocols for testability.
 - **Previews**: Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface. If you encounter existing `#Preview` blocks, remove them. See `clients/AGENTS.md` § "Preview Policy & Component Gallery" for full rationale and guidance on when to reconsider this policy.
+- **Flatten modifier chains**: Never stack consecutive `.padding()` modifiers or duplicate `.background()` calls. Merge them into a single modifier to reduce `UnaryLayoutEngine` wrapper depth. Each modifier creates a layout engine wrapper that SwiftUI traverses recursively during alignment resolution — deep chains cause measurable layout stalls in `LazyVStack` / `LazyHStack` (see [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)).
+  - **Padding**: Use `.padding(EdgeInsets(top:leading:bottom:trailing:))` instead of separate `.padding(.horizontal, x).padding(.vertical, y)` or `.padding(.leading, a).padding(.trailing, b).padding(.vertical, c)`.
+  - **Background**: Use a single `.background { }` with a `ZStack` inside instead of chaining multiple `.background()` calls.
+  - **No-op backgrounds**: Never add invisible backgrounds like `.background(Capsule().fill(Color.clear))` — they create layout wrappers with zero visual effect.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
 - **Accessibility**: See `clients/AGENTS.md` § [Accessibility](../AGENTS.md#accessibility) for the full checklist (labels, hidden elements, custom interactions, AppKit panels). All rules there apply to macOS components.
 
