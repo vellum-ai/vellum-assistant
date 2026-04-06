@@ -1397,7 +1397,10 @@ public final class SettingsStore: ObservableObject {
             }
 
             for provider in APIKeyManager.allSyncableProviders {
-                if let key = await APIKeyManager.getKey(for: provider) {
+                // Read from local FileCredentialStorage (sync) — not the gateway.
+                // This method's purpose is to push locally-stored keys TO the daemon,
+                // so reading from the daemon would be circular and a no-op.
+                if let key = APIKeyManager.getKey(for: provider) {
                     syncKeyToDaemon(provider: provider, value: key)
                 }
             }
