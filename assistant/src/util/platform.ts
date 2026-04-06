@@ -95,8 +95,7 @@ export function getInterfacesDir(): string {
 
 /**
  * Returns the sounds directory (~/.vellum/workspace/data/sounds).
- * Custom sound files and sound configuration live here. Sound files
- * can be large, so this directory is excluded from diagnostic exports.
+ * Custom sound files and sound configuration live here.
  */
 export function getSoundsDir(): string {
   return join(getWorkspaceDir(), "data", "sounds");
