@@ -190,7 +190,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationRestorer.delegate = self
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
         if listStore.groups.isEmpty {
-            listStore.groups = [.pinned, .scheduled, .background]
+            listStore.groups = [.pinned, .scheduled, .background, .all]
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -939,7 +939,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         for i in updated.indices where updated[i].groupId == groupId {
             updated[i].isArchived = true
             updated[i].displayOrder = nil
-            updated[i].groupId = nil
+            updated[i].groupId = ConversationGroup.all.id
             if let cid = updated[i].conversationId {
                 newlyArchivedServerIds.insert(cid)
             }
