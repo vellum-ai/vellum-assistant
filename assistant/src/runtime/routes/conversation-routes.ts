@@ -39,6 +39,10 @@ import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type {
+  MacosTransportMetadata,
+  NonMacosTransportMetadata,
+} from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
@@ -1058,11 +1062,11 @@ export async function handleSendMessage(
           interfaceId: "macos" as const,
           hostHomeDir: body.hostHomeDir,
           hostUsername: body.hostUsername,
-        } satisfies import("../../daemon/message-types/conversations.js").MacosTransportMetadata)
+        } satisfies MacosTransportMetadata)
       : ({
           channelId: sourceChannel,
           interfaceId: sourceInterface,
-        } satisfies import("../../daemon/message-types/conversations.js").NonMacosTransportMetadata);
+        } satisfies NonMacosTransportMetadata);
 
   const conversation = await smDeps.getOrCreateConversation(
     mapping.conversationId,

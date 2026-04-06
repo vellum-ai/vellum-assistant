@@ -5,6 +5,7 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { ConversationCreateOptions } from "../daemon/handlers/shared.js";
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
@@ -152,7 +153,7 @@ export type MessageProcessor = (
 export interface SendMessageDeps {
   getOrCreateConversation: (
     conversationId: string,
-    options?: import("../daemon/handlers/shared.js").ConversationCreateOptions,
+    options?: ConversationCreateOptions,
   ) => Promise<Conversation>;
   assistantEventHub: AssistantEventHub;
   resolveAttachments: (attachmentIds: string[]) => Array<{
