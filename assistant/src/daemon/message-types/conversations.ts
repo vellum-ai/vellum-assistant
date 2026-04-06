@@ -309,6 +309,10 @@ export interface HistoryResponseSurface {
     data?: Record<string, unknown>;
   }>;
   display?: string;
+  /** True when the surface was completed (e.g. form submitted, action taken). */
+  completed?: boolean;
+  /** Human-readable summary shown in the completion chip. */
+  completionSummary?: string;
 }
 
 export interface HistoryResponse {

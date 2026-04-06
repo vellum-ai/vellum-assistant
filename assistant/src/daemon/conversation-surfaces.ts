@@ -27,10 +27,69 @@ import type {
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
+import {
+  getMessages,
+  updateMessageContent,
+} from "../memory/conversation-crud.js";
 
 const log = getLogger("conversation-surfaces");
 
 const MAX_UNDO_DEPTH = 10;
+
+/**
+ * Mark a `ui_surface` content block as completed in the database so that
+ * history reconstruction preserves the completion state.  Also updates
+ * in-memory messages when available.
+ */
+export function markSurfaceCompleted(
+  ctx: { conversationId: string; messages?: Array<{ content: unknown }> },
+  surfaceId: string,
+  summary: string,
+): void {
+  // Update in-memory messages when available so subsequent reads within
+  // this session see the change without waiting for DB.
+  if (ctx.messages) {
+    for (let i = ctx.messages.length - 1; i >= 0; i--) {
+      const msg = ctx.messages[i];
+      if (!Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "ui_surface" && b.surfaceId === surfaceId) {
+          b.completed = true;
+          b.completionSummary = summary;
+          break;
+        }
+      }
+    }
+  }
+
+  // Persist to DB.
+  try {
+    const rows = getMessages(ctx.conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      const parsed = JSON.parse(rows[r].content) as unknown[];
+      let found = false;
+      for (const pb of parsed) {
+        const rb = pb as Record<string, unknown>;
+        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
+          rb.completed = true;
+          rb.completionSummary = summary;
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        updateMessageContent(rows[r].id, JSON.stringify(parsed));
+        return;
+      }
+    }
+  } catch (err) {
+    log.warn(
+      { err, surfaceId },
+      "Failed to persist surface completion to DB",
+    );
+  }
+}
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
 
 /**
@@ -857,6 +916,7 @@ export function handleSurfaceAction(
       summary,
       submittedData: mergedData,
     });
+    markSurfaceCompleted(ctx, surfaceId, summary);
   }
 
   // Extract file attachments from action data so they are sent as proper
@@ -1442,6 +1502,7 @@ export async function surfaceProxyResolver(
         summary,
         submittedData: lastAction.data,
       });
+      markSurfaceCompleted(ctx, surfaceId, summary);
     } else {
       ctx.sendToClient({
         type: "ui_surface_dismiss",

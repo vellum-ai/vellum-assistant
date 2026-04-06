@@ -2070,14 +2070,20 @@ public struct HistoryResponseSurface: Codable, Sendable {
     public let data: [String: AnyCodable]
     public let actions: [HistoryResponseSurfaceAction]?
     public let display: String?
+    /// True when the surface was completed (e.g. form submitted).
+    public let completed: Bool?
+    /// Human-readable summary shown in the completion chip.
+    public let completionSummary: String?
 
-    public init(surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [HistoryResponseSurfaceAction]? = nil, display: String? = nil) {
+    public init(surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [HistoryResponseSurfaceAction]? = nil, display: String? = nil, completed: Bool? = nil, completionSummary: String? = nil) {
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
         self.title = title
         self.data = data
         self.actions = actions
         self.display = display
+        self.completed = completed
+        self.completionSummary = completionSummary
     }
 }
 
