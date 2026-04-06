@@ -141,7 +141,7 @@ struct MessageListView: View {
                     visibleRectHeight: geometry.visibleRect.height
                 )
             } action: { _, newState in
-                handleScrollGeometryUpdate(newState)
+                enqueueScrollGeometryUpdate(newState)
             }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .overlay(alignment: .bottom) {
