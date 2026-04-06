@@ -81,6 +81,7 @@ function getBroadcaster(): NotificationBroadcaster {
           targetGuardianPrincipalId: info.targetGuardianPrincipalId,
           groupId: info.groupId,
           source: info.source,
+          scheduleJobId: info.scheduleJobId,
         });
         log.info(
           {

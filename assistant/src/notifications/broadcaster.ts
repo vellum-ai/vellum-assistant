@@ -45,6 +45,8 @@ export interface ConversationCreatedInfo {
   groupId?: string;
   /** Semantic source from the signal producer (e.g. "schedule", "reminder"). */
   source?: string;
+  /** Schedule job identifier from the signal producer, used for sub-grouping in the sidebar. */
+  scheduleJobId?: string;
 }
 export type OnConversationCreatedFn = (info: ConversationCreatedInfo) => void;
 export interface BroadcastDecisionOptions {
@@ -244,6 +246,7 @@ export class NotificationBroadcaster {
           targetGuardianPrincipalId,
           groupId: signal.conversationMetadata?.groupId,
           source: signal.conversationMetadata?.source,
+          scheduleJobId: signal.conversationMetadata?.scheduleJobId,
         };
 
         // The per-dispatch onConversationCreated callback fires whenever a vellum

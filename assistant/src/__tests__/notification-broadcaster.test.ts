@@ -607,6 +607,7 @@ describe("notification broadcaster", () => {
     expect(createdCalls).toHaveLength(1);
     expect(createdCalls[0].groupId).toBe("system:scheduled");
     expect(createdCalls[0].source).toBe("schedule");
+    expect(createdCalls[0].scheduleJobId).toBe("job-abc-123");
     expect(createdCalls[0].sourceEventName).toBe("schedule.complete");
   });
 
@@ -624,6 +625,7 @@ describe("notification broadcaster", () => {
     expect(createdCalls).toHaveLength(1);
     expect(createdCalls[0].groupId).toBeUndefined();
     expect(createdCalls[0].source).toBeUndefined();
+    expect(createdCalls[0].scheduleJobId).toBeUndefined();
   });
 
   test("per-dispatch callback receives conversationMetadata fields", async () => {
@@ -647,5 +649,6 @@ describe("notification broadcaster", () => {
     expect(dispatchCalls).toHaveLength(1);
     expect(dispatchCalls[0].groupId).toBe("system:scheduled");
     expect(dispatchCalls[0].source).toBe("schedule");
+    expect(dispatchCalls[0].scheduleJobId).toBeUndefined();
   });
 });

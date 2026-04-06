@@ -39,6 +39,12 @@ export interface NotificationConversationCreated {
    * conversation is attributed correctly.
    */
   source?: string;
+  /**
+   * Schedule job identifier propagated from the signal producer.
+   * Clients use this to sub-group conversations under the same schedule
+   * execution in the sidebar.
+   */
+  scheduleJobId?: string;
 }
 
 /** Client ack sent after UNUserNotificationCenter.add() completes (or fails). */
