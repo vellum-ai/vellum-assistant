@@ -39,6 +39,10 @@ import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type {
+  MacosTransportMetadata,
+  NonMacosTransportMetadata,
+} from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
@@ -943,6 +947,8 @@ export async function handleSendMessage(
     conversationType?: string;
     automated?: boolean;
     bypassSecretCheck?: boolean;
+    hostHomeDir?: string;
+    hostUsername?: string;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -1046,8 +1052,25 @@ export async function handleSendMessage(
     conversationType,
   });
   const smDeps = deps.sendMessageDeps;
+
+  // Build transport metadata from the request so the daemon can inject
+  // host environment hints (home directory, username) into the LLM context.
+  const transport =
+    sourceInterface === "macos"
+      ? ({
+          channelId: sourceChannel,
+          interfaceId: "macos" as const,
+          hostHomeDir: body.hostHomeDir,
+          hostUsername: body.hostUsername,
+        } satisfies MacosTransportMetadata)
+      : ({
+          channelId: sourceChannel,
+          interfaceId: sourceInterface,
+        } satisfies NonMacosTransportMetadata);
+
   const conversation = await smDeps.getOrCreateConversation(
     mapping.conversationId,
+    { transport },
   );
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
