@@ -527,6 +527,10 @@ export class DaemonServer {
     }
   }
 
+  private broadcastConfigChanged(): void {
+    this.broadcast({ type: "config_changed" });
+  }
+
   private broadcastSoundsConfigUpdated(): void {
     this.broadcast({ type: "sounds_config_updated" });
   }
@@ -727,6 +731,7 @@ export class DaemonServer {
       () => this.broadcastIdentityChanged(),
       () => this.broadcastSoundsConfigUpdated(),
       () => this.broadcastAvatarUpdated(),
+      () => this.broadcastConfigChanged(),
     );
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));

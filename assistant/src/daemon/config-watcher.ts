@@ -118,6 +118,7 @@ export class ConfigWatcher {
     onIdentityChanged?: () => void,
     onSoundsConfigChanged?: () => void,
     onAvatarChanged?: () => void,
+    onConfigChanged?: () => void,
   ): void {
     const workspaceDir = getWorkspaceDir();
 
@@ -130,6 +131,7 @@ export class ConfigWatcher {
           const changed = await this.refreshConfigFromSources();
           if (changed) {
             onConversationEvict();
+            onConfigChanged?.();
             const newConfig = getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
