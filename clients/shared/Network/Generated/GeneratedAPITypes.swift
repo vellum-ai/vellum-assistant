@@ -3588,12 +3588,18 @@ public struct ConversationTransportMetadata: Codable, Sendable {
     public let hints: [String]?
     /// Optional concise UX brief for this channel.
     public let uxBrief: String?
+    /// Home directory of the host macOS user. Only populated when interfaceId == "macos".
+    public let hostHomeDir: String?
+    /// Username of the host macOS user. Only populated when interfaceId == "macos".
+    public let hostUsername: String?
 
-    public init(channelId: String, interfaceId: String? = nil, hints: [String]? = nil, uxBrief: String? = nil) {
+    public init(channelId: String, interfaceId: String? = nil, hints: [String]? = nil, uxBrief: String? = nil, hostHomeDir: String? = nil, hostUsername: String? = nil) {
         self.channelId = channelId
         self.interfaceId = interfaceId
         self.hints = hints
         self.uxBrief = uxBrief
+        self.hostHomeDir = hostHomeDir
+        self.hostUsername = hostUsername
     }
 }
 
