@@ -1043,12 +1043,12 @@ final class VellumCli {
                 proc.standardError = stderrPipe
 
                 var env = VellumCli.makeBaseEnvironment()
-                // Fall back to credential storage for provider API keys
-                // when they're not in the process environment (e.g. app
-                // launched from Finder, not a terminal with env vars set).
+                // Fall back to the daemon's secret store for provider API
+                // keys when they're not in the process environment (e.g.
+                // app launched from Finder, not a terminal with env vars).
                 for (provider, envVar) in VellumCli.providerEnvVars {
                     if env[envVar] == nil,
-                       let storedKey = APIKeyManager.getKey(for: provider),
+                       let storedKey = await APIKeyManager.getKey(for: provider),
                        !storedKey.isEmpty {
                         env[envVar] = storedKey
                     }

@@ -209,10 +209,12 @@ final class OnboardingState {
         UserDefaults.standard.set(false, forKey: "tosAccepted")
 
         // Clear API key for whichever provider was selected during onboarding
-        if selectedProvider != "anthropic" {
-            APIKeyManager.deleteKey(for: selectedProvider)
+        Task {
+            if selectedProvider != "anthropic" {
+                await APIKeyManager.deleteKey(for: selectedProvider)
+            }
+            await APIKeyManager.deleteKey(for: "anthropic")
         }
-        APIKeyManager.deleteKey(for: "anthropic")
 
         selectedProvider = "anthropic"
         selectedModel = "claude-opus-4-6"

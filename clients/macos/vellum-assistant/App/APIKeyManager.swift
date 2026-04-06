@@ -1,5 +1,6 @@
 import Foundation
 import VellumAssistantShared
+import os
 
 extension Notification.Name {
     static let apiKeyManagerDidChange = Notification.Name("APIKeyManager.didChange")
@@ -21,13 +22,15 @@ extension Notification.Name {
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }
 
-/// Manages API keys using file-based CredentialStorage. The daemon owns the
-/// canonical encrypted store; the app syncs
-/// keys to the daemon via HTTP on save/clear/reconnect.
+private let apiKeyLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "APIKeyManager")
+
+/// Manages API keys via the daemon's gateway secrets API.
+///
+/// The daemon owns the canonical encrypted store. All reads, writes, and
+/// deletes go through its HTTP secrets endpoints (`POST /v1/secrets`,
+/// `POST /v1/secrets/read`, `DELETE /v1/secrets`) with `type: "api_key"`.
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
-
-    private static let storage: CredentialStorage = FileCredentialStorage()
 
     /// Provider identifiers whose API keys are synced to the daemon as
     /// `type: "api_key"`.
@@ -41,73 +44,105 @@ enum APIKeyManager {
         "perplexity",
     ]
 
-    /// Returns true if any known provider has a key configured.
-    static func hasAnyKey() -> Bool {
+    /// Returns true if any known provider has a key configured in the daemon.
+    static func hasAnyKey() async -> Bool {
         for provider in allSyncableProviders {
-            if getKey(for: provider) != nil { return true }
+            if await getKey(for: provider) != nil { return true }
         }
-        if getKey(for: "elevenlabs") != nil { return true }
+        if await getKey(for: "elevenlabs") != nil { return true }
         return false
     }
 
     // MARK: - Migration from UserDefaults
 
-    /// One-time migration: copies API keys from UserDefaults to credential
-    /// storage for existing users, then removes them from UserDefaults.
-    /// Safe to call multiple times — skips providers that already have a
-    /// value in credential storage.
-    static func migrateFromUserDefaults() {
+    /// One-time migration: copies API keys from UserDefaults to the daemon's
+    /// secret store for existing users, then removes them from UserDefaults.
+    /// Safe to call multiple times — skips providers whose UserDefaults key
+    /// has already been cleared.
+    static func migrateFromUserDefaults() async {
         for provider in allSyncableProviders {
-            migrateProviderFromUserDefaults(provider)
+            await migrateProviderFromUserDefaults(provider)
         }
         // ElevenLabs is stored locally only (not synced to daemon)
-        migrateProviderFromUserDefaults("elevenlabs")
+        await migrateProviderFromUserDefaults("elevenlabs")
     }
 
-    /// Migrate a single provider's key from UserDefaults to credential storage.
-    private static func migrateProviderFromUserDefaults(_ provider: String) {
+    /// Migrate a single provider's key from UserDefaults to the daemon.
+    private static func migrateProviderFromUserDefaults(_ provider: String) async {
         let udKey = udPrefix + provider
-        if let udValue = UserDefaults.standard.string(forKey: udKey),
-           !udValue.isEmpty,
-           storage.get(account: udKey) == nil {
-            // Only remove from UserDefaults if the credential store
-            // write succeeds. A transient credential storage failure should
-            // not destroy the user's only copy of the key.
-            guard storage.set(account: udKey, value: udValue) else { return }
+        guard let udValue = UserDefaults.standard.string(forKey: udKey),
+              !udValue.isEmpty else {
+            // No value in UserDefaults — nothing to migrate. Clean up the key
+            // in case it's an empty string.
+            UserDefaults.standard.removeObject(forKey: udKey)
+            return
         }
-        // Safe to remove: either the key was successfully migrated,
-        // the credential store already had a value, or UserDefaults
-        // had no value to preserve.
-        UserDefaults.standard.removeObject(forKey: udKey)
+        // Write to daemon. Only remove from UserDefaults if the write succeeds.
+        let stored = await setKey(udValue, for: provider)
+        if stored {
+            UserDefaults.standard.removeObject(forKey: udKey)
+        }
     }
 
     // MARK: - Generic provider access
 
-    static func getKey(for provider: String) -> String? {
-        storage.get(account: udPrefix + provider)
+    /// Read an API key from the daemon's secret store.
+    static func getKey(for provider: String) async -> String? {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider, "reveal": true]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
+            )
+            guard response.isSuccess,
+                  let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let found = json["found"] as? Bool, found,
+                  let value = json["value"] as? String, !value.isEmpty else {
+                return nil
+            }
+            return value
+        } catch {
+            apiKeyLog.error("getKey(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
-    static func setKey(_ key: String, for provider: String) {
-        _ = storage.set(account: udPrefix + provider, value: key)
-        notifyKeyDidChange()
-    }
-
-    static func deleteKey(for provider: String) {
-        _ = storage.delete(account: udPrefix + provider)
-        notifyKeyDidChange()
-    }
-
-    /// Push an API key to the daemon's encrypted store via the gateway.
-    /// Waits up to 15s for the actor token if it's not yet available (e.g.
-    /// during initial onboarding before JWT bootstrap completes). Failures
-    /// are silently ignored — the reconnect sync will retry.
-    static func syncKeyToDaemon(provider: String, value: String) {
-        Task {
-            guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
-            let body: [String: Any] = ["type": "api_key", "name": provider, "value": value]
-            _ = try? await GatewayHTTPClient.post(
+    /// Write an API key to the daemon's secret store.
+    @discardableResult
+    static func setKey(_ key: String, for provider: String) async -> Bool {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider, "value": key]
+            let response = try await GatewayHTTPClient.post(
                 path: "assistants/{assistantId}/secrets", json: body, timeout: 5
             )
+            if response.isSuccess {
+                notifyKeyDidChange()
+                return true
+            }
+            apiKeyLog.warning("setKey(\(provider, privacy: .public)) returned status \(response.statusCode)")
+            return false
+        } catch {
+            apiKeyLog.error("setKey(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Delete an API key from the daemon's secret store.
+    @discardableResult
+    static func deleteKey(for provider: String) async -> Bool {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider]
+            let response = try await GatewayHTTPClient.delete(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+            )
+            if response.isSuccess || response.statusCode == 404 {
+                notifyKeyDidChange()
+                return true
+            }
+            apiKeyLog.warning("deleteKey(\(provider, privacy: .public)) returned status \(response.statusCode)")
+            return false
+        } catch {
+            apiKeyLog.error("deleteKey(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 

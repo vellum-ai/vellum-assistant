@@ -98,8 +98,8 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
     // MARK: - API Keys
 
-    var elevenLabsKey: String? { APIKeyManager.getKey(for: "elevenlabs") }
-    var hasElevenLabsKey: Bool { elevenLabsKey != nil }
+    func elevenLabsKey() async -> String? { await APIKeyManager.getKey(for: "elevenlabs") }
+    func hasElevenLabsKey() async -> Bool { await elevenLabsKey() != nil }
 
     // MARK: - Speech Recognition Authorization
 
@@ -370,8 +370,8 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         let text = TTSRedactor.redact(raw)
         ttsTextBuffer = ""
 
-        guard !text.isEmpty, elevenLabsKey != nil else {
-            log.info("TTS: no text or no ElevenLabs key, completing immediately")
+        guard !text.isEmpty else {
+            log.info("TTS: no text, completing immediately")
             onComplete()
             return
         }
@@ -380,6 +380,14 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         startSpeakingAmplitudePolling()
 
         ttsTask = Task {
+            // Fetch the key once at the start of the task.
+            guard await elevenLabsKey() != nil else {
+                log.info("TTS: no ElevenLabs key, completing immediately")
+                self.finishSpeaking()
+                self.ttsOnComplete?()
+                self.ttsOnComplete = nil
+                return
+            }
             do {
                 let audioData = try await fetchElevenLabsTTS(text: text)
                 guard !Task.isCancelled else { return }
@@ -483,7 +491,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
     /// Call ElevenLabs REST API to convert text to speech. Returns MP3 audio data.
     private func fetchElevenLabsTTS(text: String) async throws -> Data {
-        guard let elevenLabsKey else {
+        guard let elevenLabsKey = await elevenLabsKey() else {
             throw VoiceServiceError.noAPIKey
         }
 

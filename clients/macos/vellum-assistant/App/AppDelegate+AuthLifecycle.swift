@@ -15,7 +15,7 @@ extension AppDelegate {
             await authManager.checkSession()
             SentryDeviceInfo.updateUserTag(authManager.currentUser?.id)
             let isAuthed = authManager.isAuthenticated
-            let hasKey = APIKeyManager.hasAnyKey()
+            let hasKey = await APIKeyManager.hasAnyKey()
             log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
             if isAuthed || hasKey {
                 // Verify there is at least one assistant from the current
@@ -588,34 +588,11 @@ extension AppDelegate {
         }
     }
 
-    /// Push all locally-stored API keys to the assistant via GatewayHTTPClient.
-    /// Awaitable so callers (e.g. the first-launch bootstrap) can ensure
-    /// LLM provider keys are registered before sending the first message.
+    /// No-op — API keys are now stored directly in the daemon's secret store.
+    /// Kept as a stub so callers don't need to be restructured; the daemon
+    /// already has the keys and no local-to-remote push is needed.
     func syncApiKeysViaGateway() async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-              !assistantId.isEmpty else {
-            log.warning("syncApiKeysViaGateway: no connected assistant, skipping key sync")
-            return
-        }
-
-        // For local assistants the actor token may still be bootstrapping
-        // (e.g. after performSwitchAssistant deletes the old token). Wait
-        // for it before calling GatewayHTTPClient which reads it synchronously.
-        let isManaged = LockfileAssistant.loadByName(assistantId)?.isManaged ?? false
-        if !isManaged {
-            guard let _ = await ActorTokenManager.waitForToken(timeout: 30) else {
-                log.warning("syncApiKeysViaGateway: no actor token after 30s, skipping key sync")
-                return
-            }
-        }
-
-        for name in APIKeyManager.allSyncableProviders {
-            guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
-            let body: [String: Any] = ["type": "api_key", "name": name, "value": key]
-            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", json: body, timeout: 5)
-        }
-
-        log.info("syncApiKeysViaGateway: pushed API keys for \(assistantId, privacy: .public)")
+        log.info("syncApiKeysViaGateway: no-op — keys are managed by daemon")
     }
 
     @objc func performRetire() {

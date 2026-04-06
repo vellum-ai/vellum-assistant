@@ -124,8 +124,8 @@ struct APIKeyEntryStepView: View {
         .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
-        .onAppear {
-            if let existingKey = APIKeyManager.getKey(for: state.selectedProvider) {
+        .task {
+            if let existingKey = await APIKeyManager.getKey(for: state.selectedProvider) {
                 apiKey = existingKey
                 hasExistingKey = true
             }
@@ -135,24 +135,24 @@ struct APIKeyEntryStepView: View {
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
             }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 800_000_000)
-                guard !Task.isCancelled else { return }
-                keyFieldFocused = true
-            }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else { return }
+            keyFieldFocused = true
         }
         .onChange(of: state.selectedProvider) { _, newProvider in
             if let entry = providerCatalog.first(where: { $0.id == newProvider }) {
                 state.selectedModel = entry.defaultModel
             }
-            if let existingKey = APIKeyManager.getKey(for: newProvider) {
-                apiKey = existingKey
-                hasExistingKey = true
-                isEditing = false
-            } else {
-                apiKey = ""
-                hasExistingKey = false
-                isEditing = false
+            Task {
+                if let existingKey = await APIKeyManager.getKey(for: newProvider) {
+                    apiKey = existingKey
+                    hasExistingKey = true
+                    isEditing = false
+                } else {
+                    apiKey = ""
+                    hasExistingKey = false
+                    isEditing = false
+                }
             }
         }
     }
@@ -237,7 +237,9 @@ struct APIKeyEntryStepView: View {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !providerRequiresKey || !trimmed.isEmpty else { return }
         if providerRequiresKey {
-            APIKeyManager.setKey(trimmed, for: state.selectedProvider)
+            Task {
+                await APIKeyManager.setKey(trimmed, for: state.selectedProvider)
+            }
         }
         state.advance()
     }

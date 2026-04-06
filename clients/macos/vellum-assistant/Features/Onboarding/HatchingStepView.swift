@@ -350,7 +350,7 @@ struct HatchingStepView: View {
         if isCustomHardware {
             startPairing()
         } else {
-            startRemoteHatch()
+            Task { await startRemoteHatch() }
         }
     }
 
@@ -379,10 +379,10 @@ struct HatchingStepView: View {
         return configValues
     }
 
-    private func startRemoteHatch() {
+    private func startRemoteHatch() async {
         var providerApiKeys: [String: String] = [:]
         if let envVar = VellumCli.providerEnvVars[state.selectedProvider],
-           let key = APIKeyManager.getKey(for: state.selectedProvider),
+           let key = await APIKeyManager.getKey(for: state.selectedProvider),
            !key.isEmpty {
             providerApiKeys[envVar] = key
         }

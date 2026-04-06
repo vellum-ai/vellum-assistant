@@ -193,6 +193,13 @@ public final class SettingsStore: ObservableObject {
     /// Values: "not_configured", "incomplete", "ready".
     @Published var channelSetupStatus: [String: String] = [:]
 
+    // MARK: - Provider Key Cache
+
+    /// Cached key presence and masked values for arbitrary providers.
+    /// Populated by `refreshAPIKeyState()` so sync callers (SwiftUI views)
+    /// can query key state without awaiting the gateway.
+    var providerKeyCache: [String: (hasKey: Bool, masked: String)] = [:]
+
     // MARK: - Provider Routing Sources
 
     /// Per-provider routing source from the daemon debug endpoint.
@@ -744,19 +751,16 @@ public final class SettingsStore: ObservableObject {
         apiKeySaveError = nil
         apiKeySaving = true
 
-        // Persist locally first so the key survives reconnect/retry flows
-        // even if the daemon is unreachable or validation is inconclusive.
-        APIKeyManager.setKey(trimmed, for: "anthropic")
+        // Optimistic UI update
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
 
         // Remove any stale deletion tombstone eagerly — the user's intent is to
-        // save a new key, so any prior clear is superseded. Deferring this until
-        // after async validation creates a race: if the daemon reconnects before
-        // validation completes, replayDeletionTombstones would DELETE the new key.
+        // save a new key, so any prior clear is superseded.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: "anthropic")
 
         Task {
+            // Write to daemon (the authoritative store) with validation
             let result = await syncKeyToDaemonWithValidation(provider: "anthropic", value: trimmed)
             apiKeySaving = false
             if result.success {
@@ -768,38 +772,29 @@ public final class SettingsStore: ObservableObject {
                 if !result.isTransient {
                     // Definitive validation failure (e.g. 401/422) — revert
                     // optimistic local state so an invalid key doesn't persist.
-                    APIKeyManager.deleteKey(for: "anthropic")
+                    await APIKeyManager.deleteKey(for: "anthropic")
                     hasKey = false
                     maskedKey = ""
-                    // Restore the deletion tombstone if one existed before we
-                    // removed it, so pending offline clears are not lost.
                     if hadTombstone {
                         addDeletionTombstone(type: "api_key", name: "anthropic")
                     }
                 }
-                // For transient errors (daemon unreachable), keep the local
-                // key so it survives for retry on reconnect.
             }
         }
     }
 
     func clearAPIKey() {
-        APIKeyManager.deleteKey(for: "anthropic")
-        addDeletionTombstone(type: "api_key", name: "anthropic")
-        deleteKeyFromDaemon(provider: "anthropic")
         hasKey = false
         maskedKey = ""
         scheduleRoutingSourceRefresh()
         refreshModelInfo()
+        Task { await APIKeyManager.deleteKey(for: "anthropic") }
     }
 
     func saveBraveKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         braveKeySaveError = nil
-        APIKeyManager.setKey(trimmed, for: "brave")
-        // Remove any stale deletion tombstone eagerly — the user's intent is to
-        // save a new key, so any prior clear is superseded.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: "brave")
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
@@ -810,11 +805,9 @@ public final class SettingsStore: ObservableObject {
             } else if let error = result.error {
                 braveKeySaveError = error
                 if !result.isTransient {
-                    APIKeyManager.deleteKey(for: "brave")
+                    await APIKeyManager.deleteKey(for: "brave")
                     hasBraveKey = false
                     maskedBraveKey = ""
-                    // Restore the deletion tombstone if one existed before we
-                    // removed it, so pending offline clears are not lost.
                     if hadTombstone {
                         addDeletionTombstone(type: "api_key", name: "brave")
                     }
@@ -824,21 +817,16 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearBraveKey() {
-        APIKeyManager.deleteKey(for: "brave")
-        addDeletionTombstone(type: "api_key", name: "brave")
-        deleteKeyFromDaemon(provider: "brave")
         hasBraveKey = false
         maskedBraveKey = ""
         scheduleRoutingSourceRefresh()
+        Task { await APIKeyManager.deleteKey(for: "brave") }
     }
 
     func savePerplexityKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         perplexityKeySaveError = nil
-        APIKeyManager.setKey(trimmed, for: "perplexity")
-        // Remove any stale deletion tombstone eagerly — the user's intent is to
-        // save a new key, so any prior clear is superseded.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: "perplexity")
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
@@ -849,11 +837,9 @@ public final class SettingsStore: ObservableObject {
             } else if let error = result.error {
                 perplexityKeySaveError = error
                 if !result.isTransient {
-                    APIKeyManager.deleteKey(for: "perplexity")
+                    await APIKeyManager.deleteKey(for: "perplexity")
                     hasPerplexityKey = false
                     maskedPerplexityKey = ""
-                    // Restore the deletion tombstone if one existed before we
-                    // removed it, so pending offline clears are not lost.
                     if hadTombstone {
                         addDeletionTombstone(type: "api_key", name: "perplexity")
                     }
@@ -863,12 +849,10 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearPerplexityKey() {
-        APIKeyManager.deleteKey(for: "perplexity")
-        addDeletionTombstone(type: "api_key", name: "perplexity")
-        deleteKeyFromDaemon(provider: "perplexity")
         hasPerplexityKey = false
         maskedPerplexityKey = ""
         scheduleRoutingSourceRefresh()
+        Task { await APIKeyManager.deleteKey(for: "perplexity") }
     }
 
     func saveImageGenKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
@@ -876,9 +860,6 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         imageGenKeySaveError = nil
         imageGenKeySaving = true
-        APIKeyManager.setKey(trimmed, for: "gemini")
-        // Remove any stale deletion tombstone eagerly — the user's intent is to
-        // save a new key, so any prior clear is superseded.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: "gemini")
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
@@ -891,11 +872,9 @@ public final class SettingsStore: ObservableObject {
             } else if let error = result.error {
                 imageGenKeySaveError = error
                 if !result.isTransient {
-                    APIKeyManager.deleteKey(for: "gemini")
+                    await APIKeyManager.deleteKey(for: "gemini")
                     hasImageGenKey = false
                     maskedImageGenKey = ""
-                    // Restore the deletion tombstone if one existed before we
-                    // removed it, so pending offline clears are not lost.
                     if hadTombstone {
                         addDeletionTombstone(type: "api_key", name: "gemini")
                     }
@@ -905,33 +884,32 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearImageGenKey() {
-        APIKeyManager.deleteKey(for: "gemini")
-        addDeletionTombstone(type: "api_key", name: "gemini")
-        deleteKeyFromDaemon(provider: "gemini")
         hasImageGenKey = false
         maskedImageGenKey = ""
         scheduleRoutingSourceRefresh()
+        Task { await APIKeyManager.deleteKey(for: "gemini") }
     }
 
     func saveElevenLabsKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "elevenlabs")
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
+        Task { await APIKeyManager.setKey(trimmed, for: "elevenlabs") }
     }
 
     func clearElevenLabsKey() {
-        APIKeyManager.deleteKey(for: "elevenlabs")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
+        Task { await APIKeyManager.deleteKey(for: "elevenlabs") }
     }
 
     func clearAPIKeyForProvider(_ provider: String) {
-        APIKeyManager.deleteKey(for: provider)
-        addDeletionTombstone(type: "api_key", name: provider)
-        deleteKeyFromDaemon(provider: provider)
-        refreshAPIKeyState()
+        providerKeyCache[provider] = (false, "")
+        Task {
+            await APIKeyManager.deleteKey(for: provider)
+            await refreshAPIKeyStateAsync()
+        }
         scheduleRoutingSourceRefresh()
         refreshModelInfo()
     }
@@ -948,13 +926,6 @@ public final class SettingsStore: ObservableObject {
             apiKeySaving = true
         }
 
-        // Persist locally first
-        APIKeyManager.setKey(trimmed, for: provider)
-
-        // Remove any stale deletion tombstone eagerly — the user's intent is to
-        // save a new key, so any prior clear is superseded. Deferring this until
-        // after async validation creates a race: if the daemon reconnects before
-        // validation completes, replayDeletionTombstones would DELETE the new key.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: provider)
 
         Task {
@@ -973,10 +944,7 @@ public final class SettingsStore: ObservableObject {
                     apiKeySaveError = error
                 }
                 if !result.isTransient {
-                    // Definitive validation failure — revert optimistic local state
-                    APIKeyManager.deleteKey(for: provider)
-                    // Restore the deletion tombstone if one existed before we
-                    // removed it, so pending offline clears are not lost.
+                    await APIKeyManager.deleteKey(for: provider)
                     if hadTombstone {
                         addDeletionTombstone(type: "api_key", name: provider)
                     }
@@ -993,35 +961,45 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func refreshAPIKeyState() {
-        let anthropicKey = APIKeyManager.getKey(for: "anthropic")
+    /// Async implementation that fetches key state from the gateway.
+    private func refreshAPIKeyStateAsync() async {
+        let anthropicKey = await APIKeyManager.getKey(for: "anthropic")
         hasKey = anthropicKey != nil
         maskedKey = Self.maskKey(anthropicKey)
+        providerKeyCache["anthropic"] = (anthropicKey != nil, Self.maskKey(anthropicKey))
 
-        let braveKey = APIKeyManager.getKey(for: "brave")
+        let braveKey = await APIKeyManager.getKey(for: "brave")
         hasBraveKey = braveKey != nil
         maskedBraveKey = Self.maskKey(braveKey)
+        providerKeyCache["brave"] = (braveKey != nil, Self.maskKey(braveKey))
 
-        let perplexityKey = APIKeyManager.getKey(for: "perplexity")
+        let perplexityKey = await APIKeyManager.getKey(for: "perplexity")
         hasPerplexityKey = perplexityKey != nil
         maskedPerplexityKey = Self.maskKey(perplexityKey)
+        providerKeyCache["perplexity"] = (perplexityKey != nil, Self.maskKey(perplexityKey))
 
-        let imageGenKey = APIKeyManager.getKey(for: "gemini")
+        let imageGenKey = await APIKeyManager.getKey(for: "gemini")
         hasImageGenKey = imageGenKey != nil
         maskedImageGenKey = Self.maskKey(imageGenKey)
+        providerKeyCache["gemini"] = (imageGenKey != nil, Self.maskKey(imageGenKey))
 
-        let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
+        let elevenLabsKey = await APIKeyManager.getKey(for: "elevenlabs")
         hasElevenLabsKey = elevenLabsKey != nil
         maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
+        providerKeyCache["elevenlabs"] = (elevenLabsKey != nil, Self.maskKey(elevenLabsKey))
+    }
 
+    /// Trigger an async key-state refresh from a sync context.
+    func refreshAPIKeyState() {
+        Task { await refreshAPIKeyStateAsync() }
     }
 
     func hasKeyForProvider(_ provider: String) -> Bool {
-        APIKeyManager.getKey(for: provider) != nil
+        providerKeyCache[provider]?.hasKey ?? false
     }
 
     func maskedKeyForProvider(_ provider: String) -> String {
-        Self.maskKey(APIKeyManager.getKey(for: provider))
+        providerKeyCache[provider]?.masked ?? ""
     }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".
@@ -1352,26 +1330,13 @@ public final class SettingsStore: ObservableObject {
     /// deletion tombstones so user-initiated clears are eventually consistent.
     /// Waits for the JWT to become available before syncing, because reconnect
     /// can fire before async credential bootstrap completes.
+    /// No-op — API keys are now stored directly in the daemon's secret store.
+    /// The daemon already has the keys; no local-to-remote push is needed.
+    /// Kept as a stub so callers (e.g. reconnect logic) don't need restructuring.
     private func syncAllKeysToDaemon() {
-        Task {
-            // In managed mode, auth is handled by SessionTokenManager — no actor token needed.
-            // In local mode, wait for the JWT to be populated; on reconnect the async
-            // credential bootstrap may still be in-flight.
-            let connectedId = cachedAssistantId
-            let isManagedMode = connectedId
-                .flatMap { LockfileAssistant.loadByName($0) }?.isManaged ?? false
-            if !isManagedMode {
-                guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
-            }
-
-            for provider in APIKeyManager.allSyncableProviders {
-                if let key = APIKeyManager.getKey(for: provider) {
-                    syncKeyToDaemon(provider: provider, value: key)
-                }
-            }
-
-            replayDeletionTombstones()
-        }
+        // Replay any pending deletion tombstones so user-initiated clears
+        // that happened while offline are eventually consistent.
+        replayDeletionTombstones()
     }
 
     func fetchSlackChannelConfig() {
