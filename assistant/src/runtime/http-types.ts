@@ -150,7 +150,10 @@ export type MessageProcessor = (
  * Hub publishing wires outbound events to the SSE stream.
  */
 export interface SendMessageDeps {
-  getOrCreateConversation: (conversationId: string) => Promise<Conversation>;
+  getOrCreateConversation: (
+    conversationId: string,
+    options?: import("../daemon/handlers/shared.js").ConversationCreateOptions,
+  ) => Promise<Conversation>;
   assistantEventHub: AssistantEventHub;
   resolveAttachments: (attachmentIds: string[]) => Array<{
     id: string;
