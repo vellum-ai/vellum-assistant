@@ -870,8 +870,8 @@ export async function runDaemon(): Promise<void> {
       guardianFollowUpConversationGenerator:
         createGuardianFollowUpConversationGenerator(),
       sendMessageDeps: {
-        getOrCreateConversation: (conversationId) =>
-          server.getConversationForMessages(conversationId),
+        getOrCreateConversation: (conversationId, options) =>
+          server.getConversationForMessages(conversationId, options),
         assistantEventHub,
         resolveAttachments: (attachmentIds) => {
           const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {

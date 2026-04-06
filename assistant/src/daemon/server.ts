@@ -1448,8 +1448,9 @@ export class DaemonServer {
    */
   async getConversationForMessages(
     conversationId: string,
+    options?: ConversationCreateOptions,
   ): Promise<Conversation> {
-    return this.getOrCreateConversation(conversationId);
+    return this.getOrCreateConversation(conversationId, options);
   }
 
   /**
