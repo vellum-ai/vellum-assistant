@@ -4,6 +4,7 @@ import {
   type InterfaceId,
   parseChannelId,
   parseInterfaceId,
+  supportsHostProxy,
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -301,7 +302,7 @@ export async function handleConversationCreate(
     // Only create the host bash proxy for desktop client interfaces that can
     // execute commands on the user's machine. Set before updateClient so
     // updateClient's call to hostBashProxy.updateSender targets the new proxy.
-    if (transportInterface === "macos") {
+    if (supportsHostProxy(transportInterface)) {
       const proxy = new HostBashProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
