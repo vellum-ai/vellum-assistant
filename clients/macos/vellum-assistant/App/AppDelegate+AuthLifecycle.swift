@@ -173,6 +173,7 @@ extension AppDelegate {
                 // Clean up the sentinel so a failed restart doesn't leave
                 // a file that could bypass the guard on the next launch.
                 try? FileManager.default.removeItem(at: sentinelPath)
+                self?.isRestarting = false
                 return
             }
             Task { @MainActor [weak self] in
