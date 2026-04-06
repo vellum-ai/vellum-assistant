@@ -11,14 +11,7 @@ struct ThinkingBlockView: View {
     let content: String
     let isStreaming: Bool
 
-    @State private var isExpanded: Bool
-    @State private var userHasToggled: Bool = false
-
-    init(content: String, isStreaming: Bool) {
-        self.content = content
-        self.isStreaming = isStreaming
-        _isExpanded = State(initialValue: isStreaming)
-    }
+    @State private var isExpanded: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -52,20 +45,6 @@ struct ThinkingBlockView: View {
                 #endif
             }
         }
-        .onChange(of: isStreaming) { _, newValue in
-            Task { @MainActor in
-                if newValue {
-                    userHasToggled = false
-                    withAnimation(VAnimation.fast) {
-                        isExpanded = true
-                    }
-                } else if !userHasToggled {
-                    withAnimation(VAnimation.fast) {
-                        isExpanded = false
-                    }
-                }
-            }
-        }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
@@ -74,7 +53,6 @@ struct ThinkingBlockView: View {
 
     private var headerRow: some View {
         Button(action: {
-            userHasToggled = true
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
             }
