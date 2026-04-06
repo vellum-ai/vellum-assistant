@@ -818,17 +818,17 @@
 
     "@prisma/instrumentation/@opentelemetry/instrumentation": ["@opentelemetry/instrumentation@0.207.0", "", { "dependencies": { "@opentelemetry/api-logs": "0.207.0", "import-in-the-middle": "^2.0.0", "require-in-the-middle": "^8.0.0" }, "peerDependencies": { "@opentelemetry/api": "^1.3.0" } }, "sha512-y6eeli9+TLKnznrR8AZlQMSJT7wILpXH+6EYq5Vf/4Ao+huI7EedxQHwRgVUOMLFbe7VFDvHJrX9/f4lcwnJsA=="],
 
-    "@vellumai/assistant/@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", {}],
+    "@vellumai/assistant/@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", { "bundled": true }],
 
-    "@vellumai/assistant/@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", {}],
+    "@vellumai/assistant/@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", { "bundled": true }],
 
-    "@vellumai/assistant/@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", {}],
+    "@vellumai/assistant/@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", { "bundled": true }],
 
-    "@vellumai/credential-executor/@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", {}],
+    "@vellumai/credential-executor/@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", { "bundled": true }],
 
-    "@vellumai/credential-executor/@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", {}],
+    "@vellumai/credential-executor/@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", { "bundled": true }],
 
-    "@vellumai/credential-executor/@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", {}],
+    "@vellumai/credential-executor/@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", { "bundled": true }],
 
     "@vellumai/vellum-gateway/uuid": ["uuid@13.0.0", "", { "bin": { "uuid": "dist-node/bin/uuid" } }, "sha512-XQegIaBTVUjSHliKqcnFqYypAd4S+WCYt5NIeRs6w/UAry7z8Y9j5ZwRRL4kzq9U3sD6v+85er9FvkEaBpji2w=="],
 
