@@ -509,15 +509,15 @@ export async function POST(request: Request): Promise<Response> {
 
 **Calling routes from the app frontend:**
 
-Apps call custom routes via `fetch()` using the `/x/` prefix. The assistant's local server handles the routing.
+Apps call custom routes via `fetch()` using the `/v1/x/` prefix. The assistant's runtime HTTP server requires the `/v1/` namespace for all API requests.
 
 ```typescript
 // In a TSX component or HTML script
-const res = await fetch("/x/essays");
+const res = await fetch("/v1/x/essays");
 const essays = await res.json();
 
 // Create a new essay
-await fetch("/x/essays", {
+await fetch("/v1/x/essays", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ title: "My Essay", content: "Draft..." }),
@@ -532,7 +532,7 @@ await fetch("/x/essays", {
 - Handlers get a 30-second timeout per request
 - Files are hot-reloaded on change (mtime-based cache)
 - Use `.ts` (preferred) or `.js` extensions
-- Route resolution: `routes/foo.ts` → `/x/foo`, `routes/bar/index.ts` → `/x/bar`
+- Route resolution: `routes/foo.ts` → `/v1/x/foo`, `routes/bar/index.ts` → `/v1/x/bar`
 
 #### Client-side state management
 
