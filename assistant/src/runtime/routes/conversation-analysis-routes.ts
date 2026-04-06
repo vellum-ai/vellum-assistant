@@ -130,6 +130,7 @@ If you identify insights worth remembering for future conversations, use your me
         const analysisConversation =
           await deps.sendMessageDeps.getOrCreateConversation(newConv.id);
         analysisConversation.setTrustContext(resolveLocalTrustContext("vellum"));
+        await analysisConversation.ensureActorScopedHistory();
 
         // j. Build onEvent using inline hub publisher
         const onEvent = (msg: ServerMessage) => {
