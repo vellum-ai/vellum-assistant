@@ -38,7 +38,7 @@ mock.module("../fetch.js", () => ({
 // ---------------------------------------------------------------------------
 const { RemoteFeatureFlagSync } =
   await import("../remote-feature-flag-sync.js");
-const { readRemoteFeatureFlags, clearRemoteFeatureFlagStoreCache } =
+const { readRemoteFeatureFlags, refreshRemoteFeatureFlagStoreCache } =
   await import("../feature-flag-remote-store.js");
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ beforeEach(() => {
   delete process.env.PLATFORM_ASSISTANT_ID;
   delete process.env.PLATFORM_INTERNAL_API_KEY;
   mkdirSync(protectedDir, { recursive: true });
-  clearRemoteFeatureFlagStoreCache();
+  refreshRemoteFeatureFlagStoreCache();
   fetchMock = mock(async () => new Response());
 });
 
@@ -107,7 +107,7 @@ afterEach(() => {
   } catch {
     // best effort cleanup
   }
-  clearRemoteFeatureFlagStoreCache();
+  refreshRemoteFeatureFlagStoreCache();
 });
 
 // ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ describe("RemoteFeatureFlagSync", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    clearRemoteFeatureFlagStoreCache();
+    refreshRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
     expect(cached).toEqual({ browser: true });
   });
@@ -247,7 +247,7 @@ describe("RemoteFeatureFlagSync", () => {
     await sync1.start();
     sync1.stop();
 
-    clearRemoteFeatureFlagStoreCache();
+    refreshRemoteFeatureFlagStoreCache();
     expect(readRemoteFeatureFlags()).toEqual({
       browser: true,
     });
@@ -265,7 +265,7 @@ describe("RemoteFeatureFlagSync", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    clearRemoteFeatureFlagStoreCache();
+    refreshRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
     expect(cached).toEqual({ browser: true });
   });
@@ -284,7 +284,7 @@ describe("RemoteFeatureFlagSync", () => {
     await sync1.start();
     sync1.stop();
 
-    clearRemoteFeatureFlagStoreCache();
+    refreshRemoteFeatureFlagStoreCache();
     expect(readRemoteFeatureFlags()).toEqual({
       browser: true,
     });
@@ -303,7 +303,7 @@ describe("RemoteFeatureFlagSync", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    clearRemoteFeatureFlagStoreCache();
+    refreshRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
     expect(cached).toEqual({ browser: true });
   });
@@ -367,7 +367,7 @@ describe("RemoteFeatureFlagSync", () => {
     await sync.start();
     sync.stop();
 
-    clearRemoteFeatureFlagStoreCache();
+    refreshRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
     expect(cached).toEqual({
       browser: true,
@@ -389,7 +389,7 @@ describe("RemoteFeatureFlagSync", () => {
     await sync1.start();
     sync1.stop();
 
-    clearRemoteFeatureFlagStoreCache();
+    refreshRemoteFeatureFlagStoreCache();
     expect(readRemoteFeatureFlags()).toEqual({
       browser: true,
     });
@@ -403,7 +403,7 @@ describe("RemoteFeatureFlagSync", () => {
     await sync2.start();
     sync2.stop();
 
-    clearRemoteFeatureFlagStoreCache();
+    refreshRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
     expect(cached).toEqual({ browser: true });
   });
@@ -453,7 +453,7 @@ describe("RemoteFeatureFlagSync", () => {
     await sync.start();
     sync.stop();
 
-    clearRemoteFeatureFlagStoreCache();
+    refreshRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
     // conversation-starters (GA, remote false) should be absent
     expect(cached["conversation-starters"]).toBeUndefined();

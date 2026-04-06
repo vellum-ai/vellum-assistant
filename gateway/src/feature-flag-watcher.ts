@@ -1,6 +1,6 @@
 /**
- * Watches feature-flags.json for external modifications and invalidates the
- * module-level cache in feature-flag-store.ts.
+ * Watches feature flag files for external modifications and invalidates /
+ * refreshes the corresponding module-level caches.
  *
  * Uses the same fs.watch() + debounce pattern as CredentialWatcher and
  * ConfigFileWatcher. Watches the parent directory (not the file itself)
@@ -16,7 +16,7 @@ import {
   getFeatureFlagStorePath,
 } from "./feature-flag-store.js";
 import {
-  clearRemoteFeatureFlagStoreCache,
+  refreshRemoteFeatureFlagStoreCache,
   getRemoteFeatureFlagStorePath,
 } from "./feature-flag-remote-store.js";
 import { getLogger } from "./logger.js";
@@ -30,6 +30,8 @@ export class FeatureFlagWatcher {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private localFlagFilename: string;
   private remoteFlagFilename: string;
+  /** Accumulates which files changed during the debounce window. */
+  private pendingFilenames = new Set<string>();
 
   constructor() {
     this.localFlagFilename = basename(getFeatureFlagStorePath());
@@ -75,19 +77,30 @@ export class FeatureFlagWatcher {
   }
 
   private scheduleInvalidation(filename?: string): void {
+    if (filename) {
+      this.pendingFilenames.add(filename);
+    }
+
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      if (!filename || filename === this.localFlagFilename) {
+
+      const filenames = this.pendingFilenames;
+      this.pendingFilenames = new Set<string>();
+
+      // When filename is unknown (null from fs.watch), invalidate both.
+      const invalidateAll = filenames.size === 0;
+
+      if (invalidateAll || filenames.has(this.localFlagFilename)) {
         clearFeatureFlagStoreCache();
       }
-      if (!filename || filename === this.remoteFlagFilename) {
-        clearRemoteFeatureFlagStoreCache();
+      if (invalidateAll || filenames.has(this.remoteFlagFilename)) {
+        refreshRemoteFeatureFlagStoreCache();
       }
       log.info(
-        { filename },
+        { filenames: [...filenames] },
         "Feature flag cache invalidated due to file change",
       );
     }, DEBOUNCE_MS);
