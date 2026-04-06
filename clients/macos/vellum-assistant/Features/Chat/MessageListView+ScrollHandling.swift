@@ -41,9 +41,28 @@ extension MessageListView {
         let isUserScrollPhase = scrollState.scrollPhase == .interacting
             || scrollState.scrollPhase == .decelerating
         if isUserScrollPhase && isScrollingUp && isScrollable {
-            scrollState.scrollRestoreTask?.cancel()
-            scrollState.scrollRestoreTask = nil
-            scrollState.handleUserScrollUp()
+            // During .decelerating, check if the momentum is stale (pre-CTA).
+            // When the user scrolls up and taps "Scroll to latest" while
+            // momentum is active, the CTA fires requestPinToBottom and sets
+            // mode to .followingBottom. But the residual upward momentum
+            // generates geometry updates with isScrollingUp=true in
+            // .decelerating phase — the very next update would fire
+            // handleUserScrollUp(), undoing the CTA's mode transition and
+            // creating a "scroll lock" effect.
+            //
+            // Only suppress during .decelerating (residual momentum from
+            // before the CTA tap). .interacting (new deliberate trackpad
+            // touch) is always respected — the user is explicitly starting
+            // a new scroll gesture, overriding the CTA.
+            if scrollState.scrollPhase == .decelerating,
+               let pinTime = scrollState.lastUserInitiatedPinTime,
+               Date().timeIntervalSince(pinTime) < 0.5 {
+                // Stale momentum from before CTA tap — ignore.
+            } else {
+                scrollState.scrollRestoreTask?.cancel()
+                scrollState.scrollRestoreTask = nil
+                scrollState.handleUserScrollUp()
+            }
         }
 
         // --- Phase guard (shared by bottom detection, auto-follow, recovery) ---

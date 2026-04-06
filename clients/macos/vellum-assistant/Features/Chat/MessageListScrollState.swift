@@ -248,6 +248,14 @@ final class MessageListScrollState {
     /// viewport from overshooting into unmaterialized estimated space.
     @ObservationIgnored var lastRecoveryAttempt: Date = .distantPast
 
+    /// Timestamp of the last user-initiated CTA tap. Used to suppress
+    /// `.decelerating` scroll-up detection for 500ms after the tap.
+    /// Without this cooldown, residual upward momentum from the user's
+    /// pre-CTA scroll fires `handleUserScrollUp()` on the very next
+    /// geometry update, undoing the CTA's mode transition to
+    /// `.followingBottom` and creating a "scroll lock" effect.
+    @ObservationIgnored var lastUserInitiatedPinTime: Date?
+
     // MARK: - Layout Cache Fields
 
     /// Memoization state intentionally lives outside the observed object so
@@ -534,6 +542,9 @@ final class MessageListScrollState {
             // and the recovery deadline has passed.
             bottomAnchorAppeared = false
             recoveryDeadline = Date().addingTimeInterval(2.0)
+            // Record the CTA tap time so scroll-up detection ignores
+            // residual momentum for 500ms (see handleScrollGeometryUpdate).
+            lastUserInitiatedPinTime = Date()
             executeScrollToBottom(animated: animated, userInitiated: true)
             return true
         }
@@ -726,6 +737,7 @@ final class MessageListScrollState {
         // hasn't materialized yet. Until it does, isAtBottom is unreliable.
         bottomAnchorAppeared = false
         lastRecoveryAttempt = .distantPast
+        lastUserInitiatedPinTime = nil
         // Mark that a recovery window is active. Recovery fires
         // unconditionally until bottomAnchorAppeared becomes true.
         recoveryDeadline = Date().addingTimeInterval(2.0)
