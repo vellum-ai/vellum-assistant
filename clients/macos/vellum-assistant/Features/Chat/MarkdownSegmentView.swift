@@ -298,6 +298,7 @@ struct MarkdownSegmentView: View, Equatable {
     @MainActor func resolveSelectableRunMeasurement(
         _ runSegments: [MarkdownSegment]
     ) -> (NSAttributedString, CGSize) {
+        let chatFonts = VFont.resolvedChatMarkdownFontSet()
         var hasher = Hasher()
         for segment in runSegments { hasher.combine(segment) }
         hasher.combine(textColor.description)
@@ -307,6 +308,10 @@ struct MarkdownSegmentView: View, Equatable {
         let effectiveMaxWidth = maxContentWidth ?? VSpacing.chatBubbleMaxWidth
         hasher.combine(effectiveMaxWidth)
         hasher.combine(VFont.typographyGeneration)
+        for entry in chatFonts.diagnosticPostScriptNames.sorted(by: { $0.key < $1.key }) {
+            hasher.combine(entry.key)
+            hasher.combine(entry.value)
+        }
         let key = hasher.finalize()
 
         let keyNS = key as NSNumber
@@ -314,7 +319,6 @@ struct MarkdownSegmentView: View, Equatable {
             return (cached.nsAttributedString, cached.size)
         }
 
-        let chatFonts = VFont.resolvedChatMarkdownFontSet()
         os_signpost(.begin, log: PerfSignposts.log, name: "selectableRunMeasure")
         let attributed = buildCombinedAttributedString(from: runSegments)
         let (nsAttributed, hasUnresolvedEmphasis) = Self.convertToNSAttributedString(
@@ -572,6 +576,21 @@ struct MarkdownSegmentView: View, Equatable {
             )
         }
 
+        func fontHasExpectedTraits(_ font: NSFont, isEmphasized: Bool, isBold: Bool) -> Bool {
+            let matrix = CTFontGetMatrix(font as CTFont)
+            let hasOblique = abs(matrix.b) > 0.0001 || abs(matrix.c) > 0.0001
+            let hasBoldWeight: Bool
+            if isBold,
+               let variations = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber],
+               let weightValue = variations[0x77676874 as NSNumber] {
+                hasBoldWeight = abs(CGFloat(truncating: weightValue) - 700) < 0.5
+            } else {
+                hasBoldWeight = !isBold
+            }
+
+            return (!isEmphasized || hasOblique) && hasBoldWeight
+        }
+
         for emphRun in emphasisRuns {
             guard !emphRun.intent.contains(.code) else { continue }
             // Skip runs that already have an explicit font (e.g. headings)
@@ -605,6 +624,22 @@ struct MarkdownSegmentView: View, Equatable {
                     continue
                 }
                 ns.addAttribute(.font, value: fontSet.bold, range: nsRange)
+            }
+        }
+
+        for emphRun in emphasisRuns where !emphRun.intent.contains(.code) && emphRun.utf16Length > 0 {
+            let nsRange = NSRange(location: emphRun.utf16Offset, length: emphRun.utf16Length)
+            guard nsRange.location + nsRange.length <= ns.length else { continue }
+            guard let actualFont = ns.attribute(.font, at: nsRange.location, effectiveRange: nil) as? NSFont else {
+                unresolvedEmphasisCount += 1
+                logUnresolvedFontsIfNeeded()
+                continue
+            }
+            let isEmph = emphRun.intent.contains(.emphasized)
+            let isBold = emphRun.intent.contains(.stronglyEmphasized)
+            if !fontHasExpectedTraits(actualFont, isEmphasized: isEmph, isBold: isBold) {
+                unresolvedEmphasisCount += 1
+                logUnresolvedFontsIfNeeded()
             }
         }
 
