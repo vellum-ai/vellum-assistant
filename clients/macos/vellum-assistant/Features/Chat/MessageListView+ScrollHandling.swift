@@ -132,10 +132,19 @@ extension MessageListView {
         // Independent of the content-height auto-follow. Catches cases
         // the height-change check misses:
         //   • LazyVStack estimate converging in <0.5pt increments
-        //   • scrollToEdge(.bottom) targeting a stale estimated bottom
+        //   • ID-based scroll landing short due to height estimation
+        //     errors (long conversations with variable content like images)
         //   • Race conditions during rapid conversation switching
         //   • "False at-bottom" — viewport at the estimated bottom but
         //     actual content is above (LazyVStack blank space)
+        //
+        // Uses edge-based scroll instead of ID-based (requestPinToBottom).
+        // ID-based ScrollPosition(id: lastMessageId, .bottom) depends on
+        // accurate height estimates for all preceding views — in long
+        // conversations with images, estimates are unreliable and the
+        // scroll lands short. Edge-based scrollToEdge(.bottom) targets
+        // the absolute content bottom, converging as LazyVStack
+        // materializes more views with each attempt.
         //
         // Recovery fires unconditionally until the bottom anchor view
         // has appeared (meaning LazyVStack materialized to the actual
@@ -156,7 +165,7 @@ extension MessageListView {
            effectiveContentHeight > newState.visibleRectHeight,
            (!nowAtBottom || isInRecoveryWindow) {
             // Throttle recovery to at most once per 100ms. Without this,
-            // geometry updates at ~60fps fire scrollTo(id:) every ~16ms.
+            // geometry updates at ~60fps fire scrollToEdge every ~16ms.
             // LazyVStack needs time between scroll attempts to materialize
             // views at the new position — rapid-fire scrolls keep yanking
             // the viewport before materialization completes, causing the
@@ -166,7 +175,7 @@ extension MessageListView {
             let now = Date()
             if now.timeIntervalSince(scrollState.lastRecoveryAttempt) >= 0.1 {
                 scrollState.lastRecoveryAttempt = now
-                scrollState.requestPinToBottom()
+                scrollState.scrollToEdge?(.bottom)
             }
         }
 
