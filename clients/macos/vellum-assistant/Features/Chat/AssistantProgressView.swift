@@ -1025,7 +1025,7 @@ private struct StepDetailRow: View {
         copyText: String,
         copyLabel: String
     ) -> some View {
-        let lineCount = VStringUtils.countLines(in: copyText)
+        let lineCount = copyText.components(separatedBy: "\n").count
         let isLong = lineCount > 500 || copyText.count > 50_000
 
         ZStack(alignment: .topTrailing) {
