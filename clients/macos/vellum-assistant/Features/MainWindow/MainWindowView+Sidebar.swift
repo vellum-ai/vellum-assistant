@@ -351,8 +351,15 @@ extension MainWindowView {
         // rendered section. When every section fits within its collapse
         // limit (no "Show more" buttons visible) but the server has more
         // conversations, auto-trigger loading so users can reach them.
+        // Gate on ALL sections — not just ungrouped — to avoid eager
+        // full-load in grouped-heavy workspaces.
         if conversations.count <= 5,
-           conversationManager.hasMoreConversations {
+           conversationManager.hasMoreConversations,
+           !conversationManager.groupedConversations.contains(where: { entry in
+               guard let group = entry.group else { return false }
+               let limit = group.id == ConversationGroup.pinned.id ? Int.max : 5
+               return entry.conversations.count > limit
+           }) {
             Color.clear
                 .frame(height: 0)
                 .onAppear {
