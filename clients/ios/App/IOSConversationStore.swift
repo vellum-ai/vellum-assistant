@@ -47,8 +47,9 @@ struct IOSConversation: Identifiable {
     /// indicators should only reflect content requiring user attention — system-generated
     /// messages from automated threads do not qualify.
     ///
-    /// Uses `source` (immutable) rather than `groupId` (mutable on pin/move) so that
-    /// suppression is stable regardless of group changes.
+    /// Schedule detection uses `scheduleJobId` / title prefix (via `isScheduleConversation`).
+    /// Background detection uses `source` (immutable) rather than `groupId` (mutable on
+    /// pin/move) so suppression is stable regardless of group changes.
     var shouldSuppressUnreadIndicator: Bool {
         isScheduleConversation || source == "heartbeat" || source == "task"
     }

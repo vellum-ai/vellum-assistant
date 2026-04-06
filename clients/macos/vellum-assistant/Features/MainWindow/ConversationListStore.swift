@@ -805,6 +805,7 @@ final class ConversationListStore {
         var snapshot = conversations
         for id in conversationIds {
             if let idx = snapshot.firstIndex(where: { $0.id == id }) {
+                guard !snapshot[idx].shouldSuppressUnreadIndicator else { continue }
                 snapshot[idx].hasUnseenLatestAssistantMessage = true
                 if let prior = priorStates[id] {
                     snapshot[idx].lastSeenAssistantMessageAt = prior.lastSeenAssistantMessageAt
