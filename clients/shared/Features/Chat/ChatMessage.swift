@@ -1163,11 +1163,11 @@ public struct ToolCallData: Identifiable, Equatable {
     /// which is O(n) on string length and runs on the main thread. Pre-truncating
     /// to this limit keeps the measurement cheap while remaining visually lossless
     /// (no single-line label would ever display more than ~200 characters).
-    static let singleLineDisplayLimit = 200
+    public static let singleLineDisplayLimit = 200
 
     /// Pre-truncate a string so CoreText's line-truncation measurement stays
     /// cheap. Use this for any value that feeds a `.lineLimit(1)` `Text` view.
-    static func displaySafe(_ s: String) -> String {
+    public static func displaySafe(_ s: String) -> String {
         guard s.count > singleLineDisplayLimit else { return s }
         return String(s.prefix(singleLineDisplayLimit - 1)) + "…"
     }
