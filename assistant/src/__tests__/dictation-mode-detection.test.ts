@@ -106,4 +106,85 @@ describe("detectDictationMode", () => {
     );
     expect(action).toBe("action");
   });
+
+  // --- Edge cases (extended coverage) ---
+
+  test("empty transcription → dictation (no verb match)", () => {
+    const mode = detectDictationMode(
+      makeRequest({
+        transcription: "",
+        context: { selectedText: undefined, cursorInTextField: false },
+      }),
+    );
+    expect(mode).toBe("dictation");
+  });
+
+  test("uppercase action verb is lowercased before matching", () => {
+    const mode = detectDictationMode(
+      makeRequest({
+        transcription: "Send a message to Bob",
+        context: { selectedText: undefined, cursorInTextField: false },
+      }),
+    );
+    expect(mode).toBe("action");
+  });
+
+  test("whitespace-only selected text does NOT trigger command mode", () => {
+    const mode = detectDictationMode(
+      makeRequest({
+        transcription: "hello world",
+        context: { selectedText: "   ", cursorInTextField: true },
+      }),
+    );
+    // "   ".trim().length === 0, so selectedText check should fail
+    // Falls through to dictation (cursor in text field)
+    expect(mode).toBe("dictation");
+  });
+
+  test("action verb as second word → dictation (only first word checked)", () => {
+    const mode = detectDictationMode(
+      makeRequest({
+        transcription: "please send this email",
+        context: { selectedText: undefined, cursorInTextField: false },
+      }),
+    );
+    // "please" is the first word, not an action verb
+    expect(mode).toBe("dictation");
+  });
+
+  test("cursor in text field, no selected text, non-action verb → dictation", () => {
+    const mode = detectDictationMode(
+      makeRequest({
+        transcription: "the meeting is at three pm",
+        context: { selectedText: undefined, cursorInTextField: true },
+      }),
+    );
+    expect(mode).toBe("dictation");
+  });
+
+  test("action verbs: slack, email, search, schedule all return action", () => {
+    for (const verb of ["slack", "email", "search", "schedule"]) {
+      const mode = detectDictationMode(
+        makeRequest({
+          transcription: `${verb} something`,
+          context: { selectedText: undefined, cursorInTextField: false },
+        }),
+      );
+      expect(mode).toBe("action");
+    }
+  });
+
+  test("selected text overrides action verb → command", () => {
+    const mode = detectDictationMode(
+      makeRequest({
+        transcription: "send this to marketing",
+        context: {
+          selectedText: "Q4 revenue report draft",
+          cursorInTextField: true,
+        },
+      }),
+    );
+    // "send" is an action verb, but selectedText takes priority
+    expect(mode).toBe("command");
+  });
 });
