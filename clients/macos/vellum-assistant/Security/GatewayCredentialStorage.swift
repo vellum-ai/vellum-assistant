@@ -30,27 +30,29 @@ struct GatewayCredentialStorage: CredentialStorage {
     /// API `(type, name)` pair.
     ///
     /// Account name conventions used by callers:
-    /// - `vellum_provider_{provider}`  → type: `api_key`, name: `{provider}`
+    /// - `vellum_provider_{provider}`  → type: `api_key`,    name: `{provider}`
+    /// - `vellum_assistant_credential_{id}` → type: `credential`, name: `vellum:assistant_api_key`
+    /// - `vellum_platform_id_{…}`      → type: `credential`, name: `vellum:platform_assistant_id`
     ///
-    /// The following account types are **not** routed through the gateway
-    /// because the daemon's secrets API uses a single key per `(service, field)`
-    /// and cannot represent the per-instance scoping these accounts need:
-    /// - `vellum_assistant_credential_{id}` — scoped by runtime assistant ID
-    /// - `vellum_platform_id_{runtimeId}_{orgId}_{userId}` — scoped by runtime/org/user
+    /// The daemon IS the instance, so there is only one assistant API key and
+    /// one platform assistant ID per daemon — the client-side per-account
+    /// scoping (e.g. `{runtimeId}_{orgId}_{userId}`) is a local caching
+    /// concern and doesn't need to be represented in the gateway key.
     ///
-    /// Returns `nil` for unrecognised or unroutable account names (the gateway
-    /// won't be consulted and the file store handles them directly).
+    /// Returns `nil` for unrecognised account names (the gateway won't be
+    /// consulted and the file store handles them directly).
     private static func gatewayMapping(for account: String) -> (type: String, name: String)? {
         if account.hasPrefix("vellum_provider_") {
             let provider = String(account.dropFirst("vellum_provider_".count))
             guard !provider.isEmpty else { return nil }
             return ("api_key", provider)
         }
-        // vellum_assistant_credential_{id} and vellum_platform_id_{…} are
-        // NOT routed through the gateway — the daemon's secrets API stores
-        // credentials under a single (service, field) key and can't represent
-        // the per-instance scoping these accounts require.  They remain
-        // file-only until the gateway supports scoped credential keys.
+        if account.hasPrefix("vellum_assistant_credential_") {
+            return ("credential", "vellum:assistant_api_key")
+        }
+        if account.hasPrefix("vellum_platform_id_") {
+            return ("credential", "vellum:platform_assistant_id")
+        }
         return nil
     }
 
