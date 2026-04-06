@@ -167,23 +167,36 @@ extension MessageListView {
         //
         // Recovery fires unconditionally until the bottom anchor view
         // has appeared (meaning LazyVStack materialized to the actual
-        // bottom and isAtBottom is reliable). A 2-second hard limit
-        // prevents infinite recovery if the anchor never materializes.
+        // bottom and isAtBottom is reliable) OR the 2-second deadline
+        // expires (whichever comes first). The deadline is critical
+        // because multiple paths reset bottomAnchorAppeared = false
+        // while the anchor may already be visible in the hierarchy
+        // (CTA taps, sends, resizes) — since onAppear only fires on
+        // hierarchy transitions, the flag won't be re-set and recovery
+        // would fire indefinitely without the time cutoff.
         // Only fires in initialLoad/followingBottom.
         let isInRecoveryWindow: Bool
         if scrollState.bottomAnchorAppeared {
             // Anchor materialized — isAtBottom is reliable now.
             isInRecoveryWindow = false
-        } else if scrollState.recoveryDeadline != nil {
-            // Bottom anchor hasn't materialized yet — keep recovering
-            // regardless of the time-based deadline. Each recovery
-            // attempt scrolls closer to the actual bottom, materializing
-            // more views. Eventually the bottom anchor materializes and
+        } else if let deadline = scrollState.recoveryDeadline,
+                  Date() < deadline {
+            // Bottom anchor hasn't materialized yet and we're within
+            // the 2-second hard time limit. Each recovery attempt
+            // scrolls closer to the actual bottom, materializing more
+            // views. Eventually the bottom anchor materializes and
             // recovery ends. The 100ms throttle limits this to at most
             // 10 attempts/second. Recovery naturally stops via:
             //   • bottomAnchorAppeared (anchor materializes)
             //   • User scroll-up (mode → freeBrowsing)
             //   • Conversation switch (reset())
+            //   • 2-second deadline expiry (hard limit)
+            // The deadline is critical because multiple paths reset
+            // bottomAnchorAppeared = false while the anchor may already
+            // be visible (CTA taps, sends, resizes). Since onAppear
+            // only fires on hierarchy transitions, the anchor won't
+            // re-fire if already materialized — without the deadline,
+            // recovery would fire at 10Hz indefinitely.
             isInRecoveryWindow = true
         } else {
             isInRecoveryWindow = false

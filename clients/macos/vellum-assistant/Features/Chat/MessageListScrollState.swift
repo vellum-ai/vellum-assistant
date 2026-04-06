@@ -225,11 +225,12 @@ final class MessageListScrollState {
     /// Marker that a recovery window is active. When non-nil AND
     /// `bottomAnchorAppeared` is false, persistent bottom-recovery fires
     /// unconditionally (ignoring `isAtBottom`) until the bottom anchor
-    /// materializes. Set by `reset()`, `handleAppear`,
+    /// materializes OR the deadline expires (whichever comes first).
+    /// Set by `reset()`, `handleAppear`,
     /// `requestPinToBottom(userInitiated:)`, and resize/send handlers.
-    /// The time value is kept for diagnostics but is no longer used as
-    /// a hard cutoff — the primary termination signal is
-    /// `bottomAnchorAppeared`.
+    /// The 2-second hard cutoff prevents infinite recovery when
+    /// `bottomAnchorAppeared` is reset to false while the anchor is
+    /// already visible in the hierarchy (since `onAppear` won't re-fire).
     @ObservationIgnored var recoveryDeadline: Date?
 
     /// Whether the "scroll-bottom-anchor" view has appeared in the view
@@ -823,6 +824,21 @@ final class MessageListScrollState {
         mode = .initialLoad
         activeStabilizationCount = 0
         lastPaginationCompletedAt = .distantPast
+        // Reset recovery/scroll fields to match reset(). Without this,
+        // if the same @State-owned scrollState is reused after onDisappear
+        // (e.g. parent conditional toggle for the same conversation),
+        // stale values could block phaseAllowsAutoFollow or cause
+        // infinite recovery.
+        scrollPhase = .idle
+        recoveryDeadline = nil
+        bottomAnchorAppeared = false
+        lastRecoveryAttempt = .distantPast
+        lastUserInitiatedPinTime = nil
+        lastMessageId = nil
+        isAtBottom = false
+        lastContentOffsetY = 0
+        scrollContentHeight = 0
+        scrollContainerHeight = 0
         syncUIImmediately()
     }
 }
