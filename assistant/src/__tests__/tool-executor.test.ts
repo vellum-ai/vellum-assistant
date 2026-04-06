@@ -1949,7 +1949,6 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
         _allowlistOptions: AllowlistOption[],
         _scopeOptions: ScopeOption[],
         _diff: unknown,
-        _sandboxed: unknown,
         _conversationId: unknown,
         _executionTarget: unknown,
         persistentDecisionsAllowed: boolean | undefined,

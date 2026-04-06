@@ -71,7 +71,6 @@ export async function approveHostAttachmentRead(
     await generateAllowlistOptions(toolName, input),
     generateScopeOptions(workingDir, toolName),
     undefined,
-    undefined,
     conversationId,
     "host",
   );
