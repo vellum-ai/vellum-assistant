@@ -406,6 +406,8 @@ final class MessageListScrollState {
     @ObservationIgnored var highlightDismissTask: Task<Void, Never>?
     @ObservationIgnored var scrollIndicatorRestoreTask: Task<Void, Never>?
     @ObservationIgnored var anchorTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored var pendingScrollGeometrySnapshot: ScrollGeometrySnapshot?
+    @ObservationIgnored var scrollGeometryDispatchTask: Task<Void, Never>?
 
     /// The message ID awaiting a deferred scroll-to-top. Set when entering
     /// `pushToTop` mode and consumed by `TailSpacerView.onAppear` (fresh
@@ -498,7 +500,6 @@ final class MessageListScrollState {
         case .stabilizing(let prev, let activeReason):
             previousMode = prev
             if activeReason == reason {
-                activeStabilizationCount += 1
                 if reason == .expansion {
                     scheduleExpansionTimeout()
                 }
@@ -646,6 +647,9 @@ final class MessageListScrollState {
         cancelStabilizationTasks()
         paginationTask?.cancel()
         paginationTask = nil
+        scrollGeometryDispatchTask?.cancel()
+        scrollGeometryDispatchTask = nil
+        pendingScrollGeometrySnapshot = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         wasPaginationTriggerInRange = false
         lastPaginationCompletedAt = .distantPast
@@ -678,6 +682,9 @@ final class MessageListScrollState {
         scrollRestoreTask = nil
         paginationTask?.cancel()
         paginationTask = nil
+        scrollGeometryDispatchTask?.cancel()
+        scrollGeometryDispatchTask = nil
+        pendingScrollGeometrySnapshot = nil
         anchorTimeoutTask?.cancel()
         anchorTimeoutTask = nil
         highlightDismissTask?.cancel()

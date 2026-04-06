@@ -7,6 +7,26 @@ extension MessageListView {
 
     // MARK: - Scroll geometry handler
 
+    /// Coalesces `onScrollGeometryChange` updates onto the next main-actor turn.
+    ///
+    /// macOS 26's `OnScrollGeometryChange` modifier faults when its action
+    /// causes enough synchronous view-affecting state mutations to re-enter
+    /// the modifier in the same frame. We only store the latest geometry
+    /// snapshot inside the callback, then process it after the callback unwinds.
+    func enqueueScrollGeometryUpdate(_ newState: ScrollGeometrySnapshot) {
+        scrollState.pendingScrollGeometrySnapshot = newState
+        guard scrollState.scrollGeometryDispatchTask == nil else { return }
+        scrollState.scrollGeometryDispatchTask = Task { @MainActor [scrollState] in
+            defer { scrollState.scrollGeometryDispatchTask = nil }
+            while !Task.isCancelled {
+                await Task.yield()
+                guard let snapshot = scrollState.pendingScrollGeometrySnapshot else { break }
+                scrollState.pendingScrollGeometrySnapshot = nil
+                handleScrollGeometryUpdate(snapshot)
+            }
+        }
+    }
+
     func handleScrollGeometryUpdate(_ newState: ScrollGeometrySnapshot) {
         // --- Scroll direction detection ---
         let effectiveContentHeight = newState.contentHeight - scrollState.tailSpacerHeight
