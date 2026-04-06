@@ -50,6 +50,8 @@ struct SidebarSectionHeader: View {
             return .calendar
         } else if group.id == ConversationGroup.background.id {
             return .layers
+        } else if group.id == ConversationGroup.all.id {
+            return .clock
         } else {
             return isExpanded ? .folderOpen : .folderClosed
         }

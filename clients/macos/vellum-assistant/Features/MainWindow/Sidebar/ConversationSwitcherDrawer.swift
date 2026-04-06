@@ -22,24 +22,24 @@ struct ConversationSwitcherDrawer: View {
     /// Group entries filtered by flags: custom groups merged into system:all when their flag is off.
     private var drawerEntries: [(group: ConversationGroup, conversations: [ConversationModel])] {
         let raw = conversationManager.groupedConversations
-        var entries: [(ConversationGroup, [ConversationModel])] = []
+        var entries: [(group: ConversationGroup, conversations: [ConversationModel])] = []
         var extraForAll: [ConversationModel] = []
         for entry in raw {
             guard let group = entry.group else { continue }
             if !group.isSystemGroup && !customGroupsEnabled {
                 extraForAll.append(contentsOf: entry.conversations)
             } else {
-                entries.append((group, entry.conversations))
+                entries.append((group: group, conversations: entry.conversations))
             }
         }
         // Merge extra conversations into the system:all entry
         if !extraForAll.isEmpty {
             if let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
                 let existing = entries[allIndex]
-                entries[allIndex] = (existing.group, existing.conversations + extraForAll)
+                entries[allIndex] = (group: existing.group, conversations: existing.conversations + extraForAll)
             } else {
                 // system:all absent from entries — create one so conversations aren't dropped
-                entries.append((ConversationGroup.all, extraForAll))
+                entries.append((group: ConversationGroup.all, conversations: extraForAll))
             }
         }
         return entries
