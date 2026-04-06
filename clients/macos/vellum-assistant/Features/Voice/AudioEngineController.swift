@@ -110,20 +110,23 @@ final class AudioEngineController: @unchecked Sendable {
 
     // MARK: - Combined Operations
 
-    /// Atomically validates audio input, installs a tap with `nil` format, and
-    /// starts the engine in a single synchronous dispatch to the audio queue.
+    /// Atomically resets the engine, validates audio input, installs a tap
+    /// with the freshly-queried hardware format, and starts the engine in a
+    /// single synchronous dispatch to the audio queue.
     ///
-    /// Passing `nil` for `installTap`'s format parameter lets AVAudioEngine use
-    /// its own internal hardware format, which is always self-consistent. This
-    /// prevents `NSInternalInconsistencyException` crashes caused by
-    /// `format.sampleRate != hwFormat.sampleRate` — the cached format from
-    /// `outputFormat(forBus:)` can diverge from the engine's internal hardware
-    /// format after audio route changes (Bluetooth, USB mic, AirPods mode
-    /// switch), even within a single synchronous block.
+    /// After audio-route changes (Bluetooth, USB mic, AirPods mode switch)
+    /// the format cached inside `AVAudioInputNode` can diverge from the
+    /// engine's actual hardware format. Both `outputFormat(forBus:)` **and**
+    /// a `nil` format argument to `installTap` resolve to this stale value,
+    /// causing:
     ///
-    /// The format validation (channels > 0, sampleRate > 0) is kept as a
-    /// pre-check to detect "no audio input available" — but the validated format
-    /// is **not** forwarded to `installTap`.
+    ///     "Failed to create tap due to format mismatch,
+    ///      <AVAudioFormat …: 2 ch, 44100 Hz, Float32, deinterleaved>"
+    ///
+    /// Calling `audioEngine.reset()` before re-querying forces the engine to
+    /// discard its cached graph state and re-read the hardware on the next
+    /// access. The fresh format is then passed **explicitly** to `installTap`
+    /// so the tap, the node, and the engine all agree.
     ///
     /// Returns `true` on success, or `false` if no audio input is available or
     /// the engine fails to start.
@@ -158,19 +161,30 @@ final class AudioEngineController: @unchecked Sendable {
     }
 
     /// Shared implementation for both sync and async tap+start paths.
+    ///
+    /// Stops, removes any existing tap, and resets the engine before querying
+    /// `outputFormat(forBus:)` so the returned format reflects the current
+    /// hardware — not a stale cache from a previous audio route.
     private func installTapAndStartImpl(
         bufferSize: AVAudioFrameCount,
         block: @escaping AVAudioNodeTapBlock
     ) -> Bool {
         let inputNode = audioEngine.inputNode
+
+        // Stop, remove any existing tap, and reset the engine so that
+        // outputFormat(forBus:) returns a value consistent with the
+        // current hardware — not a stale cache from a previous route.
+        audioEngine.stop()
+        inputNode.removeTap(onBus: 0)
+        audioEngine.reset()
+
         let format = inputNode.outputFormat(forBus: 0)
         guard format.channelCount > 0, format.sampleRate > 0 else {
             log.error("Invalid audio format — channels: \(format.channelCount), sampleRate: \(format.sampleRate)")
             return false
         }
 
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil, block: block)
+        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format, block: block)
 
         audioEngine.prepare()
         do {
