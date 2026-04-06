@@ -178,6 +178,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "intelligence-integrations",
+      "scope": "assistant",
+      "key": "intelligence-integrations",
+      "label": "Integrations Tab",
+      "description": "Show the Integrations tab in the Intelligence panel",
+      "defaultEnabled": false
+    },
+    {
       "id": "quick-input",
       "scope": "macos",
       "key": "quick-input",
