@@ -177,17 +177,22 @@ export function reorderGroups(
   updates: Array<{ groupId: string; sortPosition: number }>,
 ): void {
   ensureGroupMigration();
-  for (const update of updates) {
-    if (update.sortPosition >= 999999) {
-      throw new Error(
-        `Custom group sort_position must be < 999999 (got ${update.sortPosition} for ${update.groupId})`,
-      );
-    }
-  }
   const now = Math.floor(Date.now() / 1000);
   rawExec("BEGIN");
   try {
     for (const update of updates) {
+      // Look up the group first — skip unknown/stale IDs gracefully
+      const group = rawGet<{ id: string }>(
+        "SELECT id FROM conversation_groups WHERE id = ?",
+        update.groupId,
+      );
+      if (!group) continue;
+
+      if (update.sortPosition >= 999999) {
+        throw new Error(
+          `Custom group sort_position must be < 999999 (got ${update.sortPosition} for ${update.groupId})`,
+        );
+      }
       rawRun(
         "UPDATE conversation_groups SET sort_position = ?, updated_at = ? WHERE id = ?",
         update.sortPosition,
