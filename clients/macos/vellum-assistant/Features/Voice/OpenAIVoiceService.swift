@@ -388,6 +388,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                 self.ttsOnComplete = nil
                 return
             }
+            guard !Task.isCancelled else { return }
             self.startSpeakingAmplitudePolling()
             do {
                 let audioData = try await fetchElevenLabsTTS(text: text)
