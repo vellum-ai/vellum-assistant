@@ -38,6 +38,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var lastRegisteredQuickInputHotkey: String?
     var globalHotkeyObserver: AnyCancellable?
     var escapeMonitor: Any?
+    var isRestarting = false
     var hasSetupHotKey = false
     var fnVGlobalMonitor: Any?
     var fnVLocalMonitor: Any?
@@ -745,6 +746,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// Reference: https://developer.apple.com/documentation/appkit/nsapplicationdelegate/applicationshouldterminate(_:)
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // During a restart, performRestart() already stopped the CLI and
+        // disconnected the connection manager.  Skip the async
+        // .terminateLater path whose MainActor.run dispatch is fragile
+        // during AppKit shutdown and can leave the process as a zombie.
+        if isRestarting {
+            return .terminateNow
+        }
+
         let cli = vellumCli
         Task.detached {
             await cli.stop()

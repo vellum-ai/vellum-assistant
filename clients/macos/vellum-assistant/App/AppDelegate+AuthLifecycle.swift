@@ -144,7 +144,15 @@ extension AppDelegate {
     }
 
     @objc func performRestart() {
+        isRestarting = true
         let bundleURL = Bundle.main.bundleURL
+
+        // Disconnect SSE and health checks *before* the CLI kills the
+        // daemon/gateway.  Otherwise the health check detects the daemon
+        // dying, triggers autoWakeIfAssistantDied(), and wakes the daemon
+        // right back up — fighting with the shutdown.  (Same pattern as
+        // performRetireAsync().)
+        connectionManager.disconnect()
 
         // Write a timestamped sentinel so the new instance's single-instance
         // guard knows this is an intentional restart, not a duplicate launch.
