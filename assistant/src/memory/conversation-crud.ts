@@ -1549,11 +1549,13 @@ export function batchSetDisplayOrders(
       if (update.groupId !== undefined) {
         // New client: groupId is authoritative.
         // Derive is_pinned from groupId.
-        // Sanitize: if groupId references a deleted/unknown group, fall back
-        // to NULL to avoid FK violation that would roll back the entire batch.
+        // Sanitize: if groupId is null or references a deleted/unknown group,
+        // fall back to "system:all" to avoid FK violation that would roll back
+        // the entire batch.
         let safeGroupId = update.groupId;
-        if (
-          safeGroupId !== null &&
+        if (safeGroupId === null) {
+          safeGroupId = "system:all";
+        } else if (
           !rawGet<{ id: string }>(
             "SELECT id FROM conversation_groups WHERE id = ?",
             safeGroupId,
