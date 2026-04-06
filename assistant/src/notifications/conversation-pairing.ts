@@ -130,7 +130,9 @@ export async function pairDeliveryWithConversation(
       const targetId = conversationAction.conversationId;
       const existing = getConversation(targetId);
 
-      if (existing && existing.source === "notification") {
+      const effectiveSource =
+        signal.conversationMetadata?.source ?? "notification";
+      if (existing && existing.source === effectiveSource) {
         // Append the seed message to the existing conversation
         const message = await addMessage(
           existing.id,
@@ -243,7 +245,9 @@ export async function pairDeliveryWithConversation(
           existingBinding.conversationId,
         );
 
-        if (boundConversation && boundConversation.source === "notification") {
+        const effectiveSource =
+          signal.conversationMetadata?.source ?? "notification";
+        if (boundConversation && boundConversation.source === effectiveSource) {
           const message = await addMessage(
             boundConversation.id,
             "assistant",
