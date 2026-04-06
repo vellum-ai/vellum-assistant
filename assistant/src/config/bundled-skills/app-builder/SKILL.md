@@ -450,17 +450,9 @@ Important:
 
 #### Custom route handlers (user-defined routes)
 
-When the user asks for file-based persistence (e.g. "store each item as a markdown file"), workspace integration, or a custom API backend, use **user-defined routes** instead of the data bridge. Route handlers are TypeScript or JavaScript files that live in the workspace `routes/` directory and are served under the `/x/` URL prefix.
+When the app needs server-side persistence, custom API logic, or workspace file access, use **user-defined routes**. Route handlers are TypeScript or JavaScript files that live in the workspace `routes/` directory and are served under the `/v1/x/` URL path.
 
-**When to use routes vs the data bridge:**
-
-| Use case | Mechanism |
-|---|---|
-| Simple CRUD with structured JSON records | `window.vellum.data` (data bridge) |
-| File-based storage (markdown, CSV, etc.) | Custom routes |
-| Custom API logic (search, aggregation, transforms) | Custom routes |
-| Workspace file integration (user wants files they can browse) | Custom routes |
-| External API proxy or webhook receiver | Custom routes |
+**Common use cases:** CRUD storage, file-based persistence, search/aggregation, external API proxying, webhook receivers.
 
 **Handler file convention:**
 
@@ -468,42 +460,46 @@ Each handler file exports named functions for the HTTP methods it supports (`GET
 
 ```
 {workspaceDir}/routes/
-  essays.ts              # Handles /x/essays
-  essays/
+  items.ts               # Handles /v1/x/items
+  items/
     [id].ts              # Not supported — use query params instead
-    index.ts             # Also handles /x/essays (index convention)
+    index.ts             # Also handles /v1/x/items (index convention)
 ```
 
-**Example — markdown file persistence:**
+**Example handler — JSON file persistence:**
 
 ```typescript
-// routes/essays.ts
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
+// routes/items.ts
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-export const description = "Essay CRUD — stores each essay as a markdown file";
+export const description = "Item CRUD — stores records as a JSON file";
 
-const ESSAYS_DIR = join(process.env.VELLUM_WORKSPACE_DIR!, "data", "essays");
+const DATA_DIR = join(process.env.VELLUM_WORKSPACE_DIR!, "data");
+const DATA_FILE = join(DATA_DIR, "items.json");
 
-export function GET(request: Request): Response {
-  mkdirSync(ESSAYS_DIR, { recursive: true });
-  const files = readdirSync(ESSAYS_DIR).filter(f => f.endsWith(".md"));
-  const essays = files.map(f => {
-    const id = f.replace(".md", "");
-    const content = readFileSync(join(ESSAYS_DIR, f), "utf-8");
-    const titleMatch = content.match(/^#\s+(.+)/m);
-    return { id, title: titleMatch?.[1] ?? id, filename: f };
-  });
-  return Response.json(essays);
+function loadItems(): Array<Record<string, unknown>> {
+  mkdirSync(DATA_DIR, { recursive: true });
+  if (!existsSync(DATA_FILE)) return [];
+  return JSON.parse(readFileSync(DATA_FILE, "utf-8"));
+}
+
+function saveItems(items: Array<Record<string, unknown>>): void {
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileSync(DATA_FILE, JSON.stringify(items, null, 2));
+}
+
+export function GET(): Response {
+  return Response.json(loadItems());
 }
 
 export async function POST(request: Request): Promise<Response> {
-  mkdirSync(ESSAYS_DIR, { recursive: true });
   const body = await request.json();
-  const id = crypto.randomUUID();
-  const content = `# ${body.title ?? "Untitled"}\n\n${body.content ?? ""}`;
-  writeFileSync(join(ESSAYS_DIR, `${id}.md`), content);
-  return Response.json({ id, title: body.title ?? "Untitled" }, { status: 201 });
+  const items = loadItems();
+  const item = { id: crypto.randomUUID(), ...body, createdAt: new Date().toISOString() };
+  items.push(item);
+  saveItems(items);
+  return Response.json(item, { status: 201 });
 }
 ```
 
@@ -513,14 +509,14 @@ Apps call custom routes via `fetch()` using the `/v1/x/` prefix. The assistant's
 
 ```typescript
 // In a TSX component or HTML script
-const res = await fetch("/v1/x/essays");
-const essays = await res.json();
+const res = await fetch("/v1/x/items");
+const items = await res.json();
 
-// Create a new essay
-await fetch("/v1/x/essays", {
+// Create a new item
+await fetch("/v1/x/items", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ title: "My Essay", content: "Draft..." }),
+  body: JSON.stringify({ name: "New item", status: "active" }),
 });
 ```
 
@@ -536,7 +532,7 @@ await fetch("/v1/x/essays", {
 
 #### Client-side state management
 
-`localStorage` and `sessionStorage` are available for ephemeral UI state (filters, view modes, collapsed state, preferences, form drafts). Use `window.vellum.data` for persistent app records, `localStorage` for UI preferences.
+`localStorage` and `sessionStorage` are available for ephemeral UI state (filters, view modes, collapsed state, preferences, form drafts). Use custom routes for persistent app records, `localStorage` for UI preferences.
 
 <!-- feature:app-builder-multifile:alt -->
 
@@ -553,7 +549,8 @@ let allRecords = [];
 
 async function loadRecords() {
   try {
-    allRecords = await window.vellum.data.query();
+    const res = await fetch("/v1/x/records");
+    allRecords = await res.json();
     render();
   } catch (err) {
     console.error("Failed to load:", err);
@@ -642,7 +639,7 @@ Every app must meet these baselines:
 
 ## Presentation Slide Design
 
-Slides are a different domain from apps. Skip app-specific patterns (contextual headers, search/filter, toast notifications, form validation, data bridge). Slides are static content — build navigation and layouts with custom HTML/CSS.
+Slides are a different domain from apps. Skip app-specific patterns (contextual headers, search/filter, toast notifications, form validation, custom routes). Slides are static content — build navigation and layouts with custom HTML/CSS.
 
 **Key principles:**
 
@@ -655,7 +652,7 @@ Slides are a different domain from apps. Skip app-specific patterns (contextual 
 
 ## Error Handling
 
-- All `window.vellum.data` calls must be wrapped in `try/catch` with user-friendly feedback.
+- All `fetch()` calls to custom routes must be wrapped in `try/catch` with user-friendly feedback.
 - Never let a failed operation silently pass - always show a toast or inline error.
 - If the page loads with no data, show a designed empty state (`.v-empty-state`).
 - For forms, show validation errors inline next to the relevant field.
