@@ -144,7 +144,6 @@ extension AppDelegate {
     }
 
     @objc func performRestart() {
-        isRestarting = true
         let bundleURL = Bundle.main.bundleURL
 
         // Disconnect SSE and health checks *before* the CLI kills the
@@ -173,7 +172,6 @@ extension AppDelegate {
                 // Clean up the sentinel so a failed restart doesn't leave
                 // a file that could bypass the guard on the next launch.
                 try? FileManager.default.removeItem(at: sentinelPath)
-                self?.isRestarting = false
                 // Reconnect SSE and health checks so the app doesn't stay
                 // in a disconnected state after a failed relaunch attempt.
                 // (Same pattern as performRetireAsync()'s cancel path.)
@@ -184,6 +182,7 @@ extension AppDelegate {
             }
             Task { @MainActor [weak self] in
                 await self?.vellumCli.stop()
+                self?.isRestarting = true
                 NSApp.terminate(nil)
             }
         }
