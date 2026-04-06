@@ -270,7 +270,7 @@ extension MainWindowView {
         switch windowState.selection {
         case .conversation:
             // Show chat for this conversation (conversationManager.activeViewModel is synced)
-            defaultChatLayout
+            defaultChatLayout(windowSize: windowSize)
         case .app(let appId), .appEditing(let appId, _):
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
@@ -367,13 +367,13 @@ extension MainWindowView {
             }
         case nil:
             // Default: show chat for active conversation
-            defaultChatLayout
+            defaultChatLayout(windowSize: windowSize)
         }
     }
 
     /// The default chat layout used when showing a conversation or no specific selection.
     @ViewBuilder
-    var defaultChatLayout: some View {
+    func defaultChatLayout(windowSize: CGSize) -> some View {
         let config = windowState.layoutConfig
         let showConfigPanel = config.right.visible && config.right.content != .empty
         let showSubagentPanel = windowState.selectedSubagentId != nil && conversationManager.activeViewModel != nil
