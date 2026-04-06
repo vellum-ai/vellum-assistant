@@ -15,11 +15,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import {
-  parseChannelId,
-  parseInterfaceId,
-  supportsHostProxy,
-} from "../channels/types.js";
+import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
@@ -306,7 +302,7 @@ export async function drainQueue(
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
-    if (sourceInterface && supportsHostProxy(sourceInterface)) {
+    if (sourceInterface === "macos") {
       conversation.restoreProxyAvailability();
       conversation.addPreactivatedSkillId("computer-use");
     }
