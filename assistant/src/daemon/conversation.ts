@@ -114,6 +114,7 @@ import type {
   UsageStats,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type {
   AssistantActivityState,
   ConfirmationStateChanged,
@@ -609,6 +610,7 @@ export class Conversation {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
+    transport?: ConversationTransportMetadata,
   ): { queued: boolean; requestId: string; rejected?: boolean } {
     return enqueueMessageImpl(
       this,
@@ -621,6 +623,7 @@ export class Conversation {
       metadata,
       options,
       displayContent,
+      transport,
     );
   }
 
