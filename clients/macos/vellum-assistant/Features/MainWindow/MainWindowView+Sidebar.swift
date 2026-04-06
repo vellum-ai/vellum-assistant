@@ -283,7 +283,10 @@ extension MainWindowView {
             // initial page. Render an invisible trigger to load them automatically.
             let maxCollapsed = 5
             let allSectionsFit = groupEntries.allSatisfy { entry in
-                entry.group.id == ConversationGroup.pinned.id || entry.conversations.count <= maxCollapsed
+                entry.group.id == ConversationGroup.pinned.id
+                    || entry.group.id == ConversationGroup.scheduled.id
+                    || entry.group.id == ConversationGroup.background.id
+                    || entry.conversations.count <= maxCollapsed
             }
             if conversationManager.hasMoreConversations && allSectionsFit {
                 Color.clear

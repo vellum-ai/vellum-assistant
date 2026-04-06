@@ -187,14 +187,21 @@ final class ConversationListStore {
         }
 
         var grouped: [(ConversationGroup?, [ConversationModel])] = []
+        var didFoldIntoAll = false
         for group in currentSortedGroups {
             if group.id == ConversationGroup.all.id {
                 // Fold nil-groupId and orphaned conversations into the system:all bucket
                 // so they are never silently dropped by sidebar rendering.
                 grouped.append((group, (buckets[group.id] ?? []) + ungrouped + orphaned))
+                didFoldIntoAll = true
             } else {
                 grouped.append((group, buckets[group.id] ?? []))
             }
+        }
+        // If system:all wasn't in the groups list (e.g. old daemon), create a
+        // synthetic entry so ungrouped/orphaned conversations are still visible.
+        if !didFoldIntoAll && (!ungrouped.isEmpty || !orphaned.isEmpty) {
+            grouped.append((ConversationGroup.all, ungrouped + orphaned))
         }
         groupedConversations = grouped
     }
