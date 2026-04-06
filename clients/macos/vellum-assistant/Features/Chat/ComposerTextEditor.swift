@@ -110,6 +110,9 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.font = font
         textView.insertionPointColor = insertionPointColor
         textView.allowsUndo = true
+        textView.isContinuousSpellCheckingEnabled = true
+        textView.isAutomaticTextCompletionEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
 
         let defaultColor = NSColor(VColor.contentDefault)
         let paragraphStyle = NSMutableParagraphStyle()

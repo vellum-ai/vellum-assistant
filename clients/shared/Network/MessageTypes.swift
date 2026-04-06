@@ -168,7 +168,9 @@ private func buildConversationTransportMetadata(
     channelId: String?,
     interfaceId: String?,
     hints: [String]?,
-    uxBrief: String?
+    uxBrief: String?,
+    hostHomeDir: String? = nil,
+    hostUsername: String? = nil
 ) -> ConversationTransportMetadata? {
     guard let channelId, !channelId.isEmpty else { return nil }
 
@@ -181,6 +183,12 @@ private func buildConversationTransportMetadata(
     }
     if let uxBrief {
         payload["uxBrief"] = uxBrief
+    }
+    if let hostHomeDir {
+        payload["hostHomeDir"] = hostHomeDir
+    }
+    if let hostUsername {
+        payload["hostUsername"] = hostUsername
     }
 
     guard JSONSerialization.isValidJSONObject(payload) else { return nil }
@@ -207,6 +215,24 @@ extension ConversationCreateRequest {
         self.init(type: "conversation_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, conversationType: conversationType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
     }
 
+    /// The host home directory, populated automatically on macOS.
+    private static var defaultHostHomeDir: String? {
+        #if os(macOS)
+        return NSHomeDirectory()
+        #else
+        return nil
+        #endif
+    }
+
+    /// The host username, populated automatically on macOS.
+    private static var defaultHostUsername: String? {
+        #if os(macOS)
+        return NSUserName()
+        #else
+        return nil
+        #endif
+    }
+
     public init(
         title: String?,
         systemPromptOverride: String? = nil,
@@ -215,8 +241,15 @@ extension ConversationCreateRequest {
         transportChannelId: String?,
         transportInterfaceId: String? = nil,
         transportHints: [String]? = nil,
-        transportUxBrief: String? = nil
+        transportUxBrief: String? = nil,
+        transportHostHomeDir: String? = nil,
+        transportHostUsername: String? = nil
     ) {
+        let effectiveInterface = transportInterfaceId ?? Self.defaultTransportInterface
+        // Auto-populate host environment on macOS when using the default transport interface.
+        let effectiveHostHomeDir = transportHostHomeDir ?? (effectiveInterface == "macos" ? Self.defaultHostHomeDir : nil)
+        let effectiveHostUsername = transportHostUsername ?? (effectiveInterface == "macos" ? Self.defaultHostUsername : nil)
+
         self.init(
             type: "conversation_create",
             title: title,
@@ -225,9 +258,11 @@ extension ConversationCreateRequest {
             correlationId: correlationId,
             transport: buildConversationTransportMetadata(
                 channelId: transportChannelId,
-                interfaceId: transportInterfaceId ?? Self.defaultTransportInterface,
+                interfaceId: effectiveInterface,
                 hints: transportHints,
-                uxBrief: transportUxBrief
+                uxBrief: transportUxBrief,
+                hostHomeDir: effectiveHostHomeDir,
+                hostUsername: effectiveHostUsername
             ),
             conversationType: nil,
             preactivatedSkillIds: nil,
@@ -2227,6 +2262,7 @@ public enum ServerMessage: Decodable, Sendable {
     case avatarUpdated(AvatarUpdated)
     case soundsConfigUpdated(SoundsConfigUpdated)
     case configChanged(ConfigChanged)
+    case featureFlagsChanged(FeatureFlagsChanged)
     case generateAvatarResponse(GenerateAvatarResponse)
     case heartbeatConfigResponse(HeartbeatConfigResponse)
     case heartbeatRunsListResponse(HeartbeatRunsListResponse)
@@ -2646,6 +2682,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "config_changed":
             let message = try ConfigChanged(from: decoder)
             self = .configChanged(message)
+        case "feature_flags_changed":
+            let message = try FeatureFlagsChanged(from: decoder)
+            self = .featureFlagsChanged(message)
         case "generate_avatar_response":
             let message = try GenerateAvatarResponse(from: decoder)
             self = .generateAvatarResponse(message)

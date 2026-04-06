@@ -164,6 +164,7 @@ final class ConversationListStore {
 
         unseenVisibleConversationCount = conversations.count {
             !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage
+                && !$0.shouldSuppressUnreadIndicator
         }
 
         archivedConversations = conversations.filter { $0.isArchived }
@@ -255,7 +256,7 @@ final class ConversationListStore {
                 source: item.source,
                 title: item.title
             )
-        return ConversationModel(
+        let model = ConversationModel(
             id: localId,
             title: item.title,
             createdAt: createdAt ?? Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAtMillis) / 1000.0),
@@ -267,7 +268,7 @@ final class ConversationListStore {
             kind: item.conversationType == "private" ? .private : .standard,
             source: item.source,
             scheduleJobId: item.scheduleJobId,
-            hasUnseenLatestAssistantMessage: item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+            hasUnseenLatestAssistantMessage: (item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false),
             latestAssistantMessageAt: item.assistantAttention?.latestAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             },
@@ -277,6 +278,14 @@ final class ConversationListStore {
             forkParent: item.forkParent,
             originChannel: item.channelBinding?.sourceChannel ?? item.conversationOriginChannel
         )
+        // Automated conversations (heartbeat, schedule, background/task) should never
+        // show unread indicators, regardless of what the server reports.
+        if model.shouldSuppressUnreadIndicator {
+            var suppressed = model
+            suppressed.hasUnseenLatestAssistantMessage = false
+            return suppressed
+        }
+        return model
     }
 
     // MARK: - Title / Rename
@@ -809,6 +818,7 @@ final class ConversationListStore {
         var snapshot = conversations
         for id in conversationIds {
             if let idx = snapshot.firstIndex(where: { $0.id == id }) {
+                guard !snapshot[idx].shouldSuppressUnreadIndicator else { continue }
                 snapshot[idx].hasUnseenLatestAssistantMessage = true
                 if let prior = priorStates[id] {
                     snapshot[idx].lastSeenAssistantMessageAt = prior.lastSeenAssistantMessageAt
@@ -849,8 +859,9 @@ final class ConversationListStore {
         // trigger a single conversations.didSet (and one recomputeDerivedProperties)
         // instead of one per field assignment.
         var conversation = conversations[index]
+        let serverUnseen = item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
         conversation.hasUnseenLatestAssistantMessage =
-            item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+            conversation.shouldSuppressUnreadIndicator ? false : serverUnseen
         conversation.latestAssistantMessageAt =
             item.assistantAttention?.latestAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
@@ -972,7 +983,8 @@ final class ConversationListStore {
 
     func canMarkConversationUnread(conversationId: UUID, at conversationIndex: Int) -> Bool {
         guard conversations[conversationIndex].conversationId != nil,
-              !conversations[conversationIndex].hasUnseenLatestAssistantMessage else { return false }
+              !conversations[conversationIndex].hasUnseenLatestAssistantMessage,
+              !conversations[conversationIndex].shouldSuppressUnreadIndicator else { return false }
         // Live assistant replies update the in-memory activity snapshot before
         // conversation-list hydration backfills latestAssistantMessageAt.
         return conversations[conversationIndex].latestAssistantMessageAt != nil

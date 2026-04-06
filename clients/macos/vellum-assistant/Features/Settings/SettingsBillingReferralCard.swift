@@ -46,7 +46,7 @@ struct SettingsBillingReferralCard: View {
     // MARK: - Has Code State
 
     private func hasCodeState(_ code: ReferralCodeResponse) -> some View {
-        SettingsCard(title: "Referrals", subtitle: "Share your referral link to earn up to 100 free credits") {
+        SettingsCard(title: "Referrals", subtitle: "Share your referral link to earn up to 100 free credits.") {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Referral URL row
                 HStack(spacing: VSpacing.sm) {

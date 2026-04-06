@@ -17,6 +17,7 @@ import {
   type InterfaceId,
   parseChannelId,
   parseInterfaceId,
+  supportsHostProxy,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
@@ -373,7 +374,28 @@ export class DaemonServer {
       { channelId: transport.channelId },
       "Transport metadata received",
     );
-    conversation.setTransportHints(transport.hints);
+
+    // Build enriched hints: interface ID first, then host environment (macOS
+    // only), then any client-provided hints.
+    const enrichedHints: string[] = [];
+
+    const interfaceLabel = parseInterfaceId(transport.interfaceId) ?? "vellum";
+    enrichedHints.push(`User is messaging from interface: ${interfaceLabel}`);
+
+    if (transport.interfaceId === "macos") {
+      if (transport.hostHomeDir) {
+        enrichedHints.push(`Host home directory: ${transport.hostHomeDir}`);
+      }
+      if (transport.hostUsername) {
+        enrichedHints.push(`Host username: ${transport.hostUsername}`);
+      }
+    }
+
+    if (transport.hints) {
+      enrichedHints.push(...transport.hints);
+    }
+
+    conversation.setTransportHints(enrichedHints);
   }
 
   constructor() {
@@ -533,6 +555,10 @@ export class DaemonServer {
 
   private broadcastSoundsConfigUpdated(): void {
     this.broadcast({ type: "sounds_config_updated" });
+  }
+
+  private broadcastFeatureFlagsChanged(): void {
+    this.broadcast({ type: "feature_flags_changed" });
   }
 
   private broadcastAvatarUpdated(): void {
@@ -732,6 +758,7 @@ export class DaemonServer {
       () => this.broadcastSoundsConfigUpdated(),
       () => this.broadcastAvatarUpdated(),
       () => this.broadcastConfigChanged(),
+      () => this.broadcastFeatureFlagsChanged(),
     );
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
@@ -1075,7 +1102,7 @@ export class DaemonServer {
     // Guard: don't replace an active proxy during concurrent turn races —
     // another request may have started processing between the isProcessing()
     // check above and the await on ensureActorScopedHistory().
-    if (resolvedInterface === "macos" || resolvedInterface === "ios") {
+    if (supportsHostProxy(resolvedInterface)) {
       if (!conversation.isProcessing() || !conversation.hostBashProxy) {
         conversation.setHostBashProxy(
           new HostBashProxy(conversation.getCurrentSender(), (requestId) => {

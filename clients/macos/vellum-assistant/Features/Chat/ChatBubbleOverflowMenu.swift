@@ -159,8 +159,25 @@ struct ChatBubbleOverflowMenu: View {
     // MARK: - Copy
 
     private func copyMessageText() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.text, forType: .string)
+        let pasteboard = NSPasteboard.general
+        let textToCopy = message.text
+
+        pasteboard.clearContents()
+        pasteboard.setString(textToCopy, forType: .string)
+
+        // Verify the write landed. If another pasteboard writer (e.g. a delayed
+        // clipboard-restore timer from ActionExecutor or DictationTextInserter)
+        // overwrites us, re-claim ownership.
+        // Reference: https://developer.apple.com/documentation/appkit/nspasteboard/changecount
+        let expectedChangeCount = pasteboard.changeCount
+        DispatchQueue.main.async {
+            let pb = NSPasteboard.general
+            if pb.changeCount != expectedChangeCount {
+                pb.clearContents()
+                pb.setString(textToCopy, forType: .string)
+            }
+        }
+
         copyConfirmationTimer?.cancel()
         showCopyConfirmation = true
         let timer = DispatchWorkItem { showCopyConfirmation = false }

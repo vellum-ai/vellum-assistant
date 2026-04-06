@@ -71,7 +71,9 @@ extension AppDelegate {
         mainWindow?.conversationManager.createNotificationConversation(
             conversationId: msg.conversationId,
             title: msg.title,
-            sourceEventName: msg.sourceEventName
+            sourceEventName: msg.sourceEventName,
+            groupId: msg.groupId,
+            source: msg.source
         )
 
         if NSApp.isActive {

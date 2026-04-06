@@ -39,7 +39,8 @@ export function buildCliProgram(): Command {
   program
     .name("assistant")
     .description("Local AI assistant")
-    .version(APP_VERSION);
+    .version(APP_VERSION)
+    .allowExcessArguments(true);
 
   program.addHelpText(
     "after",

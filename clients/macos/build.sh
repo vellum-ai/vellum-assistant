@@ -1155,11 +1155,12 @@ fi
 # codesign to fail with the cryptic "unsealed contents present in the bundle
 # root" error. Only Contents/ belongs at the top level of a macOS .app bundle.
 STRAY_ITEMS=()
-for item in "$APP_DIR"/*; do
+for item in "$APP_DIR"/* "$APP_DIR"/.*; do
     [ -e "$item" ] || continue
-    if [ "$(basename "$item")" != "Contents" ]; then
-        STRAY_ITEMS+=("$(basename "$item")")
-    fi
+    case "$(basename "$item")" in
+        .|..|Contents) continue ;;
+    esac
+    STRAY_ITEMS+=("$(basename "$item")")
 done
 if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
     echo ""

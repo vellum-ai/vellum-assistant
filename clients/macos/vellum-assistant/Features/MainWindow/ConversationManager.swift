@@ -606,15 +606,15 @@ final class ConversationManager: ConversationRestorerDelegate {
         log.info("Created schedule conversation \(localId) for conversation \(conversationId) (schedule \(scheduleJobId))")
     }
 
-    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String) {
+    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String, groupId: String? = nil, source: String? = nil) {
         guard let localId = createBackgroundConversation(
             conversationId: conversationId,
             title: title,
-            source: "notification",
+            source: source ?? "notification",
             markHistoryLoaded: false,
-            groupId: ConversationGroup.all.id
+            groupId: groupId ?? ConversationGroup.all.id
         ) else { return }
-        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName))")
+        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName), groupId: \(groupId ?? "nil"))")
     }
 
     func createHeartbeatConversation(conversationId: String, title: String) {
@@ -1136,7 +1136,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversation.lastInteractedAt = Date()
 
         if localId != selectionStore.activeConversationId {
-            conversation.hasUnseenLatestAssistantMessage = true
+            if !conversation.shouldSuppressUnreadIndicator {
+                conversation.hasUnseenLatestAssistantMessage = true
+            }
             conversation.latestAssistantMessageAt = Date()
             listStore.pendingSeenConversationIds.removeAll { $0 == daemonConversationId }
         }
@@ -1320,7 +1322,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             if isNewMessage || streamingJustCompleted {
                 shouldEmitSeenSignal = true
             }
-        } else if !conversation.hasUnseenLatestAssistantMessage {
+        } else if !conversation.hasUnseenLatestAssistantMessage && !conversation.shouldSuppressUnreadIndicator {
             conversation.hasUnseenLatestAssistantMessage = true
         }
         listStore.conversations[index] = conversation
