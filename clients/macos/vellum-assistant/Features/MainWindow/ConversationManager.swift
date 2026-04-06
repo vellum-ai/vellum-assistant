@@ -607,11 +607,13 @@ final class ConversationManager: ConversationRestorerDelegate {
     }
 
     func createNotificationConversation(conversationId: String, title: String, sourceEventName: String) {
+        let isScheduleEvent = sourceEventName.hasPrefix("schedule.")
         guard let localId = createBackgroundConversation(
             conversationId: conversationId,
             title: title,
-            source: "notification",
-            markHistoryLoaded: false
+            source: isScheduleEvent ? "schedule" : "notification",
+            markHistoryLoaded: false,
+            groupId: isScheduleEvent ? ConversationGroup.scheduled.id : nil
         ) else { return }
         log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName))")
     }

@@ -176,6 +176,17 @@ export interface EmitSignalParams<TEventName extends string = string> {
    * Useful for direct user-invoked actions that must fail closed.
    */
   throwOnError?: boolean;
+  /**
+   * Optional metadata propagated to the conversation created by the notification
+   * pipeline. Allows signal producers (e.g. the scheduler) to set groupId,
+   * scheduleJobId, or override the default "notification" source on the
+   * resulting conversation so it appears in the correct folder on clients.
+   */
+  conversationMetadata?: {
+    groupId?: string;
+    scheduleJobId?: string;
+    source?: string;
+  };
 }
 
 export interface EmitSignalResult {
@@ -210,6 +221,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     routingIntent: params.routingIntent,
     routingHints: params.routingHints,
     conversationAffinityHint: params.conversationAffinityHint,
+    conversationMetadata: params.conversationMetadata,
   };
 
   try {

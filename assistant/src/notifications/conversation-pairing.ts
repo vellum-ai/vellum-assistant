@@ -186,7 +186,9 @@ export async function pairDeliveryWithConversation(
       const conversation = createConversation({
         title,
         conversationType,
-        source: "notification",
+        source: signal.conversationMetadata?.source ?? "notification",
+        groupId: signal.conversationMetadata?.groupId,
+        scheduleJobId: signal.conversationMetadata?.scheduleJobId,
       });
 
       const message = await addMessage(
@@ -299,7 +301,9 @@ export async function pairDeliveryWithConversation(
     const conversation = createConversation({
       title,
       conversationType,
-      source: "notification",
+      source: signal.conversationMetadata?.source ?? "notification",
+      groupId: signal.conversationMetadata?.groupId,
+      scheduleJobId: signal.conversationMetadata?.scheduleJobId,
     });
 
     // Skip memory indexing — notification audit messages are not conversational
