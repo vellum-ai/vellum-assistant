@@ -351,7 +351,7 @@ struct AssistantUpgradeSection: View {
 
             if showFeedbackOption {
                 VButton(label: "Share Feedback", style: .outlined) {
-                    AppDelegate.shared?.showLogReportWindow(reason: .somethingBroken)
+                    AppDelegate.shared?.showLogReportWindow(reason: .bugReport)
                 }
             }
 

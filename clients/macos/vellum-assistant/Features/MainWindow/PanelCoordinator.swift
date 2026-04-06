@@ -703,7 +703,7 @@ struct ActiveChatViewWrapper: View {
                     windowState.selection = .panel(.settings)
                 },
                 onBootstrapSendLogs: {
-                    AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
+                    AppDelegate.shared?.showLogReportWindow(reason: .bugReport)
                 },
                 recoveryMode: settingsStore.managedAssistantRecoveryMode,
                 isRecoveryModeExiting: settingsStore.recoveryModeExiting,
