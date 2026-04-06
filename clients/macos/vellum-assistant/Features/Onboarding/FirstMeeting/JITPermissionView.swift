@@ -185,22 +185,12 @@ struct JITPermissionView: View {
 
     @ViewBuilder
     private func permissionButton(_ title: String, isPrimary: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(VFont.labelDefault)
-                .foregroundStyle(isPrimary ? VColor.auxWhite : VColor.contentDefault.opacity(0.85))
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.sm + VSpacing.xxs)
-                .background(isPrimary ? AnyShapeStyle(VColor.primaryBase) : AnyShapeStyle(Color.clear))
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(isPrimary ? Color.clear : VColor.contentDefault.opacity(0.2), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
+        VButton(
+            label: title,
+            style: isPrimary ? .primary : .outlined,
+            isFullWidth: true,
+            action: action
+        )
     }
 
     private func dismiss() {
