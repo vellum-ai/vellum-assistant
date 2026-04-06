@@ -90,8 +90,8 @@ struct ChatBubble: View, Equatable {
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     // Cached interleaved content state — updated via .onChange(of:) to avoid
     // recomputing O(n) grouping on every body evaluation.
-    // Eagerly initialized in init() to prevent first-frame flash where the
-    // wrong layout path renders before .onAppear fires.
+    // Eagerly initialized in init() so the first body evaluation uses the
+    // correct layout path instead of flashing through the fallback layout.
     @State var cachedHasInterleavedContent: Bool
     @State var cachedContentGroups: [ContentGroup]
     /// Set of stableIds for tool-call groups that have non-empty text after them.
@@ -370,7 +370,6 @@ struct ChatBubble: View, Equatable {
                 .compositingGroup()
                 .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
-        .onAppear { recomputeInterleavedContentCache() }
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
