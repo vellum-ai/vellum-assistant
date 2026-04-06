@@ -129,6 +129,8 @@ struct SettingsDeveloperTab: View {
             featureFlagSection
             // Environment Variables
             environmentVariablesSection
+            // Containerization
+            ContainerizationSection()
             // Sentry Testing
             sentryTestingSection
         }
