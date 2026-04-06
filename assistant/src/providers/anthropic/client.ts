@@ -828,6 +828,7 @@ export class AnthropicProvider implements Provider {
       // cheaply without conflicting with the 1h breakpoints above.
       // Skip thinking/redacted_thinking blocks — Anthropic doesn't allow
       // cache_control on those types.
+      let tailBreakpointApplied = false;
       if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
@@ -848,6 +849,7 @@ export class AnthropicProvider implements Provider {
               type: "ephemeral",
               ttl: "5m",
             };
+            tailBreakpointApplied = true;
           }
         }
       }
@@ -859,8 +861,7 @@ export class AnthropicProvider implements Provider {
       // small (<1K tokens) so the re-read cost is negligible, while the
       // dynamic block (workspace context) rarely changes mid-session and
       // benefits more from caching.
-      const hasTailBreakpoint =
-        turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1;
+      const hasTailBreakpoint = tailBreakpointApplied;
       const hasToolCacheBreakpoint =
         params.tools?.some(
           (t) => "cache_control" in t && t.cache_control != null,
