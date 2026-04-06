@@ -190,7 +190,7 @@ export function groupRouteDefinitions(): RouteDefinition[] {
         if (!Array.isArray(body.updates)) {
           return httpError("BAD_REQUEST", "Missing updates array", 400);
         }
-        // Validate: no system group reordering, no sort_position < 3 for custom groups
+        // Validate: no system group reordering, sort_position >= 4 for custom groups
         for (const update of body.updates) {
           const group = getGroup(update.groupId);
           if (!group) continue;

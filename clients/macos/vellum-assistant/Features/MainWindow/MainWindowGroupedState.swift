@@ -51,11 +51,13 @@ final class SidebarInteractionState {
             initial = [ConversationGroup.all.id]
         }
 
-        // Ensure system:all is expanded for existing users upgrading from before
-        // the Recents group existed. Without this, their conversations would be
-        // hidden behind a collapsed section header.
-        if !initial.contains(ConversationGroup.all.id) {
+        // One-time migration: expand system:all for existing users upgrading
+        // from before the Recents group existed. Gated by a flag so it only
+        // runs once and doesn't override the user's collapse preference.
+        let migrationKey = "sidebar.systemAllExpandedMigrated"
+        if !defaults.bool(forKey: migrationKey) {
             initial.insert(ConversationGroup.all.id)
+            defaults.set(true, forKey: migrationKey)
         }
 
         // Clean up old keys (one-time migration).

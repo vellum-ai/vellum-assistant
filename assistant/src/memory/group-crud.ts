@@ -179,12 +179,13 @@ export function reorderGroups(
   rawExec("BEGIN");
   try {
     for (const update of updates) {
-      // Look up the group first — skip unknown/stale IDs gracefully
-      const group = rawGet<{ id: string }>(
-        "SELECT id FROM conversation_groups WHERE id = ?",
+      // Look up the group first — skip unknown/stale IDs and system groups
+      const group = rawGet<{ id: string; is_system_group: number }>(
+        "SELECT id, is_system_group FROM conversation_groups WHERE id = ?",
         update.groupId,
       );
       if (!group) continue;
+      if (group.is_system_group === 1) continue;
 
       if (update.sortPosition < 4) {
         throw new Error(

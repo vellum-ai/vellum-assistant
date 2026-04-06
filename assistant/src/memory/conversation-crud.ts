@@ -320,8 +320,9 @@ export function createConversation(
     for (let attempt = 0; ; attempt++) {
       try {
         rawRun(
-          "UPDATE conversations SET group_id = ? WHERE id = ?",
+          "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
           effectiveGroupId,
+          effectiveGroupId === "system:pinned" ? 1 : 0,
           id,
         );
         break;
