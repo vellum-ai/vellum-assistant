@@ -187,9 +187,21 @@ function loadOverridesFromGateway(): Record<string, boolean> {
     const { getGatewayInternalBaseUrl } =
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require("./env.js") as typeof import("./env.js");
-    const { mintEdgeRelayToken } =
+    const {
+      mintEdgeRelayToken,
+      isSigningKeyInitialized,
+      initAuthSigningKey,
+      resolveSigningKey,
+    } =
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require("../runtime/auth/token-service.js") as typeof import("../runtime/auth/token-service.js");
+
+    // CLI subprocesses don't run daemon startup, so the signing key
+    // may not be initialized yet. Initialize it now so mintEdgeRelayToken
+    // can produce a valid JWT for the gateway request.
+    if (!isSigningKeyInitialized()) {
+      initAuthSigningKey(resolveSigningKey());
+    }
 
     const url = `${getGatewayInternalBaseUrl()}/v1/feature-flags`;
     const token = mintEdgeRelayToken();
