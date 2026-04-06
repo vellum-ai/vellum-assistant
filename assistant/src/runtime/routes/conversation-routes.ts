@@ -643,7 +643,9 @@ function isToolResultType(type: string): boolean {
 function isSystemNoticeText(block: Record<string, unknown>): boolean {
   if (block.type !== "text") return false;
   const text = typeof block.text === "string" ? block.text : "";
-  return text.startsWith("<system_notice>") && text.endsWith("</system_notice>");
+  return (
+    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+  );
 }
 
 /**
@@ -1115,7 +1117,7 @@ export async function handleSendMessage(
   // channels, headless) fall back to local execution.
   // Set the proxy BEFORE updateClient so updateClient's call to
   // hostBashProxy.updateSender targets the correct (new) proxy.
-  if (sourceInterface === "macos" || sourceInterface === "ios") {
+  if (sourceInterface === "macos") {
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
@@ -1152,9 +1154,7 @@ export async function handleSendMessage(
   // When proxies are preserved during an active turn (non-desktop request while
   // processing), skip updating proxy senders to avoid degrading them.
   const preservingProxies =
-    conversation.isProcessing() &&
-    sourceInterface !== "macos" &&
-    sourceInterface !== "ios";
+    conversation.isProcessing() && sourceInterface !== "macos";
   conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
