@@ -76,8 +76,8 @@ private final class VTooltipCoordinator {
 /// - Never steals clicks or interferes with hover/button states
 /// - Works on any view: `VButton`, `Text`, `Image`, `HStack`, etc.
 /// - Only one tooltip is visible at a time (coordinator-managed singleton)
-/// - Won't show if the source view is clipped to zero size (e.g., sidebar
-///   hidden behind the settings panel)
+/// - Won't show if the source view or any ancestor is hidden, fully
+///   transparent, or zero-sized (e.g., sidebar behind the settings panel)
 ///
 /// Usage:
 /// ```swift
@@ -128,8 +128,8 @@ private struct VTooltipTracker: NSViewRepresentable {
 ///
 /// Coordinates with `VTooltipCoordinator` so only one tooltip is visible
 /// at a time. Before showing, checks `isEffectivelyVisible` to suppress
-/// tooltips for views that are clipped to zero size (e.g., sidebar hidden
-/// behind the settings panel).
+/// tooltips for views that are hidden, fully transparent, or inside a
+/// zero-sized ancestor (e.g., sidebar behind the settings panel).
 private final class VTooltipTrackerView: NSView {
     var tooltipText: String = ""
     var tooltipEdge: Edge = .top
@@ -261,16 +261,34 @@ private final class VTooltipTrackerView: NSView {
 
     /// Whether this view is actually visible and reachable by the user.
     ///
-    /// `NSTrackingArea` fires `mouseEntered` even when the view is clipped
-    /// to zero size (e.g., sidebar set to `width: 0` + `.clipped()` when
-    /// the settings panel opens). `visibleRect` becomes empty because the
-    /// clipping ancestor's bounds exclude us, so we use it as a guard.
+    /// `NSTrackingArea` fires `mouseEntered` even when the view is hidden
+    /// behind another layer. SwiftUI's `.clipped()` uses CALayer masking
+    /// which does NOT affect `NSView.visibleRect`, so we cannot rely on
+    /// `visibleRect.isEmpty` alone. Instead, we walk the superview chain
+    /// checking for concrete AppKit properties that SwiftUI DOES set on
+    /// backing NSViews:
+    ///
+    /// - **`alphaValue < 0.01`** — catches SwiftUI's `.opacity(0)` which
+    ///   is applied to the sidebar when the settings panel opens.
+    /// - **`isHidden`** — catches any ancestor marked hidden.
+    /// - **`frame.width < 1` or `frame.height < 1`** — catches SwiftUI's
+    ///   `.frame(width: 0)` which shrinks the sidebar container to zero.
     ///
     /// Runs once per tooltip show attempt (after the 0.2 s delay fires),
-    /// not per mouse-move.
+    /// not per mouse-move. The walk is O(depth-of-view-tree), typically
+    /// 20–50 views.
     private var isEffectivelyVisible: Bool {
-        // The view is clipped to nothing (zero-width sidebar, off-screen, etc.)
-        !visibleRect.isEmpty
+        var current: NSView? = self
+        while let view = current {
+            if view.isHidden || view.alphaValue < 0.01 {
+                return false
+            }
+            if view.frame.width < 1 || view.frame.height < 1 {
+                return false
+            }
+            current = view.superview
+        }
+        return true
     }
 
     private func showTooltip() {
