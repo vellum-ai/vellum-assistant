@@ -45,13 +45,6 @@ struct AnimatedImageView: View {
         return cache
     }()
 
-    // MARK: - Cached workspace directory
-
-    /// Cached workspace directory to avoid synchronous lockfile reads per image.
-    /// Re-resolves when the connected assistant ID changes or after a transient miss.
-    @MainActor private static var cachedWorkspaceDir: String?
-    @MainActor private static var cachedAssistantId: String?
-
     /// Maximum display dimension in points (matches text bubble maxWidth).
     private let maxDimension: CGFloat = VSpacing.chatBubbleMaxWidth
 
@@ -103,47 +96,41 @@ struct AnimatedImageView: View {
         return CGSize(width: size.width * scale, height: size.height * scale)
     }
 
-    /// Resolves the cache key for the given URL string. For workspace-relative paths,
-    /// this includes the resolved absolute path so different assistants don't collide.
-    private func resolveCacheKey() -> (key: NSString, fileURL: URL?)  {
+    /// Resolves the cache key and source type for the given URL string.
+    ///
+    /// Returns a tuple of:
+    /// - `key`: cache key string (includes assistant ID for workspace paths to avoid cross-assistant collisions)
+    /// - `fileURL`: non-nil for absolute local paths (read from disk)
+    /// - `workspacePath`: non-nil for workspace-relative paths (fetched via gateway API)
+    ///
+    /// When both `fileURL` and `workspacePath` are nil the URL is treated as a remote HTTP(S) resource.
+    private func resolveCacheKey() -> (key: NSString, fileURL: URL?, workspacePath: String?) {
         // Absolute local paths — already unique.
         if urlString.hasPrefix("/") || urlString.hasPrefix("file://") {
             let fileURL = urlString.hasPrefix("file://")
                 ? URL(string: urlString)
                 : URL(fileURLWithPath: urlString)
-            return (urlString as NSString, fileURL)
+            return (urlString as NSString, fileURL, nil)
         }
 
-        // Relative workspace paths — resolve to absolute to avoid cross-assistant collisions.
+        // Relative workspace paths — fetch via gateway, keyed by assistant ID to avoid collisions.
         if !urlString.contains("://") {
-            let currentAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            if Self.cachedWorkspaceDir == nil || currentAssistantId != Self.cachedAssistantId {
-                Self.cachedAssistantId = currentAssistantId
-                Self.cachedWorkspaceDir = nil
-                if let assistantId = currentAssistantId,
-                   let assistant = LockfileAssistant.loadByName(assistantId),
-                   let resolved = assistant.workspaceDir {
-                    Self.cachedWorkspaceDir = resolved
-                }
-            }
-            let workspaceDir = Self.cachedWorkspaceDir ?? (NSHomeDirectory() + "/.vellum/workspace")
-            let absolutePath = workspaceDir + "/" + urlString
-            let fileURL = URL(fileURLWithPath: absolutePath)
-            return (absolutePath as NSString, fileURL)
+            let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
+            let cacheKey = "workspace://\(assistantId)/\(urlString)"
+            return (cacheKey as NSString, nil, urlString)
         }
 
         // Remote URLs — use as-is.
-        return (urlString as NSString, nil)
+        return (urlString as NSString, nil, nil)
     }
 
     private func loadImage() async {
         isLoading = true
         defer { isLoading = false }
 
-        let (cacheKey, localFileURL) = resolveCacheKey()
+        let (cacheKey, localFileURL, workspacePath) = resolveCacheKey()
 
-        // Local file paths (absolute or workspace-relative, already resolved).
-        // Move file I/O (mtime check + data read) off main thread via detached task.
+        // Absolute local file paths — read from disk off main thread.
         if let fileURL = localFileURL {
             // Phase 1: resolve mtime-aware cache key off main thread.
             let cacheKeyString = cacheKey as String
@@ -174,6 +161,35 @@ struct AnimatedImageView: View {
             loadedImage = fileData.flatMap { NSImage(data: $0) }
             if let data = fileData { isGIF = isAnimatedGIF(data) }
             cacheLoadedImage(forKey: effectiveKey)
+            return
+        }
+
+        // Workspace-relative paths — fetch via gateway API.
+        if let workspacePath {
+            let effectiveKey = cacheKey
+            if let entry = Self.cache.object(forKey: effectiveKey) {
+                self.loadedImage = entry.image
+                self.imageData = entry.gifData
+                self.isGIF = entry.gifData != nil
+                return
+            }
+
+            do {
+                let data = try await WorkspaceClient().fetchWorkspaceFileContent(
+                    path: workspacePath, showHidden: false
+                )
+                guard !Task.isCancelled else { return }
+                self.imageData = data
+                self.loadedImage = NSImage(data: data)
+                self.isGIF = isAnimatedGIF(data)
+                cacheLoadedImage(forKey: effectiveKey)
+            } catch {
+                // Clear any stale image state so the placeholder shows instead of
+                // an unrelated image that was previously rendered by this view.
+                self.loadedImage = nil
+                self.imageData = nil
+                self.isGIF = false
+            }
             return
         }
 
