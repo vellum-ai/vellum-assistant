@@ -77,14 +77,18 @@ extension MessageListView {
         }
 
         // --- Push-to-top overflow detection ---
-        // Only clear push-to-top if the pin request succeeds.
-        // When the user has detached from bottom, pinToBottom returns
-        // false. Clearing pushToTopMessageId without a successful pin
-        // removes the tail spacer without the accompanying scroll
-        // adjustment, causing a content-height discontinuity that
-        // makes the scroll position jump.
-        if scrollState.mode.pushToTopMessageId != nil && distanceFromBottom > 50 {
+        // Exit push-to-top when the user manually scrolls down past
+        // the push-to-top zone. Gated on user-initiated scroll phases
+        // (.interacting / .decelerating) so the programmatic animation
+        // that positions the message at .top doesn't immediately
+        // trigger overflow (distanceFromBottom is large during that
+        // animation, which would undo the push-to-top instantly).
+        // The onScrollPhaseChange handler separately covers the case
+        // where the user scrolls to the bottom and the phase settles.
+        if scrollState.mode.pushToTopMessageId != nil && distanceFromBottom > 50
+            && (scrollState.scrollPhase == .interacting || scrollState.scrollPhase == .decelerating) {
             scrollState.handlePushToTopOverflow()
+            scrollPosition = ScrollPosition(edge: .bottom)
         }
 
         // --- Pagination trigger ---
@@ -202,20 +206,30 @@ extension MessageListView {
         }
     }
 
-    /// Configures scroll action closures on the scroll state so it can
-    /// perform programmatic scrolls via the view-owned ScrollPosition.
-    func configureScrollCallbacks() {
-        let binding = $scrollPosition
+    /// Configures scroll action closures on the scroll state.
+    /// Uses `ScrollViewReader`'s proxy for `scrollTo` — the newer
+    /// `ScrollPosition.scrollTo(id:anchor:)` has known reliability
+    /// issues with `LazyVStack` on macOS 15 where programmatic
+    /// scrolls silently fail. `ScrollViewProxy.scrollTo` (available
+    /// since macOS 11) is the battle-tested alternative.
+    /// Ref: https://developer.apple.com/documentation/swiftui/scrollviewproxy
+    func configureScrollCallbacks(proxy: ScrollViewProxy) {
         scrollState.scrollTo = { id, anchor in
             if let stringId = id as? String {
-                binding.wrappedValue.scrollTo(id: stringId, anchor: anchor)
+                proxy.scrollTo(stringId, anchor: anchor)
             } else if let uuidId = id as? UUID {
-                binding.wrappedValue.scrollTo(id: uuidId, anchor: anchor)
+                proxy.scrollTo(uuidId, anchor: anchor)
             }
         }
+        let binding = $scrollPosition
         scrollState.scrollToEdge = { edge in
             binding.wrappedValue.scrollTo(edge: edge)
         }
-        scrollState.currentConversationId = conversationId
+        scrollState.clearScrollPositionBinding = {
+            binding.wrappedValue = ScrollPosition()
+        }
+        // NOTE: currentConversationId is intentionally NOT set here.
+        // It is set in handleAppear() AFTER the conversation-switch check,
+        // because child onAppear fires before parent onAppear in SwiftUI.
     }
 }

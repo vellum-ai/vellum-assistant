@@ -3,6 +3,8 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListScrollState")
+
 // MARK: - ScrollMode
 
 /// Explicit scroll behavior mode. Every scroll decision flows through the
@@ -300,12 +302,23 @@ final class MessageListScrollState {
     // MARK: - Scroll Action Closures
 
     /// Closure that performs a programmatic scroll to the given item ID and
-    /// anchor point. Set once during view configuration and captures the
-    /// view-owned `ScrollPosition` binding.
+    /// anchor point. Set once during view configuration. Uses
+    /// `ScrollViewReader`'s proxy for reliable scrolling in `LazyVStack`
+    /// (the newer `ScrollPosition.scrollTo` has known issues with lazy
+    /// content on macOS 15).
     @ObservationIgnored var scrollTo: ((_ id: any Hashable, _ anchor: UnitPoint?) -> Void)?
 
     /// Closure that scrolls to a given edge (e.g. `.bottom`).
     @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
+
+    /// Closure that clears the stale `ScrollPosition` binding after a
+    /// push-to-top proxy scroll. Without this, the binding remains
+    /// `ScrollPosition(edge: .bottom)` from the last conversation switch,
+    /// causing SwiftUI to keep the bottom in view as the assistant streams.
+    /// Uses `ScrollPosition()` (empty) rather than `ScrollPosition(id:anchor:)`
+    /// because the latter attempts its own scroll-to-item which silently
+    /// fails with LazyVStack, competing with the proxy scroll.
+    @ObservationIgnored var clearScrollPositionBinding: (() -> Void)?
 
     // MARK: - Circuit Breaker
 
@@ -458,6 +471,7 @@ final class MessageListScrollState {
     /// (via `TailSpacerView.onAppear`) or immediately if already showing
     /// (via `syncUISnapshots`).
     func enterPushToTop(messageId: UUID) {
+        log.debug("[push-to-top] enterPushToTop: messageId=\(messageId), showTailSpacer will be=\(ScrollMode.pushToTop(messageId: messageId).showsTailSpacer), scrollTo closure set=\(self.scrollTo != nil)")
         transition(to: .pushToTop(messageId: messageId))
         pendingPushToTopTarget = messageId
         syncUIImmediately()
@@ -471,16 +485,23 @@ final class MessageListScrollState {
         guard let targetId = pendingPushToTopTarget,
               mode.pushToTopMessageId != nil else { return }
         pendingPushToTopTarget = nil
+        log.debug("[push-to-top] consumePendingPushToTop: scrolling to \(targetId) anchor=.top")
         withAnimation(VAnimation.fast) {
             performScrollTo(targetId, anchor: .top)
         }
+        // Clear the stale ScrollPosition binding so SwiftUI doesn't
+        // fight the proxy scroll during streaming content growth.
+        clearScrollPositionBinding?()
     }
 
     /// Exits push-to-top and transitions to followingBottom with a
-    /// bottom-pin scroll.
+    /// bottom-pin scroll. Synchronously removes the tail spacer before
+    /// scrolling so the scroll target reflects the actual content bottom
+    /// (without the viewport-height spacer).
     func exitPushToTop(animated: Bool = true) {
         let wasPushToTop = mode.pushToTopMessageId != nil
         transition(to: .followingBottom)
+        syncUIImmediately()
         if wasPushToTop {
             executeScrollToBottom(animated: animated)
         }
@@ -596,8 +617,16 @@ final class MessageListScrollState {
     /// Handles the user arriving at the bottom of the scroll view.
     func handleReachedBottom() {
         switch mode {
-        case .freeBrowsing, .pushToTop, .initialLoad, .programmaticScroll:
+        case .freeBrowsing, .initialLoad, .programmaticScroll:
             transition(to: .followingBottom)
+        case .pushToTop:
+            // Push-to-top exits only via exitPushToTop (streaming ends
+            // or user manually scrolls to bottom). The effective-content
+            // bottom detection fires during push-to-top because the tail
+            // spacer is excluded from effectiveContentHeight, making the
+            // user's message appear near the bottom — but that's expected,
+            // not a reason to leave push-to-top mode.
+            break
         case .stabilizing:
             break
         case .followingBottom:

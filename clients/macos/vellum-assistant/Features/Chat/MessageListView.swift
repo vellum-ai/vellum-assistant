@@ -94,8 +94,8 @@ struct MessageListView: View {
     @State var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
-    /// Native SwiftUI scroll position struct (macOS 15+). Replaces
-    /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
+    /// Native SwiftUI scroll position struct (macOS 15+). Used alongside
+    /// `ScrollViewReader` for the hybrid scroll approach (see AGENTS.md).
     @State var scrollPosition = ScrollPosition()
 
     // MARK: - Body
@@ -105,7 +105,12 @@ struct MessageListView: View {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
         #endif
             ScrollView {
-                scrollViewContent
+                ScrollViewReader { proxy in
+                    scrollViewContent
+                        .onAppear {
+                            configureScrollCallbacks(proxy: proxy)
+                        }
+                }
             }
             .id(conversationId)
             .scrollContentBackground(.hidden)
@@ -129,6 +134,7 @@ struct MessageListView: View {
                     if oldPhase == .interacting || oldPhase == .decelerating,
                        scrollState.mode.pushToTopMessageId != nil {
                         scrollState.exitPushToTop(animated: false)
+                        scrollPosition = ScrollPosition(edge: .bottom)
                     }
                     scrollState.handleReachedBottom()
                 }

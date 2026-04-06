@@ -14,19 +14,25 @@ extension MessageListView {
         // .id(conversationId) on the ScrollView destroys and recreates it on
         // conversation switch, firing onAppear for the new view. Detect the
         // switch by comparing against the last-known conversation ID.
-        // Must check BEFORE configureScrollCallbacks() which updates
-        // currentConversationId.
         //
         // Skip when currentConversationId is nil (true first mount) — reset()
         // on freshly-initialized state is redundant and its 300ms scroll-
         // indicator-hide task would cause a visual flicker on app launch.
+        //
+        // Scroll callbacks (proxy closures) are configured by the
+        // ScrollViewReader's inner onAppear. currentConversationId is set
+        // below, AFTER the switch check, because child onAppear fires first.
         let previousConversationId = scrollState.currentConversationId
         let isConversationSwitch = previousConversationId != nil
             && previousConversationId != conversationId
-        configureScrollCallbacks()
         if isConversationSwitch {
             handleConversationSwitched()
         }
+        // Update currentConversationId AFTER the switch check.
+        // configureScrollCallbacks (inner onAppear) intentionally does NOT
+        // set this because child onAppear fires before parent onAppear,
+        // which would make isConversationSwitch always false.
+        scrollState.currentConversationId = conversationId
         // Seed the confirmation marker so a conversation already paused in
         // awaiting_confirmation at launch or reconnect is correctly tracked.
         if !isSending {
@@ -37,7 +43,14 @@ extension MessageListView {
             // scroll to it immediately instead of falling through to bottom.
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
-            $scrollPosition.wrappedValue.scrollTo(id: id, anchor: .center)
+            // Use proxy if available; fall back to ScrollPosition for the
+            // rare case where handleAppear fires before the inner onAppear
+            // that configures the proxy (both onAppear calls race in practice).
+            if scrollState.scrollTo != nil {
+                scrollState.performScrollTo(id, anchor: .center)
+            } else {
+                $scrollPosition.wrappedValue.scrollTo(id: id, anchor: .center)
+            }
             flashHighlight(messageId: id)
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
@@ -111,6 +124,9 @@ extension MessageListView {
             // sees the complete response.
             if scrollState.mode.pushToTopMessageId != nil {
                 scrollState.exitPushToTop(animated: true)
+                // Reset the binding so SwiftUI stops anchoring to
+                // the push-to-top message and follows the bottom.
+                scrollPosition = ScrollPosition(edge: .bottom)
             }
             // First-message detection.
             if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
