@@ -39,6 +39,15 @@ struct IOSConversation: Identifiable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
+    /// Whether this conversation is automated (schedule, background) and should never
+    /// show unread indicators. Per Apple HIG, badges and unread indicators should only
+    /// reflect content requiring user attention — system-generated messages do not qualify.
+    var shouldSuppressUnreadIndicator: Bool {
+        if isScheduleConversation { return true }
+        guard let groupId else { return false }
+        return groupId == ConversationGroup.background.id
+    }
+
     init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, groupId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
@@ -246,8 +255,9 @@ class IOSConversationStore: ObservableObject {
         conversation.isPinned = item.isPinned ?? false
         conversation.displayOrder = item.displayOrder.map { Int($0) }
         conversation.groupId = item.groupId
+        let serverUnseen = item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
         conversation.hasUnseenLatestAssistantMessage =
-            item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+            conversation.shouldSuppressUnreadIndicator ? false : serverUnseen
         conversation.latestAssistantMessageAt = assistantTimestamp(
             item.assistantAttention?.latestAssistantMessageAt
         )
@@ -280,7 +290,8 @@ class IOSConversationStore: ObservableObject {
             conversation.isPinned = restored.isPinned
             conversation.displayOrder = restored.displayOrder
         }
-        conversation.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
+        conversation.hasUnseenLatestAssistantMessage =
+            conversation.shouldSuppressUnreadIndicator ? false : restored.hasUnseenLatestAssistantMessage
         conversation.latestAssistantMessageAt = restored.latestAssistantMessageAt
         conversation.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
         applyPendingAttentionOverride(to: &conversation)

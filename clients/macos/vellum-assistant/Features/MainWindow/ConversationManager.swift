@@ -1135,7 +1135,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversation.lastInteractedAt = Date()
 
         if localId != selectionStore.activeConversationId {
-            conversation.hasUnseenLatestAssistantMessage = true
+            if !conversation.shouldSuppressUnreadIndicator {
+                conversation.hasUnseenLatestAssistantMessage = true
+            }
             conversation.latestAssistantMessageAt = Date()
             listStore.pendingSeenConversationIds.removeAll { $0 == daemonConversationId }
         }
@@ -1319,7 +1321,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             if isNewMessage || streamingJustCompleted {
                 shouldEmitSeenSignal = true
             }
-        } else if !conversation.hasUnseenLatestAssistantMessage {
+        } else if !conversation.hasUnseenLatestAssistantMessage && !conversation.shouldSuppressUnreadIndicator {
             conversation.hasUnseenLatestAssistantMessage = true
         }
         listStore.conversations[index] = conversation
