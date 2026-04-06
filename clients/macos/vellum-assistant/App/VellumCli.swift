@@ -1030,6 +1030,25 @@ final class VellumCli {
 
         log.info("[audit] CLI invoke: \(commandName, privacy: .public) args=\(args.dropFirst().joined(separator: " "), privacy: .public)")
 
+        // Resolve provider API keys from the daemon's secret store BEFORE
+        // entering the detached Task (which is @Sendable and can't await).
+        // Fetch all keys concurrently to avoid sequential 5s timeouts.
+        var env = VellumCli.makeBaseEnvironment()
+        let missingProviders = VellumCli.providerEnvVars.filter { env[$0.value] == nil }
+        let fetchedKeys = await withTaskGroup(of: (String, String?).self) { group in
+            for (provider, envVar) in missingProviders {
+                group.addTask { (envVar, await APIKeyManager.getKey(for: provider)) }
+            }
+            var results: [(String, String?)] = []
+            for await result in group { results.append(result) }
+            return results
+        }
+        for (envVar, key) in fetchedKeys {
+            if let key, !key.isEmpty {
+                env[envVar] = key
+            }
+        }
+
         let result: (stdout: String, stderr: String, status: Int32)
         do {
             result = try await Task.detached {
@@ -1042,17 +1061,6 @@ final class VellumCli {
                 proc.standardOutput = stdoutPipe
                 proc.standardError = stderrPipe
 
-                var env = VellumCli.makeBaseEnvironment()
-                // Fall back to credential storage for provider API keys
-                // when they're not in the process environment (e.g. app
-                // launched from Finder, not a terminal with env vars set).
-                for (provider, envVar) in VellumCli.providerEnvVars {
-                    if env[envVar] == nil,
-                       let storedKey = APIKeyManager.getKey(for: provider),
-                       !storedKey.isEmpty {
-                        env[envVar] = storedKey
-                    }
-                }
                 proc.environment = env
 
                 try proc.run()
