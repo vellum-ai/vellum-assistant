@@ -85,4 +85,17 @@ describe("navigate-settings-tab", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Developer");
   });
+
+  test("normalizes legacy 'Archived Conversations' alias to 'Archive'", async () => {
+    const messages: unknown[] = [];
+    const result = await run(
+      { tab: "Archived Conversations" },
+      makeContext((msg) => messages.push(msg)),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Archive");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toEqual({ type: "navigate_settings", tab: "Archive" });
+  });
 });
