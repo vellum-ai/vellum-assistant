@@ -179,7 +179,7 @@ struct SidebarConversationItem: View, Equatable {
                 .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .nativeTooltip(conversation.title)
+                .vTooltip(conversation.title)
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)

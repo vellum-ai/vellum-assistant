@@ -8,7 +8,7 @@ enum SettingsTab: String {
     case sounds = "Sounds"
     case permissionsAndPrivacy = "Permissions & Privacy"
     case billing = "Billing"
-    case archivedConversations = "Archived Conversations"
+    case archivedConversations = "Archive"
     case schedules = "Schedules"
     case developer = "Developer"
 
