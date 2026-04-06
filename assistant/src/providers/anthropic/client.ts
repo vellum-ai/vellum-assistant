@@ -826,12 +826,25 @@ export class AnthropicProvider implements Provider {
       // block of the last message when it falls after the turn-starting user
       // message (i.e. tool-use loop content). This caches the growing tail
       // cheaply without conflicting with the 1h breakpoints above.
+      // Skip thinking/redacted_thinking blocks — Anthropic doesn't allow
+      // cache_control on those types.
       if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
-          const lastBlock = lastMsg.content[lastMsg.content.length - 1];
-          if (typeof lastBlock !== "string") {
-            (lastBlock as unknown as Record<string, unknown>).cache_control = {
+          const NON_CACHEABLE_TYPES = new Set(["thinking", "redacted_thinking"]);
+          let tailBlock: (typeof lastMsg.content)[number] | undefined;
+          for (let j = lastMsg.content.length - 1; j >= 0; j--) {
+            const block = lastMsg.content[j];
+            if (
+              typeof block !== "string" &&
+              !NON_CACHEABLE_TYPES.has((block as { type: string }).type)
+            ) {
+              tailBlock = block;
+              break;
+            }
+          }
+          if (tailBlock && typeof tailBlock !== "string") {
+            (tailBlock as unknown as Record<string, unknown>).cache_control = {
               type: "ephemeral",
               ttl: "5m",
             };
