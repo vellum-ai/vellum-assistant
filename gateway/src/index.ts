@@ -63,6 +63,7 @@ import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-pr
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
 import {
   createMigrationExportProxyHandler,
+  createMigrationImportPreflightProxyHandler,
   createMigrationImportProxyHandler,
 } from "./http/routes/migration-proxy.js";
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
@@ -285,6 +286,8 @@ async function main() {
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
+  const migrationImportPreflightProxy =
+    createMigrationImportPreflightProxyHandler(config);
   const migrationImportProxy = createMigrationImportProxyHandler(config);
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
@@ -794,6 +797,13 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => migrationExportProxy(req),
+    },
+    {
+      path: "/v1/migrations/import-preflight",
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => migrationImportPreflightProxy(req),
     },
     {
       path: "/v1/migrations/import",

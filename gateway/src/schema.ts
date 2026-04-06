@@ -2950,6 +2950,31 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/migrations/import-preflight": {
+        post: {
+          summary: "Dry-run import analysis",
+          description:
+            "Proxies a migration import-preflight request to the assistant daemon. Validates a .vbundle archive and returns a report of what would change on import without modifying data. Authenticated with an edge JWT. Timeout is 120 seconds to accommodate large backups.",
+          operationId: "migrationImportPreflight",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/octet-stream": {
+                schema: { type: "string", format: "binary" },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Preflight analysis completed" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "502": { description: "Failed to reach assistant daemon" },
+            "504": { description: "Assistant daemon request timed out" },
+          },
+        },
+      },
       "/v1/migrations/import": {
         post: {
           summary: "Import workspace backup",

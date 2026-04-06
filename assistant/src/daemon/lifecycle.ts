@@ -732,124 +732,128 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Background Qdrant init failed"),
     );
 
-    registerWatcherProviders();
+    if (dbReady) {
+      registerWatcherProviders();
+    }
     registerMessagingProviders();
 
     // Register the broadcast function for the notification signal pipeline's
     // macOS adapter so it can deliver notification_intent messages to clients.
     registerBroadcastFn((msg) => server.broadcast(msg));
 
-    const scheduler = startScheduler(
-      async (conversationId, message, options) => {
-        await server.processMessage(
-          conversationId,
-          message,
-          undefined,
-          options?.trustClass
-            ? {
-                trustContext: {
-                  sourceChannel: "vellum",
-                  trustClass: options.trustClass,
-                },
-              }
-            : undefined,
-        );
-      },
-      async (schedule) => {
-        await emitNotificationSignal({
-          sourceEventName: "schedule.notify",
-          sourceChannel: "scheduler",
-          sourceContextId: schedule.id,
-          attentionHints: {
-            requiresAction: true,
-            urgency: "high",
-            isAsyncBackground: false,
-            visibleInSourceNow: false,
+    const scheduler = dbReady
+      ? startScheduler(
+          async (conversationId, message, options) => {
+            await server.processMessage(
+              conversationId,
+              message,
+              undefined,
+              options?.trustClass
+                ? {
+                    trustContext: {
+                      sourceChannel: "vellum",
+                      trustClass: options.trustClass,
+                    },
+                  }
+                : undefined,
+            );
           },
-          contextPayload: {
-            scheduleId: schedule.id,
-            label: schedule.label,
-            message: schedule.message,
+          async (schedule) => {
+            await emitNotificationSignal({
+              sourceEventName: "schedule.notify",
+              sourceChannel: "scheduler",
+              sourceContextId: schedule.id,
+              attentionHints: {
+                requiresAction: true,
+                urgency: "high",
+                isAsyncBackground: false,
+                visibleInSourceNow: false,
+              },
+              contextPayload: {
+                scheduleId: schedule.id,
+                label: schedule.label,
+                message: schedule.message,
+              },
+              routingIntent: schedule.routingIntent,
+              routingHints: schedule.routingHints,
+              conversationMetadata: {
+                groupId: "system:scheduled",
+                scheduleJobId: schedule.id,
+                source: "schedule",
+              },
+              dedupeKey: `schedule:notify:${schedule.id}:${Date.now()}`,
+              throwOnError: true,
+            });
           },
-          routingIntent: schedule.routingIntent,
-          routingHints: schedule.routingHints,
-          conversationMetadata: {
-            groupId: "system:scheduled",
-            scheduleJobId: schedule.id,
-            source: "schedule",
+          (schedule) => {
+            void emitNotificationSignal({
+              sourceEventName: "schedule.complete",
+              sourceChannel: "scheduler",
+              sourceContextId: schedule.id,
+              attentionHints: {
+                requiresAction: false,
+                urgency: "medium",
+                isAsyncBackground: true,
+                visibleInSourceNow: false,
+              },
+              contextPayload: {
+                scheduleId: schedule.id,
+                name: schedule.name,
+              },
+              conversationMetadata: {
+                groupId: "system:scheduled",
+                scheduleJobId: schedule.id,
+                source: "schedule",
+              },
+              dedupeKey: `schedule:complete:${schedule.id}:${Date.now()}`,
+            });
           },
-          dedupeKey: `schedule:notify:${schedule.id}:${Date.now()}`,
-          throwOnError: true,
-        });
-      },
-      (schedule) => {
-        void emitNotificationSignal({
-          sourceEventName: "schedule.complete",
-          sourceChannel: "scheduler",
-          sourceContextId: schedule.id,
-          attentionHints: {
-            requiresAction: false,
-            urgency: "medium",
-            isAsyncBackground: true,
-            visibleInSourceNow: false,
+          (notification) => {
+            void emitNotificationSignal({
+              sourceEventName: "watcher.notification",
+              sourceChannel: "watcher",
+              sourceContextId: `watcher-${Date.now()}`,
+              attentionHints: {
+                requiresAction: false,
+                urgency: "low",
+                isAsyncBackground: true,
+                visibleInSourceNow: false,
+              },
+              contextPayload: {
+                title: notification.title,
+                body: notification.body,
+              },
+              dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
+            });
           },
-          contextPayload: {
-            scheduleId: schedule.id,
-            name: schedule.name,
+          (params) => {
+            void emitNotificationSignal({
+              sourceEventName: "watcher.escalation",
+              sourceChannel: "watcher",
+              sourceContextId: `watcher-escalation-${Date.now()}`,
+              attentionHints: {
+                requiresAction: true,
+                urgency: "high",
+                isAsyncBackground: false,
+                visibleInSourceNow: false,
+              },
+              contextPayload: {
+                title: params.title,
+                body: params.body,
+              },
+              dedupeKey: `watcher:escalation:${crypto.randomUUID()}`,
+            });
           },
-          conversationMetadata: {
-            groupId: "system:scheduled",
-            scheduleJobId: schedule.id,
-            source: "schedule",
+          (info) => {
+            server.broadcast({
+              type: "schedule_conversation_created",
+              conversationId: info.conversationId,
+              scheduleJobId: info.scheduleJobId,
+              title: info.title,
+            });
           },
-          dedupeKey: `schedule:complete:${schedule.id}:${Date.now()}`,
-        });
-      },
-      (notification) => {
-        void emitNotificationSignal({
-          sourceEventName: "watcher.notification",
-          sourceChannel: "watcher",
-          sourceContextId: `watcher-${Date.now()}`,
-          attentionHints: {
-            requiresAction: false,
-            urgency: "low",
-            isAsyncBackground: true,
-            visibleInSourceNow: false,
-          },
-          contextPayload: {
-            title: notification.title,
-            body: notification.body,
-          },
-          dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
-        });
-      },
-      (params) => {
-        void emitNotificationSignal({
-          sourceEventName: "watcher.escalation",
-          sourceChannel: "watcher",
-          sourceContextId: `watcher-escalation-${Date.now()}`,
-          attentionHints: {
-            requiresAction: true,
-            urgency: "high",
-            isAsyncBackground: false,
-            visibleInSourceNow: false,
-          },
-          contextPayload: {
-            title: params.title,
-            body: params.body,
-          },
-          dedupeKey: `watcher:escalation:${crypto.randomUUID()}`,
-        });
-      },
-      (info) => {
-        server.broadcast({
-          type: "schedule_conversation_created",
-          conversationId: info.conversationId,
-          scheduleJobId: info.scheduleJobId,
-          title: info.title,
-        });
-      },
-    );
+        )
+      : null;
 
     // Start the runtime HTTP server. Required for iOS pairing (gateway proxies
     // to it) and optional REST API access. Defaults to port 7821.
