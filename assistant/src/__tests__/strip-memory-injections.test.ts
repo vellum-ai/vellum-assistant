@@ -156,4 +156,32 @@ describe("stripExistingMemoryInjections", () => {
     expect(result[0]).toBe(earlier);
     expect(result[2].content).toEqual([textBlock("second")]);
   });
+
+  test("does not strip user text that equals </memory_image>", () => {
+    const messages = [userMsg(textBlock("</memory_image>"))];
+    const result = stripExistingMemoryInjections(messages);
+    expect(result[0].content).toEqual([textBlock("</memory_image>")]);
+  });
+
+  test("does not strip </memory_image> after memory text block (no image context)", () => {
+    const messages = [
+      userMsg(memoryTextBlock, textBlock("</memory_image>"), textBlock("hello")),
+    ];
+    const result = stripExistingMemoryInjections(messages);
+    expect(result[0].content).toEqual([textBlock("</memory_image>"), textBlock("hello")]);
+  });
+
+  test("strips images-first then text (actual injectMemoryBlock order)", () => {
+    const messages = [
+      userMsg(
+        memoryImageMarker,
+        memoryImage,
+        memoryImageClose,
+        memoryTextBlock,
+        textBlock("hello"),
+      ),
+    ];
+    const result = stripExistingMemoryInjections(messages);
+    expect(result[0].content).toEqual([textBlock("hello")]);
+  });
 });

@@ -515,8 +515,8 @@ export class ConversationGraphMemory {
  * Remove all memory-injected blocks from the last user message.
  *
  * `injectMemoryBlock` always prepends blocks in this order:
- *   1. `<memory __injected>…</memory>` text block
- *   2. For each image: `<memory_image>…</memory_image>` text + `image` block
+ *   1. For each image: `<memory_image __injected>…` text + `image` + `</memory_image>` text (3-block group)
+ *   2. `<memory __injected>…</memory>` text block
  *
  * We strip all leading blocks that match this pattern so that
  * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
@@ -534,6 +534,7 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
   // Only strip image blocks that follow a marker — user-attached images must be preserved.
   let firstNonMemory = 0;
   let prevWasMemoryImageMarker = false;
+  let prevWasInjectedImage = false;
   const content = last.content;
   while (firstNonMemory < content.length) {
     const block = content[firstNonMemory];
@@ -543,21 +544,26 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
     ) {
       firstNonMemory++;
       prevWasMemoryImageMarker = false;
+      prevWasInjectedImage = false;
     } else if (
       block.type === "text" &&
       block.text.startsWith("<memory_image")
     ) {
       firstNonMemory++;
       prevWasMemoryImageMarker = true;
+      prevWasInjectedImage = false;
     } else if (block.type === "image" && prevWasMemoryImageMarker) {
       firstNonMemory++;
       prevWasMemoryImageMarker = false;
+      prevWasInjectedImage = true;
     } else if (
       block.type === "text" &&
-      block.text === "</memory_image>"
+      block.text === "</memory_image>" &&
+      prevWasInjectedImage
     ) {
-      // Closing tag from the 3-block pattern
+      // Closing tag from the 3-block pattern — only strip after an injected image
       firstNonMemory++;
+      prevWasInjectedImage = false;
     } else {
       break;
     }
