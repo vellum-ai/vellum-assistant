@@ -82,6 +82,7 @@ struct IdentityPanel: View {
                                         style: .ghost,
                                         size: .compact
                                     ) {
+                                        isEditingRole = false
                                         editingNameText = hasRealName ? assistantDisplayName : ""
                                         isEditingName = true
                                     }
@@ -149,6 +150,7 @@ struct IdentityPanel: View {
                                             style: .ghost,
                                             size: .compact
                                         ) {
+                                            isEditingName = false
                                             editingRoleText = role ?? ""
                                             isEditingRole = true
                                         }
