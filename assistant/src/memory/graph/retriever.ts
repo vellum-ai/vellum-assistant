@@ -177,10 +177,11 @@ async function dedupForTurn(
   candidates: ScoredNode[],
   maxNodes: number,
   query: string,
-): Promise<ScoredNode[]> {
+): Promise<{ nodes: ScoredNode[]; llmApplied: boolean }> {
   try {
     const provider = await getConfiguredProvider();
-    if (!provider) return candidates.slice(0, maxNodes);
+    if (!provider)
+      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
     const now = Date.now();
     const listing = candidates
@@ -209,10 +210,12 @@ async function dedupForTurn(
     );
 
     const toolBlock = extractToolUse(response);
-    if (!toolBlock) return candidates.slice(0, maxNodes);
+    if (!toolBlock)
+      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
     const input = toolBlock.input as { items?: number[] };
-    if (!input.items?.length) return candidates.slice(0, maxNodes);
+    if (!input.items?.length)
+      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
     const reranked: ScoredNode[] = [];
     const seen = new Set<number>();
@@ -225,14 +228,14 @@ async function dedupForTurn(
     }
 
     return reranked.length > 0
-      ? reranked.slice(0, maxNodes)
-      : candidates.slice(0, maxNodes);
+      ? { nodes: reranked.slice(0, maxNodes), llmApplied: true }
+      : { nodes: candidates.slice(0, maxNodes), llmApplied: false };
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
       "Per-turn dedup+rerank failed, using scored order",
     );
-    return candidates.slice(0, maxNodes);
+    return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
   }
 }
 
@@ -1037,19 +1040,25 @@ export async function retrieveForTurn(
     .slice(0, PRE_DEDUP_POOL);
 
   // Dedup + rerank with a fast model when the pool is large enough to warrant it
-  const injected =
-    pool.length > MAX_INJECTED
-      ? await dedupForTurn(pool, MAX_INJECTED, opts.userLastMessage)
-      : pool;
+  let injected: ScoredNode[];
+  let llmDedupApplied = false;
+  if (pool.length > MAX_INJECTED) {
+    const result = await dedupForTurn(pool, MAX_INJECTED, opts.userLastMessage);
+    injected = result.nodes;
+    llmDedupApplied = result.llmApplied;
+  } else {
+    injected = pool;
+  }
 
   // Remove procedural-reserved nodes from general set to avoid double-counting
   const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
 
   // Backfill vacated general slots from the remaining pool so we always
   // return up to MAX_INJECTED general memories when eligible candidates exist.
-  // Only backfill when LLM dedup was NOT applied — otherwise the pool contains
-  // items that dedupForTurn intentionally rejected as duplicates/irrelevant.
-  if (generalInjected.length < MAX_INJECTED && pool.length <= MAX_INJECTED) {
+  // Only skip backfill when LLM dedup genuinely ran — it intentionally rejected
+  // items as duplicates/irrelevant. When dedupForTurn fell back to a plain
+  // top-N slice (no provider, tool call failure), backfill is still appropriate.
+  if (generalInjected.length < MAX_INJECTED && !llmDedupApplied) {
     const usedIds = new Set([
       ...generalInjected.map((s) => s.node.id),
       ...proceduralIds,
