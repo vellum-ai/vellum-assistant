@@ -707,8 +707,16 @@ final class VoiceInputManager {
                 bufferSize: 1024,
                 block: tapBlock
             )
-            // Recording may have been stopped while the engine was starting
-            guard self.isRecording else { return }
+            // Recording may have been stopped while the engine was starting.
+            // If so, tear down the engine that just started to avoid leaving
+            // the mic path alive with no active recording session.
+            guard self.isRecording else {
+                if success {
+                    self.engineController.stopAndRemoveTap()
+                    log.info("Engine started after recording stopped — tore down")
+                }
+                return
+            }
             guard success else {
                 log.error("Audio engine failed to start — invalid format or engine error")
                 self.isRecording = false
