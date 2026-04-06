@@ -113,7 +113,10 @@ enum HistoryReconstructionService {
                             title: surface.title,
                             data: surface.data,
                             actions: surface.actions,
-                            surfaceRef: ref
+                            surfaceRef: ref,
+                            completionState: surf.completed == true
+                                ? SurfaceCompletionState(summary: surf.completionSummary ?? "Completed")
+                                : nil
                         )
                         inlineSurfaces.append(inlineSurface)
                     }

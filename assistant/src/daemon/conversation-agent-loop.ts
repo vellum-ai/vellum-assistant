@@ -44,6 +44,7 @@ import {
   updateConversationTitle,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
+import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
@@ -438,6 +439,7 @@ export async function runAgentLoopImpl(
           surfaceId,
           summary: "Dismissed",
         });
+        markSurfaceCompleted(ctx, surfaceId, "Dismissed");
         ctx.pendingSurfaceActions.delete(surfaceId);
       }
     }
