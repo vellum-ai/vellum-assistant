@@ -55,7 +55,7 @@ public struct ToolCallProgressBar: View {
         .onChange(of: expandedStepId) { _, newId in
             if let newId, let call = toolCalls.first(where: { $0.id == newId }),
                let result = call.result {
-                cachedResult = (stepId: newId, lineCount: VStringUtils.countLines(in: result))
+                cachedResult = (stepId: newId, lineCount: StringUtils.countLines(in: result))
             } else {
                 cachedResult = nil
             }
@@ -64,7 +64,7 @@ public struct ToolCallProgressBar: View {
             if let expandedId = expandedStepId,
                let call = toolCalls.first(where: { $0.id == expandedId }),
                let result = call.result {
-                cachedResult = (stepId: expandedId, lineCount: VStringUtils.countLines(in: result))
+                cachedResult = (stepId: expandedId, lineCount: StringUtils.countLines(in: result))
             }
         }
     }
@@ -260,7 +260,7 @@ public struct ToolCallProgressBar: View {
                         }
                     } else {
                         let lineCount = (cachedResult?.stepId == toolCall.id ? cachedResult?.lineCount : nil)
-                            ?? VStringUtils.countLines(in: result)
+                            ?? StringUtils.countLines(in: result)
                         if lineCount > 500 || result.count > 50_000 {
                             ScrollView {
                                 Text(result)
@@ -295,7 +295,7 @@ public struct ToolCallProgressBar: View {
         )
         .onAppear {
             if cachedResult == nil, let result = toolCall.result {
-                cachedResult = (stepId: toolCall.id, lineCount: VStringUtils.countLines(in: result))
+                cachedResult = (stepId: toolCall.id, lineCount: StringUtils.countLines(in: result))
             }
         }
     }

@@ -218,7 +218,7 @@ public struct ToolCallChip: View {
                                         .foregroundStyle(VColor.contentSecondary)
                                 }
                             } else {
-                                let lineCount = cachedResultLineCount ?? VStringUtils.countLines(in: result)
+                                let lineCount = cachedResultLineCount ?? StringUtils.countLines(in: result)
                                 let isLong = lineCount > 500 || result.count > 50_000
                                 if Self.isFileEditTool(toolCall.toolName) {
                                     VDiffView(result, maxHeight: isLong ? 400 : nil)
@@ -260,7 +260,7 @@ public struct ToolCallChip: View {
                     }
                     // Cache the result line count so subsequent renders are O(1).
                     if cachedResultLineCount == nil, let result = toolCall.result {
-                        cachedResultLineCount = VStringUtils.countLines(in: result)
+                        cachedResultLineCount = StringUtils.countLines(in: result)
                     }
                     // Trigger on-demand rehydration when expanding truncated content.
                     onRehydrate?()
@@ -293,7 +293,7 @@ public struct ToolCallChip: View {
                     }
                 }
                 if cachedResultLineCount == nil, let result = toolCall.result {
-                    cachedResultLineCount = VStringUtils.countLines(in: result)
+                    cachedResultLineCount = StringUtils.countLines(in: result)
                 }
             }
         }
@@ -304,7 +304,7 @@ public struct ToolCallChip: View {
         }
         .onChange(of: toolCall.result) {
             if isExpanded, let result = toolCall.result {
-                cachedResultLineCount = VStringUtils.countLines(in: result)
+                cachedResultLineCount = StringUtils.countLines(in: result)
             } else {
                 cachedResultLineCount = nil
             }

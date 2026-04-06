@@ -716,7 +716,7 @@ private struct CachedCodePreviewBlock: View {
     @State private var cachedLineCount: Int?
 
     var body: some View {
-        let lineCount = cachedLineCount ?? VStringUtils.countLines(in: content)
+        let lineCount = cachedLineCount ?? StringUtils.countLines(in: content)
         let isLong = lineCount > 500 || content.count > 50_000
         Group {
             if isLong {
@@ -747,8 +747,11 @@ private struct CachedCodePreviewBlock: View {
         )
         .onAppear {
             if cachedLineCount == nil {
-                cachedLineCount = VStringUtils.countLines(in: content)
+                cachedLineCount = StringUtils.countLines(in: content)
             }
+        }
+        .onChange(of: content) {
+            cachedLineCount = StringUtils.countLines(in: content)
         }
     }
 }
