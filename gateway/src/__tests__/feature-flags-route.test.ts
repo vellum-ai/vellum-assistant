@@ -337,6 +337,59 @@ describe("GET /v1/feature-flags handler", () => {
     expect(emailFlag.enabled).toBe(false);
   });
 
+  test("reflects updated remote file without manual cache clear (stale cache bug)", async () => {
+    // Scenario: the remote sync writes email-channel: false, the gateway
+    // caches it, then a subsequent sync writes email-channel: true to the
+    // file. The GET handler should return the updated value.
+    //
+    // This test reproduces the bug where readRemoteFeatureFlags() caches
+    // the first read and never invalidates, so a file change on disk is
+    // invisible to the GET handler until the process restarts.
+
+    // Step 1: Remote file initially has email-channel: false
+    writeFileSync(
+      remoteFeatureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: { "email-channel": false },
+      }),
+    );
+    clearRemoteFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res1 = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+    const body1 = await res1.json();
+    const emailFlag1 = body1.flags.find(
+      (f: { key: string }) => f.key === "email-channel",
+    );
+    expect(emailFlag1.enabled).toBe(false);
+
+    // Step 2: Remote file is updated externally (e.g. by the sync timer
+    // writing directly to disk, or by a separate process). Crucially we
+    // do NOT call clearRemoteFeatureFlagStoreCache() — that simulates
+    // the production scenario where nothing invalidates the cache.
+    writeFileSync(
+      remoteFeatureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: { "email-channel": true },
+      }),
+    );
+
+    // Step 3: The GET handler should reflect the updated file
+    const res2 = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+    const body2 = await res2.json();
+    const emailFlag2 = body2.flags.find(
+      (f: { key: string }) => f.key === "email-channel",
+    );
+    // BUG: without a fix, this returns false (stale cache)
+    expect(emailFlag2.enabled).toBe(true);
+  });
+
   test("registry default used when neither local nor remote is set", async () => {
     // No local override
     if (existsSync(featureFlagStorePath)) {

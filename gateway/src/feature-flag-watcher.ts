@@ -15,6 +15,10 @@ import {
   clearFeatureFlagStoreCache,
   getFeatureFlagStorePath,
 } from "./feature-flag-store.js";
+import {
+  clearRemoteFeatureFlagStoreCache,
+  getRemoteFeatureFlagStorePath,
+} from "./feature-flag-remote-store.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("feature-flag-watcher");
@@ -24,16 +28,16 @@ const DEBOUNCE_MS = 500;
 export class FeatureFlagWatcher {
   private watcher: FSWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private flagPath: string;
-  private flagFilename: string;
+  private localFlagFilename: string;
+  private remoteFlagFilename: string;
 
   constructor() {
-    this.flagPath = getFeatureFlagStorePath();
-    this.flagFilename = basename(this.flagPath);
+    this.localFlagFilename = basename(getFeatureFlagStorePath());
+    this.remoteFlagFilename = basename(getRemoteFeatureFlagStorePath());
   }
 
   start(): void {
-    const dir = dirname(this.flagPath);
+    const dir = dirname(getFeatureFlagStorePath());
 
     // Ensure the directory exists so fs.watch() doesn't throw ENOENT
     // on a fresh instance where no flags have been persisted yet.
@@ -43,10 +47,14 @@ export class FeatureFlagWatcher {
 
     try {
       this.watcher = watch(dir, { persistent: false }, (_event, filename) => {
-        if (filename && filename !== this.flagFilename) {
+        if (
+          filename &&
+          filename !== this.localFlagFilename &&
+          filename !== this.remoteFlagFilename
+        ) {
           return;
         }
-        this.scheduleInvalidation();
+        this.scheduleInvalidation(filename ?? undefined);
       });
 
       log.info({ path: dir }, "Watching for feature flag file changes");
@@ -66,14 +74,22 @@ export class FeatureFlagWatcher {
     }
   }
 
-  private scheduleInvalidation(): void {
+  private scheduleInvalidation(filename?: string): void {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      clearFeatureFlagStoreCache();
-      log.info("Feature flag cache invalidated due to file change");
+      if (!filename || filename === this.localFlagFilename) {
+        clearFeatureFlagStoreCache();
+      }
+      if (!filename || filename === this.remoteFlagFilename) {
+        clearRemoteFeatureFlagStoreCache();
+      }
+      log.info(
+        { filename },
+        "Feature flag cache invalidated due to file change",
+      );
     }, DEBOUNCE_MS);
   }
 }

@@ -52,15 +52,19 @@ export function getRemoteFeatureFlagStorePath(): string {
 // Disk I/O with caching
 // ---------------------------------------------------------------------------
 
-let cachedRemoteValues: Record<string, boolean> | null = null;
-
+/**
+ * Read remote feature flag values.
+ *
+ * Unlike the local override store, remote values are **always read fresh
+ * from disk** — the file is small and reads only happen on API calls.
+ * This avoids stale-cache bugs where the file is updated on disk (by the
+ * periodic sync or another process) but the in-memory cache still holds
+ * an old snapshot.
+ */
 export function readRemoteFeatureFlags(): Record<string, boolean> {
-  if (cachedRemoteValues != null) return cachedRemoteValues;
-
   const path = getRemoteFeatureFlagStorePath();
   if (!existsSync(path)) {
-    cachedRemoteValues = {};
-    return cachedRemoteValues;
+    return {};
   }
 
   try {
@@ -72,8 +76,7 @@ export function readRemoteFeatureFlags(): Record<string, boolean> {
         { version: data.version },
         "Unknown remote feature flag store version, returning empty values",
       );
-      cachedRemoteValues = {};
-      return cachedRemoteValues;
+      return {};
     }
 
     if (
@@ -85,15 +88,13 @@ export function readRemoteFeatureFlags(): Record<string, boolean> {
       for (const [k, v] of Object.entries(data.values)) {
         if (typeof v === "boolean") filtered[k] = v;
       }
-      cachedRemoteValues = filtered;
+      return filtered;
     } else {
-      cachedRemoteValues = {};
+      return {};
     }
-    return cachedRemoteValues;
   } catch (err) {
     log.error({ err }, "Failed to load remote feature flag store");
-    cachedRemoteValues = {};
-    return cachedRemoteValues;
+    return {};
   }
 }
 
@@ -110,10 +111,16 @@ export function writeRemoteFeatureFlags(values: Record<string, boolean>): void {
   renameSync(tmpPath, path);
   chmodSync(path, 0o600);
 
-  cachedRemoteValues = values;
   log.info({ count: Object.keys(values).length }, "Wrote remote feature flags");
 }
 
+/**
+ * No-op — retained for API compatibility.
+ *
+ * The remote store no longer caches reads (always reads fresh from disk),
+ * so there is nothing to clear. Callers (tests, watcher) can still call
+ * this without harm.
+ */
 export function clearRemoteFeatureFlagStoreCache(): void {
-  cachedRemoteValues = null;
+  // intentional no-op
 }
