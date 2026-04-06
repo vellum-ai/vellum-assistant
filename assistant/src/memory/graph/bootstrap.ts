@@ -399,10 +399,13 @@ export function migrateToolCreatedItems(): void {
        WHERE kind IN (${placeholders}) AND status = 'active'`,
       ...kinds,
     );
-  } catch {
+  } catch (err) {
     // Table may not exist (fresh install) — nothing to migrate
-    setMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT, "done");
-    return;
+    if (err instanceof Error && err.message.includes("no such table")) {
+      setMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT, "done");
+      return;
+    }
+    throw err;
   }
 
   if (rows.length === 0) {
@@ -417,10 +420,7 @@ export function migrateToolCreatedItems(): void {
     if (!prefix) continue;
 
     // Build content in the format the new tools expect
-    const content =
-      row.kind === "playbook"
-        ? `${row.subject}\n${row.statement}`
-        : `${row.subject}: ${row.statement}`;
+    const content = `${row.subject}\n${row.statement}`;
 
     // Check if already migrated (sourceKey exists in graph)
     const sourceKey = `${prefix}${row.id}`;
