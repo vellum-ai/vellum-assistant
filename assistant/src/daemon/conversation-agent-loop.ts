@@ -1115,13 +1115,13 @@ export async function runAgentLoopImpl(
       }
 
       // Re-inject runtime context and re-enter the agent loop.
-      // When compaction ran, stripInjectionsForCompaction() removes the existing
-      // NOW.md block from history, so we must re-inject the current content
-      // even if it hasn't changed since the last injection.
+      // stripInjectionsForCompaction() unconditionally removed the existing
+      // NOW.md block from ctx.messages above, so we must always re-inject
+      // the current content regardless of whether compaction actually ran.
       runMessages = applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
         pkbContext: currentPkbContent,
-        ...(midLoopCompact.compacted && { nowScratchpad: currentNowContent }),
+        nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
           : null,
@@ -1326,10 +1326,12 @@ export async function runAgentLoopImpl(
           shouldInjectWorkspace = true;
         }
 
+        // ctx.messages has been stripped (line 1206/1373) so NOW.md must
+        // always be re-injected regardless of whether compaction ran.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
-          ...(step.compactionResult?.compacted && { nowScratchpad: currentNowContent }),
+          nowScratchpad: currentNowContent,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1446,10 +1448,12 @@ export async function runAgentLoopImpl(
               shouldInjectWorkspace = true;
             }
 
+            // ctx.messages was already stripped before the convergence
+            // loop, so NOW.md must always be re-injected here.
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
               pkbContext: currentPkbContent,
-              ...(emergencyCompact.compacted && { nowScratchpad: currentNowContent }),
+              nowScratchpad: currentNowContent,
               workspaceTopLevelContext: shouldInjectWorkspace
                 ? ctx.workspaceTopLevelContext
                 : null,
@@ -1564,10 +1568,12 @@ export async function runAgentLoopImpl(
             shouldInjectWorkspace = true;
           }
 
+          // ctx.messages was already stripped before the convergence
+          // loop, so NOW.md must always be re-injected here.
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             pkbContext: currentPkbContent,
-            ...(emergencyCompact.compacted && { nowScratchpad: currentNowContent }),
+            nowScratchpad: currentNowContent,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
