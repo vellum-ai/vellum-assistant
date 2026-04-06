@@ -133,10 +133,19 @@ final class ActionExecutor {
         try keyCombo(keyCode: 9, modifiers: .maskCommand) // Cmd+V
         usleep(100_000)
 
-        // Restore clipboard after delay
+        // Restore clipboard after delay, but only if no one else has written
+        // to the pasteboard in the meantime (e.g. the user clicking "Copy").
+        // changeCount increments on every clearContents/setString cycle, so a
+        // mismatch means another writer took ownership and we must not clobber it.
+        // Reference: https://developer.apple.com/documentation/appkit/nspasteboard/changecount
         let saved = previousContents
+        let postWriteChangeCount = pasteboard.changeCount
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let pb = NSPasteboard.general
+            guard pb.changeCount == postWriteChangeCount else {
+                // Another writer (e.g. copy button) claimed the pasteboard — skip restore.
+                return
+            }
             pb.clearContents()
             if let saved = saved {
                 pb.setString(saved, forType: .string)

@@ -31,10 +31,19 @@ final class DictationTextInserter {
         usleep(50_000)
         keyUp.post(tap: .cghidEventTap)
 
-        // Restore clipboard after delay
+        // Restore clipboard after delay, but only if no one else has written
+        // to the pasteboard in the meantime (e.g. the user clicking "Copy").
+        // changeCount increments on every clearContents/setString cycle, so a
+        // mismatch means another writer took ownership and we must not clobber it.
+        // Reference: https://developer.apple.com/documentation/appkit/nspasteboard/changecount
         let itemsToRestore = savedItems
+        let postWriteChangeCount = pasteboard.changeCount
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
+            guard NSPasteboard.general.changeCount == postWriteChangeCount else {
+                // Another writer (e.g. copy button) claimed the pasteboard — skip restore.
+                return
+            }
             restorePasteboardItems(itemsToRestore, to: NSPasteboard.general)
         }
 
