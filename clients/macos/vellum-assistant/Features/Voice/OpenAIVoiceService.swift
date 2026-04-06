@@ -152,11 +152,6 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         latestTranscription = ""
         livePartialText = ""
 
-        guard let format = engineController.inputNodeFormat() else {
-            log.error("No audio input channels")
-            return false
-        }
-
         // Reuse existing SFSpeechRecognizer across turns to avoid OS resource
         // release delays that make isAvailable return false on the second turn.
         if speechRecognizer == nil {
@@ -225,8 +220,10 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             }
         }
 
-        // Install audio tap — feeds buffers to SFSpeechRecognizer + computes RMS for amplitude
-        engineController.installTap(bufferSize: 4096, format: format) { [weak self] buffer, _ in
+        // Atomically validate format, install tap, and start engine.
+        // Passes nil for format so AVAudioEngine uses its internal hardware
+        // format, preventing sampleRate mismatch crashes.
+        guard engineController.installTapAndStart(bufferSize: 4096, block: { [weak self] buffer, _ in
             guard let floatData = buffer.floatChannelData else { return }
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
@@ -269,24 +266,17 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                     self.onSilenceDetected?()
                 }
             }
-        }
-
-        // prepare() is async, start() is sync — serial queue guarantees
-        // prepare() completes before start() executes.
-        engineController.prepare()
-        do {
-            try engineController.start()
-            isRecording = true
-            lastSpeechTime = Date()
-            recordingStartTime = Date()
-            log.info("Recording started (SFSpeechRecognizer, onDevice: \(recognizer.supportsOnDeviceRecognition, privacy: .public))")
-            return true
-        } catch {
-            log.error("Failed to start audio engine: \(error.localizedDescription)")
-            engineController.removeTap()
+        }) else {
+            log.error("Failed to start audio engine for recording")
             tearDownRecognition()
             return false
         }
+
+        isRecording = true
+        lastSpeechTime = Date()
+        recordingStartTime = Date()
+        log.info("Recording started (SFSpeechRecognizer, onDevice: \(recognizer.supportsOnDeviceRecognition, privacy: .public))")
+        return true
     }
 
     /// Stop recording and return the transcription from SFSpeechRecognizer.
@@ -453,12 +443,10 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         guard !bargeInMonitorActive else { return }
         bargeInMonitorActive = true
 
-        guard let format = engineController.inputNodeFormat() else {
-            bargeInMonitorActive = false
-            return
-        }
-
-        engineController.installTap(bufferSize: 4096, format: format) { [weak self] buffer, _ in
+        // Atomically validate format, install tap, and start engine.
+        // Passes nil for format so AVAudioEngine uses its internal hardware
+        // format, preventing sampleRate mismatch crashes.
+        if engineController.installTapAndStart(bufferSize: 4096, block: { [weak self] buffer, _ in
             guard let floatData = buffer.floatChannelData else { return }
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
@@ -479,9 +467,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                     self.onBargeInDetected?()
                 }
             }
-        }
-
-        if engineController.prepareAndStart() {
+        }) {
             log.info("Barge-in monitor started")
         } else {
             log.error("Failed to start barge-in monitor")
