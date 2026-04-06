@@ -861,12 +861,15 @@ export class AnthropicProvider implements Provider {
       // benefits more from caching.
       const hasTailBreakpoint =
         turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1;
+      const hasToolCacheBreakpoint =
+        params.tools?.some(
+          (t) => "cache_control" in t && t.cache_control != null,
+        ) ?? false;
       if (
         hasTailBreakpoint &&
         Array.isArray(params.system) &&
         params.system.length === 2 &&
-        params.tools &&
-        params.tools.length > 0
+        hasToolCacheBreakpoint
       ) {
         delete (params.system[0] as unknown as Record<string, unknown>).cache_control;
       }
