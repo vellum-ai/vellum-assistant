@@ -280,6 +280,7 @@ struct ChatView: View {
                         onSelectStarter: { starter in viewModel.inputText = starter.prompt },
                         onFetchConversationStarters: { viewModel.fetchConversationStarters() }
                     )
+                    .id(conversationId)
                 }
             } else {
                 activeConversationContent
