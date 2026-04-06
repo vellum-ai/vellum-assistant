@@ -115,6 +115,14 @@ export function writeRemoteFeatureFlags(values: Record<string, boolean>): void {
 }
 
 /**
+ * Clear the in-memory cache so the next `readRemoteFeatureFlags()` call
+ * re-reads from disk. Useful in tests for resetting state between cases.
+ */
+export function clearRemoteFeatureFlagStoreCache(): void {
+  cachedRemoteValues = null;
+}
+
+/**
  * Re-read the remote feature flag file from disk into the in-memory cache.
  *
  * Called by the file watcher when `feature-flags-remote.json` changes on

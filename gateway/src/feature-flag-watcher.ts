@@ -90,13 +90,10 @@ export class FeatureFlagWatcher {
       const filenames = this.pendingFilenames;
       this.pendingFilenames = new Set<string>();
 
-      // When filename is unknown (null from fs.watch), invalidate both.
-      const invalidateAll = filenames.size === 0;
-
-      if (invalidateAll || filenames.has(this.localFlagFilename)) {
+      if (filenames.has(this.localFlagFilename)) {
         clearFeatureFlagStoreCache();
       }
-      if (invalidateAll || filenames.has(this.remoteFlagFilename)) {
+      if (filenames.has(this.remoteFlagFilename)) {
         refreshRemoteFeatureFlagStoreCache();
       }
       log.info(

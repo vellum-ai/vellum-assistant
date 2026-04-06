@@ -67,7 +67,7 @@ beforeEach(() => {
   _setRegistryCandidateOverrides([defaultsPath]);
   resetFeatureFlagDefaultsCache();
   clearFeatureFlagStoreCache();
-  refreshRemoteFeatureFlagStoreCache();
+  clearRemoteFeatureFlagStoreCache();
 });
 
 afterEach(() => {
@@ -85,7 +85,7 @@ afterEach(() => {
   _setRegistryCandidateOverrides(null);
   resetFeatureFlagDefaultsCache();
   clearFeatureFlagStoreCache();
-  refreshRemoteFeatureFlagStoreCache();
+  clearRemoteFeatureFlagStoreCache();
 });
 
 const { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } =
@@ -97,7 +97,7 @@ const {
 } = await import("../feature-flag-defaults.js");
 const { clearFeatureFlagStoreCache, readPersistedFeatureFlags } =
   await import("../feature-flag-store.js");
-const { refreshRemoteFeatureFlagStoreCache } =
+const { clearRemoteFeatureFlagStoreCache, writeRemoteFeatureFlags } =
   await import("../feature-flag-remote-store.js");
 
 describe("GET /v1/feature-flags handler", () => {
@@ -272,7 +272,7 @@ describe("GET /v1/feature-flags handler", () => {
         },
       }),
     );
-    refreshRemoteFeatureFlagStoreCache();
+    clearRemoteFeatureFlagStoreCache();
 
     // No local override for email-channel
     if (existsSync(featureFlagStorePath)) {
@@ -307,7 +307,7 @@ describe("GET /v1/feature-flags handler", () => {
         },
       }),
     );
-    refreshRemoteFeatureFlagStoreCache();
+    clearRemoteFeatureFlagStoreCache();
 
     // Set local override to false
     writeFileSync(
@@ -337,21 +337,16 @@ describe("GET /v1/feature-flags handler", () => {
     expect(emailFlag.enabled).toBe(false);
   });
 
-  test("reflects updated remote file after cache refresh (stale cache regression)", async () => {
-    // Scenario: the remote sync writes email-channel: false, the gateway
-    // caches it, then a subsequent sync writes email-channel: true to the
-    // file. After the file watcher triggers refreshRemoteFeatureFlagStoreCache(),
-    // the GET handler should return the updated value.
+  test("reflects updated flags after remote sync writes new values (stale cache regression)", async () => {
+    // Scenario: the LD poller (RemoteFeatureFlagSync) writes
+    // email-channel: false, the gateway caches it, then a subsequent
+    // poll writes email-channel: true. The GET handler should return
+    // the updated value because writeRemoteFeatureFlags() updates
+    // both disk and the in-memory cache.
 
-    // Step 1: Remote file initially has email-channel: false
-    writeFileSync(
-      remoteFeatureFlagStorePath,
-      JSON.stringify({
-        version: 1,
-        values: { "email-channel": false },
-      }),
-    );
-    refreshRemoteFeatureFlagStoreCache();
+    // Step 1: First poll writes email-channel: false (simulated via
+    // writeRemoteFeatureFlags, which is what the poller calls internally).
+    writeRemoteFeatureFlags({ "email-channel": false });
 
     const handler = createFeatureFlagsGetHandler();
     const res1 = await handler(
@@ -363,21 +358,12 @@ describe("GET /v1/feature-flags handler", () => {
     );
     expect(emailFlag1.enabled).toBe(false);
 
-    // Step 2: Remote file is updated externally (e.g. by a separate
-    // process or a previous gateway instance writing to disk).
-    writeFileSync(
-      remoteFeatureFlagStorePath,
-      JSON.stringify({
-        version: 1,
-        values: { "email-channel": true },
-      }),
-    );
+    // Step 2: Second poll writes email-channel: true — the poller
+    // calls writeRemoteFeatureFlags which updates file + cache.
+    writeRemoteFeatureFlags({ "email-channel": true });
 
-    // Step 3: The file watcher detects the change and calls refresh,
-    // which re-reads the file into the cache.
-    refreshRemoteFeatureFlagStoreCache();
-
-    // Step 4: The GET handler should now reflect the updated value.
+    // Step 3: The GET handler should immediately reflect the update
+    // without needing a file-watcher round-trip.
     const res2 = await handler(
       new Request("http://gateway.test/v1/feature-flags"),
     );
@@ -399,7 +385,7 @@ describe("GET /v1/feature-flags handler", () => {
     if (existsSync(remoteFeatureFlagStorePath)) {
       rmSync(remoteFeatureFlagStorePath);
     }
-    refreshRemoteFeatureFlagStoreCache();
+    clearRemoteFeatureFlagStoreCache();
 
     const handler = createFeatureFlagsGetHandler();
     const res = await handler(
