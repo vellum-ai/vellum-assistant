@@ -1042,7 +1042,7 @@ private struct StepDetailRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.xl))
+            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(VColor.surfaceOverlay.opacity(0.6))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
