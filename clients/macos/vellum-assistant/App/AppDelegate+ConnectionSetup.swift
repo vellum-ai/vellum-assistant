@@ -166,6 +166,7 @@ extension AppDelegate {
                 refreshAppsCache()
                 refreshSkillsCache()
                 syncPrivacyConfig()
+                featureFlagStore.reloadFromGateway()
             }
         }
     }
@@ -309,6 +310,8 @@ extension AppDelegate {
                     SoundManager.shared.reloadConfig()
                 case .configChanged:
                     NotificationCenter.default.post(name: .configChanged, object: nil)
+                case .featureFlagsChanged:
+                    self.featureFlagStore.reloadFromGateway()
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
                     HostToolExecutor.executeHostBashRequest(msg)

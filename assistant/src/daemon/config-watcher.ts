@@ -119,6 +119,7 @@ export class ConfigWatcher {
     onSoundsConfigChanged?: () => void,
     onAvatarChanged?: () => void,
     onConfigChanged?: () => void,
+    onFeatureFlagsChanged?: () => void,
   ): void {
     const workspaceDir = getWorkspaceDir();
 
@@ -192,7 +193,7 @@ export class ConfigWatcher {
       this.startAvatarWatcher(onAvatarChanged);
     }
 
-    this.startFeatureFlagsWatcher();
+    this.startFeatureFlagsWatcher(onFeatureFlagsChanged);
     this.startSignalsWatcher();
     this.startSkillsWatchers(onConversationEvict);
   }
@@ -268,7 +269,7 @@ export class ConfigWatcher {
     }
   }
 
-  private startFeatureFlagsWatcher(): void {
+  private startFeatureFlagsWatcher(onFeatureFlagsChanged?: () => void): void {
     const protectedDir = process.env.GATEWAY_SECURITY_DIR
       ? process.env.GATEWAY_SECURITY_DIR
       : join(homedir(), ".vellum", "protected");
@@ -299,6 +300,7 @@ export class ConfigWatcher {
               "Feature flags file changed, invalidating cache",
             );
             clearFeatureFlagOverridesCache();
+            onFeatureFlagsChanged?.();
           },
           500,
         );
