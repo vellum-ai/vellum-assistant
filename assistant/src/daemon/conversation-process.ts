@@ -54,7 +54,8 @@ export function formatCompactResult(result: ContextWindowResult): string {
   if (!result.compacted) {
     return `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`;
   }
-  const saved = result.previousEstimatedInputTokens - result.estimatedInputTokens;
+  const saved =
+    result.previousEstimatedInputTokens - result.estimatedInputTokens;
   return [
     "Context Compacted\n",
     `Tokens:   ${fmt(result.previousEstimatedInputTokens)} → ${fmt(result.estimatedInputTokens)} (${fmt(saved)} saved)`,
@@ -295,13 +296,13 @@ export async function drainQueue(
   if (next.isInteractive === false) {
     conversation.clearProxyAvailability();
   } else {
-    // Restore proxy availability only for desktop-originating turns (macos/ios)
+    // Restore proxy availability only for desktop-originating turns (macos)
     // in case a prior non-interactive drain disabled it. Non-desktop interactive
     // interfaces (CLI, Vellum) should not re-enable desktop host proxies.
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
-    if (sourceInterface === "macos" || sourceInterface === "ios") {
+    if (sourceInterface === "macos") {
       conversation.restoreProxyAvailability();
       conversation.addPreactivatedSkillId("computer-use");
     }
@@ -310,7 +311,8 @@ export async function drainQueue(
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
   conversation.currentTurnTrustContext = conversation.trustContext;
-  conversation.currentTurnChannelCapabilities = conversation.channelCapabilities;
+  conversation.currentTurnChannelCapabilities =
+    conversation.channelCapabilities;
 
   // Resolve slash commands for queued messages
   const slashResult = await resolveSlash(
@@ -671,7 +673,8 @@ export async function processMessage(
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
   conversation.currentTurnTrustContext = conversation.trustContext;
-  conversation.currentTurnChannelCapabilities = conversation.channelCapabilities;
+  conversation.currentTurnChannelCapabilities =
+    conversation.channelCapabilities;
   conversation.currentActiveSurfaceId = activeSurfaceId;
   conversation.currentPage = currentPage;
   const trimmedContent = content.trim();
@@ -880,7 +883,9 @@ export async function processMessage(
     try {
       const pmTurnCtx = conversation.getTurnChannelContext();
       const pmInterfaceCtx = conversation.getTurnInterfaceContext();
-      const pmProvenance = provenanceFromTrustContext(conversation.trustContext);
+      const pmProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
       const pmChannelMeta = {
         ...pmProvenance,
         ...(pmTurnCtx
@@ -892,7 +897,8 @@ export async function processMessage(
         ...(pmInterfaceCtx
           ? {
               userMessageInterface: pmInterfaceCtx.userMessageInterface,
-              assistantMessageInterface: pmInterfaceCtx.assistantMessageInterface,
+              assistantMessageInterface:
+                pmInterfaceCtx.assistantMessageInterface,
             }
           : {}),
       };
