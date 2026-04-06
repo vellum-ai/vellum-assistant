@@ -221,6 +221,14 @@ struct ComposerView: View {
                 .lineLimit(2)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
+        } else if inputText.isEmpty, !placeholderText.isEmpty {
+            Text(placeholderText)
+                .font(font)
+                .foregroundStyle(Color(nsColor: .placeholderTextColor))
+                .lineSpacing(4)
+                .lineLimit(2)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 
@@ -242,7 +250,6 @@ struct ComposerView: View {
                 insertionPointColor: NSColor(VColor.primaryBase),
                 minHeight: composerActionButtonSize,
                 maxHeight: composerMaxHeight,
-                placeholder: ghostSuffix == nil ? placeholderText : "",
                 isEditable: isInteractionEnabled,
                 cmdEnterToSend: cmdEnterToSend,
                 textColorOverride: hasSlashHighlight

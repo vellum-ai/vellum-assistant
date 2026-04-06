@@ -51,7 +51,6 @@ struct ComposerTextEditor: NSViewRepresentable {
     let insertionPointColor: NSColor
     let minHeight: CGFloat
     let maxHeight: CGFloat
-    let placeholder: String
     let isEditable: Bool
     let cmdEnterToSend: Bool
     var textColorOverride: NSColor? = nil
@@ -211,8 +210,6 @@ struct ComposerTextEditor: NSViewRepresentable {
                 .foregroundColor: textColor,
             ]
         }
-
-        textView.placeholderString = placeholder
 
         textView.cmdEnterToSend = cmdEnterToSend
         textView.onSubmit = onSubmit
