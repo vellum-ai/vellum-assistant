@@ -57,6 +57,9 @@ final class SidebarInteractionState {
         let migrationKey = "sidebar.systemAllExpandedMigrated"
         if !defaults.bool(forKey: migrationKey) {
             initial.insert(ConversationGroup.all.id)
+            // Persist immediately — didSet won't fire for the initial closure
+            // assignment, so without this the next launch loads the old list.
+            defaults.set(Array(initial), forKey: "sidebar.expandedSections")
             defaults.set(true, forKey: migrationKey)
         }
 
