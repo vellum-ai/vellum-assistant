@@ -176,12 +176,26 @@ struct SidebarSectionView: View {
                             sidebar.endConversationDrag()
                             return false
                         }
+                        // Block within-Recents reorder — Recents uses recency sorting.
+                        // Compare actual conversation groupIds (not section group.id) so
+                        // cross-group moves still work when custom groups are folded into Recents.
+                        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceUUID })?.groupId
+                        if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
+                            sidebar.endConversationDrag()
+                            return false
+                        }
                         let insertAfter = sidebar.dropIndicatorAtBottom
                         let moved = conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id, insertAfterTarget: insertAfter)
                         sidebar.endConversationDrag()
                         return moved
                     } isTargeted: { isTargeted in
                         if isTargeted && conversation.id != sidebar.draggingConversationId {
+                            // Suppress drop indicator for within-Recents drags
+                            if conversation.groupId == ConversationGroup.all.id,
+                               let dragId = sidebar.draggingConversationId,
+                               conversationManager.conversations.first(where: { $0.id == dragId })?.groupId == ConversationGroup.all.id {
+                                return
+                            }
                             sidebar.dropTargetConversationId = conversation.id
                             if let dragId = sidebar.draggingConversationId {
                                 let groupConversations = conversationManager.groupedConversations
