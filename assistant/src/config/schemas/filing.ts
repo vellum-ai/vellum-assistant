@@ -6,7 +6,7 @@ export const FilingConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "filing.enabled must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
         "Whether periodic PKB filing is enabled — processes buffer.md into topic files and reviews knowledge base organization",
       ),
