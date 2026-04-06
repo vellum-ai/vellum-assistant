@@ -421,7 +421,7 @@ export async function platformImportBundle(
       "Content-Type": "application/octet-stream",
     },
     body: new Blob([bundleData]),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(300_000),
   });
 
   const body = (await response.json().catch(() => ({}))) as Record<
@@ -529,7 +529,7 @@ export async function platformImportBundleFromGcs(
       method: "POST",
       headers: await authHeaders(token, platformUrl),
       body: JSON.stringify({ bundle_key: bundleKey }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(300_000),
     },
   );
 
