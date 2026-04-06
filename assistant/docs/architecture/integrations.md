@@ -532,7 +532,7 @@ Each conversation is projected to a directory named `{isoDate}_{id}`:
 
 The disk view is updated at the daemon level, not automatically by the DB CRUD layer. Conversation creation, metadata updates, and deletion are synced from `conversation-crud.ts`, but message sync (`syncMessageToDisk`) is only called from daemon-level code paths (e.g. `conversation-messaging.ts`) — not from the CRUD `addMessage()` function. This means `messages.jsonl` reflects messages processed through the daemon's messaging pipeline, not every message write. All disk writes are best-effort; failures are logged but never thrown, so the disk view cannot break DB operations.
 
-> **Privacy note:** Conversation disk-view files live under `~/.vellum/workspace/conversations/` and are **excluded** from diagnostic log exports ("Send logs to Vellum") via the `WORKSPACE_SKIP_DIRS` filter in `log-export-routes.ts`. However, the SQLite database (`assistant.db`) is included in exports as a SQL dump, and it contains conversation messages and attachment data in its tables. The disk-view exclusion prevents the raw conversation files and decoded attachments from being exported, but conversation content stored in the database may still be present in the export.
+> **Privacy note:** Conversation disk-view files live under `~/.vellum/workspace/conversations/`. Workspace files are not included in diagnostic log exports ("Send logs to Vellum"). However, the SQLite database (`assistant.db`) is included in exports as a SQL dump, and it contains conversation messages and attachment data in its tables. Conversation content stored in the database may still be present in the export.
 
 ```mermaid
 sequenceDiagram

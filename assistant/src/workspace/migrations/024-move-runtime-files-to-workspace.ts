@@ -40,8 +40,8 @@ function getRootDir(): string {
 const FILE_MOVES: Array<{ name: string; subdir?: string }> = [
   { name: "daemon-stderr.log", subdir: "logs" },
   { name: "daemon-startup.lock" },
-  // .env stays at root — it contains secrets (API keys) and the entire
-  // workspace directory is included in diagnostic log exports.
+  // .env stays at root — it contains secrets (API keys) and should not
+  // be in the sandbox working directory.
   { name: "embed-worker.pid" },
 ];
 
