@@ -237,7 +237,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     .where(
       and(
         eq(memoryGraphNodes.scopeId, "default"),
-        like(memoryGraphNodes.sourceConversations, `%${sourceKey}%`),
+        eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
       ),
     )
     .get();
@@ -318,7 +318,7 @@ function deleteCapabilityNode(sourceKey: string): void {
     .where(
       and(
         eq(memoryGraphNodes.scopeId, "default"),
-        like(memoryGraphNodes.sourceConversations, `%${sourceKey}%`),
+        eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
       ),
     )
     .get();
