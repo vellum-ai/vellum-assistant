@@ -14,6 +14,7 @@ import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 
 const log = getLogger("conversation-queue");
 
@@ -29,6 +30,8 @@ export interface QueuedMessage {
   turnInterfaceContext?: TurnInterfaceContext;
   /** When false, the turn has no interactive user and should skip clarification prompts. */
   isInteractive?: boolean;
+  /** Transport metadata snapshot captured at enqueue time, applied when this message becomes active. */
+  transport?: ConversationTransportMetadata;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
   displayContent?: string;
   /** Wall-clock time (ms since epoch) when the message was enqueued, used as the display timestamp. */
