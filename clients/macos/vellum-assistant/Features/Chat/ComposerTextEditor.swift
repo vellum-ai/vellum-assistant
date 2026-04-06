@@ -44,7 +44,6 @@ struct ComposerTextEditor: NSViewRepresentable {
     static let textInsetY: CGFloat = 6   // textContainerInset.height
 
     @Binding var text: String
-    @Binding var measuredHeight: CGFloat
     @Binding var isFocused: Bool
 
     let font: NSFont
@@ -221,8 +220,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.onPasteImage = onPasteImage
         textView.shouldOverrideReturn = shouldOverrideReturn
         textView.onFocusChanged = { [weak coordinator = context.coordinator] focused in
-            guard let coordinator, coordinator.parent.isFocused != focused else { return }
-            coordinator.parent.isFocused = focused
+            coordinator?.scheduleFocusBindingUpdate(focused)
         }
 
         if let proxy = textReplacer {
@@ -236,11 +234,11 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.unregisterDraggedTypes()
 
         if let window = textView.window {
-            if isFocused, textView != window.firstResponder {
-                window.makeFirstResponder(textView)
-            } else if !isFocused, textView == window.firstResponder {
-                window.makeFirstResponder(nil)
-            }
+            coordinator.scheduleFirstResponderUpdate(
+                in: window,
+                textView: textView,
+                shouldFocus: isFocused
+            )
         }
 
         context.coordinator.measureHeight(textView)
@@ -269,6 +267,8 @@ struct ComposerTextEditor: NSViewRepresentable {
         var lastAppliedFont: NSFont?
         var lastAppliedLineSpacing: CGFloat?
         var lastAppliedTextColor: NSColor?
+        var pendingFocusBindingValue: Bool?
+        var pendingFirstResponderValue: Bool?
         weak var textView: ComposerTextView?
 
         init(parent: ComposerTextEditor) {
@@ -293,15 +293,11 @@ struct ComposerTextEditor: NSViewRepresentable {
             // becomeFirstResponder / resignFirstResponder callbacks.
             // This delegate fires only once editing begins (on first
             // keyDown), so it serves as a secondary sync only.
-            if !parent.isFocused {
-                parent.isFocused = true
-            }
+            scheduleFocusBindingUpdate(true)
         }
 
         func textDidEndEditing(_ notification: Notification) {
-            if parent.isFocused {
-                parent.isFocused = false
-            }
+            scheduleFocusBindingUpdate(false)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -318,13 +314,40 @@ struct ComposerTextEditor: NSViewRepresentable {
             let usedHeight = ceil(lm.usedRect(for: tc).height)
             let contentHeight = usedHeight + textView.textContainerInset.height * 2
             let clamped = max(parent.minHeight, min(contentHeight, parent.maxHeight))
-            if abs(parent.measuredHeight - clamped) > 0.5 {
-                parent.measuredHeight = clamped
-            }
             // Update the scroll view's intrinsic content size so SwiftUI
-            // sizes the NSViewRepresentable correctly.
+            // sizes the NSViewRepresentable correctly without bouncing the
+            // measured height back through SwiftUI state during view updates.
             if let scrollView = textView.enclosingScrollView as? IntrinsicScrollView {
                 scrollView.contentHeight = clamped
+            }
+        }
+
+        func scheduleFocusBindingUpdate(_ focused: Bool) {
+            pendingFocusBindingValue = focused
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.pendingFocusBindingValue == focused else { return }
+                self.pendingFocusBindingValue = nil
+                if self.parent.isFocused != focused {
+                    self.parent.isFocused = focused
+                }
+            }
+        }
+
+        func scheduleFirstResponderUpdate(
+            in window: NSWindow,
+            textView: ComposerTextView,
+            shouldFocus: Bool
+        ) {
+            pendingFirstResponderValue = shouldFocus
+            DispatchQueue.main.async { [weak self, weak window, weak textView] in
+                guard let self, self.pendingFirstResponderValue == shouldFocus else { return }
+                self.pendingFirstResponderValue = nil
+                guard let window, let textView else { return }
+                if shouldFocus, textView != window.firstResponder {
+                    window.makeFirstResponder(textView)
+                } else if !shouldFocus, textView == window.firstResponder {
+                    window.makeFirstResponder(nil)
+                }
             }
         }
     }
