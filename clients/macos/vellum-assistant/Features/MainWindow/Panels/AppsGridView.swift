@@ -116,6 +116,10 @@ struct AppsGridView: View {
             .frame(maxWidth: maxContentWidth)
             .frame(maxWidth: .infinity)
         }
+        // Inset scroll indicators away from VPageContainer's rounded clip shape
+        // so the scrollbar track doesn't get clipped at the corners.
+        // https://developer.apple.com/documentation/swiftui/view/contentmargins(_:for:)
+        .contentMargins(.vertical, VRadius.xl, for: .scrollIndicators)
     }
 
     // MARK: - Empty State
