@@ -1006,6 +1006,7 @@ async function main() {
 
   const server = Bun.serve({
     port: config.port,
+    hostname: "0.0.0.0",
     idleTimeout: 0,
     // Match the daemon's 512 MB limit (assistant/src/runtime/http-server.ts)
     // so large .vbundle imports proxied through the gateway aren't rejected.
