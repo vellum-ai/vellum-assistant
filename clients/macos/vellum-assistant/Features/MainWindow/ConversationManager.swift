@@ -486,7 +486,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     private func promoteDraft(fromUserSend: Bool) {
         guard let viewModel = selectionStore.draftViewModel else { return }
 
-        let conversation = ConversationModel(title: "Untitled")
+        let conversation = ConversationModel(title: "Untitled", groupId: ConversationGroup.all.id)
         let localId = conversation.id
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
@@ -611,7 +611,8 @@ final class ConversationManager: ConversationRestorerDelegate {
             conversationId: conversationId,
             title: title,
             source: "notification",
-            markHistoryLoaded: false
+            markHistoryLoaded: false,
+            groupId: ConversationGroup.all.id
         ) else { return }
         log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName))")
     }

@@ -32,10 +32,14 @@ struct ConversationSwitcherDrawer: View {
             }
         }
         // Merge extra conversations into the system:all entry
-        if !extraForAll.isEmpty,
-           let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
-            let existing = entries[allIndex]
-            entries[allIndex] = (existing.group, existing.conversations + extraForAll)
+        if !extraForAll.isEmpty {
+            if let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
+                let existing = entries[allIndex]
+                entries[allIndex] = (existing.group, existing.conversations + extraForAll)
+            } else {
+                // system:all absent from entries — create one so conversations aren't dropped
+                entries.append((ConversationGroup.all, extraForAll))
+            }
         }
         return entries
     }
