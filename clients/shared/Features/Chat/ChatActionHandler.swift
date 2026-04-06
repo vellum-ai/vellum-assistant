@@ -689,6 +689,7 @@ final class ChatActionHandler {
                 }
             }
             if let reconciledId {
+                vm.pendingMessageIds.removeAll { $0 == reconciledId }
                 vm.activeRequestIdToMessageId[msg.requestId] = reconciledId
             }
         }
