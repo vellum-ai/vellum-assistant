@@ -300,11 +300,19 @@ extension MessageListView {
     /// perform programmatic scrolls via the view-owned ScrollPosition.
     func configureScrollCallbacks() {
         let binding = $scrollPosition
+        // Replace the entire ScrollPosition value instead of calling the
+        // mutating `.scrollTo(id:anchor:)` method. Value replacement
+        // forces SwiftUI to process a fresh scroll command every time.
+        // The `.scrollTo()` method can be silently deduped when the
+        // position was previously set to the same ID (e.g. from a
+        // conversation switch `ScrollPosition(id: lastId, .bottom)`) —
+        // even after the user has scrolled away, the internal state may
+        // still consider itself "at" that ID.
         scrollState.scrollTo = { id, anchor in
-            if let stringId = id as? String {
-                binding.wrappedValue.scrollTo(id: stringId, anchor: anchor)
-            } else if let uuidId = id as? UUID {
-                binding.wrappedValue.scrollTo(id: uuidId, anchor: anchor)
+            if let uuidId = id as? UUID {
+                binding.wrappedValue = ScrollPosition(id: uuidId, anchor: anchor)
+            } else if let stringId = id as? String {
+                binding.wrappedValue = ScrollPosition(id: stringId, anchor: anchor)
             }
         }
         scrollState.scrollToEdge = { edge in

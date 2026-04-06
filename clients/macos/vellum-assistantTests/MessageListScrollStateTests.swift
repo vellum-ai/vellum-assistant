@@ -37,7 +37,11 @@ final class MessageListScrollStateTests: XCTestCase {
 
         let result = state.requestPinToBottom()
         XCTAssertTrue(result, "initialLoad should still allow bottom pinning")
-        XCTAssertEqual(scrollToCalls.first?.id, "scroll-bottom-anchor" as AnyHashable)
+        // When lastMessageId is nil (fresh state), executeScrollToBottom
+        // falls through to scrollToEdge(.bottom) — not scrollTo(id:).
+        XCTAssertFalse(scrollToEdgeCalls.isEmpty,
+                       "Should fall back to edge-based scroll when lastMessageId is nil")
+        XCTAssertEqual(scrollToEdgeCalls.first, .bottom)
     }
 
     func testInitialModeIsInitialLoad() {
