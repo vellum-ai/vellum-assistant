@@ -689,7 +689,7 @@ export class AnthropicProvider implements Provider {
       // — the API accepts them. No provider-side stripping needed.
 
       sentMessages = ensureToolPairing(repairOrphanedServerToolUse(formatted));
-      const { effort, speed, output_config, ...restConfig } = (config ??
+      const { effort, speed, output_config, cacheTtl: _cacheTtl, ...restConfig } = (config ??
         {}) as Record<string, unknown> & {
         effort?: Anthropic.OutputConfig["effort"];
         speed?: "standard" | "fast";
