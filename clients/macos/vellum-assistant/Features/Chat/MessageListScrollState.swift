@@ -496,6 +496,7 @@ final class MessageListScrollState {
         case .stabilizing(let prev, let activeReason):
             previousMode = prev
             if activeReason == reason {
+                activeStabilizationCount += 1
                 if reason == .expansion {
                     scheduleExpansionTimeout()
                 }
