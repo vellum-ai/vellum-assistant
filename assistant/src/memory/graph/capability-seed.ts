@@ -29,6 +29,9 @@ import { createNode } from "./store.js";
 
 const log = getLogger("graph-capability-seed");
 
+/** Default significance for capability nodes. */
+const CAPABILITY_SIGNIFICANCE = 0.6;
+
 /** Stable prefix for capability node source tracking. */
 const SKILL_SOURCE_PREFIX = "capability:skill:";
 const CLI_SOURCE_PREFIX = "capability:cli:";
@@ -234,9 +237,12 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
   if (existing) {
     if (existing.content === content && existing.fidelity !== "gone") {
       // Same content — just touch lastAccessed (and backfill lastConsolidated
-      // for nodes created before the fix so they don't decay immediately)
+      // for nodes created before the fix so they don't decay immediately,
+      // and backfill significance for nodes created before the raise to 0.6)
       const updates: Record<string, number> = { lastAccessed: now };
       if (existing.lastConsolidated === 0) updates.lastConsolidated = now;
+      if (existing.significance < CAPABILITY_SIGNIFICANCE)
+        updates.significance = CAPABILITY_SIGNIFICANCE;
       db.update(memoryGraphNodes)
         .set(updates)
         .where(eq(memoryGraphNodes.id, existing.id))
@@ -275,7 +281,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     },
     fidelity: "vivid" as const,
     confidence: 1.0,
-    significance: 0.6,
+    significance: CAPABILITY_SIGNIFICANCE,
     stability: 1000, // Effectively permanent — never decays
     reinforcementCount: 0,
     lastReinforced: now,
