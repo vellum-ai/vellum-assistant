@@ -535,8 +535,19 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
 
 const PKB_FILES = ["INDEX.md", "essentials.md", "threads.md", "buffer.md"];
 
+const PKB_NUDGE =
+  "\n\n---\n" +
+  "Your knowledge base has topic files beyond what's loaded here — " +
+  "INDEX.md is your table of contents. At the start of each conversation, " +
+  "read any topic files that might be relevant. " +
+  "Don't wait to be asked — look things up proactively. " +
+  "Use `remember` for every new fact you learn, immediately, no batching.";
+
 /**
- * Read the always-loaded PKB files (INDEX, essentials, threads, buffer).
+ * Read the always-loaded PKB files (INDEX, essentials, threads, buffer)
+ * and append a nudge encouraging the assistant to proactively read topic
+ * files and use `remember` aggressively.
+ *
  * Returns the concatenated content ready for injection, or `null` if all
  * files are missing or empty.
  */
@@ -556,7 +567,7 @@ export function readPkbContext(): string | null {
     }
   }
 
-  return parts.length > 0 ? parts.join("\n\n") : null;
+  return parts.length > 0 ? parts.join("\n\n") + PKB_NUDGE : null;
 }
 
 /**
