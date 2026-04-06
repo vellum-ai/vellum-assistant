@@ -196,6 +196,7 @@ final class AudioEngineController: @unchecked Sendable {
         }, &installError)
         guard installed else {
             log.error("installTap threw ObjC exception: \(installError?.localizedDescription ?? "unknown")")
+            inputNode.removeTap(onBus: 0)
             return false
         }
 
