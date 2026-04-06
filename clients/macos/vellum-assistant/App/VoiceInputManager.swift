@@ -82,6 +82,12 @@ final class VoiceInputManager {
     /// Guards against double-start/double-stop from rapid key events.
     private var isActivatorHeld = false
 
+    /// Monotonically increasing counter identifying the current recording
+    /// session. The async engine-start Task captures this value and checks
+    /// it after `await` — if it no longer matches, the completion belongs
+    /// to a stale session and is discarded.
+    private var recordingGeneration: UInt64 = 0
+
     /// Whether `start()` has been called (monitors are active).
     /// Used to guard against duplicate registration from deferred startup.
     private(set) var hasStarted = false
@@ -559,6 +565,7 @@ final class VoiceInputManager {
     /// instead of going through DictationTextInserter which would double-insert.
     private func captureContextAndBeginRecording() {
         beginRecording()
+        guard isRecording else { return }
         if currentMode == .dictation {
             let isVellumFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
             if !isVellumFrontmost {
@@ -650,6 +657,8 @@ final class VoiceInputManager {
         // Show recording state and play chime immediately for instant feedback.
         // The audio engine starts asynchronously below — the user hears/sees the
         // activation before the engine is ready, hiding hardware latency.
+        recordingGeneration &+= 1
+        let generation = recordingGeneration
         isRecording = true
         onRecordingStateChanged?(true)
         if currentMode == .dictation {
@@ -707,13 +716,14 @@ final class VoiceInputManager {
                 bufferSize: 1024,
                 block: tapBlock
             )
-            // Recording may have been stopped while the engine was starting.
-            // If so, tear down the engine that just started to avoid leaving
-            // the mic path alive with no active recording session.
-            guard self.isRecording else {
+            // Verify this completion belongs to the current recording session.
+            // A quick release/retry can cause session A's completion to arrive
+            // while session B is active — using the stale request would
+            // desynchronize recognitionTask/recognitionRequest ownership.
+            guard self.isRecording, self.recordingGeneration == generation else {
                 if success {
                     self.engineController.stopAndRemoveTap()
-                    log.info("Engine started after recording stopped — tore down")
+                    log.info("Engine started for stale generation \(generation) (current \(self.recordingGeneration)) — tore down")
                 }
                 return
             }
@@ -794,6 +804,7 @@ final class VoiceInputManager {
         log.info("Permissions granted — starting recording")
         prewarmEngine()
         self.beginRecording()
+        guard self.isRecording else { return }
         if self.currentMode == .dictation {
             self.currentDictationContext = DictationContextCapture.capture()
         }
