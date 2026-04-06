@@ -115,6 +115,12 @@ final class ActionExecutor {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
+        // Capture changeCount immediately after our write, before any sleep or
+        // keystroke that frees the thread for other writers. This ensures the
+        // baseline reflects only OUR write, not an intervening writer's.
+        // Reference: https://developer.apple.com/documentation/appkit/nspasteboard/changecount
+        let postWriteChangeCount = pasteboard.changeCount
+
         // Pre-injection equality check: verify the clipboard now holds exactly
         // what we queued before issuing the paste keystroke. If another process
         // wrote to the clipboard between our setString and this read-back, the
@@ -135,11 +141,7 @@ final class ActionExecutor {
 
         // Restore clipboard after delay, but only if no one else has written
         // to the pasteboard in the meantime (e.g. the user clicking "Copy").
-        // changeCount increments on every clearContents/setString cycle, so a
-        // mismatch means another writer took ownership and we must not clobber it.
-        // Reference: https://developer.apple.com/documentation/appkit/nspasteboard/changecount
         let saved = previousContents
-        let postWriteChangeCount = pasteboard.changeCount
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let pb = NSPasteboard.general
             guard pb.changeCount == postWriteChangeCount else {

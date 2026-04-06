@@ -17,6 +17,12 @@ final class DictationTextInserter {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
+        // Capture changeCount immediately after our write, before any sleep or
+        // keystroke that frees the thread for other writers. This ensures the
+        // baseline reflects only OUR write, not an intervening writer's.
+        // Reference: https://developer.apple.com/documentation/appkit/nspasteboard/changecount
+        let postWriteChangeCount = pasteboard.changeCount
+
         // Simulate Cmd+V
         let source = CGEventSource(stateID: .hidSystemState)
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true),  // 9 = V key
@@ -33,11 +39,7 @@ final class DictationTextInserter {
 
         // Restore clipboard after delay, but only if no one else has written
         // to the pasteboard in the meantime (e.g. the user clicking "Copy").
-        // changeCount increments on every clearContents/setString cycle, so a
-        // mismatch means another writer took ownership and we must not clobber it.
-        // Reference: https://developer.apple.com/documentation/appkit/nspasteboard/changecount
         let itemsToRestore = savedItems
-        let postWriteChangeCount = pasteboard.changeCount
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard NSPasteboard.general.changeCount == postWriteChangeCount else {
