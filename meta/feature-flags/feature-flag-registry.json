@@ -279,7 +279,7 @@
       "key": "teleport",
       "label": "Teleport",
       "description": "Enable teleport UI in General settings for moving assistants between hosting environments",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "permission-controls-v2",
