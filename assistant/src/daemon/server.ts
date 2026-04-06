@@ -969,7 +969,13 @@ export class DaemonServer {
       }
       this.evictor.touch(conversationId);
     } else {
-      this.applyTransportMetadata(conversation, options);
+      // Only apply transport metadata when the conversation is idle.
+      // When processing, the hints are stored on the queued message and
+      // will be applied at dequeue time — applying them here would
+      // overwrite the in-flight conversation's transportHints.
+      if (!conversation.isProcessing()) {
+        this.applyTransportMetadata(conversation, options);
+      }
       this.evictor.touch(conversationId);
     }
     return conversation;
