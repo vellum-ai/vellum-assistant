@@ -20,7 +20,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { getIsContainerized } from "./env-registry.js";
 import type { AssistantConfig } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -173,61 +172,49 @@ function loadOverridesFromFile(): Record<string, boolean> {
 }
 
 /**
- * Load override values from the gateway via synchronous HTTP call.
+ * Fetch override values from the gateway via async HTTP.
  *
- * Follows the trust-client pattern: uses `Bun.spawnSync` + `curl` to make
- * a blocking GET request to the gateway's feature-flags endpoint. The
- * gateway returns `{ flags: Array<{ key, enabled, ... }> }` and we extract
- * just the key → enabled map.
+ * Returns the gateway's merged feature flag map (persisted > remote >
+ * registry), or an empty record on any failure (network, auth, parse).
  */
-function loadOverridesFromGateway(): Record<string, boolean> {
+async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
   try {
     // Lazy-import to avoid circular dependency and keep this module
     // importable from bootstrap code when not in containerized mode.
     const { getGatewayInternalBaseUrl } =
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require("./env.js") as typeof import("./env.js");
-    const { mintEdgeRelayToken } =
+    const {
+      mintEdgeRelayToken,
+      isSigningKeyInitialized,
+      initAuthSigningKey,
+      resolveSigningKey,
+    } =
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require("../runtime/auth/token-service.js") as typeof import("../runtime/auth/token-service.js");
+
+    // CLI subprocesses don't run daemon startup, so the signing key
+    // may not be initialized yet. Initialize it now so mintEdgeRelayToken
+    // can produce a valid JWT for the gateway request.
+    if (!isSigningKeyInitialized()) {
+      initAuthSigningKey(resolveSigningKey());
+    }
 
     const url = `${getGatewayInternalBaseUrl()}/v1/feature-flags`;
     const token = mintEdgeRelayToken();
 
-    const proc = Bun.spawnSync(
-      [
-        "curl",
-        "-s",
-        "-S",
-        "-X",
-        "GET",
-        "--max-time",
-        "10",
-        "-H",
-        `Authorization: Bearer ${token}`,
-        "-H",
-        "Accept: application/json",
-        "-w",
-        "\n%{http_code}",
-        url,
-      ],
-      { stdout: "pipe", stderr: "pipe" },
-    );
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
 
-    if (proc.exitCode !== 0) return {};
+    if (!response.ok) return {};
 
-    const output = proc.stdout.toString().trim();
-    const lastNewline = output.lastIndexOf("\n");
-    const responseBody = lastNewline >= 0 ? output.slice(0, lastNewline) : "";
-    const statusCode = parseInt(
-      lastNewline >= 0 ? output.slice(lastNewline + 1) : output,
-      10,
-    );
-
-    if (statusCode < 200 || statusCode >= 300) return {};
-    if (!responseBody) return {};
-
-    const parsed = JSON.parse(responseBody) as {
+    const parsed = (await response.json()) as {
       flags?: Array<{ key: string; enabled: boolean }>;
     };
     if (!Array.isArray(parsed.flags)) return {};
@@ -245,25 +232,42 @@ function loadOverridesFromGateway(): Record<string, boolean> {
 }
 
 /**
- * Load overrides, preferring the gateway HTTP API.
+ * Pre-populate the override cache from the gateway (async).
  *
- * In containerized mode, always uses the gateway. In local mode, tries
- * the gateway first and falls back to `loadOverridesFromFile()` when
- * the gateway is not yet available (startup race).
+ * Call this once during startup (daemon or CLI entry) before any sync
+ * `isAssistantFeatureFlagEnabled` calls. In containerized mode, always
+ * uses the gateway. In local mode, falls back to the local file when
+ * the gateway is unreachable.
  *
- * Results are cached at module level.
+ * On failure, the cache is left unset so subsequent sync calls fall
+ * through to the file-based fallback rather than caching an empty map
+ * that masks all overrides for the process lifetime.
+ */
+export async function initFeatureFlagOverrides(): Promise<void> {
+  const gatewayOverrides = await fetchOverridesFromGateway();
+  if (Object.keys(gatewayOverrides).length > 0) {
+    cachedOverrides = gatewayOverrides;
+    return;
+  }
+
+  // Gateway returned empty or failed. Leave the cache unset so
+  // loadOverrides() falls through to file on the next sync read,
+  // regardless of containerized vs local mode.
+}
+
+/**
+ * Read cached overrides synchronously.
+ *
+ * If `initFeatureFlagOverrides()` was called at startup, this returns the
+ * pre-populated cache. Otherwise falls back to the local file — this
+ * ensures the resolver never blocks on a network call.
  */
 function loadOverrides(): Record<string, boolean> {
   if (cachedOverrides != null) return cachedOverrides;
 
-  const gatewayOverrides = loadOverridesFromGateway();
-  if (Object.keys(gatewayOverrides).length > 0 || getIsContainerized()) {
-    cachedOverrides = gatewayOverrides;
-    return cachedOverrides;
-  }
-
-  // Graceful fallback: in local mode, if the gateway hasn't started yet
-  // (empty response), read overrides from file as a temporary measure.
+  // Cache not yet populated (initFeatureFlagOverrides wasn't called or
+  // hasn't finished). Fall back to the local file so the resolver still
+  // works, just without gateway data.
   cachedOverrides = loadOverridesFromFile();
   return cachedOverrides;
 }

@@ -172,6 +172,14 @@ export function isSigningKeyInitialized(): boolean {
 }
 
 /**
+ * Reset the signing key to undefined. **Test-only** — used to simulate a
+ * fresh CLI subprocess where initAuthSigningKey() was never called.
+ */
+export function _resetSigningKeyForTesting(): void {
+  _authSigningKey = undefined;
+}
+
+/**
  * Returns a short hex fingerprint of the current signing key.
  * Used by assistant_status to let clients detect instance switches.
  */

@@ -1,5 +1,6 @@
 import { Command } from "commander";
 
+import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
 import { registerHooksCommand } from "../hooks/cli.js";
@@ -33,7 +34,12 @@ import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
 import { registerUsageCommand } from "./commands/usage.js";
 
-export function buildCliProgram(): Command {
+/**
+ * Build the CLI program tree. Pre-populates the feature flag cache from
+ * the gateway so flag-gated commands are registered correctly.
+ */
+export async function buildCliProgram(): Promise<Command> {
+  await initFeatureFlagOverrides();
   const program = new Command();
 
   program

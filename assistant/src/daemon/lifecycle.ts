@@ -5,6 +5,7 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
+import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
   getQdrantHttpPortEnv,
@@ -268,6 +269,15 @@ export async function runDaemon(): Promise<void> {
     // daemon restarts.
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
+
+    // Pre-populate the feature flag cache from the gateway so all
+    // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
+    // Fired non-blocking so a slow or unreachable gateway doesn't delay
+    // daemon startup (the fetch has a 10s timeout that would otherwise
+    // stall the critical path).
+    void initFeatureFlagOverrides().catch((err) =>
+      log.warn({ err }, "Background feature flag init failed"),
+    );
 
     seedInterfaceFiles();
 
@@ -690,7 +700,7 @@ export async function runDaemon(): Promise<void> {
           seedUninstalledCatalogSkillMemories,
         } = await import("../memory/graph/capability-seed.js");
         seedSkillGraphNodes();
-        seedCliGraphNodes();
+        await seedCliGraphNodes();
         void seedUninstalledCatalogSkillMemories().catch((err) =>
           log.warn(
             { err },

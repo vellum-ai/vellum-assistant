@@ -14,7 +14,7 @@ export async function runAssistantCommandFull(
   ...args: string[]
 ): Promise<AssistantCommandResult> {
   const { buildCliProgram } = await import("../program.js");
-  const program = buildCliProgram();
+  const program = await buildCliProgram();
   program.exitOverride();
 
   const stderrChunks: string[] = [];

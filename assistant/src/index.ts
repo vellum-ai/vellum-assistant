@@ -2,4 +2,4 @@
 
 import { buildCliProgram } from "./cli/program.js";
 
-buildCliProgram().parse();
+(await buildCliProgram()).parse();
