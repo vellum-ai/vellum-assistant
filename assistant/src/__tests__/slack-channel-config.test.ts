@@ -393,4 +393,123 @@ describe("Slack channel config handler", () => {
     expect(slack.botUserId).toBe("");
     expect(slack.botUsername).toBe("");
   });
+
+  // --- Extended coverage ---
+
+  test("POST with both bot + app tokens in one call → connected: true", async () => {
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          team_id: "T_DUAL",
+          team: "DualTeam",
+          user_id: "U_DUAL",
+          user: "dualbot",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig(
+      "xoxb-dual-bot-token",
+      "xapp-dual-app-token",
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasAppToken).toBe(true);
+    expect(result.connected).toBe(true);
+    expect(result.teamId).toBe("T_DUAL");
+
+    // Both tokens stored
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "bot_token")),
+    ).toBe("xoxb-dual-bot-token");
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "app_token")),
+    ).toBe("xapp-dual-app-token");
+  });
+
+  test("POST bot token only (no app token) → warning about missing app token", async () => {
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          team_id: "T_BOT",
+          team: "BotOnly",
+          user_id: "U_BOT",
+          user: "botonly",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig("xoxb-bot-only");
+
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasAppToken).toBe(false);
+    expect(result.connected).toBe(false);
+    expect(result.warning).toContain("app token is missing");
+  });
+
+  test("DELETE partial failure reports accurate per-key status", async () => {
+    // Store only bot_token (no app_token)
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+      "xoxb-partial",
+    );
+
+    const result = await clearSlackChannelConfig();
+
+    // Should succeed — deleting a non-existent key is not an error
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(false);
+    expect(result.hasAppToken).toBe(false);
+  });
+
+  test("GET backfills injection templates on existing credentials", async () => {
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+      "xoxb-inject-test",
+    );
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "app_token"),
+      "xapp-inject-test",
+    );
+    oauthConnectionStore["slack_channel"] = {
+      id: "conn-slack",
+      status: "active",
+    };
+
+    const result = await getSlackChannelConfig();
+
+    expect(result.success).toBe(true);
+    expect(result.connected).toBe(true);
+    // Verify injection templates were backfilled by checking metadata
+    const allMeta = listCredentialMetadata();
+    const botMeta = allMeta.find(
+      (m) => m.service === "slack_channel" && m.field === "bot_token",
+    );
+    expect(botMeta).toBeDefined();
+    expect(botMeta?.injectionTemplates).toBeDefined();
+    expect(botMeta!.injectionTemplates!.length).toBeGreaterThan(0);
+  });
+
+  test("POST Slack auth.test network exception → returns error", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig("xoxb-network-fail");
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Failed to validate bot token");
+  });
 });
