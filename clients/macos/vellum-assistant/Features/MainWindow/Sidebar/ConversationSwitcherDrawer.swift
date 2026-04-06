@@ -18,23 +18,25 @@ struct ConversationSwitcherDrawer: View {
     /// Tracks which sub-groups (schedule/background) are expanded in the drawer.
     @State private var expandedSubGroups: Set<String> = []
 
-    /// Group entries filtered by flags: custom groups and Background merged into ungrouped when their flags are off.
-    private var drawerEntries: [(group: ConversationGroup?, conversations: [ConversationModel])] {
+    /// Group entries filtered by flags: custom groups merged into system:all when their flag is off.
+    private var drawerEntries: [(group: ConversationGroup, conversations: [ConversationModel])] {
         let raw = conversationManager.groupedConversations
-        var entries: [(ConversationGroup?, [ConversationModel])] = []
-        var extraUngrouped: [ConversationModel] = []
+        var entries: [(ConversationGroup, [ConversationModel])] = []
+        var extraForAll: [ConversationModel] = []
         for entry in raw {
-            if let group = entry.group {
-                if !group.isSystemGroup && !customGroupsEnabled {
-                    extraUngrouped.append(contentsOf: entry.conversations)
-                } else {
-                    entries.append(entry)
-                }
+            guard let group = entry.group else { continue }
+            if !group.isSystemGroup && !customGroupsEnabled {
+                extraForAll.append(contentsOf: entry.conversations)
             } else {
-                extraUngrouped.append(contentsOf: entry.conversations)
+                entries.append((group, entry.conversations))
             }
         }
-        entries.append((nil, extraUngrouped))
+        // Merge extra conversations into the system:all entry
+        if !extraForAll.isEmpty,
+           let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
+            let existing = entries[allIndex]
+            entries[allIndex] = (existing.group, existing.conversations + extraForAll)
+        }
         return entries
     }
     /// Measured content height for size-to-fit behavior.
@@ -104,7 +106,7 @@ struct ConversationSwitcherDrawer: View {
                     let nonEmptyEntries = drawerEntries.filter { !$0.conversations.isEmpty }
                     ForEach(nonEmptyEntries.indices, id: \.self) { index in
                         let entry = nonEmptyEntries[index]
-                        let sectionId = entry.group?.id ?? "ungrouped"
+                        let sectionId = entry.group.id
                         let isExpanded = expandedSections.contains(sectionId)
 
                         if index > 0 {
@@ -113,7 +115,7 @@ struct ConversationSwitcherDrawer: View {
                         sectionContent(
                             sectionId: sectionId,
                             group: entry.group,
-                            title: entry.group?.name ?? "Conversations",
+                            title: entry.group.name,
                             conversations: entry.conversations,
                             isExpanded: isExpanded
                         )
@@ -155,7 +157,7 @@ struct ConversationSwitcherDrawer: View {
     @ViewBuilder
     private func sectionContent(
         sectionId: String,
-        group: ConversationGroup?,
+        group: ConversationGroup,
         title: String,
         conversations: [ConversationModel],
         isExpanded: Bool
@@ -173,8 +175,8 @@ struct ConversationSwitcherDrawer: View {
         .padding(.top, VSpacing.xs)
         .padding(.bottom, VSpacing.xs)
 
-        let isScheduled = group?.id == ConversationGroup.scheduled.id
-        let isBackground = group?.id == ConversationGroup.background.id
+        let isScheduled = group.id == ConversationGroup.scheduled.id
+        let isBackground = group.id == ConversationGroup.background.id
 
         if isScheduled || isBackground {
             let grouper: (ConversationModel) -> String? = isScheduled ? { $0.scheduleJobId } : { $0.source }
