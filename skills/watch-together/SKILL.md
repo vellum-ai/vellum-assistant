@@ -1,5 +1,5 @@
 ---
-name: "Watch Together"
+name: "watch-together"
 description: "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis."
 metadata:
   vellum:
