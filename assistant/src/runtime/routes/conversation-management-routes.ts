@@ -360,6 +360,7 @@ export function conversationManagementRouteDefinitions(
         );
         return Response.json({
           wiped: true,
+          unsupersededItems: 0,
           deletedSummaries: result.deletedSummaryIds.length,
           cancelledJobs: result.cancelledJobCount,
         });

@@ -135,21 +135,30 @@ public enum VFont {
     // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
 
     #if os(macOS)
+    package struct ChatMarkdownFontSet {
+        package let regular: NSFont
+        package let bold: NSFont
+        package let italic: NSFont
+        package let boldItalic: NSFont
+        package let regularIsResolved: Bool
+        package let boldIsResolved: Bool
+        package let italicIsResolved: Bool
+        package let boldItalicIsResolved: Bool
+        package let isResolved: Bool
+        package let diagnosticPostScriptNames: [String: String]
+    }
+
+    private static let dmSansFamilyName = "DM Sans"
+    @MainActor package static var typographyGeneration: Int = 0
+
+    #if DEBUG
+    package static var _chatMarkdownFontSetOverride: ((CGFloat) -> ChatMarkdownFontSet)?
+    #endif
+
     /// Creates a DM Sans `NSFont` at the given CSS weight and size.
     /// AppKit equivalent of the SwiftUI `dmSans(weight:size:)` helper.
     private static func nsDmSans(weight: Int, size: CGFloat) -> NSFont {
-        let baseName = "DMSans-Regular" as CFString
-        let baseFont = CTFontCreateWithName(baseName, size, nil)
-        let variations: [CFNumber: CFNumber] = [
-            wghtTag as CFNumber: weight as CFNumber,
-        ]
-        let variantFont = CTFontCreateCopyWithAttributes(
-            baseFont, size, nil,
-            CTFontDescriptorCreateWithAttributes([
-                kCTFontVariationAttribute: variations,
-            ] as CFDictionary)
-        )
-        return variantFont as NSFont
+        resolvedDMSansFont(weight: weight, size: size)
     }
 
     /// DM Sans 400 at 16pt — NSFont equivalent of `VFont.chat`.
@@ -177,6 +186,111 @@ public enum VFont {
     public static let nsMonoItalic: NSFont = {
         NSFontManager.shared.convert(nsMono, toHaveTrait: .italicFontMask)
     }()
+
+    @MainActor
+    package static func bumpTypographyGeneration() {
+        typographyGeneration &+= 1
+    }
+
+    package static func resolvedChatMarkdownFontSet(size: CGFloat = 16) -> ChatMarkdownFontSet {
+        #if DEBUG
+        if let override = _chatMarkdownFontSetOverride {
+            return override(size)
+        }
+        #endif
+
+        let regular = resolvedDMSansFont(weight: 400, size: size)
+        let bold = resolvedDMSansFont(weight: 700, size: size)
+        let italic = resolvedDMSansFont(weight: 400, size: size, obliqueDegrees: 12)
+        let boldItalic = resolvedDMSansFont(weight: 700, size: size, obliqueDegrees: 12)
+
+        let diagnosticPostScriptNames = [
+            "regular": postScriptName(for: regular),
+            "bold": postScriptName(for: bold),
+            "italic": postScriptName(for: italic),
+            "boldItalic": postScriptName(for: boldItalic),
+        ]
+
+        let regularIsResolved = isResolvedDMSans(regular)
+        let boldIsResolved = isResolvedDMSans(bold) && hasWeightAxis(bold, expected: 700)
+        let italicIsResolved = isResolvedDMSans(italic) && hasObliqueTransform(italic)
+        let boldItalicIsResolved =
+            isResolvedDMSans(boldItalic)
+            && hasWeightAxis(boldItalic, expected: 700)
+            && hasObliqueTransform(boldItalic)
+
+        return ChatMarkdownFontSet(
+            regular: regular,
+            bold: bold,
+            italic: italic,
+            boldItalic: boldItalic,
+            regularIsResolved: regularIsResolved,
+            boldIsResolved: boldIsResolved,
+            italicIsResolved: italicIsResolved,
+            boldItalicIsResolved: boldItalicIsResolved,
+            isResolved: regularIsResolved && boldIsResolved && italicIsResolved && boldItalicIsResolved,
+            diagnosticPostScriptNames: diagnosticPostScriptNames
+        )
+    }
+
+    package static func resolvedDMSansFont(
+        weight: Int,
+        size: CGFloat,
+        obliqueDegrees: CGFloat? = nil
+    ) -> NSFont {
+        let baseName = "DMSans-Regular" as CFString
+        let baseFont = CTFontCreateWithName(baseName, size, nil)
+        let variations: [CFNumber: CFNumber] = [
+            wghtTag as CFNumber: weight as CFNumber,
+        ]
+        let descriptor = CTFontDescriptorCreateWithAttributes([
+            kCTFontVariationAttribute: variations,
+        ] as CFDictionary)
+
+        if let obliqueDegrees {
+            var oblique = CGAffineTransform(
+                a: 1,
+                b: 0,
+                c: CGFloat(tan(obliqueDegrees * .pi / 180.0)),
+                d: 1,
+                tx: 0,
+                ty: 0
+            )
+            return CTFontCreateCopyWithAttributes(baseFont, size, &oblique, descriptor) as NSFont
+        }
+
+        return CTFontCreateCopyWithAttributes(baseFont, size, nil, descriptor) as NSFont
+    }
+
+    private static func isResolvedDMSans(_ font: NSFont) -> Bool {
+        familyName(for: font) == dmSansFamilyName
+    }
+
+    private static func familyName(for font: NSFont) -> String {
+        CTFontCopyFamilyName(font as CTFont) as String
+    }
+
+    private static func postScriptName(for font: NSFont) -> String {
+        CTFontCopyPostScriptName(font as CTFont) as String
+    }
+
+    private static func hasObliqueTransform(_ font: NSFont) -> Bool {
+        let matrix = CTFontGetMatrix(font as CTFont)
+        return abs(matrix.b) > 0.0001
+            || abs(matrix.c) > 0.0001
+            || abs(matrix.a - 1) > 0.0001
+            || abs(matrix.d - 1) > 0.0001
+            || abs(matrix.tx) > 0.0001
+            || abs(matrix.ty) > 0.0001
+    }
+
+    private static func hasWeightAxis(_ font: NSFont, expected: Int) -> Bool {
+        guard let variations = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber],
+              let value = variations[wghtTag as NSNumber] else {
+            return false
+        }
+        return abs(CGFloat(truncating: value) - CGFloat(expected)) < 0.5
+    }
     #endif
 
     // MARK: - Prewarm

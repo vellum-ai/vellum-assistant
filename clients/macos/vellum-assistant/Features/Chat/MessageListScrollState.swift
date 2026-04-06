@@ -247,15 +247,55 @@ final class MessageListScrollState {
 
     // MARK: - Layout Cache Fields
 
-    @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey?
-    @ObservationIgnored var cachedLayoutMetadata: CachedMessageLayoutMetadata?
-    @ObservationIgnored var messageListVersion: Int = 0
-    @ObservationIgnored var lastKnownRawMessageCount: Int = 0
-    @ObservationIgnored var lastKnownVisibleMessageCount: Int = 0
-    @ObservationIgnored var lastKnownLastMessageStreaming: Bool = false
-    @ObservationIgnored var lastKnownIncompleteToolCallCount: Int = 0
-    @ObservationIgnored var lastKnownVisibleIdFingerprint: Int = 0
-    @ObservationIgnored var cachedFirstVisibleMessageId: UUID?
+    /// Memoization state intentionally lives outside the observed object so
+    /// `MessageListView` can update caches during body evaluation without
+    /// tripping SwiftUI's "Modifying state during view update" runtime guard.
+    @ObservationIgnored let derivedStateCache = MessageListDerivedStateCache()
+
+    @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey? {
+        get { derivedStateCache.cachedLayoutKey }
+        set { derivedStateCache.cachedLayoutKey = newValue }
+    }
+
+    @ObservationIgnored var cachedLayoutMetadata: CachedMessageLayoutMetadata? {
+        get { derivedStateCache.cachedLayoutMetadata }
+        set { derivedStateCache.cachedLayoutMetadata = newValue }
+    }
+
+    @ObservationIgnored var messageListVersion: Int {
+        get { derivedStateCache.messageListVersion }
+        set { derivedStateCache.messageListVersion = newValue }
+    }
+
+    @ObservationIgnored var lastKnownRawMessageCount: Int {
+        get { derivedStateCache.lastKnownRawMessageCount }
+        set { derivedStateCache.lastKnownRawMessageCount = newValue }
+    }
+
+    @ObservationIgnored var lastKnownVisibleMessageCount: Int {
+        get { derivedStateCache.lastKnownVisibleMessageCount }
+        set { derivedStateCache.lastKnownVisibleMessageCount = newValue }
+    }
+
+    @ObservationIgnored var lastKnownLastMessageStreaming: Bool {
+        get { derivedStateCache.lastKnownLastMessageStreaming }
+        set { derivedStateCache.lastKnownLastMessageStreaming = newValue }
+    }
+
+    @ObservationIgnored var lastKnownIncompleteToolCallCount: Int {
+        get { derivedStateCache.lastKnownIncompleteToolCallCount }
+        set { derivedStateCache.lastKnownIncompleteToolCallCount = newValue }
+    }
+
+    @ObservationIgnored var lastKnownVisibleIdFingerprint: Int {
+        get { derivedStateCache.lastKnownVisibleIdFingerprint }
+        set { derivedStateCache.lastKnownVisibleIdFingerprint = newValue }
+    }
+
+    @ObservationIgnored var cachedFirstVisibleMessageId: UUID? {
+        get { derivedStateCache.cachedFirstVisibleMessageId }
+        set { derivedStateCache.cachedFirstVisibleMessageId = newValue }
+    }
 
     // MARK: - Scroll Action Closures
 
@@ -269,33 +309,34 @@ final class MessageListScrollState {
 
     // MARK: - Circuit Breaker
 
-    @ObservationIgnored private var bodyEvalTimestamps: [CFAbsoluteTime] = []
-    @ObservationIgnored private(set) var isThrottled = false
-    @ObservationIgnored var cachedDerivedStateBox: Any?
-    @ObservationIgnored private var throttleRecoveryTask: Task<Void, Never>?
+    @ObservationIgnored var isThrottled: Bool {
+        get { derivedStateCache.isThrottled }
+        set { derivedStateCache.isThrottled = newValue }
+    }
 
     /// Called once per MessageListView body evaluation. Trips the circuit
     /// breaker when >100 evaluations occur in 2 seconds, suppressing
     /// `scheduleUISync()` for 500ms to break the loop.
     func recordBodyEvaluation() {
+        let cache = derivedStateCache
         let now = CFAbsoluteTimeGetCurrent()
-        bodyEvalTimestamps.append(now)
+        cache.bodyEvalTimestamps.append(now)
         let cutoff = now - 2.0
-        if let firstValid = bodyEvalTimestamps.firstIndex(where: { $0 >= cutoff }) {
-            bodyEvalTimestamps.removeFirst(firstValid)
+        if let firstValid = cache.bodyEvalTimestamps.firstIndex(where: { $0 >= cutoff }) {
+            cache.bodyEvalTimestamps.removeFirst(firstValid)
         }
 
-        if bodyEvalTimestamps.count > 100 && !isThrottled {
-            isThrottled = true
+        if cache.bodyEvalTimestamps.count > 100 && !cache.isThrottled {
+            cache.isThrottled = true
             os_log(.fault, "Scroll re-evaluation loop detected: %d evals in 2s — throttling for 500ms",
-                   bodyEvalTimestamps.count)
-            throttleRecoveryTask?.cancel()
-            throttleRecoveryTask = Task { @MainActor [weak self] in
+                   cache.bodyEvalTimestamps.count)
+            cache.throttleRecoveryTask?.cancel()
+            cache.throttleRecoveryTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard let self, !Task.isCancelled else { return }
-                self.isThrottled = false
-                self.bodyEvalTimestamps.removeAll()
-                self.throttleRecoveryTask = nil
+                self.derivedStateCache.isThrottled = false
+                self.derivedStateCache.bodyEvalTimestamps.removeAll()
+                self.derivedStateCache.throttleRecoveryTask = nil
                 self.scheduleUISync()
             }
         }
@@ -308,7 +349,7 @@ final class MessageListScrollState {
     /// Debounces observed-property updates so rapid mode changes coalesce
     /// into at most one view re-evaluation per frame.
     func scheduleUISync() {
-        guard !isThrottled else { return }
+        guard !derivedStateCache.isThrottled else { return }
         uiSyncTask?.cancel()
         uiSyncTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 16_000_000)
@@ -378,6 +419,10 @@ final class MessageListScrollState {
     /// Tracks overlapping stabilization windows. Stabilization only ends
     /// when all active windows have completed, so concurrent reasons
     /// (e.g. resize during pagination) don't prematurely restore the mode.
+    /// Re-entering the same reason increments the count like any other entry.
+    /// Callers are structured so that each `beginStabilization` has a matching
+    /// `endStabilization` (cancelled task cleanup for resize, preceding
+    /// `endStabilization` in `suppressAutoScroll` for expansion).
     @ObservationIgnored private var activeStabilizationCount = 0
 
     // MARK: - Deep-Link Anchor Tracking
@@ -450,8 +495,14 @@ final class MessageListScrollState {
             previousMode = .followingBottom
         case .freeBrowsing:
             previousMode = .freeBrowsing
-        case .stabilizing(let prev, _):
+        case .stabilizing(let prev, let activeReason):
             previousMode = prev
+            if activeReason == reason {
+                if reason == .expansion {
+                    scheduleExpansionTimeout()
+                }
+                return
+            }
         case .pushToTop, .programmaticScroll:
             return
         }
@@ -460,12 +511,7 @@ final class MessageListScrollState {
         transition(to: .stabilizing(previousMode: previousMode, reason: reason))
 
         if reason == .expansion {
-            expansionTimeoutTask?.cancel()
-            expansionTimeoutTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                guard !Task.isCancelled, let self else { return }
-                self.endStabilization()
-            }
+            scheduleExpansionTimeout()
         }
     }
 
@@ -487,6 +533,15 @@ final class MessageListScrollState {
     private func cancelStabilizationTasks() {
         expansionTimeoutTask?.cancel()
         expansionTimeoutTask = nil
+    }
+
+    private func scheduleExpansionTimeout() {
+        expansionTimeoutTask?.cancel()
+        expansionTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.endStabilization()
+        }
     }
 
     // MARK: - Scroll Execution
@@ -590,18 +645,11 @@ final class MessageListScrollState {
         cancelStabilizationTasks()
         paginationTask?.cancel()
         paginationTask = nil
+        ScrollGeometryUpdateDispatcher.shared.cancel(for: self)
         if _isPaginationInFlight { _isPaginationInFlight = false }
         wasPaginationTriggerInRange = false
         lastPaginationCompletedAt = .distantPast
-        cachedLayoutKey = nil
-        cachedLayoutMetadata = nil
-        cachedDerivedStateBox = nil
-        messageListVersion = 0
-        lastKnownRawMessageCount = 0
-        lastKnownVisibleMessageCount = 0
-        lastKnownLastMessageStreaming = false
-        lastKnownIncompleteToolCallCount = 0
-        lastKnownVisibleIdFingerprint = 0
+        derivedStateCache.reset()
         currentConversationId = newConversationId
         mode = .initialLoad
         activeStabilizationCount = 0
@@ -609,10 +657,6 @@ final class MessageListScrollState {
         // False: scroll geometry hasn't updated for the new content yet.
         isAtBottom = false
         lastContentOffsetY = 0
-        throttleRecoveryTask?.cancel()
-        throttleRecoveryTask = nil
-        isThrottled = false
-        bodyEvalTimestamps.removeAll()
         scrollIndicatorRestoreTask?.cancel()
         if !_hideScrollIndicators { _hideScrollIndicators = true }
         syncUIImmediately()
@@ -634,22 +678,19 @@ final class MessageListScrollState {
         scrollRestoreTask = nil
         paginationTask?.cancel()
         paginationTask = nil
+        ScrollGeometryUpdateDispatcher.shared.cancel(for: self)
         anchorTimeoutTask?.cancel()
         anchorTimeoutTask = nil
         highlightDismissTask?.cancel()
         highlightDismissTask = nil
         scrollIndicatorRestoreTask?.cancel()
         scrollIndicatorRestoreTask = nil
-        throttleRecoveryTask?.cancel()
-        throttleRecoveryTask = nil
-        isThrottled = false
-        bodyEvalTimestamps.removeAll()
+        derivedStateCache.reset()
         if _hideScrollIndicators { _hideScrollIndicators = false }
         pendingPushToTopTarget = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         mode = .initialLoad
         activeStabilizationCount = 0
-        cachedDerivedStateBox = nil
         lastPaginationCompletedAt = .distantPast
         syncUIImmediately()
     }

@@ -407,12 +407,12 @@ describe("Memory Item Routes", () => {
         {
           id: "pt-2",
           score: 0.95,
-          payload: { target_type: "item", target_id: "i2" },
+          payload: { target_type: "graph_node", target_id: "i2" },
         },
         {
           id: "pt-1",
           score: 0.7,
-          payload: { target_type: "item", target_id: "i1" },
+          payload: { target_type: "graph_node", target_id: "i1" },
         },
       ];
 
@@ -488,17 +488,17 @@ describe("Memory Item Routes", () => {
         {
           id: "pt-1",
           score: 0.9,
-          payload: { target_type: "item", target_id: "i1" },
+          payload: { target_type: "graph_node", target_id: "i1" },
         },
         {
           id: "pt-2",
           score: 0.8,
-          payload: { target_type: "item", target_id: "i2" },
+          payload: { target_type: "graph_node", target_id: "i2" },
         },
         {
           id: "pt-3",
           score: 0.7,
-          payload: { target_type: "item", target_id: "i3" },
+          payload: { target_type: "graph_node", target_id: "i3" },
         },
       ];
 

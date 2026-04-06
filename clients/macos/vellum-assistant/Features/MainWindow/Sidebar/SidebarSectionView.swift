@@ -211,11 +211,13 @@ struct SidebarSectionView: View {
 
         showMoreLessButton
 
-        // When all loaded conversations fit within maxCollapsed (e.g. pinned
-        // sections use .max) the show-more button never appears, yet more
-        // conversations may exist on the server beyond the initial page.
-        // Auto-trigger a full load so those items become visible.
-        if conversations.count <= maxCollapsed,
+        // When all loaded pinned conversations fit within maxCollapsed (.max)
+        // the show-more button never appears, yet more conversations may exist
+        // on the server beyond the initial page. Auto-trigger a full load so
+        // those items become visible. Scoped to the pinned section only to
+        // avoid eagerly loading all conversations for small non-pinned sections.
+        if group?.id == ConversationGroup.pinned.id,
+           conversations.count <= maxCollapsed,
            let conversationManager,
            conversationManager.hasMoreConversations {
             Color.clear

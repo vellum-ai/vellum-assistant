@@ -26,12 +26,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up Bun
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        uses: oven-sh/setup-bun@v2
+
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork }}
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        run: bun scripts/docker-login-with-retry.ts
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

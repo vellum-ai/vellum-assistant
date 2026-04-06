@@ -46,7 +46,7 @@ struct SettingsBillingReferralCard: View {
     // MARK: - Has Code State
 
     private func hasCodeState(_ code: ReferralCodeResponse) -> some View {
-        SettingsCard(title: "Referrals", subtitle: "Share your link and earn credits") {
+        SettingsCard(title: "Referrals", subtitle: "Share your referral link to earn up to 100 free credits") {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Referral URL row
                 HStack(spacing: VSpacing.sm) {
@@ -98,16 +98,12 @@ struct SettingsBillingReferralCard: View {
                                 .font(VFont.bodySmallDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                         }
-                        Text("$\(code.total_earned_usd)")
+                        Text("\(code.total_earned.replacingOccurrences(of: ".00", with: "")) credits")
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentEmphasized)
                     }
                 }
 
-                // Earning cap note
-                Text("Earn up to $\(code.earning_cap_usd) in referral credits")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }

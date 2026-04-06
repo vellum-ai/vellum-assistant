@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { HookManager } from "../hooks/manager.js";
 import type { McpServerManager } from "../mcp/manager.js";
@@ -19,6 +20,7 @@ export interface ShutdownDeps {
   server: DaemonServer;
   workspaceHeartbeat: WorkspaceHeartbeatService;
   heartbeat: HeartbeatService;
+  filing: FilingService;
   hookManager: HookManager;
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
@@ -52,6 +54,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     await deps.workspaceHeartbeat.stop();
     await deps.heartbeat.stop();
+    await deps.filing.stop();
 
     try {
       await deps.hookManager.trigger("daemon-stop", { pid: process.pid });

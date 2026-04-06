@@ -10,6 +10,7 @@ extension Notification.Name {
     static let navigateToSettingsTab = Notification.Name("MainWindow.navigateToSettingsTab")
     static let activationKeyChanged = Notification.Name("activationKeyChanged")
     static let identityChanged = Notification.Name("identityChanged")
+    static let configChanged = Notification.Name("configChanged")
     static let shareAppCloud = Notification.Name("MainWindow.shareAppCloud")
     static let pinApp = Notification.Name("MainWindow.pinApp")
     static let unpinApp = Notification.Name("MainWindow.unpinApp")

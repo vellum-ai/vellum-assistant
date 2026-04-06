@@ -1013,7 +1013,6 @@ public enum EmojiCatalog {
             } else if entry.shortcode.contains(lowered) {
                 substringMatches.append(entry)
             }
-            if prefixMatches.count + substringMatches.count >= limit { break }
         }
         return Array((prefixMatches + substringMatches).prefix(limit))
     }

@@ -97,7 +97,7 @@ const {
 } = await import("../feature-flag-defaults.js");
 const { clearFeatureFlagStoreCache, readPersistedFeatureFlags } =
   await import("../feature-flag-store.js");
-const { clearRemoteFeatureFlagStoreCache } =
+const { clearRemoteFeatureFlagStoreCache, writeRemoteFeatureFlags } =
   await import("../feature-flag-remote-store.js");
 
 describe("GET /v1/feature-flags handler", () => {
@@ -335,6 +335,43 @@ describe("GET /v1/feature-flags handler", () => {
     expect(emailFlag).toBeDefined();
     // Local override (false) takes precedence over remote (true)
     expect(emailFlag.enabled).toBe(false);
+  });
+
+  test("reflects updated flags after remote sync writes new values (stale cache regression)", async () => {
+    // Scenario: the LD poller (RemoteFeatureFlagSync) writes
+    // email-channel: false, the gateway caches it, then a subsequent
+    // poll writes email-channel: true. The GET handler should return
+    // the updated value because writeRemoteFeatureFlags() updates
+    // both disk and the in-memory cache.
+
+    // Step 1: First poll writes email-channel: false (simulated via
+    // writeRemoteFeatureFlags, which is what the poller calls internally).
+    writeRemoteFeatureFlags({ "email-channel": false });
+
+    const handler = createFeatureFlagsGetHandler();
+    const res1 = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+    const body1 = await res1.json();
+    const emailFlag1 = body1.flags.find(
+      (f: { key: string }) => f.key === "email-channel",
+    );
+    expect(emailFlag1.enabled).toBe(false);
+
+    // Step 2: Second poll writes email-channel: true — the poller
+    // calls writeRemoteFeatureFlags which updates file + cache.
+    writeRemoteFeatureFlags({ "email-channel": true });
+
+    // Step 3: The GET handler should immediately reflect the update
+    // without needing a file-watcher round-trip.
+    const res2 = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+    const body2 = await res2.json();
+    const emailFlag2 = body2.flags.find(
+      (f: { key: string }) => f.key === "email-channel",
+    );
+    expect(emailFlag2.enabled).toBe(true);
   });
 
   test("registry default used when neither local nor remote is set", async () => {

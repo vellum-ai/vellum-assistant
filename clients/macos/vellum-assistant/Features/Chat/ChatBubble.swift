@@ -90,12 +90,20 @@ struct ChatBubble: View, Equatable {
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     // Cached interleaved content state — updated via .onChange(of:) to avoid
     // recomputing O(n) grouping on every body evaluation.
-    // Eagerly initialized in init() to prevent first-frame flash where the
-    // wrong layout path renders before .onAppear fires.
+    // Eagerly initialized in init() so the first body evaluation uses the
+    // correct layout path instead of flashing through the fallback layout.
     @State var cachedHasInterleavedContent: Bool
     @State var cachedContentGroups: [ContentGroup]
     /// Set of stableIds for tool-call groups that have non-empty text after them.
     @State var cachedToolGroupsWithTrailingText: Set<String>
+
+    /// Tracks which step detail rows the user has expanded (keyed by ToolCallData.id).
+    /// Lives here (not in AssistantProgressView) so it survives the trailing→interleaved
+    /// rendering path switch that destroys and recreates AssistantProgressView mid-stream.
+    @State var expandedStepIds: Set<UUID> = []
+    /// Tracks user-initiated card expansion/collapse (keyed by first tool call UUID in group).
+    /// `nil` = no user interaction (auto-expand logic applies); `true`/`false` = user override.
+    @State var cardExpansionOverrides: [UUID: Bool] = [:]
 
     init(
         message: ChatMessage,
@@ -359,13 +367,9 @@ struct ChatBubble: View, Equatable {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
-                // Flatten the render tree into a single compositing layer to reduce
-                // the number of CALayers the WindowServer must composite per message.
-                // Skipped during streaming to avoid re-compositing on every token delta.
-                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
+                .compositingGroup()
                 .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
-        .onAppear { recomputeInterleavedContentCache() }
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
@@ -613,18 +617,6 @@ final class SegmentCacheEntry: NSObject {
     init(_ segments: [MarkdownSegment]) { self.segments = segments }
 }
 
-/// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.
-private struct ConditionalCompositingGroup: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content.compositingGroup()
-        } else {
-            content
-        }
-    }
-}
 
 // MARK: - Avatar Wiggle Modifier
 

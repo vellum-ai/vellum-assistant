@@ -17,7 +17,7 @@ export type LogFileConfig = {
 
 const LOG_FILE_PREFIX = "gateway-";
 const LOG_FILE_SUFFIX = ".log";
-const LOG_FILE_PATTERN = /^gateway-(\d{4}-\d{2}-\d{2})\.log$/;
+export const LOG_FILE_PATTERN = /^gateway-(\d{4}-\d{2}-\d{2})\.log$/;
 
 function formatDate(date: Date): string {
   const y = date.getUTCFullYear();
@@ -119,10 +119,25 @@ export function initLogger(config: LogFileConfig): void {
   }
 }
 
+/**
+ * Returns a lazy proxy logger that always delegates to the **current**
+ * rootLogger. This is critical because module-level `const log = getLogger(...)`
+ * calls execute before `initLogger()` runs. Without the proxy, those early
+ * child loggers would permanently hold the fallback stdout-only stream and
+ * never write to log files.
+ */
 export function getLogger(name: string): pino.Logger {
-  ensureCurrentDate();
-  if (!rootLogger) {
-    rootLogger = buildLogger(null);
-  }
-  return rootLogger.child({ module: name });
+  const handler: ProxyHandler<pino.Logger> = {
+    get(_target, prop, receiver) {
+      ensureCurrentDate();
+      if (!rootLogger) {
+        rootLogger = buildLogger(null);
+      }
+      const child = rootLogger.child({ module: name });
+      const value = Reflect.get(child, prop, receiver);
+      return typeof value === "function" ? value.bind(child) : value;
+    },
+  };
+  // The proxy target is a throwaway logger — all access is intercepted.
+  return new Proxy({} as pino.Logger, handler);
 }

@@ -305,6 +305,10 @@ extension AppDelegate {
                     )
                 case .avatarUpdated(let msg):
                     AvatarAppearanceManager.shared.reloadAvatar(avatarPath: msg.avatarPath)
+                case .soundsConfigUpdated:
+                    SoundManager.shared.reloadConfig()
+                case .configChanged:
+                    NotificationCenter.default.post(name: .configChanged, object: nil)
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
                     HostToolExecutor.executeHostBashRequest(msg)

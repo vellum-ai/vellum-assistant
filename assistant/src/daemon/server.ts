@@ -23,11 +23,7 @@ import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import {
-  getApp,
-  getAppDirPath,
-  isMultifileApp,
-} from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -64,6 +60,7 @@ import { getSubagentManager } from "../subagent/index.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import {
+  getAvatarImagePath,
   getSandboxWorkingDir,
   getWorkspacePromptPath,
 } from "../util/platform.js";
@@ -210,13 +207,10 @@ function makePendingInteractionRegistrar(
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           commandPreview:
-            redactSecrets(
-              summarizeToolInput(msg.toolName, inputRecord),
-            ) || undefined,
+            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+            undefined,
           riskLevel: msg.riskLevel,
-          activityText: activityRaw
-            ? redactSecrets(activityRaw)
-            : undefined,
+          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
           executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
@@ -533,6 +527,21 @@ export class DaemonServer {
     }
   }
 
+  private broadcastConfigChanged(): void {
+    this.broadcast({ type: "config_changed" });
+  }
+
+  private broadcastSoundsConfigUpdated(): void {
+    this.broadcast({ type: "sounds_config_updated" });
+  }
+
+  private broadcastAvatarUpdated(): void {
+    this.broadcast({
+      type: "avatar_updated",
+      avatarPath: getAvatarImagePath(),
+    });
+  }
+
   /**
    * Handle a detected app source file change from the filesystem watcher.
    * Recompiles multifile apps and refreshes surfaces across ALL conversations.
@@ -720,11 +729,12 @@ export class DaemonServer {
     this.configWatcher.start(
       () => this.evictConversationsForReload(),
       () => this.broadcastIdentityChanged(),
+      () => this.broadcastSoundsConfigUpdated(),
+      () => this.broadcastAvatarUpdated(),
+      () => this.broadcastConfigChanged(),
     );
 
-    this.appSourceWatcher.start((appId) =>
-      this.handleAppSourceChange(appId),
-    );
+    this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {

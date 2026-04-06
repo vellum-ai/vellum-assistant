@@ -277,10 +277,10 @@ export interface AppRefreshInput {
   app_id: string;
 }
 
-export function executeAppRefresh(
+export async function executeAppRefresh(
   input: AppRefreshInput,
   store: AppStore,
-): ExecutorResult {
+): Promise<ExecutorResult> {
   const app = store.getApp(input.app_id);
   if (!app) {
     return {
@@ -289,9 +289,34 @@ export function executeAppRefresh(
     };
   }
 
-  // Empty update bumps updatedAt timestamp, triggering recompilation and
-  // surface refresh on the client side.
+  // Empty update bumps updatedAt timestamp, triggering surface refresh on
+  // the client side.
   const updated = store.updateApp(input.app_id, {});
+
+  // Multifile apps need an explicit compile so the LLM sees any errors
+  // (bad imports, syntax issues, etc.) instead of silently serving the
+  // stale scaffold placeholder from the initial app_create.
+  if (app.formatVersion === 2) {
+    const appDir = getAppDirPath(input.app_id);
+    const compileResult = await compileApp(appDir);
+    return {
+      content: JSON.stringify({
+        refreshed: true,
+        appId: updated.id,
+        name: updated.name,
+        compiled: compileResult.ok,
+        ...(compileResult.ok
+          ? { compile_duration_ms: compileResult.durationMs }
+          : {
+              compile_errors: compileResult.errors,
+              compile_warnings: compileResult.warnings,
+              compile_duration_ms: compileResult.durationMs,
+            }),
+      }),
+      isError: false,
+    };
+  }
+
   return {
     content: JSON.stringify({
       refreshed: true,

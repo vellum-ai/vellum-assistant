@@ -312,6 +312,11 @@ extension AppDelegate {
             // Clear any stale panel state so the user lands on chat, not settings
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
+            // Retain the onboarding state so avatar traits generated during
+            // hatching can be synced to the assistant.
+            self?.onboardingState = state
+            self?.syncOnboardingAvatarIfNeeded()
+
             self?.showMainWindow()
         }
         onboarding.onDismiss = { [weak self] in
@@ -356,6 +361,10 @@ extension AppDelegate {
             onboarding.close()
             self?.onboardingWindow = nil
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
+
+            // Retain the onboarding state so avatar traits generated during
+            // hatching can be synced to the assistant after the switch.
+            self?.onboardingState = state
 
             // Detect the newly hatched assistant by diffing lockfile against snapshot.
             // loadAll() returns newest-first, so the first new ID is the most recently hatched.

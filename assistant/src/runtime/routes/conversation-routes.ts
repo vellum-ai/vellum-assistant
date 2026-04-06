@@ -735,9 +735,29 @@ function mergeToolResultsIntoAssistantMessages(
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
       assistantContent.push(...toolResultBlocks);
+    } else {
+      // No preceding assistant message (pagination boundary) — keep the
+      // original message as-is to avoid permanent data loss. The preceding
+      // assistant tool_use lives in the previous page; dropping the result
+      // here would be unrecoverable.
+      // Still strip system notices so internal prompt text isn't exposed.
+      const filteredBlocks = blocks.filter(
+        (b) =>
+          !(
+            typeof b === "object" &&
+            b !== null &&
+            isSystemNoticeText(b as Record<string, unknown>)
+          ),
+      );
+      result.push({
+        ...msg,
+        content:
+          filteredBlocks.length === blocks.length
+            ? msg.content
+            : JSON.stringify(filteredBlocks),
+      });
+      continue;
     }
-    // else: no preceding assistant message (pagination boundary) — drop the
-    // tool_result blocks to avoid rendering "unknown" chips.
 
     // If the user message had only tool_result (+ system_notice) blocks,
     // suppress it entirely. Otherwise keep the non-tool-result content.
@@ -752,7 +772,7 @@ function mergeToolResultsIntoAssistantMessages(
     if (realUserContent.length > 0) {
       result.push({ ...msg, content: JSON.stringify(otherBlocks) });
     }
-    // else: tool-result-only → suppressed
+    // else: tool-result-only → suppressed (results already merged above)
   }
 
   // Write back any modified assistant message content.
@@ -1306,36 +1326,47 @@ export async function handleSendMessage(
     // Auto-deny pending confirmations only after enqueue succeeds, so we
     // don't cancel approval-gated workflows when the replacement message
     // is itself rejected by the queue budget.
-    if (conversation.hasAnyPendingConfirmation()) {
-      // Emit authoritative denial state for each pending request.
-      // sendToClient (wired to the SSE hub) delivers these to the client.
-      for (const interaction of pendingInteractions.getByConversation(
-        mapping.conversationId,
-      )) {
-        if (
-          interaction.conversation === conversation &&
-          interaction.kind === "confirmation"
-        ) {
-          conversation.emitConfirmationStateChanged({
-            conversationId: mapping.conversationId,
-            requestId: interaction.requestId,
-            state: "denied" as const,
-            source: "auto_deny" as const,
-          });
-          // Sync canonical guardian request status so stale "pending" DB
-          // records don't get matched by later guardian reply routing.
-          resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
-            status: "denied",
-          });
+    // Wrapped in try-catch: the message is already enqueued, so a failure
+    // here must not turn the 202 response into a 500 — that would leave
+    // the client showing "Failed to send" for a message the daemon will
+    // process from the queue.
+    try {
+      if (conversation.hasAnyPendingConfirmation()) {
+        // Emit authoritative denial state for each pending request.
+        // sendToClient (wired to the SSE hub) delivers these to the client.
+        for (const interaction of pendingInteractions.getByConversation(
+          mapping.conversationId,
+        )) {
+          if (
+            interaction.conversation === conversation &&
+            interaction.kind === "confirmation"
+          ) {
+            conversation.emitConfirmationStateChanged({
+              conversationId: mapping.conversationId,
+              requestId: interaction.requestId,
+              state: "denied" as const,
+              source: "auto_deny" as const,
+            });
+            // Sync canonical guardian request status so stale "pending" DB
+            // records don't get matched by later guardian reply routing.
+            resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+              status: "denied",
+            });
+          }
         }
+        conversation.denyAllPendingConfirmations();
+        pendingInteractions.removeByConversation(conversation);
       }
-      conversation.denyAllPendingConfirmations();
-      pendingInteractions.removeByConversation(conversation);
-    }
 
-    // Expire any orphaned canonical requests that survived without a
-    // matching in-memory pending interaction (e.g. prompter timeouts).
-    expireOrphanedCanonicalRequests(mapping.conversationId);
+      // Expire any orphaned canonical requests that survived without a
+      // matching in-memory pending interaction (e.g. prompter timeouts).
+      expireOrphanedCanonicalRequests(mapping.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: mapping.conversationId },
+        "Post-enqueue auto-deny failed — queued message unaffected",
+      );
+    }
 
     return Response.json(
       { accepted: true, queued: true, conversationId: mapping.conversationId },

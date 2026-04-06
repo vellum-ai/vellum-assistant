@@ -95,11 +95,23 @@ export function getInterfacesDir(): string {
 
 /**
  * Returns the sounds directory (~/.vellum/workspace/data/sounds).
- * Custom sound files and sound configuration live here. Sound files
- * can be large, so this directory is excluded from diagnostic exports.
+ * Custom sound files and sound configuration live here.
  */
 export function getSoundsDir(): string {
   return join(getWorkspaceDir(), "data", "sounds");
+}
+
+/** Returns the avatar directory ($VELLUM_WORKSPACE_DIR/data/avatar). */
+export function getAvatarDir(): string {
+  return join(getWorkspaceDir(), "data", "avatar");
+}
+
+/** Canonical filename for the custom avatar PNG. */
+export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
+
+/** Returns the canonical avatar image path (~/.vellum/workspace/data/avatar/avatar-image.png). */
+export function getAvatarImagePath(): string {
+  return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
 
 /**
@@ -208,7 +220,7 @@ export function getHistoryPath(): string {
  * overrides, device approval lists — live here.
  *
  * This directory is:
- * - Outside the workspace (not included in diagnostic exports)
+ * - Outside the workspace
  * - Outside the sandbox write boundary (tools cannot modify it)
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
@@ -261,10 +273,6 @@ export function getEmbedWorkerPidPath(): string {
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in
  * containerized deployments where the workspace is a separate volume).
  * Otherwise falls back to ~/.vellum/workspace.
- *
- * WARNING: The entire workspace directory is included in diagnostic log exports
- * ("Send logs to Vellum"). Do not store secrets, API keys, or sensitive
- * credentials here — use the credential store or ~/.vellum/protected/ instead.
  */
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();

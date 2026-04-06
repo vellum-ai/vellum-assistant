@@ -1,4 +1,10 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 import { minimatch } from "minimatch";
@@ -290,7 +296,10 @@ export class FileSystemOps {
         if (entry.isDirectory()) {
           return `${entry.name}/`;
         }
-        const fileStat = statSync(join(resolved, entry.name));
+        if (entry.isSymbolicLink()) {
+          return `${entry.name}@`;
+        }
+        const fileStat = lstatSync(join(resolved, entry.name));
         return `${entry.name}  ${formatSize(fileStat.size)}`;
       });
 

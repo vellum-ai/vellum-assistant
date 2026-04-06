@@ -76,9 +76,9 @@ public final class BillingService {
         guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else { return nil }
 
         // Only attempt bootstrap for all-zero balances
-        let isAllZero = summary.effective_balance_usd == "0.00"
-            && summary.settled_balance_usd == "0.00"
-            && summary.pending_compute_usd == "0.00"
+        let isAllZero = summary.effective_balance == "0.00"
+            && summary.settled_balance == "0.00"
+            && summary.pending_compute == "0.00"
         guard isAllZero else { return nil }
 
         // Skip if we've already attempted bootstrap for this org
@@ -214,7 +214,7 @@ public final class BillingService {
     }
 
     /// Create a top-up checkout session and return the Stripe checkout URL.
-    public func createTopUpCheckout(amountUsd: String) async throws -> URL {
+    public func createTopUpCheckout(amount: String) async throws -> URL {
         let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/top-ups/checkout-session/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
@@ -236,7 +236,7 @@ public final class BillingService {
         }
         urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
-        let requestBody = TopUpCheckoutRequest(amount_usd: amountUsd, return_path: "/billing/top-up/success")
+        let requestBody = TopUpCheckoutRequest(amount: amount, return_path: "/billing/top-up/success")
         let encoder = JSONEncoder()
         urlRequest.httpBody = try encoder.encode(requestBody)
 

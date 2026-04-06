@@ -429,7 +429,7 @@ final class ConversationRestorer {
                     // Set serverOffset from foreground count BEFORE merging.
                     // loadMoreConversations pages the foreground endpoint only,
                     // so the offset must not include merged background rows.
-                    self.delegate?.serverOffset = foreground.conversations.count
+                    self.delegate?.serverOffset = foreground.nextOffset ?? foreground.conversations.count
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,

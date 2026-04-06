@@ -5,8 +5,6 @@
  * - audit-data.json with tool invocation records
  * - daemon-logs/ with log file contents
  * - config-snapshot.json with sanitized config
- * - workspace/ with text files, SQL dumps for .db files, and proper
- *   filtering (excluded directories, binary files, symlinks).
  */
 
 import { spawnSync } from "node:child_process";
@@ -16,7 +14,6 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,8 +21,7 @@ import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 // Set up temp directories before mocking
-const testDir = process.env.VELLUM_WORKSPACE_DIR!;
-const testWorkspaceDir = testDir;
+const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 mkdirSync(testWorkspaceDir, { recursive: true });
 
 mock.module("../util/logger.js", () => ({
@@ -87,83 +83,15 @@ async function extractArchive(res: Response): Promise<string> {
   return extractDir;
 }
 
-/** Recursively lists all files under a directory as relative paths. */
-function listFiles(dir: string, base = dir): string[] {
-  const result: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      result.push(...listFiles(full, base));
-    } else {
-      result.push(full.slice(base.length + 1));
-    }
-  }
-  return result;
-}
-
 // ---------------------------------------------------------------------------
-// Seed workspace files
+// Seed test data
 // ---------------------------------------------------------------------------
 
-// Text files — should be included
-writeFileSync(join(testWorkspaceDir, "IDENTITY.md"), "# My Identity\nHello");
-mkdirSync(join(testWorkspaceDir, "notes"), { recursive: true });
-writeFileSync(join(testWorkspaceDir, "notes", "daily.txt"), "Some daily notes");
-
-// SQLite DB file — should be dumped as .sql
-mkdirSync(join(testWorkspaceDir, "data", "db"), { recursive: true });
-// Create a real sqlite db with a table
-import { Database } from "bun:sqlite";
-const wsDbPath = join(testWorkspaceDir, "data", "db", "assistant.db");
-const wsDb = new Database(wsDbPath);
-wsDb.run("CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT)");
-wsDb.run("INSERT INTO test_table (name) VALUES ('hello')");
-wsDb.close();
-
-// Excluded directory: embedding-models/
-mkdirSync(join(testWorkspaceDir, "embedding-models"), { recursive: true });
-writeFileSync(
-  join(testWorkspaceDir, "embedding-models", "model.bin"),
-  "large binary model data",
-);
-
-// Excluded directory: data/qdrant/
-mkdirSync(join(testWorkspaceDir, "data", "qdrant"), { recursive: true });
-writeFileSync(
-  join(testWorkspaceDir, "data", "qdrant", "index.bin"),
-  "vector index data",
-);
-
-// Binary file — should be skipped
-writeFileSync(
-  join(testWorkspaceDir, "binary-file.dat"),
-  Buffer.from([0x48, 0x65, 0x6c, 0x00, 0x6f]), // contains null byte
-);
-
-// config.json at workspace root — should be skipped (already in configSnapshot)
+// config.json at workspace root — needed for config-snapshot test
 writeFileSync(
   join(testWorkspaceDir, "config.json"),
   JSON.stringify({ provider: "anthropic" }),
 );
-
-// Symlink pointing outside workspace — should be skipped
-const outsideFile = join(testDir, "outside-secret.txt");
-writeFileSync(outsideFile, "sensitive data outside workspace");
-try {
-  symlinkSync(outsideFile, join(testWorkspaceDir, "sneaky-link.txt"));
-} catch {
-  // Symlink creation may fail on some platforms; tests will still pass
-}
-
-// Symlinked skipped directory: bin/ → outside dir (should NOT get a manifest)
-const outsideBinDir = join(testDir, "outside-bin");
-mkdirSync(outsideBinDir, { recursive: true });
-writeFileSync(join(outsideBinDir, "bun"), "fake bun binary");
-try {
-  symlinkSync(outsideBinDir, join(testWorkspaceDir, "bin"));
-} catch {
-  // Symlink creation may fail on some platforms; tests will still pass
-}
 
 // Daemon log files — used for date filtering tests
 const logsDir = join(testWorkspaceDir, "data", "logs");
@@ -214,105 +142,6 @@ describe("POST /v1/export — tar.gz archive", () => {
       const content = readFileSync(auditPath, "utf-8");
       const parsed = JSON.parse(content);
       expect(Array.isArray(parsed)).toBe(true);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("archive contains workspace text files", async () => {
-    const res = await callExport();
-    const dir = await extractArchive(res);
-    try {
-      const identity = readFileSync(
-        join(dir, "workspace", "IDENTITY.md"),
-        "utf-8",
-      );
-      expect(identity).toBe("# My Identity\nHello");
-
-      const daily = readFileSync(
-        join(dir, "workspace", "notes", "daily.txt"),
-        "utf-8",
-      );
-      expect(daily).toBe("Some daily notes");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("archive contains SQLite DB dumps as .sql files", async () => {
-    const res = await callExport();
-    const dir = await extractArchive(res);
-    try {
-      const sqlContent = readFileSync(
-        join(dir, "workspace", "data", "db", "assistant.db.sql"),
-        "utf-8",
-      );
-      expect(sqlContent).toContain("CREATE TABLE");
-      expect(sqlContent).toContain("test_table");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("archive excludes embedding-models/ and data/qdrant/ data but includes redacted manifests", async () => {
-    const res = await callExport();
-    const dir = await extractArchive(res);
-    try {
-      const files = listFiles(join(dir, "workspace"));
-
-      // Original data files are excluded
-      expect(files).not.toContain("embedding-models/model.bin");
-      expect(files).not.toContain("data/qdrant/index.bin");
-
-      // Redacted manifests show entry counts and sizes, not filenames
-      const embeddingManifest = readFileSync(
-        join(dir, "workspace", "embedding-models", "_manifest.txt"),
-        "utf-8",
-      );
-      expect(embeddingManifest).toContain("1 file(s)");
-
-      const qdrantManifest = readFileSync(
-        join(dir, "workspace", "data", "qdrant", "_manifest.txt"),
-        "utf-8",
-      );
-      expect(qdrantManifest).toContain("1 file(s)");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("archive skips manifest for symlinked skipped directories", async () => {
-    const res = await callExport();
-    const dir = await extractArchive(res);
-    try {
-      const files = listFiles(join(dir, "workspace"));
-
-      // bin/ is a symlink to an outside directory — no manifest should be emitted
-      const binFiles = files.filter((f) => f.startsWith("bin/"));
-      expect(binFiles).toHaveLength(0);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("archive excludes binary files and config.json at workspace root", async () => {
-    const res = await callExport();
-    const dir = await extractArchive(res);
-    try {
-      const files = listFiles(join(dir, "workspace"));
-      expect(files).not.toContain("binary-file.dat");
-      expect(files).not.toContain("config.json");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("archive excludes symlinks", async () => {
-    const res = await callExport();
-    const dir = await extractArchive(res);
-    try {
-      const files = listFiles(join(dir, "workspace"));
-      expect(files).not.toContain("sneaky-link.txt");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

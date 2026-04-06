@@ -135,7 +135,6 @@ Use the following heuristics to pick `routing_intent`:
      | `macos`, `ios` | `vellum` |
      | `telegram` | `telegram` |
      | `slack` | `slack` |
-     | `discord` | `discord` |
      | `cli` | _(omit — no routable channel)_ |
   3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
 

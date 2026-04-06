@@ -12,6 +12,7 @@ struct ConversationHeaderPresentation {
     let isChannelConversation: Bool
     let canCopy: Bool
     let isPinned: Bool
+    let isPersisted: Bool
     let showsForkConversationAction: Bool
     let forkParentTitle: String?
     let forkParentConversationId: String?
@@ -30,6 +31,7 @@ struct ConversationHeaderPresentation {
             self.isChannelConversation = false
             self.canCopy = false
             self.isPinned = false
+            self.isPersisted = false
             self.showsForkConversationAction = false
             self.forkParentTitle = nil
             self.forkParentConversationId = nil
@@ -47,6 +49,7 @@ struct ConversationHeaderPresentation {
         // pipelines, avoiding O(n) work during view body evaluation.
         let hasNonEmptyMessage = activeViewModel?.hasNonEmptyMessage ?? false
         self.isStarted = conversation.conversationId != nil || hasNonEmptyMessage
+        self.isPersisted = conversation.conversationId != nil
 
         // Private conversations don't show the full actions menu
         self.showsActionsMenu = isStarted && !isPrivateConversation

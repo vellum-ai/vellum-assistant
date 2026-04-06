@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import { generateAvatar } from "../../media/avatar-router.js";
 import { mapGeminiError } from "../../media/gemini-image-service.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getAvatarImagePath } from "../../util/platform.js";
 
 const log = getLogger("avatar-generator");
 
 /** Canonical path where the custom avatar PNG is stored. */
 function getAvatarPath(): string {
-  return join(getWorkspaceDir(), "data", "avatar", "avatar-image.png");
+  return getAvatarImagePath();
 }
 
 export interface AvatarGenerationResult {

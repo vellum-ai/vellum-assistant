@@ -346,6 +346,44 @@ extension MainWindowView {
             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
             .padding(.bottom, VSpacing.xs)
         }
+
+        // Fallback pagination: the ungrouped section is always the last
+        // rendered section. When every section fits within its collapse
+        // limit (no "Show more" buttons visible) but the server has more
+        // conversations, auto-trigger loading so users can reach them.
+        // Gate on ALL sections — not just ungrouped — to avoid eager
+        // full-load in grouped-heavy workspaces.
+        if conversations.count <= 5,
+           conversationManager.hasMoreConversations,
+           !conversationManager.groupedConversations.contains(where: { entry in
+               guard let group = entry.group else { return false }
+               // Skip custom groups when feature flag is off — rendering
+               // hides them and folds their conversations into ungrouped.
+               if !group.isSystemGroup && !assistantFeatureFlagStore.isEnabled("conversation-groups-ui") {
+                   return false
+               }
+               let isPinned = group.id == ConversationGroup.pinned.id
+               let isScheduled = group.id == ConversationGroup.scheduled.id
+               let isBackground = group.id == ConversationGroup.background.id
+               let maxCollapsed = isPinned ? Int.max : 5
+               if isScheduled || isBackground {
+                   // Subgroup count mode — "Show more" triggers on distinct
+                   // subgroup count, not total conversation count.
+                   let grouper: (ConversationModel) -> String? = isScheduled
+                       ? { $0.scheduleJobId }
+                       : { $0.source }
+                   var keys = Set<String>()
+                   for c in entry.conversations { keys.insert(grouper(c) ?? c.id.uuidString) }
+                   return keys.count > maxCollapsed
+               }
+               return entry.conversations.count > maxCollapsed
+           }) {
+            Color.clear
+                .frame(height: 0)
+                .onAppear {
+                    conversationManager.loadAllRemainingConversations()
+                }
+        }
     }
 
     // MARK: - Pinned App Helpers

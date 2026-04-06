@@ -62,7 +62,7 @@ import { isSideEffectTool } from "../../tools/side-effects.js";
 import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -123,12 +123,7 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
       return httpError("INTERNAL_ERROR", result.content, 500);
     }
 
-    const avatarPath = join(
-      getWorkspaceDir(),
-      "data",
-      "avatar",
-      "avatar-image.png",
-    );
+    const avatarPath = getAvatarImagePath();
 
     // Notify all connected SSE clients so every macOS/iOS instance
     // reloads the avatar image immediately.

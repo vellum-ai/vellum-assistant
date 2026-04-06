@@ -267,11 +267,19 @@ async function showQuery(query: string) {
     const nodes = getNodesByIds(results.map((r) => r.nodeId));
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
-    console.log(`  Found ${results.length} results:\n`);
-    for (const r of results) {
+    const visible = results.filter((r) => {
       const node = nodeMap.get(r.nodeId);
-      if (!node) continue;
-      if (node.fidelity === "gone") continue;
+      return node && node.fidelity !== "gone";
+    });
+
+    if (visible.length === 0) {
+      console.log("  No results found.");
+      return;
+    }
+
+    console.log(`  Found ${visible.length} results:\n`);
+    for (const r of visible) {
+      const node = nodeMap.get(r.nodeId)!;
       const preview =
         node.content.length > 120
           ? node.content.slice(0, 120) + "…"

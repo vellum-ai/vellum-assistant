@@ -34,6 +34,14 @@ public struct ToolConfirmationBubble: View {
         self.onTemporaryAllow = onTemporaryAllow
     }
 
+    /// Counts newlines without allocating N substrings.
+    /// Equivalent to `text.components(separatedBy: "\n").count` but O(1) memory.
+    private static func countLines(in text: String) -> Int {
+        var count = 1
+        for byte in text.utf8 where byte == 0x0A { count += 1 }
+        return count
+    }
+
     private var hasRuleOptions: Bool {
         !confirmation.allowlistOptions.isEmpty
     }
@@ -315,7 +323,7 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private func codePreviewBlock(_ content: String, maxHeight: CGFloat) -> some View {
-        let lineCount = VCodeView.countLines(in: content)
+        let lineCount = Self.countLines(in: content)
         let isLong = lineCount > 500 || content.count > 50_000
         Group {
             if isLong {

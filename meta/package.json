@@ -20,6 +20,10 @@
     "@vellumai/credential-executor": "0.6.0",
     "@vellumai/vellum-gateway": "0.6.0"
   },
+  "overrides": {
+    "lodash": "^4.18.0",
+    "path-to-regexp": "^8.4.0"
+  },
   "devDependencies": {
     "@types/bun": "^1.2.4"
   }

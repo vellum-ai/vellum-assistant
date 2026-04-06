@@ -29,6 +29,9 @@ import { createNode } from "./store.js";
 
 const log = getLogger("graph-capability-seed");
 
+/** Default significance for capability nodes. */
+const CAPABILITY_SIGNIFICANCE = 0.6;
+
 /** Stable prefix for capability node source tracking. */
 const SKILL_SOURCE_PREFIX = "capability:skill:";
 const CLI_SOURCE_PREFIX = "capability:cli:";
@@ -115,16 +118,31 @@ export function seedSkillGraphNodes(): void {
     // Protect uninstalled catalog skills from pruning — they are seeded
     // asynchronously by seedUninstalledCatalogSkillMemories() and should
     // not be marked as "gone" just because they aren't locally installed.
-    // Only include catalog entries whose feature-flag is enabled, matching
-    // the filter in seedUninstalledCatalogSkillMemories().
+    // When the catalog cache is cold (empty before the async fetch
+    // completes), we can only prune locally managed skills; full
+    // catalog-based pruning waits until the cache is populated.
     const cachedCatalog = getCachedCatalogSync();
-    for (const entry of cachedCatalog) {
-      const flagKey = entry.metadata?.vellum?.["feature-flag"];
-      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
-      seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
+    if (cachedCatalog.length === 0) {
+      // Catalog cache is cold — we can't enumerate remote catalog skills, so
+      // skip catalog-based pruning to avoid incorrectly marking valid
+      // uninstalled catalog nodes as gone. But still prune locally disabled
+      // skills so stale capability nodes don't linger after cold start.
+      log.info(
+        "Catalog cache is cold — pruning only locally disabled skills",
+      );
+      const disabled = resolved.filter((r) => r.state !== "enabled");
+      for (const { summary } of disabled) {
+        deleteSkillCapabilityNode(summary.id);
+      }
+    } else {
+      for (const entry of cachedCatalog) {
+        const flagKey = entry.metadata?.vellum?.["feature-flag"];
+        if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
+          continue;
+        seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
+      }
+      pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
     }
-
-    pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
 
     // Clean up old-format capability nodes (skill:* and cli:*) that use the
     // legacy "{prefix}:{id}\n..." content format. Mark them as gone so they
@@ -219,7 +237,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     .where(
       and(
         eq(memoryGraphNodes.scopeId, "default"),
-        like(memoryGraphNodes.sourceConversations, `%${sourceKey}%`),
+        eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
       ),
     )
     .get();
@@ -229,9 +247,12 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
   if (existing) {
     if (existing.content === content && existing.fidelity !== "gone") {
       // Same content — just touch lastAccessed (and backfill lastConsolidated
-      // for nodes created before the fix so they don't decay immediately)
+      // for nodes created before the fix so they don't decay immediately,
+      // and backfill significance for nodes created before the raise to 0.6)
       const updates: Record<string, number> = { lastAccessed: now };
       if (existing.lastConsolidated === 0) updates.lastConsolidated = now;
+      if (existing.significance < CAPABILITY_SIGNIFICANCE)
+        updates.significance = CAPABILITY_SIGNIFICANCE;
       db.update(memoryGraphNodes)
         .set(updates)
         .where(eq(memoryGraphNodes.id, existing.id))
@@ -270,7 +291,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     },
     fidelity: "vivid" as const,
     confidence: 1.0,
-    significance: 0.6,
+    significance: CAPABILITY_SIGNIFICANCE,
     stability: 1000, // Effectively permanent — never decays
     reinforcementCount: 0,
     lastReinforced: now,
@@ -297,7 +318,7 @@ function deleteCapabilityNode(sourceKey: string): void {
     .where(
       and(
         eq(memoryGraphNodes.scopeId, "default"),
-        like(memoryGraphNodes.sourceConversations, `%${sourceKey}%`),
+        eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
       ),
     )
     .get();

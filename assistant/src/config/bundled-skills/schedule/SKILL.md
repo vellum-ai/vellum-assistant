@@ -117,7 +117,6 @@ Optionally pass `routing_hints` (a JSON object) to influence routing decisions (
      | `macos`, `ios` | `vellum` |
      | `telegram` | `telegram` |
      | `slack` | `slack` |
-     | `discord` | `discord` |
      | `cli` | _(omit — no routable channel)_ |
   3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
 
@@ -139,6 +138,7 @@ Use `syntax` + `expression` to specify the schedule type explicitly, or just `ex
 
 ## Tips
 
+- **When the user specifies a name for the schedule, use it exactly as given.** Do not paraphrase, embellish, or generate a descriptive name.
 - Use `schedule_create` for both recurring automation ("every day at 9am") and one-time reminders ("remind me at 3pm").
 - For task tracking ("add to my tasks", "add to my queue"), use task_list_add instead.
 - `fire_at` must be a strict ISO 8601 timestamp with timezone offset or Z (e.g. `2025-03-15T09:00:00-05:00`).

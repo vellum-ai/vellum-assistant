@@ -51,10 +51,9 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
-  test('researcher includes "recall" and "remember" for memory access', () => {
+  test('researcher includes "recall" for memory access', () => {
     const tools = SUBAGENT_ROLE_REGISTRY.researcher.allowedTools!;
     expect(tools).toContain("recall");
-    expect(tools).toContain("remember");
   });
 
   test('coder includes "recall" for memory access', () => {

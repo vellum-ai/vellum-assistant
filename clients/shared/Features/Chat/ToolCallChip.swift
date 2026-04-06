@@ -66,6 +66,14 @@ public struct ToolCallChip: View {
         toolCall.result != nil || !toolCall.cachedImages.isEmpty
     }
 
+    /// Counts newlines without allocating N substrings.
+    /// Equivalent to `text.components(separatedBy: "\n").count` but O(1) memory.
+    static func countLines(in text: String) -> Int {
+        var count = 1
+        for byte in text.utf8 where byte == 0x0A { count += 1 }
+        return count
+    }
+
     /// Lazily resolved full input text, using the cached value when available.
     private var resolvedInputFull: String {
         if let cached = cachedInputFull { return cached }
@@ -218,7 +226,7 @@ public struct ToolCallChip: View {
                                         .foregroundStyle(VColor.contentSecondary)
                                 }
                             } else {
-                                let lineCount = cachedResultLineCount ?? VCodeView.countLines(in: result)
+                                let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
                                 let isLong = lineCount > 500 || result.count > 50_000
                                 if Self.isFileEditTool(toolCall.toolName) {
                                     VDiffView(result, maxHeight: isLong ? 400 : nil)
@@ -258,7 +266,7 @@ public struct ToolCallChip: View {
                     }
                     // Cache the result line count so subsequent renders are O(1).
                     if cachedResultLineCount == nil, let result = toolCall.result {
-                        cachedResultLineCount = VCodeView.countLines(in: result)
+                        cachedResultLineCount = Self.countLines(in: result)
                     }
                     // Trigger on-demand rehydration when expanding truncated content.
                     onRehydrate?()
@@ -291,7 +299,7 @@ public struct ToolCallChip: View {
                     }
                 }
                 if cachedResultLineCount == nil, let result = toolCall.result {
-                    cachedResultLineCount = VCodeView.countLines(in: result)
+                    cachedResultLineCount = Self.countLines(in: result)
                 }
             }
         }
@@ -302,7 +310,7 @@ public struct ToolCallChip: View {
         }
         .onChange(of: toolCall.result) {
             if isExpanded, let result = toolCall.result {
-                cachedResultLineCount = VCodeView.countLines(in: result)
+                cachedResultLineCount = Self.countLines(in: result)
             } else {
                 cachedResultLineCount = nil
             }

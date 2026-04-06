@@ -177,10 +177,11 @@ async function dedupForTurn(
   candidates: ScoredNode[],
   maxNodes: number,
   query: string,
-): Promise<ScoredNode[]> {
+): Promise<{ nodes: ScoredNode[]; llmApplied: boolean }> {
   try {
     const provider = await getConfiguredProvider();
-    if (!provider) return candidates.slice(0, maxNodes);
+    if (!provider)
+      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
     const now = Date.now();
     const listing = candidates
@@ -209,10 +210,12 @@ async function dedupForTurn(
     );
 
     const toolBlock = extractToolUse(response);
-    if (!toolBlock) return candidates.slice(0, maxNodes);
+    if (!toolBlock)
+      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
     const input = toolBlock.input as { items?: number[] };
-    if (!input.items?.length) return candidates.slice(0, maxNodes);
+    if (!input.items?.length)
+      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
     const reranked: ScoredNode[] = [];
     const seen = new Set<number>();
@@ -225,14 +228,14 @@ async function dedupForTurn(
     }
 
     return reranked.length > 0
-      ? reranked.slice(0, maxNodes)
-      : candidates.slice(0, maxNodes);
+      ? { nodes: reranked.slice(0, maxNodes), llmApplied: true }
+      : { nodes: candidates.slice(0, maxNodes), llmApplied: false };
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
       "Per-turn dedup+rerank failed, using scored order",
     );
-    return candidates.slice(0, maxNodes);
+    return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
   }
 }
 
@@ -597,105 +600,15 @@ export async function loadContextMemory(
     },
   );
 
-  // 6. Reserve slots for recent prospective nodes (commitments, tasks, plans).
-  //    These MUST surface at conversation start regardless of score — if the user
-  //    said "I have a doctor appointment tomorrow," the assistant must remember it.
-  const PROSPECTIVE_RESERVE = 10;
-  const recentProspective = queryNodes({
-    scopeId: opts.scopeId,
-    types: ["prospective"],
-    fidelityNot: ["gone"],
-    createdAfter: nowMs - 3 * 24 * 60 * 60 * 1000, // last 3 days
-    limit: PROSPECTIVE_RESERVE,
-  });
-
-  // Filter out prospective nodes that have been superseded or resolved.
-  // A "supersedes" or "resolved-by" edge targeting a node means its
-  // content has been replaced by a newer memory — stop force-surfacing it.
-  const unresolvedProspective = recentProspective.filter((node) => {
-    const incoming = getEdgesForNode(node.id, "incoming");
-    return !incoming.some(
-      (e) =>
-        e.relationship === "supersedes" || e.relationship === "resolved-by",
-    );
-  });
-
-  // Score them so they have breakdowns, but they're guaranteed inclusion
-  const prospectiveIds = new Set(unresolvedProspective.map((n) => n.id));
-  const reservedNodes: ScoredNode[] = unresolvedProspective.map((node) => {
-    const existing = scored.find((s) => s.node.id === node.id);
-    if (existing) return existing;
-    return scoreCandidate(node, {
-      semanticSimilarity: 0,
-      effectiveSignificance: computeEffectiveSignificance(node, nowMs),
-      emotionalIntensity: node.emotionalCharge.intensity,
-      temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
-      recencyBoost: computeRecencyBoost(node, nowMs),
-      triggerBoost: 0,
-      activationBoost: 0,
-    });
-  });
-
-  // Reserve slots for upcoming events (nodes with event dates in the future).
-  // Like prospective reservation, these MUST surface — if the user said
-  // "I have a flight Tuesday," the assistant must remember it regardless of score.
-  const UPCOMING_RESERVE = 5;
-  const upcomingEvents = queryNodes({
-    scopeId: opts.scopeId,
-    fidelityNot: ["gone"],
-    hasEventDate: true,
-    eventDateAfter: nowMs,
-    eventDateBefore: nowMs + 30 * 24 * 60 * 60 * 1000, // next 30 days
-    limit: 20, // Fetch extra candidates — post-sort by proximity below
-  });
-
-  // Sort by event date ascending so soonest events get reserved first
-  // (queryNodes sorts by significance, which would drop a tomorrow-event
-  // with low significance in favor of a 3-weeks-away high-significance one)
-  upcomingEvents.sort((a, b) => (a.eventDate ?? 0) - (b.eventDate ?? 0));
-
-  const unresolvedUpcoming = upcomingEvents
-    .filter((node) => {
-      if (prospectiveIds.has(node.id)) return false; // already reserved as prospective
-      const incoming = getEdgesForNode(node.id, "incoming");
-      return !incoming.some(
-        (e) =>
-          e.relationship === "supersedes" || e.relationship === "resolved-by",
-      );
-    })
-    .slice(0, UPCOMING_RESERVE);
-
-  const upcomingIds = new Set(unresolvedUpcoming.map((n) => n.id));
-  const reservedUpcoming: ScoredNode[] = unresolvedUpcoming.map((node) => {
-    const existing = scored.find((s) => s.node.id === node.id);
-    if (existing) return existing;
-    return scoreCandidate(node, {
-      semanticSimilarity: 0,
-      effectiveSignificance: computeEffectiveSignificance(node, nowMs),
-      emotionalIntensity: node.emotionalCharge.intensity,
-      temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
-      recencyBoost: computeRecencyBoost(node, nowMs),
-      triggerBoost: 0,
-      activationBoost: 0,
-    });
-  });
-
-  // Remove reserved nodes and all procedural nodes from the main pool.
-  // Procedural nodes have dedicated reserved slots — any that didn't make
-  // the cut shouldn't compete with organic memories for general slots.
-  const mainPool = scored.filter(
-    (s) =>
-      !isCapabilityNode(s.node) &&
-      !prospectiveIds.has(s.node.id) &&
-      !upcomingIds.has(s.node.id),
-  );
+  // 6. Remove procedural nodes from the main pool — they have dedicated
+  //    reserved slots and shouldn't compete with organic memories.
+  //    Prospective/upcoming reserves were removed in favor of the PKB
+  //    (personal knowledge base) which handles commitments and schedule
+  //    via always-loaded flat files.
+  const mainPool = scored.filter((s) => !isCapabilityNode(s.node));
   const mainSlots = Math.max(
     0,
-    maxNodes -
-      serendipitySlots -
-      reservedNodes.length -
-      reservedUpcoming.length -
-      reservedCapabilities.length,
+    maxNodes - serendipitySlots - reservedCapabilities.length,
   );
 
   // 7. LLM re-ranking on the main pool: dedup + select
@@ -705,13 +618,11 @@ export async function loadContextMemory(
     opts.config,
   );
 
-  // 8. Combine: reserved prospective + reserved upcoming + reserved capabilities + reranked main pool
-  const deterministic = [
-    ...reservedNodes,
-    ...reservedUpcoming,
-    ...reservedCapabilities,
-    ...reranked,
-  ].slice(0, maxNodes - serendipitySlots);
+  // 8. Combine: reserved capabilities + reranked main pool
+  const deterministic = [...reservedCapabilities, ...reranked].slice(
+    0,
+    maxNodes - serendipitySlots,
+  );
   // Exclude procedural nodes from serendipity — they have reserved slots
   // and shouldn't appear as random wildcard picks.
   const serendipityPool = scored.filter((s) => !isCapabilityNode(s.node));
@@ -764,7 +675,7 @@ export async function loadContextMemory(
       semanticHits: pureSemanticHits,
       mergedCount: scored.length,
       selectedCount: dedupedDeterministic.length + dedupedSerendipity.length,
-      tier1Count: reservedNodes.length + reservedUpcoming.length,
+      tier1Count: 0,
       tier2Count: reservedCapabilities.length,
       hybridSearchLatencyMs,
       sparseVectorUsed: false,
@@ -1041,7 +952,10 @@ export async function retrieveForTurn(
     // Capability nodes (auto-seeded skills/CLI) are excluded from the general
     // scoring pool — they compete in the dedicated procedural reserve below.
     if (isCapabilityNode(node)) {
-      capabilityCandidates.push({ node, sim: allCandidateIds.get(node.id) ?? 0 });
+      capabilityCandidates.push({
+        node,
+        sim: allCandidateIds.get(node.id) ?? 0,
+      });
       continue;
     }
 
@@ -1126,19 +1040,25 @@ export async function retrieveForTurn(
     .slice(0, PRE_DEDUP_POOL);
 
   // Dedup + rerank with a fast model when the pool is large enough to warrant it
-  const injected =
-    pool.length > MAX_INJECTED
-      ? await dedupForTurn(pool, MAX_INJECTED, opts.userLastMessage)
-      : pool;
+  let injected: ScoredNode[];
+  let llmDedupApplied = false;
+  if (pool.length > MAX_INJECTED) {
+    const result = await dedupForTurn(pool, MAX_INJECTED, opts.userLastMessage);
+    injected = result.nodes;
+    llmDedupApplied = result.llmApplied;
+  } else {
+    injected = pool;
+  }
 
   // Remove procedural-reserved nodes from general set to avoid double-counting
   const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
 
   // Backfill vacated general slots from the remaining pool so we always
   // return up to MAX_INJECTED general memories when eligible candidates exist.
-  // Only backfill when LLM dedup was NOT applied — otherwise the pool contains
-  // items that dedupForTurn intentionally rejected as duplicates/irrelevant.
-  if (generalInjected.length < MAX_INJECTED && pool.length <= MAX_INJECTED) {
+  // Only skip backfill when LLM dedup genuinely ran — it intentionally rejected
+  // items as duplicates/irrelevant. When dedupForTurn fell back to a plain
+  // top-N slice (no provider, tool call failure), backfill is still appropriate.
+  if (generalInjected.length < MAX_INJECTED && !llmDedupApplied) {
     const usedIds = new Set([
       ...generalInjected.map((s) => s.node.id),
       ...proceduralIds,

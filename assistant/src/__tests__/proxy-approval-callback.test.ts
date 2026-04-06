@@ -310,6 +310,7 @@ describe("createProxyApprovalCallback", () => {
       "/tmp/test-project",
       "allow",
       100,
+      undefined,
     );
   });
 

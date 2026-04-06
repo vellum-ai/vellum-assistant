@@ -377,15 +377,18 @@ export function createProxyApprovalCallback(
 
     // Persist trust rule if the user chose "always allow" or "always deny"
     if (
-      response.decision === "always_allow" &&
+      (response.decision === "always_allow" ||
+        response.decision === "always_allow_high_risk") &&
       response.selectedPattern &&
       response.selectedScope
     ) {
+      const allowHighRisk = response.decision === "always_allow_high_risk";
       log.info(
         {
           toolName,
           pattern: response.selectedPattern,
           scope: response.selectedScope,
+          allowHighRisk,
         },
         "Persisting always-allow trust rule (proxy)",
       );
@@ -395,6 +398,7 @@ export function createProxyApprovalCallback(
         response.selectedScope,
         "allow",
         100,
+        allowHighRisk ? { allowHighRisk: true } : undefined,
       );
     }
     if (
@@ -447,6 +451,7 @@ export interface SkillProjectionContext {
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
+    clientOS?: string;
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
@@ -502,7 +507,9 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
-    return process.platform === "darwin" && !ctx.hasNoClient;
+    // Check the *client's* platform, not the daemon's process.platform.
+    // In Docker the daemon runs on Linux but the connected client may be macOS.
+    return ctx.channelCapabilities?.clientOS === "macos" && !ctx.hasNoClient;
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;

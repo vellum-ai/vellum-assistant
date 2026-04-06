@@ -105,6 +105,7 @@ import {
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   readNowScratchpad,
+  readPkbContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
@@ -783,6 +784,9 @@ export async function runAgentLoopImpl(
     const nowScratchpad =
       currentNowContent !== lastInjectedNow ? currentNowContent : null;
 
+    // Read PKB always-loaded files (INDEX, essentials, threads, buffer)
+    const currentPkbContent = readPkbContext();
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       activeSurface,
@@ -792,6 +796,7 @@ export async function runAgentLoopImpl(
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
+      pkbContext: currentPkbContent,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
@@ -912,11 +917,13 @@ export async function runAgentLoopImpl(
         }
 
         // Re-inject with potentially downgraded injection mode.
-        // Override nowScratchpad: compaction strips existing NOW.md blocks,
-        // so we must re-inject the current content unconditionally.
+        // When compaction ran it strips existing NOW.md / PKB blocks, so we
+        // must re-inject the current content. Otherwise rely on the deduplicated
+        // value from injectionOpts to avoid duplicate injection.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          nowScratchpad: currentNowContent,
+          pkbContext: currentPkbContent,
+          ...(step.compactionResult?.compacted && { nowScratchpad: currentNowContent }),
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1108,11 +1115,12 @@ export async function runAgentLoopImpl(
       }
 
       // Re-inject runtime context and re-enter the agent loop.
-      // After compaction, stripInjectionsForCompaction() removes the existing
-      // NOW.md block from history, so we must re-inject the current content
-      // even if it hasn't changed since the last injection.
+      // stripInjectionsForCompaction() unconditionally removed the existing
+      // NOW.md block from ctx.messages above, so we must always re-inject
+      // the current content regardless of whether compaction actually ran.
       runMessages = applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
+        pkbContext: currentPkbContent,
         nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
@@ -1318,8 +1326,11 @@ export async function runAgentLoopImpl(
           shouldInjectWorkspace = true;
         }
 
+        // ctx.messages has been stripped (line 1206/1373) so NOW.md must
+        // always be re-injected regardless of whether compaction ran.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
+          pkbContext: currentPkbContent,
           nowScratchpad: currentNowContent,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
@@ -1437,8 +1448,11 @@ export async function runAgentLoopImpl(
               shouldInjectWorkspace = true;
             }
 
+            // ctx.messages was already stripped before the convergence
+            // loop, so NOW.md must always be re-injected here.
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
+              pkbContext: currentPkbContent,
               nowScratchpad: currentNowContent,
               workspaceTopLevelContext: shouldInjectWorkspace
                 ? ctx.workspaceTopLevelContext
@@ -1554,8 +1568,11 @@ export async function runAgentLoopImpl(
             shouldInjectWorkspace = true;
           }
 
+          // ctx.messages was already stripped before the convergence
+          // loop, so NOW.md must always be re-injected here.
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
+            pkbContext: currentPkbContent,
             nowScratchpad: currentNowContent,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
