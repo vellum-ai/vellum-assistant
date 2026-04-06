@@ -174,6 +174,12 @@ extension AppDelegate {
                 // a file that could bypass the guard on the next launch.
                 try? FileManager.default.removeItem(at: sentinelPath)
                 self?.isRestarting = false
+                // Reconnect SSE and health checks so the app doesn't stay
+                // in a disconnected state after a failed relaunch attempt.
+                // (Same pattern as performRetireAsync()'s cancel path.)
+                Task { @MainActor [weak self] in
+                    try? await self?.connectionManager.connect()
+                }
                 return
             }
             Task { @MainActor [weak self] in
