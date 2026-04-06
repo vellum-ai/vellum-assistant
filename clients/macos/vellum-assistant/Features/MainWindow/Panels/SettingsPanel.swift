@@ -518,7 +518,7 @@ struct SettingsPanel: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
-            store.refreshAPIKeyState()
+            Task { await store.refreshAPIKeyState() }
             store.refreshVercelKeyState()
             store.refreshModelInfo()
             store.loadProviderRoutingSources()

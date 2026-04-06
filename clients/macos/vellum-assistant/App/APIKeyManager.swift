@@ -1,4 +1,5 @@
 import Foundation
+import os
 import VellumAssistantShared
 
 extension Notification.Name {
@@ -20,6 +21,8 @@ extension Notification.Name {
     static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }
+
+private let apiKeyLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "APIKeyManager")
 
 /// Manages API keys using file-based CredentialStorage. The daemon owns the
 /// canonical encrypted store; the app syncs
@@ -81,10 +84,32 @@ enum APIKeyManager {
         UserDefaults.standard.removeObject(forKey: udKey)
     }
 
-    // MARK: - Generic provider access
+    // MARK: - Generic provider access (sync — FileCredentialStorage)
 
     static func getKey(for provider: String) -> String? {
         storage.get(account: udPrefix + provider)
+    }
+
+    // MARK: - Generic provider access (async — gateway API)
+
+    /// Read an API key from the daemon's secret store.
+    static func getKey(for provider: String) async -> String? {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider, "reveal": true]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
+            )
+            guard response.isSuccess,
+                  let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let found = json["found"] as? Bool, found,
+                  let value = json["value"] as? String, !value.isEmpty else {
+                return nil
+            }
+            return value
+        } catch {
+            apiKeyLog.error("getKey(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     static func setKey(_ key: String, for provider: String) {

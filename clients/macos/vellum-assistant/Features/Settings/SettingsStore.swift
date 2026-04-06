@@ -52,6 +52,11 @@ public final class SettingsStore: ObservableObject {
     @Published var maskedImageGenKey: String = ""
     @Published var maskedElevenLabsKey: String = ""
 
+    /// Cache of provider → key values populated by `refreshAPIKeyState()`
+    /// so that synchronous helpers (`hasKeyForProvider`, `maskedKeyForProvider`)
+    /// can serve SwiftUI view bodies without blocking.
+    private var providerKeyCache: [String: String] = [:]
+
     // MARK: - Model Selection
 
     @Published var selectedModel: String = "claude-opus-4-6"
@@ -475,13 +480,16 @@ public final class SettingsStore: ObservableObject {
         // React to credential storage changes from other surfaces
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.refreshAPIKeyState() }
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.refreshAPIKeyState()
+                }
+            }
             .store(in: &cancellables)
 
-        // Load credential state asynchronously to avoid blocking the main
-        // thread with file-backed CredentialStorage reads during init.
+        // Load credential state asynchronously via the gateway API.
         Task { @MainActor [weak self] in
-            self?.refreshAPIKeyState()
+            await self?.refreshAPIKeyState()
         }
 
         // Resolve lockfile-derived state (gateway URL, assistant topology)
@@ -931,7 +939,8 @@ public final class SettingsStore: ObservableObject {
         APIKeyManager.deleteKey(for: provider)
         addDeletionTombstone(type: "api_key", name: provider)
         deleteKeyFromDaemon(provider: provider)
-        refreshAPIKeyState()
+        providerKeyCache.removeValue(forKey: provider)
+        Task { await refreshAPIKeyState() }
         scheduleRoutingSourceRefresh()
         refreshModelInfo()
     }
@@ -993,35 +1002,44 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func refreshAPIKeyState() {
-        let anthropicKey = APIKeyManager.getKey(for: "anthropic")
+    func refreshAPIKeyState() async {
+        let anthropicKey = await APIKeyManager.getKey(for: "anthropic")
         hasKey = anthropicKey != nil
         maskedKey = Self.maskKey(anthropicKey)
 
-        let braveKey = APIKeyManager.getKey(for: "brave")
+        let braveKey = await APIKeyManager.getKey(for: "brave")
         hasBraveKey = braveKey != nil
         maskedBraveKey = Self.maskKey(braveKey)
 
-        let perplexityKey = APIKeyManager.getKey(for: "perplexity")
+        let perplexityKey = await APIKeyManager.getKey(for: "perplexity")
         hasPerplexityKey = perplexityKey != nil
         maskedPerplexityKey = Self.maskKey(perplexityKey)
 
-        let imageGenKey = APIKeyManager.getKey(for: "gemini")
+        let imageGenKey = await APIKeyManager.getKey(for: "gemini")
         hasImageGenKey = imageGenKey != nil
         maskedImageGenKey = Self.maskKey(imageGenKey)
 
-        let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
+        let elevenLabsKey = await APIKeyManager.getKey(for: "elevenlabs")
         hasElevenLabsKey = elevenLabsKey != nil
         maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
 
+        // Update the provider key cache so synchronous helpers
+        // (hasKeyForProvider, maskedKeyForProvider) stay current.
+        var cache: [String: String] = [:]
+        if let v = anthropicKey { cache["anthropic"] = v }
+        if let v = braveKey { cache["brave"] = v }
+        if let v = perplexityKey { cache["perplexity"] = v }
+        if let v = imageGenKey { cache["gemini"] = v }
+        if let v = elevenLabsKey { cache["elevenlabs"] = v }
+        providerKeyCache = cache
     }
 
     func hasKeyForProvider(_ provider: String) -> Bool {
-        APIKeyManager.getKey(for: provider) != nil
+        providerKeyCache[provider] != nil
     }
 
     func maskedKeyForProvider(_ provider: String) -> String {
-        Self.maskKey(APIKeyManager.getKey(for: provider))
+        Self.maskKey(providerKeyCache[provider])
     }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".
