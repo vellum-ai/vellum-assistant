@@ -40,6 +40,17 @@ export const HeartbeatConfigSchema = z
   })
   .describe("Periodic heartbeat configuration for health monitoring")
   .superRefine((config, ctx) => {
+    const startNull = config.activeHoursStart == null;
+    const endNull = config.activeHoursEnd == null;
+    if (startNull !== endNull) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [startNull ? "activeHoursStart" : "activeHoursEnd"],
+        message:
+          "heartbeat.activeHoursStart and heartbeat.activeHoursEnd must both be set or both be null",
+      });
+      return;
+    }
     if (
       config.activeHoursStart != null &&
       config.activeHoursEnd != null &&
