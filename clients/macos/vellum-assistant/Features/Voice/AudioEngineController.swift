@@ -1,5 +1,6 @@
 import AVFoundation
 import AVFAudio
+import ObjCExceptionCatcher
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AudioEngineController")
@@ -184,7 +185,19 @@ final class AudioEngineController: @unchecked Sendable {
             return false
         }
 
-        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format, block: block)
+        // installTap throws an Objective-C NSException (not a Swift Error) on
+        // format mismatch or stale engine state during audio route changes.
+        // Swift's do/catch cannot intercept NSExceptions — they propagate
+        // unhandled and call abort(). The ObjC bridge converts them to NSError.
+        // See: https://developer.apple.com/documentation/avfaudio/avaudionode/1387122-installtap
+        var installError: NSError?
+        let installed = VLMPerformWithObjCExceptionHandling({
+            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format, block: block)
+        }, &installError)
+        guard installed else {
+            log.error("installTap threw ObjC exception: \(installError?.localizedDescription ?? "unknown")")
+            return false
+        }
 
         audioEngine.prepare()
         do {

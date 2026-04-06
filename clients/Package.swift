@@ -18,6 +18,10 @@ let package = Package(
             name: "VellumAssistantShared",
             targets: ["VellumAssistantShared"]
         ),
+        .library(
+            name: "ObjCExceptionCatcher",
+            targets: ["ObjCExceptionCatcher"]
+        ),
         .executable(
             name: "vellum-assistant",
             targets: ["vellum-assistant"]
@@ -31,10 +35,16 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "VellumAssistantShared",
+            name: "ObjCExceptionCatcher",
             dependencies: [],
+            path: "shared/ObjCExceptionCatcher",
+            publicHeadersPath: "include"
+        ),
+        .target(
+            name: "VellumAssistantShared",
+            dependencies: ["ObjCExceptionCatcher"],
             path: "shared",
-            exclude: ["Tests"],
+            exclude: ["Tests", "ObjCExceptionCatcher"],
             resources: [
                 .copy("Resources/LucideIcons"),
                 .copy("Resources/LUCIDE-LICENSE"),
