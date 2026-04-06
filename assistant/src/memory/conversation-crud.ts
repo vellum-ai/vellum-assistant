@@ -585,6 +585,16 @@ export function forkConversation(params: {
       });
     }
 
+    // Set lastMessageAt to the max createdAt of copied messages so the
+    // forked conversation sorts correctly by message recency.
+    const lastCopiedMessage = messagesToCopy.at(-1);
+    if (lastCopiedMessage) {
+      db.update(conversations)
+        .set({ lastMessageAt: lastCopiedMessage.createdAt })
+        .where(eq(conversations.id, fc.id))
+        .run();
+    }
+
     seedForkedConversationAttention({
       conversationId: fc.id,
       latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
