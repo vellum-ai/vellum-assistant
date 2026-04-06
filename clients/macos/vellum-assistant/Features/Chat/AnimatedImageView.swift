@@ -184,7 +184,11 @@ struct AnimatedImageView: View {
                 self.isGIF = isAnimatedGIF(data)
                 cacheLoadedImage(forKey: effectiveKey)
             } catch {
-                // Keep placeholder on failure
+                // Clear any stale image state so the placeholder shows instead of
+                // an unrelated image that was previously rendered by this view.
+                self.loadedImage = nil
+                self.imageData = nil
+                self.isGIF = false
             }
             return
         }
