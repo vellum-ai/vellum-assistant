@@ -262,10 +262,14 @@ extension MainWindowView {
                     }
                 }
                 // Merge extra conversations into the system:all entry
-                if !extraForAll.isEmpty,
-                   let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
-                    let existing = entries[allIndex]
-                    entries[allIndex] = SidebarGroupEntry(id: existing.id, group: existing.group, conversations: existing.conversations + extraForAll)
+                if !extraForAll.isEmpty {
+                    if let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
+                        let existing = entries[allIndex]
+                        entries[allIndex] = SidebarGroupEntry(id: existing.id, group: existing.group, conversations: existing.conversations + extraForAll)
+                    } else {
+                        // system:all absent from entries — create one so conversations aren't dropped
+                        entries.append(SidebarGroupEntry(id: ConversationGroup.all.id, group: ConversationGroup.all, conversations: extraForAll))
+                    }
                 }
                 return entries
             }()

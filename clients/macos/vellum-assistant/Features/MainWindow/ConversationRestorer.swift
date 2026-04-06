@@ -253,7 +253,7 @@ final class ConversationRestorer {
         for session in recentConversations {
             let isPinned = session.isPinned ?? false
             let groupId: String? = daemonSupportsGroups
-                ? (session.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil))
+                ? (session.groupId ?? (isPinned ? ConversationGroup.pinned.id : ConversationGroup.all.id))
                 : ConversationModel.deriveGroupId(
                     serverGroupId: session.groupId,
                     isPinned: isPinned,

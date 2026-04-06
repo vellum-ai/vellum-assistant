@@ -129,7 +129,7 @@ final class ConversationListStore {
     private(set) var sortedGroups: [ConversationGroup] = []
 
     /// Conversations organized by group. Groups appear in sortPosition order;
-    /// ungrouped conversations (including orphans with unknown groupId) appear last.
+    /// ungrouped and orphaned conversations are folded into the system:all bucket.
     private(set) var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] = []
 
     /// Non-archived, non-private conversations sorted for the sidebar.
@@ -188,9 +188,14 @@ final class ConversationListStore {
 
         var grouped: [(ConversationGroup?, [ConversationModel])] = []
         for group in currentSortedGroups {
-            grouped.append((group, buckets[group.id] ?? []))
+            if group.id == ConversationGroup.all.id {
+                // Fold nil-groupId and orphaned conversations into the system:all bucket
+                // so they are never silently dropped by sidebar rendering.
+                grouped.append((group, (buckets[group.id] ?? []) + ungrouped + orphaned))
+            } else {
+                grouped.append((group, buckets[group.id] ?? []))
+            }
         }
-        grouped.append((nil, ungrouped + orphaned))
         groupedConversations = grouped
     }
 
