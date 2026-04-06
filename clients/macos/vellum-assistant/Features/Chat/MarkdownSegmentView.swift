@@ -512,7 +512,8 @@ struct MarkdownSegmentView: View, Equatable {
         for run in source.runs {
             let runContent = source[run.range]
             let utf16Length = String(runContent.characters).utf16.count
-            if let intent = runContent.inlinePresentationIntent {
+            if let intent = runContent.inlinePresentationIntent,
+               intent.contains(.emphasized) || intent.contains(.stronglyEmphasized) {
                 emphasisRuns.append(EmphasisRun(
                     utf16Offset: utf16Offset,
                     utf16Length: utf16Length,
@@ -533,7 +534,8 @@ struct MarkdownSegmentView: View, Equatable {
             mdConvertLog.warning("UTF-16 offset mismatch: computed \(utf16Offset) vs NSAttributedString length \(ns.length) — recomputing emphasis offsets")
             emphasisRuns.removeAll()
             for run in source.runs {
-                if let intent = source[run.range].inlinePresentationIntent {
+                if let intent = source[run.range].inlinePresentationIntent,
+                   intent.contains(.emphasized) || intent.contains(.stronglyEmphasized) {
                     let prefixStr = String(source.characters[source.startIndex..<run.range.lowerBound])
                     let nsOffset = (prefixStr as NSString).length
                     let runStr = String(source[run.range].characters)
