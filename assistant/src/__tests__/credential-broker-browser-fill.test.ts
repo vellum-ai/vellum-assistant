@@ -25,11 +25,22 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Use encrypted backend with a temp store path
+// Use encrypted backend with a temp store path.
+//
+// IMPORTANT: Unset IS_CONTAINERIZED and CES_CREDENTIAL_URL so the credential
+// backend resolver falls through to the encrypted file store instead of the
+// CES HTTP client. Without this, setSecureKeyAsync() writes to the REAL
+// credential service — overwriting live credentials (e.g. the Slack bot
+// token) with test values like "xoxb-test".
 // ---------------------------------------------------------------------------
 
 import { _setStorePath } from "../security/encrypted-store.js";
 import { _resetBackend } from "../security/secure-keys.js";
+
+const savedIsContainerized = process.env.IS_CONTAINERIZED;
+const savedCesCredentialUrl = process.env.CES_CREDENTIAL_URL;
+delete process.env.IS_CONTAINERIZED;
+delete process.env.CES_CREDENTIAL_URL;
 
 const TEST_DIR = join(
   tmpdir(),
@@ -59,6 +70,13 @@ import {
 
 afterAll(() => {
   mock.restore();
+  // Restore CES env vars so other test files in the same process are unaffected.
+  if (savedIsContainerized !== undefined) {
+    process.env.IS_CONTAINERIZED = savedIsContainerized;
+  }
+  if (savedCesCredentialUrl !== undefined) {
+    process.env.CES_CREDENTIAL_URL = savedCesCredentialUrl;
+  }
 });
 
 describe("CredentialBroker.browserFill", () => {
