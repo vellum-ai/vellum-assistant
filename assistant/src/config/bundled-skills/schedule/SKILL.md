@@ -117,7 +117,6 @@ Optionally pass `routing_hints` (a JSON object) to influence routing decisions (
      | `macos`, `ios` | `vellum` |
      | `telegram` | `telegram` |
      | `slack` | `slack` |
-     | `discord` | `discord` |
      | `cli` | _(omit — no routable channel)_ |
   3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
 
