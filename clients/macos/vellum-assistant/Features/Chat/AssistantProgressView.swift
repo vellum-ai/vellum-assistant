@@ -364,8 +364,7 @@ struct AssistantProgressView: View {
             // Code preview (streaming code phase)
             if phase == .streamingCode, let code = streamingCodePreview {
                 CodePreviewView(code: code)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.bottom, VSpacing.xs)
+                    .padding(EdgeInsets(top: 0, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
             }
         }
         .background(VColor.surfaceOverlay)
@@ -551,8 +550,7 @@ struct AssistantProgressView: View {
         }
         .buttonStyle(.plain)
         .environment(\.isEnabled, true)
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -726,8 +724,7 @@ struct AssistantProgressView: View {
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
                         onTemporaryAllow: onTemporaryAllow
                     )
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
+                    .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
                 }
             }
         }
@@ -760,8 +757,7 @@ struct AssistantProgressView: View {
                     Text("+\(overflow)")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                        .padding(.horizontal, VSpacing.xs)
-                        .padding(.vertical, VSpacing.xxs)
+                        .padding(EdgeInsets(top: VSpacing.xxs, leading: VSpacing.xs, bottom: VSpacing.xxs, trailing: VSpacing.xs))
                         .background(
                             Capsule().fill(VColor.surfaceBase)
                         )
@@ -911,15 +907,12 @@ private struct StepDetailRow: View {
             }
             .buttonStyle(.plain)
             .environment(\.isEnabled, true)
-            .padding(.leading, VSpacing.sm)
-            .padding(.trailing, VSpacing.xs)
-            .padding(.vertical, VSpacing.xs)
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs))
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(isHovered && hasDetails ? VColor.borderBase.opacity(0.5) : .clear)
             )
-            .padding(.leading, VSpacing.sm)
-            .padding(.trailing, VSpacing.xs)
+            .padding(EdgeInsets(top: 0, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.xs))
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
@@ -1049,8 +1042,7 @@ private struct StepDetailRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(VSpacing.sm)
-            .padding(.trailing, VSpacing.xl) // reserve space for copy button
+            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.xl))
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(VColor.surfaceOverlay.opacity(0.6))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
@@ -1175,11 +1167,7 @@ private struct CompactPermissionChip: View {
                 .font(VFont.labelSmall)
                 .foregroundStyle(chipColor)
         }
-        .padding(.horizontal, VSpacing.xs)
-        .padding(.vertical, VSpacing.xxs)
-        .background(
-            Capsule().fill(Color.clear)
-        )
+        .padding(EdgeInsets(top: VSpacing.xxs, leading: VSpacing.xs, bottom: VSpacing.xxs, trailing: VSpacing.xs))
         .overlay(
             Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
         )
