@@ -14,7 +14,7 @@ struct ScheduleSubGroup: Identifiable {
 /// Handles expand/collapse, show-more/less truncation, auto-expand on unread,
 /// and optional schedule sub-grouping for the Scheduled system group.
 struct SidebarSectionView: View {
-    let group: ConversationGroup?
+    let group: ConversationGroup
     let conversations: [ConversationModel]
     let isExpanded: Bool
     let showAll: Bool
@@ -101,49 +101,44 @@ struct SidebarSectionView: View {
     }
 
     var body: some View {
-        if let group = group {
-            SidebarSectionHeader(
-                group: group,
-                conversationCount: displayCount,
-                isExpanded: isExpanded,
-                isDropTarget: isDropTarget,
-                isGroupReorderTarget: !group.isSystemGroup && sidebar?.dropTargetSectionId == group.id && sidebar?.draggingConversationId == nil,
-                groupDropIndicatorAtBottom: sidebar?.groupDropIndicatorAtBottom ?? false,
-                aggregateState: aggregateState,
-                isRenaming: isRenaming,
-                renamingName: $renamingName,
-                onToggleExpand: onToggleExpand,
-                onRename: onRename,
-                onCommitRename: onCommitRename,
-                onCancelRename: onCancelRename,
-                onDelete: onDelete,
-                sidebar: sidebar
+        SidebarSectionHeader(
+            group: group,
+            conversationCount: displayCount,
+            isExpanded: isExpanded,
+            isDropTarget: isDropTarget,
+            isGroupReorderTarget: !group.isSystemGroup && sidebar?.dropTargetSectionId == group.id && sidebar?.draggingConversationId == nil,
+            groupDropIndicatorAtBottom: sidebar?.groupDropIndicatorAtBottom ?? false,
+            aggregateState: aggregateState,
+            isRenaming: isRenaming,
+            renamingName: $renamingName,
+            onToggleExpand: onToggleExpand,
+            onRename: onRename,
+            onCommitRename: onCommitRename,
+            onCancelRename: onCancelRename,
+            onDelete: onDelete,
+            sidebar: sidebar
+        )
+        .modifier(SectionHeaderDropModifier(
+            group: group,
+            sidebar: sidebar,
+            conversationManager: conversationManager
+        ))
+
+        if isExpanded && !conversations.isEmpty {
+            VStack(spacing: 0) {
+                sectionContent
+            }
+            .padding(.bottom, VSpacing.xxs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(isDropTarget ? VColor.systemPositiveWeak : .clear)
             )
-            .modifier(SectionHeaderDropModifier(
-                group: group,
+            .modifier(SectionBodyDropModifier(
+                groupId: group.id,
                 sidebar: sidebar,
                 conversationManager: conversationManager
             ))
-
-            if isExpanded && !conversations.isEmpty {
-                VStack(spacing: 0) {
-                    sectionContent
-                }
-                .padding(.bottom, VSpacing.xxs)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(isDropTarget ? VColor.systemPositiveWeak : .clear)
-                )
-                .modifier(SectionBodyDropModifier(
-                    groupId: group.id,
-                    sidebar: sidebar,
-                    conversationManager: conversationManager
-                ))
-                .transition(.opacity)
-            }
-        } else {
-            // Ungrouped -- no header, render conversations directly
-            sectionContent
+            .transition(.opacity)
         }
     }
 
@@ -190,7 +185,7 @@ struct SidebarSectionView: View {
                             sidebar.dropTargetConversationId = conversation.id
                             if let dragId = sidebar.draggingConversationId {
                                 let groupConversations = conversationManager.groupedConversations
-                                    .first { $0.group?.id == group?.id }?.conversations ?? []
+                                    .first { $0.group?.id == group.id }?.conversations ?? []
                                 let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
                                 let tIdx = groupConversations.firstIndex(where: { $0.id == conversation.id }) ?? 0
                                 sidebar.dropIndicatorAtBottom = sIdx < tIdx
@@ -216,7 +211,7 @@ struct SidebarSectionView: View {
         // on the server beyond the initial page. Auto-trigger a full load so
         // those items become visible. Scoped to the pinned section only to
         // avoid eagerly loading all conversations for small non-pinned sections.
-        if group?.id == ConversationGroup.pinned.id,
+        if group.id == ConversationGroup.pinned.id,
            conversations.count <= maxCollapsed,
            let conversationManager,
            conversationManager.hasMoreConversations {

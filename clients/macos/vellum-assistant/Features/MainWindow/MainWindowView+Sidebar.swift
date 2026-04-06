@@ -7,7 +7,7 @@ import VellumAssistantShared
 /// Lightweight identifiable wrapper for ForEach over grouped conversations.
 private struct SidebarGroupEntry: Identifiable {
     let id: String
-    let group: ConversationGroup?
+    let group: ConversationGroup
     let conversations: [ConversationModel]
 }
 
@@ -238,8 +238,6 @@ extension MainWindowView {
         )
     }
 
-    // MARK: - Ungrouped Rows
-
     /// The main conversation groups list content, extracted from the ScrollView body
     /// to reduce type-checker pressure (avoids "ambiguous use of init" on ScrollView).
     @ViewBuilder
@@ -253,136 +251,28 @@ extension MainWindowView {
             let groupEntries: [SidebarGroupEntry] = {
                 let raw = conversationManager.groupedConversations
                 var entries: [SidebarGroupEntry] = []
-                var extraUngrouped: [ConversationModel] = []
+                // When custom groups are disabled, fold their conversations into system:all
+                var extraForAll: [ConversationModel] = []
                 for entry in raw {
-                    if let group = entry.group {
-                        // Hide custom groups when custom groups flag is off
-                        if !group.isSystemGroup && !customGroupsEnabled {
-                            extraUngrouped.append(contentsOf: entry.conversations)
-                        } else {
-                            entries.append(SidebarGroupEntry(id: group.id, group: group, conversations: entry.conversations))
-                        }
+                    guard let group = entry.group else { continue }
+                    if !group.isSystemGroup && !customGroupsEnabled {
+                        extraForAll.append(contentsOf: entry.conversations)
                     } else {
-                        extraUngrouped.append(contentsOf: entry.conversations)
+                        entries.append(SidebarGroupEntry(id: group.id, group: group, conversations: entry.conversations))
                     }
                 }
-                entries.append(SidebarGroupEntry(id: "ungrouped", group: nil, conversations: extraUngrouped))
+                // Merge extra conversations into the system:all entry
+                if !extraForAll.isEmpty,
+                   let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
+                    let existing = entries[allIndex]
+                    entries[allIndex] = SidebarGroupEntry(id: existing.id, group: existing.group, conversations: existing.conversations + extraForAll)
+                }
                 return entries
             }()
             ForEach(groupEntries) { entry in
-                if let group = entry.group {
-                    makeSectionView(group: group, conversations: entry.conversations)
-                } else {
-                    ungroupedConversationRows(entry.conversations)
-                }
+                makeSectionView(group: entry.group, conversations: entry.conversations)
             }
 
-        }
-    }
-
-    /// Renders ungrouped conversations with drag-reorder support.
-    /// These appear without a collapsible header, matching the pre-groups layout.
-    @ViewBuilder
-    private func ungroupedConversationRows(_ conversations: [ConversationModel]) -> some View {
-        let displayed = sidebar.showAllInSection.contains("ungrouped")
-            ? conversations
-            : Array(conversations.prefix(5))
-
-        ForEach(displayed) { conversation in
-            makeSidebarRow(conversation: conversation)
-                .equatable()
-                .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
-                .padding(.bottom, SidebarLayoutMetrics.listRowGap)
-                .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                    if sidebar.dropTargetConversationId == conversation.id {
-                        Rectangle()
-                            .fill(VColor.primaryBase)
-                            .frame(height: 2)
-                            .transition(.opacity)
-                    }
-                }
-                .dropDestination(for: String.self) { items, _ in
-                    guard let droppedId = items.first,
-                          let sourceUUID = UUID(uuidString: droppedId),
-                          sourceUUID != conversation.id else {
-                        sidebar.endConversationDrag()
-                        return false
-                    }
-                    let moved = conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id)
-                    sidebar.endConversationDrag()
-                    return moved
-                } isTargeted: { isTargeted in
-                    if isTargeted && conversation.id != sidebar.draggingConversationId {
-                        sidebar.dropTargetConversationId = conversation.id
-                        if let dragId = sidebar.draggingConversationId {
-                            // Use section-local index (ungrouped conversations only)
-                            let ungroupedConvs = conversationManager.groupedConversations
-                                .first { $0.group == nil }?.conversations ?? []
-                            let sIdx = ungroupedConvs.firstIndex(where: { $0.id == dragId }) ?? 0
-                            let tIdx = ungroupedConvs.firstIndex(where: { $0.id == conversation.id }) ?? 0
-                            sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                        }
-                    } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
-                        sidebar.dropTargetConversationId = nil
-                    }
-                }
-        }
-
-        if conversations.count > 5 {
-            HStack {
-                VButton(
-                    label: sidebar.showAllInSection.contains("ungrouped") ? "Show less" : "Show more",
-                    style: .ghost,
-                    size: .compact
-                ) {
-                    let wasCollapsed = !sidebar.showAllInSection.contains("ungrouped")
-                    withAnimation(VAnimation.fast) { sidebar.toggleShowAll("ungrouped") }
-                    if wasCollapsed {
-                        conversationManager.loadAllRemainingConversations()
-                    }
-                }
-                Spacer()
-            }
-            .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
-            .padding(.bottom, VSpacing.xs)
-        }
-
-        // Fallback pagination: the ungrouped section is always the last
-        // rendered section. When every section fits within its collapse
-        // limit (no "Show more" buttons visible) but the server has more
-        // conversations, auto-trigger loading so users can reach them.
-        // Gate on ALL sections — not just ungrouped — to avoid eager
-        // full-load in grouped-heavy workspaces.
-        if conversations.count <= 5,
-           conversationManager.hasMoreConversations,
-           !conversationManager.groupedConversations.contains(where: { entry in
-               guard let group = entry.group else { return false }
-               // Skip custom groups when feature flag is off — rendering
-               // hides them and folds their conversations into ungrouped.
-               if !group.isSystemGroup && !assistantFeatureFlagStore.isEnabled("conversation-groups-ui") {
-                   return false
-               }
-               let isPinned = group.id == ConversationGroup.pinned.id
-               let isScheduled = group.id == ConversationGroup.scheduled.id
-               let isBackground = group.id == ConversationGroup.background.id
-               let maxCollapsed = isPinned ? Int.max : 5
-               if isScheduled || isBackground {
-                   // Subgroup count mode — "Show more" triggers on distinct
-                   // subgroup count, not total conversation count.
-                   let grouper: (ConversationModel) -> String? = isScheduled
-                       ? { $0.scheduleJobId }
-                       : { $0.source }
-                   var keys = Set<String>()
-                   for c in entry.conversations { keys.insert(grouper(c) ?? c.id.uuidString) }
-                   return keys.count > maxCollapsed
-               }
-               return entry.conversations.count > maxCollapsed
-           }) {
-            Color.clear
-                .frame(height: 0)
-                .onAppear {
-                    conversationManager.loadAllRemainingConversations()
-                }
         }
     }
 
