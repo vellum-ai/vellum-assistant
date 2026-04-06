@@ -10,7 +10,7 @@ extension MainWindowView {
         content
             .onAppear { handleCoreLayoutAppear() }
             .onDisappear { handleCoreLayoutDisappear() }
-            .onReceive(NotificationCenter.default.publisher(for: .identityFileDidChange)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .identityChanged)) { _ in
                 Task {
                     let info = await IdentityInfo.refreshCache()
                     cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
@@ -108,7 +108,6 @@ extension MainWindowView {
             cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
             if info != nil { assistantNameResolved = true }
         }
-        startIdentityFileWatcher()
         selectedConversationId = conversationManager.activeConversationId
         if let activeId = conversationManager.activeConversationId {
             windowState.persistentConversationId = activeId
@@ -140,36 +139,7 @@ extension MainWindowView {
         sharing.credentialPollTimer?.invalidate()
         sharing.credentialPollTimer = nil
         sharing.pendingPublish = nil
-        identityFileWatcher?.cancel()
-        identityFileWatcher = nil
         eventStreamClient.stopSSE()
-    }
-
-    /// Watch ~/.vellum/workspace/IDENTITY.md for writes and refresh the
-    /// cached assistant display name when the file changes on disk.
-    func startIdentityFileWatcher() {
-        identityFileWatcher?.cancel()
-        identityFileWatcher = nil
-
-        let identityPath = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
-        let fd = open(identityPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename],
-            queue: .global(qos: .utility)
-        )
-        // Post a notification so the SwiftUI view can pick up the change
-        // without capturing `self` (which is a struct).
-        source.setEventHandler {
-            NotificationCenter.default.post(name: .identityFileDidChange, object: nil)
-        }
-        source.setCancelHandler {
-            close(fd)
-        }
-        source.resume()
-        identityFileWatcher = source
     }
 
     func handleDaemonConnectionChange(_ connected: Bool) {

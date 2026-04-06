@@ -3,10 +3,6 @@ import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
 
-extension Notification.Name {
-    static let identityFileDidChange = Notification.Name("identityFileDidChange")
-}
-
 struct MainWindowView: View {
     @Bindable var conversationManager: ConversationManager
     let appListManager: AppListManager
@@ -69,12 +65,10 @@ struct MainWindowView: View {
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
     @State var groupToDelete: ConversationGroup?
 
-    /// Cached assistant display name, refreshed when IDENTITY.md changes on disk.
+    /// Cached assistant display name, refreshed when the daemon emits an identity change event.
     @State var cachedAssistantName: String = "Your Assistant"
     /// Whether cachedAssistantName has been resolved from IDENTITY.md at least once.
     @State var assistantNameResolved: Bool = false
-    /// File watcher for IDENTITY.md — fires when the assistant's name changes.
-    @State var identityFileWatcher: DispatchSourceFileSystemObject?
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
