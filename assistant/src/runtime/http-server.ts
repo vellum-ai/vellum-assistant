@@ -110,6 +110,7 @@ import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { handleGetAudio } from "./routes/audio-routes.js";
 import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
+import { handleBrowserExtensionPair } from "./routes/browser-extension-pair-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
@@ -531,6 +532,13 @@ export class RuntimeHttpServer {
     }
     if (path === "/v1/pairing/status" && req.method === "GET") {
       return handlePairingStatus(url, this.pairingContext);
+    }
+
+    // Chrome extension capability-token pair endpoint — unauthenticated but
+    // restricted to loopback peers + an extension-id allowlist. Used by the
+    // native messaging helper to bootstrap a scoped token.
+    if (path === "/v1/browser-extension-pair") {
+      return await handleBrowserExtensionPair(req, server);
     }
 
     // Guardian bootstrap and refresh endpoints — before JWT auth because
