@@ -166,21 +166,29 @@ declare const chrome: {
 
 /**
  * Compose a default `ChromeDebuggerApi` from the real `chrome` global. We
- * splice `chrome.runtime` onto `chrome.debugger` so that the merged object
- * satisfies the `ChromeDebuggerApi` interface (which now includes a
- * `runtime.lastError` field). The runtime reference is read live on every
- * access — `chrome.runtime.lastError` is set by the browser synchronously
- * during callback invocation, so we expose it via a getter rather than
- * snapshotting at module load.
+ * build a plain object with `chrome.debugger`'s methods explicitly bound to
+ * `chrome.debugger`, plus a live `runtime` getter that reads `chrome.runtime`
+ * on every access. Methods MUST be bound: Chrome's native bindings check
+ * `this` to be the original `chrome.debugger` object and will throw
+ * "Illegal invocation" otherwise. The `onEvent` / `onDetach` event objects
+ * are forwarded as-is — `chrome.events.Event` instances expose
+ * `addListener` / `removeListener` that don't depend on the surrounding
+ * receiver. The `runtime` getter (rather than a snapshot) is required because
+ * `chrome.runtime.lastError` is set by the browser synchronously during
+ * callback invocation.
  */
 function defaultChromeDebuggerApi(): ChromeDebuggerApi {
-  const api = chrome.debugger as ChromeDebuggerApi;
-  return new Proxy(api, {
-    get(target, prop, receiver) {
-      if (prop === "runtime") return chrome.runtime;
-      return Reflect.get(target, prop, receiver);
+  const d = chrome.debugger;
+  return {
+    attach: d.attach.bind(d),
+    detach: d.detach.bind(d),
+    sendCommand: d.sendCommand.bind(d),
+    onEvent: d.onEvent,
+    onDetach: d.onDetach,
+    get runtime() {
+      return chrome.runtime;
     },
-  });
+  };
 }
 
 export function createCdpProxy(api: ChromeDebuggerApi = defaultChromeDebuggerApi()): CdpProxy {
