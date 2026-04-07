@@ -370,6 +370,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // changes via the LockfileAssistant.activeAssistantDidChange notification.
         Task { @MainActor in await IdentityInfo.warmCache() }
 
+        // Pre-warm the NSSavePanel/NSOpenPanel ViewBridge XPC connection so
+        // that user-initiated save/open actions don't block the main thread
+        // waiting on _NSViewBridgeMakeSecureConnection (LUM-763).
+        SavePanelWarmup.warmUp()
+
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
         _ = ChatDiagnosticsStore.shared
