@@ -14,8 +14,6 @@ extension MessageListView {
         // .id(conversationId) on the ScrollView destroys and recreates it on
         // conversation switch, firing onAppear for the new view. Detect the
         // switch by comparing against the last-known conversation ID.
-        // Must check BEFORE configureScrollCallbacks() which updates
-        // currentConversationId.
         //
         // Skip when currentConversationId is nil (true first mount) — reset()
         // on freshly-initialized state is redundant and its 300ms scroll-
@@ -23,7 +21,7 @@ extension MessageListView {
         let previousConversationId = scrollState.currentConversationId
         let isConversationSwitch = previousConversationId != nil
             && previousConversationId != conversationId
-        configureScrollCallbacks()
+        scrollState.currentConversationId = conversationId
         if isConversationSwitch {
             handleConversationSwitched()
         } else {
@@ -86,11 +84,9 @@ extension MessageListView {
             // yanked again by the imperative call, potentially overshooting
             // into blank LazyVStack estimated space.
             //
-            // The delayed `restoreScrollToBottom()` (100ms) acts as a safety
-            // net: if `.defaultScrollAnchor` didn't fully resolve (e.g. very
-            // long conversation with unreliable height estimates), the
-            // recovery window + restore fallback will catch it.
-            restoreScrollToBottom()
+            // `.defaultScrollAnchor(.bottom, for: .initialOffset)` handles
+            // initial positioning declaratively. The recovery window catches
+            // cases where height estimates are unreliable.
         }
     }
 
@@ -273,7 +269,6 @@ extension MessageListView {
         // materialized — SwiftUI locates them in the data source. The standalone
         // "scroll-bottom-anchor" (outside ForEach) is only locatable when materialized.
         // https://developer.apple.com/documentation/swiftui/scrollposition
-        scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
             if let lastId = paginatedVisibleMessages.last?.id {
                 scrollPosition = ScrollPosition(id: lastId, anchor: .bottom)
@@ -284,7 +279,6 @@ extension MessageListView {
                 scrollPosition = ScrollPosition(edge: .bottom)
             }
         }
-        restoreScrollToBottom()
     }
 
     func handleAnchorMessageTask() async {
@@ -292,10 +286,7 @@ extension MessageListView {
         // non-nil anchor assignments; nil transitions are cleanup handled
         // by messagesChanged and conversationSwitched.
         guard let id = anchorMessageId else { return }
-        // Cancel scroll restore when a new anchor is set.
-        scrollState.scrollRestoreTask?.cancel()
-        scrollState.scrollRestoreTask = nil
-        scrollState.transition(to: .programmaticScroll(reason: .deepLinkAnchor(id: id)))
+        scrollState.pendingAnchorMessageId = id
         scrollState.anchorSetTime = Date()
         scrollState.anchorTimeoutTask?.cancel()
         scrollState.anchorTimeoutTask = nil

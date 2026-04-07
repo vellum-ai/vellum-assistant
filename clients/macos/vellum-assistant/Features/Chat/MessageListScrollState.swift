@@ -192,7 +192,8 @@ final class MessageListScrollState {
     ///
     /// - Parameter sentinelMinY: The minY of the pagination sentinel in the
     ///   scroll view's coordinate space.
-    func handlePaginationSentinel(sentinelMinY: CGFloat) {
+    @discardableResult
+    func handlePaginationSentinel(sentinelMinY: CGFloat) -> Bool {
         // Trigger band: sentinel minY between -120pt (above viewport top)
         // and +200pt (below viewport top).
         let isInRange = sentinelMinY >= -120 && sentinelMinY <= 200
@@ -202,16 +203,17 @@ final class MessageListScrollState {
         let shouldFire = isInRange && !wasPaginationTriggerInRange
         wasPaginationTriggerInRange = isInRange
 
-        guard shouldFire else { return }
+        guard shouldFire else { return false }
 
         // 500ms cooldown between successive pagination fires.
         let now = Date()
         guard now.timeIntervalSince(lastPaginationCompletedAt) >= 0.5 else {
             scrollLog.debug("Pagination sentinel: in range but cooldown active")
-            return
+            return false
         }
 
         scrollLog.debug("Pagination sentinel: triggered (sentinelMinY: \(sentinelMinY, format: .fixed(precision: 1))pt)")
         lastPaginationCompletedAt = now
+        return true
     }
 }
