@@ -111,6 +111,7 @@ Analyze the conversation above. Provide a structured self-assessment:
 3. **What went wrong**: Errors, unnecessary tool calls, incorrect assumptions, wasted turns, misunderstandings.
 4. **Root causes**: Why did failures happen? Missing context? Wrong approach? Tool limitations?
 5. **Recommendations**: Specific, actionable improvements for similar conversations next time.
+6. **Code & tooling changes**: Are there any changes to files you should make based on these learnings? Are there any skills or scripts that are worth creating or modifying? Don't make these changes yet — just provide your analysis.
 
 Be honest and specific. Reference particular moments in the transcript. Focus on patterns that generalize beyond this specific conversation.
 
