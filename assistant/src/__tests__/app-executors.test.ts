@@ -56,6 +56,7 @@ function mockStore(
   return {
     getApp: (id: string) => (id === app.id ? app : null),
     listApps: () => [app],
+    appFileExists: (_appId: string, path: string) => path in files,
     createApp: () => app,
     updateApp: () => app,
     deleteApp: () => {},

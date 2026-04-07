@@ -75,7 +75,10 @@ export function inlineDistAssets(appDir: string, html: string): string {
   // Inline main.js
   const jsPath = join(distDir, "main.js");
   if (existsSync(jsPath)) {
-    const js = readFileSync(jsPath, "utf-8").replace(/<\/script>/g, "<\\/script>");
+    const js = readFileSync(jsPath, "utf-8").replace(
+      /<\/script>/g,
+      "<\\/script>",
+    );
     html = html.replace(
       /<script\s+type="module"\s+src="main\.js"\s*><\/script>/,
       () => `<script type="module">${js}</script>`,
@@ -816,6 +819,16 @@ export function listAppFiles(appId: string): string[] {
 
   walk(appDir);
   return results.sort();
+}
+
+/**
+ * Check whether a file exists in the app directory.
+ * Path is validated to prevent traversal.
+ */
+export function appFileExists(appId: string, path: string): boolean {
+  validateId(appId);
+  const resolved = validateFilePath(appId, path);
+  return existsSync(resolved);
 }
 
 /**
