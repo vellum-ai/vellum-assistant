@@ -8,6 +8,13 @@
 
 import type { ExtensionCommand, ExtensionResponse, ExtensionHeartbeat } from '../../../assistant/src/browser-extension-relay/protocol.js';
 import { signInCloud, type CloudAuthConfig, type StoredCloudToken } from './cloud-auth.js';
+import {
+  createHostBrowserDispatcher,
+  type HostBrowserDispatcher,
+  type HostBrowserRequestEnvelope,
+  type HostBrowserCancelEnvelope,
+  type HostBrowserResultEnvelope,
+} from './host-browser-dispatcher.js';
 
 // Cloud OAuth defaults — kept here so the popup can stay a thin client and the
 // service worker is the single owner of the launchWebAuthFlow lifecycle. This
@@ -32,6 +39,56 @@ let shouldConnect = false;
 
 /** WebSocket close codes that represent intentional, non-error closures. */
 const NORMAL_CLOSE_CODES = new Set([1000, 1001]);
+
+// ── Host browser dispatcher (Phase 2 PR 9) ──────────────────────────
+//
+// Feature-flagged behind `vellum.cdpProxyEnabled` in chrome.storage.local.
+// When the flag is off (default), incoming `host_browser_request` /
+// `host_browser_cancel` envelopes are ignored here and the legacy
+// ExtensionCommand handlers below service all browser tool calls exactly
+// as before. Phase 3 will flip the default and delete the legacy path.
+const CDP_PROXY_ENABLED_KEY = 'vellum.cdpProxyEnabled';
+
+let cdpProxyEnabled = false;
+
+async function resolveHostBrowserTarget(
+  cdpSessionId: string | undefined,
+): Promise<{ tabId?: number; targetId?: string }> {
+  // When the daemon side has an explicit session id (e.g. a flat child
+  // session returned from a prior Target.attachToTarget) we route the
+  // command by targetId. Otherwise we fall back to the most recently
+  // active tab in the focused window — matching the implicit target
+  // selection the legacy ExtensionCommand handlers used.
+  if (cdpSessionId) {
+    return { targetId: cdpSessionId };
+  }
+  const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (activeTab?.id === undefined) {
+    throw new Error('No active tab available to resolve host_browser target');
+  }
+  return { tabId: activeTab.id };
+}
+
+async function postHostBrowserResult(result: HostBrowserResultEnvelope): Promise<void> {
+  const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (token) headers.authorization = `Bearer ${token}`;
+  const resp = await fetch(`http://127.0.0.1:${port}/v1/host-browser-result`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(result),
+  });
+  if (!resp.ok) {
+    console.warn(
+      `[vellum-relay] host-browser-result POST returned ${resp.status}`,
+    );
+  }
+}
+
+const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher({
+  resolveTarget: resolveHostBrowserTarget,
+  postResult: postHostBrowserResult,
+});
 
 // ── Storage helpers ─────────────────────────────────────────────────
 
@@ -152,14 +209,40 @@ function sendResponse(response: ExtensionResponse): void {
 // ── Command dispatch ────────────────────────────────────────────────
 
 async function handleServerMessage(raw: string): Promise<void> {
-  let cmd: ExtensionCommand;
+  let parsed: unknown;
   try {
-    cmd = JSON.parse(raw) as ExtensionCommand;
+    parsed = JSON.parse(raw);
   } catch {
     console.warn('[vellum-relay] Failed to parse server message');
     return;
   }
 
+  // Phase 2 PR 9: host_browser_* envelopes are dispatched via the CDP proxy
+  // only when the feature flag is on. With the flag off we return early and
+  // let the daemon's host-browser-proxy time out gracefully — the envelope
+  // is NOT forwarded to the legacy ExtensionCommand dispatch because its
+  // shape is incompatible.
+  if (
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    'type' in parsed &&
+    typeof (parsed as { type: unknown }).type === 'string'
+  ) {
+    const envelopeType = (parsed as { type: string }).type;
+    if (envelopeType === 'host_browser_request') {
+      if (!cdpProxyEnabled) return;
+      await hostBrowserDispatcher.handle(parsed as HostBrowserRequestEnvelope);
+      return;
+    }
+    if (envelopeType === 'host_browser_cancel') {
+      if (cdpProxyEnabled) {
+        hostBrowserDispatcher.cancel(parsed as HostBrowserCancelEnvelope);
+      }
+      return;
+    }
+  }
+
+  const cmd = parsed as ExtensionCommand;
   try {
     const result = await dispatch(cmd);
     sendResponse({ id: cmd.id, success: true, ...result });
@@ -377,5 +460,29 @@ chrome.storage.local.get('autoConnect').then(async (result) => {
     shouldConnect = true;
     await refreshToken();
     connect();
+  }
+});
+
+// Load the CDP proxy feature flag at startup. Missing / non-boolean values
+// are treated as false so existing deployments exhibit no behavior change.
+chrome.storage.local.get(CDP_PROXY_ENABLED_KEY).then((result) => {
+  const value = result[CDP_PROXY_ENABLED_KEY];
+  cdpProxyEnabled = value === true;
+  if (cdpProxyEnabled) {
+    console.log('[vellum-relay] CDP proxy enabled (beta)');
+  }
+});
+
+// Keep the flag live-updatable from the popup without requiring the service
+// worker to restart. `chrome.storage.onChanged` fires in the same service
+// worker context the value is set from, which is perfect here.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+  if (CDP_PROXY_ENABLED_KEY in changes) {
+    const newValue = changes[CDP_PROXY_ENABLED_KEY]?.newValue;
+    cdpProxyEnabled = newValue === true;
+    console.log(
+      `[vellum-relay] CDP proxy feature flag updated: ${cdpProxyEnabled}`,
+    );
   }
 });

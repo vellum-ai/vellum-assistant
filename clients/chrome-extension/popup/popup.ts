@@ -28,6 +28,9 @@ const manualToggle = document.getElementById('manual-toggle') as HTMLButtonEleme
 const tokenGroup = document.getElementById('token-group') as HTMLDivElement;
 const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
 const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
+const cdpProxyToggle = document.getElementById('cdp-proxy-toggle') as HTMLInputElement;
+
+const CDP_PROXY_ENABLED_KEY = 'vellum.cdpProxyEnabled';
 
 let manualMode = false;
 
@@ -213,3 +216,18 @@ btnCloudSignIn.addEventListener('click', async () => {
 });
 
 refreshCloudStatus();
+
+// ── CDP proxy beta toggle (Phase 2 PR 9) ──────────────────────────
+//
+// Persists `vellum.cdpProxyEnabled` in chrome.storage.local. The service
+// worker reads this flag at startup and listens for changes via
+// chrome.storage.onChanged, so no reconnect is needed — flipping the
+// checkbox takes effect on the next incoming host_browser_request frame.
+
+chrome.storage.local.get(CDP_PROXY_ENABLED_KEY).then((result) => {
+  cdpProxyToggle.checked = result[CDP_PROXY_ENABLED_KEY] === true;
+});
+
+cdpProxyToggle.addEventListener('change', async () => {
+  await chrome.storage.local.set({ [CDP_PROXY_ENABLED_KEY]: cdpProxyToggle.checked });
+});
