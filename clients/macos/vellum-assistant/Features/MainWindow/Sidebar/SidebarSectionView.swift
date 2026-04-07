@@ -291,7 +291,6 @@ struct SidebarSectionView: View {
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .vTooltip(subGroup.label)
                 Spacer()
                 if hasUnread {
                     VBadge(style: .dot, color: VColor.systemMidStrong)
@@ -319,6 +318,7 @@ struct SidebarSectionView: View {
             }
         }
         .buttonStyle(.plain)
+        .vTooltip(subGroup.label)
         .pointerCursor()
 
         if isSubGroupExpanded {
