@@ -203,6 +203,7 @@ export async function orchestrateOAuthConnect(
     authorizeUrl,
     tokenExchangeUrl,
     scopes: finalScopes,
+    scopeSeparator: providerRow.scopeSeparator,
     clientId: options.clientId,
     clientSecret: options.clientSecret,
     authorizeParams,

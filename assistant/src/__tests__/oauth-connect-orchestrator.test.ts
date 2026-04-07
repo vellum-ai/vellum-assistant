@@ -94,6 +94,7 @@ type ProviderRow = {
   baseUrl: string | null;
   defaultScopes: string;
   scopePolicy: string;
+  scopeSeparator: string;
   authorizeParams: string | null;
   pingUrl: string | null;
   pingMethod: string | null;
@@ -169,6 +170,7 @@ function makeProviderRow(
     defaultScopes: '["openid","email"]',
     scopePolicy:
       '{"allowAdditionalScopes":false,"allowedOptionalScopes":[],"forbiddenScopes":[]}',
+    scopeSeparator: " ",
     authorizeParams: null,
     pingUrl: null,
     pingMethod: null,
@@ -706,6 +708,88 @@ describe("orchestrateOAuthConnect — transport selection", () => {
         callbackTransport: "loopback",
         loopbackPort: undefined,
       });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Scope separator propagation
+  // -------------------------------------------------------------------------
+
+  describe("scope separator propagation", () => {
+    test("comma separator from providerRow propagates to oauthConfig (deferred)", async () => {
+      mockProviderStore["linear"] = makeProviderRow({
+        provider: "linear",
+        scopeSeparator: ",",
+      });
+
+      await orchestrateOAuthConnect({
+        service: "linear",
+        clientId: "client-id",
+        isInteractive: false,
+        callbackTransport: "loopback",
+      });
+
+      expect(lastPrepareArgs).not.toBeNull();
+      const capturedConfig = lastPrepareArgs!.config as {
+        scopeSeparator: string;
+      };
+      expect(capturedConfig.scopeSeparator).toBe(",");
+    });
+
+    test("space separator (default) from providerRow propagates to oauthConfig (deferred)", async () => {
+      mockProviderStore["google"] = GOOGLE_PROVIDER;
+
+      await orchestrateOAuthConnect({
+        service: "google",
+        clientId: "client-id",
+        isInteractive: false,
+        callbackTransport: "loopback",
+      });
+
+      expect(lastPrepareArgs).not.toBeNull();
+      const capturedConfig = lastPrepareArgs!.config as {
+        scopeSeparator: string;
+      };
+      expect(capturedConfig.scopeSeparator).toBe(" ");
+    });
+
+    test("comma separator from providerRow propagates to oauthConfig (interactive)", async () => {
+      mockProviderStore["linear"] = makeProviderRow({
+        provider: "linear",
+        scopeSeparator: ",",
+      });
+
+      await orchestrateOAuthConnect({
+        service: "linear",
+        clientId: "client-id",
+        isInteractive: true,
+        callbackTransport: "loopback",
+        openUrl: () => {},
+      });
+
+      expect(lastStartArgs).not.toBeNull();
+      const capturedConfig = lastStartArgs!.config as {
+        scopeSeparator: string;
+      };
+      expect(capturedConfig.scopeSeparator).toBe(",");
+    });
+
+    test("space separator from providerRow propagates to oauthConfig (interactive)", async () => {
+      mockProviderStore["google"] = GOOGLE_PROVIDER;
+
+      await orchestrateOAuthConnect({
+        service: "google",
+        clientId: "client-id",
+        isInteractive: true,
+        callbackTransport: "loopback",
+        openUrl: () => {},
+      });
+
+      expect(lastStartArgs).not.toBeNull();
+      const capturedConfig = lastStartArgs!.config as {
+        scopeSeparator: string;
+      };
+      expect(capturedConfig.scopeSeparator).toBe(" ");
     });
   });
 });
