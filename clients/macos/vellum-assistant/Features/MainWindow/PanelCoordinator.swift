@@ -427,6 +427,9 @@ extension MainWindowView {
             let isVoiceModeEnabled = assistantFeatureFlagStore.isEnabled(
                 "voice-mode"
             )
+            let isPermissionModeEnabled = assistantFeatureFlagStore.isEnabled(
+                "permission-controls-v2"
+            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
@@ -452,7 +455,9 @@ extension MainWindowView {
                 } : nil,
                 conversationId: conversationManager.activeConversationId,
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
-                highlightedMessageId: $conversationManager.highlightedMessageId
+                highlightedMessageId: $conversationManager.highlightedMessageId,
+                connectionManager: connectionManager,
+                permissionModeEnabled: isPermissionModeEnabled
             )
         }
     }
@@ -623,6 +628,10 @@ struct ActiveChatViewWrapper: View {
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
 
+    // MARK: - Permission Mode (macOS only)
+    var connectionManager: GatewayConnectionManager? = nil
+    var permissionModeEnabled: Bool = false
+
     @State private var inspectorMessageId: String? = nil
 
     /// Reads the persisted bootstrap state so the chat view can suppress
@@ -687,6 +696,8 @@ struct ActiveChatViewWrapper: View {
                 onEndVoiceMode: onEndVoiceMode,
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
+                connectionManager: connectionManager,
+                permissionModeEnabled: permissionModeEnabled,
                 watchSession: ambientAgent.activeWatchSession
             )
             .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)

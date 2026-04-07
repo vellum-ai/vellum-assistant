@@ -86,6 +86,11 @@ struct ChatView: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
 
+    // MARK: - Permission Mode (macOS only)
+
+    var connectionManager: GatewayConnectionManager? = nil
+    var permissionModeEnabled: Bool = false
+
     // MARK: - External State
 
     var watchSession: WatchSession?
@@ -412,7 +417,9 @@ struct ChatView: View {
                     isInteractionEnabled: isInteractionEnabled,
                     contextWindowFillRatio: viewModel.contextWindowFillRatio,
                     contextWindowTokens: viewModel.contextWindowTokens,
-                    contextWindowMaxTokens: viewModel.contextWindowMaxTokens
+                    contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
+                    connectionManager: connectionManager,
+                    permissionModeEnabled: permissionModeEnabled
                 )
             }
         }

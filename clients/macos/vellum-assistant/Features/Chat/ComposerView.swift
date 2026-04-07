@@ -66,6 +66,11 @@ struct ComposerView: View {
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
 
+    // MARK: - Permission Mode (macOS only)
+    var connectionManager: GatewayConnectionManager? = nil
+    var permissionModeEnabled: Bool = false
+    @State private var showPermissionModePopover: Bool = false
+
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     #if os(macOS)
     @Environment(\.dropActions) private var dropActions
@@ -462,6 +467,8 @@ struct ComposerView: View {
 
                 .vTooltip(micTooltipText)
 
+                permissionModeIndicatorButton
+
                 // Send button (always visible, disabled when empty)
                 VButton(
                     label: "Send message",
@@ -485,6 +492,8 @@ struct ComposerView: View {
                 )
 
                 .vTooltip(micTooltipText)
+
+                permissionModeIndicatorButton
 
                 // Send button
                 VButton(
@@ -518,6 +527,7 @@ struct ComposerView: View {
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
 
+                permissionModeIndicatorButton
 
                 VButton(
                     label: "Send message",
@@ -531,6 +541,56 @@ struct ComposerView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Permission Mode Indicator
+
+    /// Shield icon reflecting the current permission mode state.
+    /// Only rendered when the feature flag is enabled and a mode is available.
+    @ViewBuilder
+    private var permissionModeIndicatorButton: some View {
+        if permissionModeEnabled, let cm = connectionManager, let mode = cm.permissionMode {
+            permissionModeButton(mode: mode, connectionManager: cm)
+        }
+    }
+
+    /// Builds the shield button for the given permission mode.
+    /// Extracted from @ViewBuilder to allow local `let` bindings.
+    private func permissionModeButton(mode: PermissionModeUpdateMessage, connectionManager cm: GatewayConnectionManager) -> some View {
+        let askBeforeActing = mode.askBeforeActing
+        let hostAccess = mode.hostAccess
+
+        let iconName: String
+        let iconColor: Color
+        let tooltip: String
+
+        if askBeforeActing && !hostAccess {
+            iconName = VIcon.shieldCheck.rawValue
+            iconColor = VColor.systemPositiveStrong
+            tooltip = "Protected: asks before acting, no computer access"
+        } else if hostAccess {
+            iconName = VIcon.shieldAlert.rawValue
+            iconColor = VColor.systemMidStrong
+            tooltip = "Computer access enabled"
+        } else {
+            iconName = VIcon.shieldOff.rawValue
+            iconColor = VColor.contentSecondary
+            tooltip = "Autonomous mode: acts without asking"
+        }
+
+        return VButton(
+            label: "Permission controls",
+            iconOnly: iconName,
+            style: .ghost,
+            iconSize: composerActionButtonSize
+        ) {
+            showPermissionModePopover.toggle()
+        }
+        .foregroundStyle(iconColor)
+        .popover(isPresented: $showPermissionModePopover, arrowEdge: .top) {
+            PermissionModeStatusView(connectionManager: cm)
+        }
+        .vTooltip(tooltip)
     }
 
     // MARK: - Dictation Inline Mode

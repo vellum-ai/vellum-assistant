@@ -32,6 +32,10 @@ struct ComposerSection: View {
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
 
+    // MARK: - Permission Mode (macOS only)
+    var connectionManager: GatewayConnectionManager? = nil
+    var permissionModeEnabled: Bool = false
+
     var body: some View {
         VStack(spacing: 0) {
             if let watchSession, watchSession.state == .capturing {
@@ -69,7 +73,9 @@ struct ComposerSection: View {
                 isInteractionEnabled: isInteractionEnabled,
                 contextWindowFillRatio: contextWindowFillRatio,
                 contextWindowTokens: contextWindowTokens,
-                contextWindowMaxTokens: contextWindowMaxTokens
+                contextWindowMaxTokens: contextWindowMaxTokens,
+                connectionManager: connectionManager,
+                permissionModeEnabled: permissionModeEnabled
             )
         }
         .background(
