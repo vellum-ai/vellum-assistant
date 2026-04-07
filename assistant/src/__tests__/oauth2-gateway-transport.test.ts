@@ -672,8 +672,8 @@ describe("OAuth2 gateway transport", () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      // Space-encoded scopes
-      expect(capturedAuthUrl).toContain("scope=read%20write");
+      // URLSearchParams encodes spaces as '+' in query strings (application/x-www-form-urlencoded)
+      expect(capturedAuthUrl).toContain("scope=read+write");
 
       const entries = Array.from(pendingCallbacks.entries());
       entries[0][1].resolve("space-separator-code");
