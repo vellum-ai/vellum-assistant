@@ -37,7 +37,7 @@ let mockUpsertAppCalls: Array<{
 }> = [];
 let mockUpsertAppResult: Record<string, unknown> = {
   id: "app-upsert-1",
-  providerKey: "test",
+  provider: "test",
   clientId: "test-client-id",
   createdAt: 1700000000000,
   updatedAt: 1700000000000,
@@ -58,18 +58,18 @@ let mockOrchestrateOAuthConnect: (
   opts: Record<string, unknown>,
 ) => Promise<Record<string, unknown>>;
 let mockGetAppByProviderAndClientId: (
-  providerKey: string,
+  provider: string,
   clientId: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetMostRecentAppByProvider: (
-  providerKey: string,
+  provider: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetProvider: (
-  providerKey: string,
+  provider: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetSecureKey: (account: string) => string | undefined = () => undefined;
 let mockResolveOAuthConnection: (
-  providerKey: string,
+  provider: string,
   options?: Record<string, unknown>,
 ) => Promise<{
   request: (req: Record<string, unknown>) => Promise<{
@@ -79,7 +79,7 @@ let mockResolveOAuthConnection: (
   }>;
   withToken: <T>(fn: (token: string) => Promise<T>) => Promise<T>;
   id: string;
-  providerKey: string;
+  provider: string;
   accountInfo: string | null;
 }> = async () => {
   throw new Error("resolveOAuthConnection not configured in test");
@@ -120,9 +120,9 @@ mock.module("../security/token-manager.js", () => ({
 
 mock.module("../oauth/oauth-store.js", () => ({
   disconnectOAuthProvider: async (
-    providerKey: string,
+    provider: string,
   ): Promise<"disconnected" | "not-found" | "error"> => {
-    disconnectOAuthProviderCalls.push(providerKey);
+    disconnectOAuthProviderCalls.push(provider);
     return disconnectOAuthProviderResult;
   },
   getConnection: () => undefined,
@@ -145,13 +145,13 @@ mock.module("../oauth/oauth-store.js", () => ({
     return mockUpsertAppResult;
   },
   getApp: () => undefined,
-  getAppByProviderAndClientId: (providerKey: string, clientId: string) =>
-    mockGetAppByProviderAndClientId(providerKey, clientId),
-  getMostRecentAppByProvider: (providerKey: string) =>
-    mockGetMostRecentAppByProvider(providerKey),
+  getAppByProviderAndClientId: (provider: string, clientId: string) =>
+    mockGetAppByProviderAndClientId(provider, clientId),
+  getMostRecentAppByProvider: (provider: string) =>
+    mockGetMostRecentAppByProvider(provider),
   listApps: () => [],
   deleteApp: async () => false,
-  getProvider: (providerKey: string) => mockGetProvider(providerKey),
+  getProvider: (provider: string) => mockGetProvider(provider),
   listProviders: () => mockListProviders(),
   registerProvider: () => ({}),
   updateProvider: () => undefined,
@@ -229,9 +229,9 @@ mock.module("../oauth/seed-providers.js", () => ({
 
 mock.module("../oauth/connection-resolver.js", () => ({
   resolveOAuthConnection: (
-    providerKey: string,
+    provider: string,
     options?: Record<string, unknown>,
-  ) => mockResolveOAuthConnection(providerKey, options),
+  ) => mockResolveOAuthConnection(provider, options),
 }));
 
 // ---------------------------------------------------------------------------
@@ -439,45 +439,45 @@ describe("assistant oauth token <provider-key>", () => {
 describe("assistant oauth providers list", () => {
   const fakeProviders = [
     {
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: "google-oauth",
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
     {
-      providerKey: "google-calendar",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google-calendar",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: "google-calendar-oauth",
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
     {
-      providerKey: "slack",
-      authUrl: "https://slack.com/oauth/v2/authorize",
-      tokenUrl: "https://slack.com/api/oauth.v2.access",
+      provider: "slack",
+      authorizeUrl: "https://slack.com/oauth/v2/authorize",
+      tokenExchangeUrl: "https://slack.com/api/oauth.v2.access",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: null,
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
     {
-      providerKey: "twitter",
-      authUrl: "https://twitter.com/i/oauth2/authorize",
-      tokenUrl: "https://api.twitter.com/2/oauth2/token",
+      provider: "twitter",
+      authorizeUrl: "https://twitter.com/i/oauth2/authorize",
+      tokenExchangeUrl: "https://api.twitter.com/2/oauth2/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: null,
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
@@ -638,7 +638,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     mockUpsertAppCalls = [];
     mockUpsertAppResult = {
       id: "app-upsert-1",
-      providerKey: "google",
+      provider: "google",
       clientId: "abc123",
       createdAt: 1700000000000,
       updatedAt: 1700000000000,
@@ -890,19 +890,19 @@ describe("assistant oauth ping <provider-key>", () => {
 
   test("returns ok when ping endpoint returns 200", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
+      provider: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
     mockResolveOAuthConnection = async () => ({
       id: "conn-1",
-      providerKey: "google",
+      provider: "google",
       accountInfo: null,
       request: async () => ({ status: 200, headers: {}, body: {} }),
       withToken: async (fn) => fn("mock-access-token-xyz"),
@@ -925,13 +925,13 @@ describe("assistant oauth ping <provider-key>", () => {
 
   test("exits 1 when no ping URL configured", async () => {
     mockGetProvider = () => ({
-      providerKey: "telegram",
+      provider: "telegram",
       pingUrl: null,
-      authUrl: "urn:manual-token",
-      tokenUrl: "urn:manual-token",
+      authorizeUrl: "urn:manual-token",
+      tokenExchangeUrl: "urn:manual-token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -944,19 +944,19 @@ describe("assistant oauth ping <provider-key>", () => {
 
   test("exits 1 when ping endpoint returns non-2xx", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
+      provider: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
     mockResolveOAuthConnection = async () => ({
       id: "conn-1",
-      providerKey: "google",
+      provider: "google",
       accountInfo: null,
       request: async () => ({ status: 403, headers: {}, body: "Forbidden" }),
       withToken: async (fn) => fn("mock-access-token-xyz"),
@@ -970,13 +970,13 @@ describe("assistant oauth ping <provider-key>", () => {
 
   test("exits 1 when no connection can be resolved", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
+      provider: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -1023,12 +1023,12 @@ describe("assistant oauth connect managed mode — platform 401/403 errors", () 
     // Set up managed mode: provider has managedServiceConfigKey, config
     // returns the matching service with mode "managed".
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: "google-oauth",
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1249,12 +1249,12 @@ describe("assistant oauth mode", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
     mockGetProvider = () => ({
-      providerKey: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
+      provider: "google",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
       scopePolicy: "{}",
-      extraParams: null,
+      authorizeParams: null,
       managedServiceConfigKey: "google-oauth",
       createdAt: Date.now(),
       updatedAt: Date.now(),

@@ -9,7 +9,7 @@ import { Command } from "commander";
 let mockIsManagedMode: (key: string) => boolean = () => false;
 
 let mockGetActiveConnection: (
-  providerKey: string,
+  provider: string,
   options?: { clientId?: string; account?: string },
 ) => Record<string, unknown> | undefined = () => undefined;
 
@@ -34,9 +34,9 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
   getConnection: () => undefined,
   getConnectionByProvider: () => undefined,
   getActiveConnection: (
-    providerKey: string,
+    provider: string,
     options?: { clientId?: string; account?: string },
-  ) => mockGetActiveConnection(providerKey, options),
+  ) => mockGetActiveConnection(provider, options),
   listActiveConnectionsByProvider: () => [],
   disconnectOAuthProvider: async () => "not-found" as const,
   upsertApp: async () => ({}),
@@ -265,11 +265,11 @@ describe("assistant oauth token", () => {
 
   describe("--account option", () => {
     test("resolves connection by account and uses connectionId", async () => {
-      mockGetActiveConnection = (_providerKey, options) => {
+      mockGetActiveConnection = (_provider, options) => {
         if (options?.account === "user@gmail.com") {
           return {
             id: "conn-abc-123",
-            providerKey: "google",
+            provider: "google",
             accountInfo: "user@gmail.com",
             status: "active",
           };
@@ -322,11 +322,11 @@ describe("assistant oauth token", () => {
 
   describe("--client-id option", () => {
     test("resolves connection by client-id and uses connectionId", async () => {
-      mockGetActiveConnection = (_providerKey, options) => {
+      mockGetActiveConnection = (_provider, options) => {
         if (options?.clientId === "my-client-id") {
           return {
             id: "conn-client-456",
-            providerKey: "google",
+            provider: "google",
             accountInfo: null,
             status: "active",
           };

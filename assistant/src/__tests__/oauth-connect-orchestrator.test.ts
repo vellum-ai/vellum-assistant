@@ -13,7 +13,7 @@ let lastStartArgs: {
 } | null = null;
 
 let mockPrepareResult: {
-  authUrl: string;
+  authorizeUrl: string;
   state: string;
   completion: Promise<{
     tokens: { accessToken: string; refreshToken?: string };
@@ -21,7 +21,7 @@ let mockPrepareResult: {
     rawTokenResponse: Record<string, unknown>;
   }>;
 } = {
-  authUrl: "https://provider.example.com/authorize?prepared",
+  authorizeUrl: "https://provider.example.com/authorize?prepared",
   state: "mock-state-123",
   completion: new Promise(() => {}), // never resolves by default
 };
@@ -86,21 +86,21 @@ mock.module("../oauth/scope-policy.js", () => ({
 
 // Provider store mock — configurable per test
 type ProviderRow = {
-  providerKey: string;
-  authUrl: string;
-  tokenUrl: string;
+  provider: string;
+  authorizeUrl: string;
+  tokenExchangeUrl: string;
   tokenEndpointAuthMethod: string | null;
   userinfoUrl: string | null;
   baseUrl: string | null;
   defaultScopes: string;
   scopePolicy: string;
-  extraParams: string | null;
+  authorizeParams: string | null;
   pingUrl: string | null;
   pingMethod: string | null;
   pingHeaders: string | null;
   pingBody: string | null;
   managedServiceConfigKey: string | null;
-  displayName: string | null;
+  displayLabel: string | null;
   description: string | null;
   dashboardUrl: string | null;
   clientIdPlaceholder: string | null;
@@ -157,25 +157,25 @@ import { orchestrateOAuthConnect } from "../oauth/connect-orchestrator.js";
 // ---------------------------------------------------------------------------
 
 function makeProviderRow(
-  overrides: Partial<ProviderRow> & { providerKey: string },
+  overrides: Partial<ProviderRow> & { provider: string },
 ): ProviderRow {
   const now = Date.now();
   return {
-    authUrl: "https://provider.example.com/authorize",
-    tokenUrl: "https://provider.example.com/token",
+    authorizeUrl: "https://provider.example.com/authorize",
+    tokenExchangeUrl: "https://provider.example.com/token",
     tokenEndpointAuthMethod: null,
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: '["openid","email"]',
     scopePolicy:
       '{"allowAdditionalScopes":false,"allowedOptionalScopes":[],"forbiddenScopes":[]}',
-    extraParams: null,
+    authorizeParams: null,
     pingUrl: null,
     pingMethod: null,
     pingHeaders: null,
     pingBody: null,
     managedServiceConfigKey: null,
-    displayName: null,
+    displayLabel: null,
     description: null,
     dashboardUrl: null,
     clientIdPlaceholder: null,
@@ -200,19 +200,21 @@ function makeProviderRow(
 
 // Shared provider definitions used across tests
 const GOOGLE_PROVIDER = makeProviderRow({
-  providerKey: "google",
-  authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-  tokenUrl: "https://oauth2.googleapis.com/token",
+  provider: "google",
+  authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenExchangeUrl: "https://oauth2.googleapis.com/token",
   loopbackPort: 17332,
-  displayName: "Google",
+  displayLabel: "Google",
 });
 
 const OUTLOOK_PROVIDER = makeProviderRow({
-  providerKey: "outlook",
-  authUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-  tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+  provider: "outlook",
+  authorizeUrl:
+    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+  tokenExchangeUrl:
+    "https://login.microsoftonline.com/common/oauth2/v2.0/token",
   loopbackPort: 17334,
-  displayName: "Outlook",
+  displayLabel: "Outlook",
 });
 
 // ---------------------------------------------------------------------------
@@ -227,7 +229,7 @@ beforeEach(() => {
   mockProviderStore = {};
 
   mockPrepareResult = {
-    authUrl: "https://provider.example.com/authorize?prepared",
+    authorizeUrl: "https://provider.example.com/authorize?prepared",
     state: "mock-state-123",
     completion: new Promise(() => {}),
   };
@@ -689,7 +691,7 @@ describe("orchestrateOAuthConnect — transport selection", () => {
   describe("provider without loopbackPort", () => {
     test("loopback transport passes undefined loopbackPort when provider has none", async () => {
       mockProviderStore["custom"] = makeProviderRow({
-        providerKey: "custom",
+        provider: "custom",
         loopbackPort: null, // no fixed port
       });
 

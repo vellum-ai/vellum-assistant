@@ -138,8 +138,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 import { type OAuth2Config, startOAuth2Flow } from "../security/oauth2.js";
 
 const BASE_OAUTH_CONFIG: OAuth2Config = {
-  authUrl: "https://provider.example.com/authorize",
-  tokenUrl: "https://provider.example.com/token",
+  authorizeUrl: "https://provider.example.com/authorize",
+  tokenExchangeUrl: "https://provider.example.com/token",
   scopes: ["read", "write"],
   clientId: "test-client-id",
 };
@@ -219,9 +219,9 @@ describe("OAuth2 gateway transport", () => {
       expect(capturedAuthUrl).toContain(encodeURIComponent("/oauth/callback"));
 
       // Extract the redirect_uri and simulate the callback
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
 
       // Make a request to the loopback server with the auth code
       const callbackUrl = `${redirectUri}?code=loopback-auth-code&state=${state}`;
@@ -282,9 +282,9 @@ describe("OAuth2 gateway transport", () => {
       expect(capturedAuthUrl).not.toContain("gw.example.com");
 
       // Simulate callback to loopback server
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
       await fetch(`${redirectUri}?code=explicit-loopback-code&state=${state}`);
 
       const result = await flowPromise;
@@ -405,9 +405,9 @@ describe("OAuth2 gateway transport", () => {
       expect(capturedAuthUrl).toContain("code_challenge=");
       expect(capturedAuthUrl).toContain("code_challenge_method=S256");
 
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
 
       const resp = await fetch(
         `${redirectUri}?code=loopback-code&state=${state}`,
@@ -440,9 +440,9 @@ describe("OAuth2 gateway transport", () => {
 
       await urlReadyPromise;
 
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
 
       // Fire callback without awaiting — immediately check flowPromise rejection
       fetch(`${redirectUri}?error=access_denied&state=${state}`).catch(
@@ -473,8 +473,8 @@ describe("OAuth2 gateway transport", () => {
 
       await urlReadyPromise;
 
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
 
       // Send callback with wrong state
       const resp = await fetch(
@@ -484,7 +484,7 @@ describe("OAuth2 gateway transport", () => {
 
       // The flow should still be waiting (not resolved)
       // Send the correct callback to clean up
-      const state = authUrl.searchParams.get("state")!;
+      const state = authorizeUrl.searchParams.get("state")!;
       await fetch(`${redirectUri}?code=correct-code&state=${state}`);
 
       const result = await flowPromise;
@@ -516,9 +516,9 @@ describe("OAuth2 gateway transport", () => {
 
       await urlReadyPromise;
 
-      const authUrl = new URL(capturedAuthUrl);
-      const redirectUri = authUrl.searchParams.get("redirect_uri")!;
-      const state = authUrl.searchParams.get("state")!;
+      const authorizeUrl = new URL(capturedAuthUrl);
+      const redirectUri = authorizeUrl.searchParams.get("redirect_uri")!;
+      const state = authorizeUrl.searchParams.get("state")!;
 
       // Fire callback without awaiting — immediately check flowPromise rejection
       fetch(`${redirectUri}?code=code-that-fails&state=${state}`).catch(

@@ -11,7 +11,7 @@ let mockGetProvider: (
 ) => Record<string, unknown> | undefined = () => undefined;
 
 let mockListConnections: (
-  providerKey: string,
+  provider: string,
 ) => Array<Record<string, unknown>> = () => [];
 
 let mockIsManagedMode: (key: string) => boolean = () => false;
@@ -35,7 +35,7 @@ mock.module("../../../../config/loader.js", () => ({
 
 mock.module("../../../../oauth/oauth-store.js", () => ({
   getProvider: (key: string) => mockGetProvider(key),
-  listConnections: (providerKey: string) => mockListConnections(providerKey),
+  listConnections: (provider: string) => mockListConnections(provider),
   getConnection: () => undefined,
   getConnectionByProvider: () => undefined,
   getActiveConnection: () => undefined,
@@ -235,7 +235,7 @@ describe("assistant oauth status", () => {
   describe("managed mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockIsManagedMode = () => true;
@@ -360,7 +360,7 @@ describe("assistant oauth status", () => {
   describe("BYO mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: null,
       });
       mockIsManagedMode = () => false;
@@ -371,7 +371,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-local-1",
-          providerKey: "google",
+          provider: "google",
           accountInfo: "localuser@gmail.com",
           grantedScopes: '["email","profile"]',
           expiresAt,
@@ -405,7 +405,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-local-2",
-          providerKey: "google",
+          provider: "google",
           accountInfo: null,
           grantedScopes: "[]",
           expiresAt: null,
@@ -432,7 +432,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-active",
-          providerKey: "google",
+          provider: "google",
           accountInfo: "user@gmail.com",
           grantedScopes: "[]",
           expiresAt: null,
@@ -441,7 +441,7 @@ describe("assistant oauth status", () => {
         },
         {
           id: "conn-revoked",
-          providerKey: "google",
+          provider: "google",
           accountInfo: "old@gmail.com",
           grantedScopes: "[]",
           expiresAt: null,
@@ -489,7 +489,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-structure",
-          providerKey: "google",
+          provider: "google",
           accountInfo: "check@gmail.com",
           grantedScopes: '["scope1"]',
           expiresAt: Date.now() + 60_000,
@@ -527,7 +527,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-bad-scopes",
-          providerKey: "google",
+          provider: "google",
           accountInfo: null,
           grantedScopes: "not-valid-json",
           expiresAt: null,
