@@ -269,6 +269,8 @@ struct IntegrationDetailModal: View {
         }
     }
 
+    @State private var managedManagePopoverEntryId: String?
+
     private func managedConnectionRow(for entry: OAuthConnectionEntry) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.circleUser, size: 14)
@@ -282,9 +284,50 @@ struct IntegrationDetailModal: View {
 
             VTag("Connected", color: VColor.systemPositiveStrong, icon: .circleCheck)
 
-            VButton(label: "Disconnect", style: .dangerOutline, size: .compact) {
-                connectionToDisconnect = entry
-                showDisconnectAlert = true
+            VButton(label: "Manage", rightIcon: VIcon.chevronDown.rawValue, style: .outlined, size: .compact) {
+                managedManagePopoverEntryId = entry.id
+            }
+            .popover(isPresented: Binding(
+                get: { managedManagePopoverEntryId == entry.id },
+                set: { if !$0 { managedManagePopoverEntryId = nil } }
+            ), arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        managedManagePopoverEntryId = nil
+                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.pencil, size: 14)
+                            Text("Edit connection")
+                                .font(VFont.bodyMediumDefault)
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        managedManagePopoverEntryId = nil
+                        connectionToDisconnect = entry
+                        showDisconnectAlert = true
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.circleX, size: 14)
+                            Text("Disable")
+                                .font(VFont.bodyMediumDefault)
+                        }
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, VSpacing.xs)
+                .frame(minWidth: 180)
             }
         }
         .padding(.vertical, VSpacing.xs)
@@ -505,6 +548,8 @@ struct IntegrationDetailModal: View {
         }
     }
 
+    @State private var yourOwnManagePopoverConnId: String?
+
     private func yourOwnConnectionRow(for conn: YourOwnOAuthConnection, appId: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.circleUser, size: 14)
@@ -518,10 +563,51 @@ struct IntegrationDetailModal: View {
 
             VTag("Connected", color: VColor.systemPositiveStrong, icon: .circleCheck)
 
-            VButton(label: "Disconnect", style: .dangerOutline, size: .compact) {
-                yourOwnDisconnectConnection = conn
-                yourOwnDisconnectAppId = appId
-                showYourOwnDisconnectAlert = true
+            VButton(label: "Manage", rightIcon: VIcon.chevronDown.rawValue, style: .outlined, size: .compact) {
+                yourOwnManagePopoverConnId = conn.id
+            }
+            .popover(isPresented: Binding(
+                get: { yourOwnManagePopoverConnId == conn.id },
+                set: { if !$0 { yourOwnManagePopoverConnId = nil } }
+            ), arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        yourOwnManagePopoverConnId = nil
+                        store.startYourOwnOAuthConnect(appId: appId)
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.pencil, size: 14)
+                            Text("Edit connection")
+                                .font(VFont.bodyMediumDefault)
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        yourOwnManagePopoverConnId = nil
+                        yourOwnDisconnectConnection = conn
+                        yourOwnDisconnectAppId = appId
+                        showYourOwnDisconnectAlert = true
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.circleX, size: 14)
+                            Text("Disable")
+                                .font(VFont.bodyMediumDefault)
+                        }
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, VSpacing.xs)
+                .frame(minWidth: 180)
             }
         }
         .padding(.vertical, VSpacing.xxs)
