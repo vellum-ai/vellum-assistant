@@ -230,17 +230,18 @@ const MemoryContextLoadInjectionSchema = z
 
 const MemoryPerTurnInjectionSchema = z
   .object({
-    maxInjected: z
+    maxNodes: z
       .number({
-        error:
-          "memory.retrieval.injection.perTurn.maxInjected must be a number",
+        error: "memory.retrieval.injection.perTurn.maxNodes must be a number",
       })
-      .int("memory.retrieval.injection.perTurn.maxInjected must be an integer")
+      .int("memory.retrieval.injection.perTurn.maxNodes must be an integer")
       .positive(
-        "memory.retrieval.injection.perTurn.maxInjected must be a positive integer",
+        "memory.retrieval.injection.perTurn.maxNodes must be a positive integer",
       )
-      .default(4)
-      .describe("Maximum general memories injected mid-conversation per turn"),
+      .default(8)
+      .describe(
+        "Maximum total memory nodes injected per turn (general + capability + serendipity)",
+      ),
     serendipitySlots: z
       .number({
         error:

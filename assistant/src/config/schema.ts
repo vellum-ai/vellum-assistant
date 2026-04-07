@@ -370,7 +370,8 @@ export const AssistantConfigSchema = z
           "memory.retrieval.dynamicBudget.minInjectTokens must be <= memory.retrieval.dynamicBudget.maxInjectTokens",
       });
     }
-    const ctxLoad = config.memory?.retrieval?.injection?.contextLoad;
+    const injection = config.memory?.retrieval?.injection;
+    const ctxLoad = injection?.contextLoad;
     if (
       ctxLoad &&
       ctxLoad.capabilityReserve + ctxLoad.serendipitySlots >= ctxLoad.maxNodes
@@ -380,6 +381,18 @@ export const AssistantConfigSchema = z
         path: ["memory", "retrieval", "injection", "contextLoad"],
         message:
           "memory.retrieval.injection.contextLoad.capabilityReserve + serendipitySlots must be less than maxNodes",
+      });
+    }
+    const perTurn = injection?.perTurn;
+    if (
+      perTurn &&
+      perTurn.capabilityReserve + perTurn.serendipitySlots >= perTurn.maxNodes
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["memory", "retrieval", "injection", "perTurn"],
+        message:
+          "memory.retrieval.injection.perTurn.capabilityReserve + serendipitySlots must be less than maxNodes",
       });
     }
   });

@@ -1036,7 +1036,12 @@ export async function retrieveForTurn(
   scored.sort((a, b) => b.score - a.score);
   const INJECTION_THRESHOLD = 0.3;
   const PRE_DEDUP_POOL = 20;
-  const maxInjected = perTurnCfg.maxInjected;
+  const maxGeneralNodes = Math.max(
+    0,
+    perTurnCfg.maxNodes -
+      perTurnCfg.serendipitySlots -
+      proceduralInjected.length,
+  );
   const pool = scored
     .filter((s) => s.score >= INJECTION_THRESHOLD)
     .slice(0, PRE_DEDUP_POOL);
@@ -1044,8 +1049,12 @@ export async function retrieveForTurn(
   // Dedup + rerank with a fast model when the pool is large enough to warrant it
   let injected: ScoredNode[];
   let llmDedupApplied = false;
-  if (pool.length > maxInjected) {
-    const result = await dedupForTurn(pool, maxInjected, opts.userLastMessage);
+  if (pool.length > maxGeneralNodes) {
+    const result = await dedupForTurn(
+      pool,
+      maxGeneralNodes,
+      opts.userLastMessage,
+    );
     injected = result.nodes;
     llmDedupApplied = result.llmApplied;
   } else {
@@ -1056,17 +1065,17 @@ export async function retrieveForTurn(
   const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
 
   // Backfill vacated general slots from the remaining pool so we always
-  // return up to the configured max general memories when eligible candidates exist.
+  // return up to maxGeneralNodes when eligible candidates exist.
   // Only skip backfill when LLM dedup genuinely ran — it intentionally rejected
   // items as duplicates/irrelevant. When dedupForTurn fell back to a plain
   // top-N slice (no provider, tool call failure), backfill is still appropriate.
-  if (generalInjected.length < maxInjected && !llmDedupApplied) {
+  if (generalInjected.length < maxGeneralNodes && !llmDedupApplied) {
     const usedIds = new Set([
       ...generalInjected.map((s) => s.node.id),
       ...proceduralIds,
     ]);
     const backfillCandidates = pool.filter((s) => !usedIds.has(s.node.id));
-    const needed = maxInjected - generalInjected.length;
+    const needed = maxGeneralNodes - generalInjected.length;
     for (let i = 0; i < Math.min(needed, backfillCandidates.length); i++) {
       generalInjected.push(backfillCandidates[i]);
     }
