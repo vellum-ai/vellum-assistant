@@ -160,6 +160,7 @@ public struct VSelectableTextView: NSViewRepresentable {
         if useExternalSizing {
             coordinator.scheduleAttributedStringApply(attributedString, lineSpacing: lineSpacing, to: textView)
         } else {
+            coordinator.cancelPendingApply()
             coordinator.applyAttributedString(attributedString, lineSpacing: lineSpacing, to: textView)
         }
     }
@@ -207,6 +208,12 @@ public struct VSelectableTextView: NSViewRepresentable {
             pendingLineSpacing = nil
             pendingTextView = nil
             hasScheduledApply = false
+        }
+
+        func cancelPendingApply() {
+            pendingAttributedString = nil
+            pendingLineSpacing = nil
+            pendingTextView = nil
         }
 
         func scheduleAttributedStringApply(
