@@ -19,11 +19,9 @@ struct IntelligencePanel: View {
     @State private var selectedTab: IntelligenceTab
     @State private var cachedAssistantName: String = "Your Assistant"
     @State private var isEmailEnabled: Bool = false
-    @State private var isIntegrationsTabEnabled: Bool = false
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
     private static let emailFeatureFlagKey = "email-channel"
-    private static let integrationsFeatureFlagKey = "settings-integrations-grid"
 
     init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
@@ -44,7 +42,6 @@ struct IntelligencePanel: View {
     private enum IntelligenceTab: String, CaseIterable {
         case identity = "Identity"
         case installedSkills = "Skills"
-        case integrations = "Integrations"
         case workspace = "Workspace"
         case contacts = "Contacts"
         case memories = "Memories"
@@ -80,21 +77,12 @@ struct IntelligencePanel: View {
                 if key == Self.emailFeatureFlagKey {
                     isEmailEnabled = enabled
                 }
-                if key == Self.integrationsFeatureFlagKey {
-                    isIntegrationsTabEnabled = enabled
-                    if !enabled && selectedTab == .integrations {
-                        selectedTab = .identity
-                    }
-                }
             }
         }
     }
 
     private var visibleTabs: [IntelligenceTab] {
-        IntelligenceTab.allCases.filter { tab in
-            if tab == .integrations { return isIntegrationsTabEnabled }
-            return true
-        }
+        IntelligenceTab.allCases
     }
 
     private func loadFeatureFlags() async {
@@ -104,12 +92,6 @@ struct IntelligencePanel: View {
             if let emailFlag = flags.first(where: { $0.key == Self.emailFeatureFlagKey }) {
                 isEmailEnabled = emailFlag.enabled
             }
-            if let integrationsFlag = flags.first(where: { $0.key == Self.integrationsFeatureFlagKey }) {
-                isIntegrationsTabEnabled = integrationsFlag.enabled
-                if !integrationsFlag.enabled && selectedTab == .integrations {
-                    selectedTab = .identity
-                }
-            }
         } catch {
             // Fall through to local file fallback
             let resolved = AssistantFeatureFlagResolver.resolvedFlags(
@@ -117,12 +99,6 @@ struct IntelligencePanel: View {
             )
             if let emailEnabled = resolved[Self.emailFeatureFlagKey] {
                 isEmailEnabled = emailEnabled
-            }
-            if let integrationsEnabled = resolved[Self.integrationsFeatureFlagKey] {
-                isIntegrationsTabEnabled = integrationsEnabled
-                if !integrationsEnabled && selectedTab == .integrations {
-                    selectedTab = .identity
-                }
             }
         }
     }
@@ -149,19 +125,6 @@ struct IntelligencePanel: View {
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .clipped()
-
-        case .integrations:
-            if let store, let authManager {
-                IntegrationsPanelContent(
-                    store: store,
-                    authManager: authManager,
-                    showToast: showToast ?? { _, _ in }
-                )
-                .padding(.top, VSpacing.sm)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            } else {
-                VEmptyState(title: "Integrations are unavailable.")
-            }
 
         case .installedSkills:
             AgentPanelContent(
