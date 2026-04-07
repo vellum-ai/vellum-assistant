@@ -285,7 +285,7 @@ private struct IntegrationItemRow: View {
                         .frame(minWidth: 180)
                     }
                 } else {
-                    VButton(label: "Enable", style: .outlined, size: .compact) {
+                    VButton(label: "Enable", style: .primary) {
                         onEnable()
                     }
                 }
