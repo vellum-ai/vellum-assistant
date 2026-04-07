@@ -123,6 +123,7 @@ struct SidebarSectionView: View {
             onCancelRename: onCancelRename,
             onDelete: onDelete,
             onMarkAllRead: onMarkAllRead,
+            hasUnreadConversations: unreadCount > 0,
             onArchiveAll: onArchiveAll,
             sidebar: sidebar
         )

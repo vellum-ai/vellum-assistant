@@ -34,6 +34,7 @@ struct SidebarSectionHeader: View {
     var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
     var onMarkAllRead: (() -> Void)? = nil
+    var hasUnreadConversations: Bool = false
     var onArchiveAll: (() -> Void)? = nil
     var sidebar: SidebarInteractionState?
 
@@ -149,6 +150,7 @@ struct SidebarSectionHeader: View {
             onRename: onRename.map { rename in { rename(group.name) } },
             onDelete: onDelete,
             onMarkAllRead: onMarkAllRead,
+            hasUnreadConversations: hasUnreadConversations,
             onArchiveAll: onArchiveAll,
             hasConversations: conversationCount > 0
         ))
@@ -168,6 +170,7 @@ private struct ConditionalGroupContextMenu: ViewModifier {
     let onRename: (() -> Void)?
     let onDelete: (() -> Void)?
     let onMarkAllRead: (() -> Void)?
+    let hasUnreadConversations: Bool
     let onArchiveAll: (() -> Void)?
     let hasConversations: Bool
 
@@ -182,7 +185,7 @@ private struct ConditionalGroupContextMenu: ViewModifier {
                     VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
                         onMarkAllRead()
                     }
-                    .disabled(!hasConversations)
+                    .disabled(!hasUnreadConversations)
                 }
                 if let onArchiveAll {
                     VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
