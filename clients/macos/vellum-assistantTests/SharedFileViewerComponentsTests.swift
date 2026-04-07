@@ -88,4 +88,36 @@ final class SharedFileViewerComponentsTests: XCTestCase {
     func testIsJSONLContentFalseForPlainText() {
         XCTAssertFalse(isJSONLContent(fileName: "notes.txt", mimeType: "text/plain"))
     }
+
+    // MARK: - Detection contract
+
+    func testJsonlDetectionContractIsConsistent() {
+        // FileContentView wires .tree mode to JSONTreeView with
+        // isJSONL: isJSONLContent(...). For the wiring to be coherent, every
+        // file that gets [.tree, .source] from JSONL detection must also be
+        // recognized by isJSONLContent — and vice versa.
+        let cases: [(String, String)] = [
+            ("messages.jsonl", ""),
+            ("events.ndjson", ""),
+            ("anything.txt", "application/jsonl"),
+            ("anything.txt", "application/x-ndjson"),
+            ("anything.txt", "application/x-jsonlines"),
+            ("anything.txt", "application/jsonlines"),
+        ]
+        for (name, mime) in cases {
+            XCTAssertTrue(
+                isJSONLContent(fileName: name, mimeType: mime),
+                "\(name) / \(mime) should be JSONL"
+            )
+            XCTAssertTrue(
+                availableViewModes(for: name, mimeType: mime).contains(.tree),
+                "\(name) / \(mime) should expose .tree mode"
+            )
+        }
+
+        // Inverse: regular JSON must NOT be flagged as JSONL even though it
+        // also gets [.tree, .source].
+        XCTAssertFalse(isJSONLContent(fileName: "data.json", mimeType: "application/json"))
+        XCTAssertTrue(availableViewModes(for: "data.json", mimeType: "application/json").contains(.tree))
+    }
 }
