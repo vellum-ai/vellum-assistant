@@ -9,6 +9,7 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
+import { maybeEnqueueConversationStartersJob } from "../conversation-starters-cadence.js";
 import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
 import { runGraphExtraction } from "./extraction.js";
@@ -64,6 +65,20 @@ export async function graphExtractJob(
       },
       "Graph extraction job complete",
     );
+
+    try {
+      maybeEnqueueConversationStartersJob(scopeId);
+    } catch (cadenceErr) {
+      log.warn(
+        {
+          err:
+            cadenceErr instanceof Error
+              ? cadenceErr.message
+              : String(cadenceErr),
+        },
+        "Conversation starters cadence check failed (non-fatal)",
+      );
+    }
   } catch (err) {
     log.error(
       { conversationId, err: err instanceof Error ? err.message : String(err) },
