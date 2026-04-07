@@ -126,8 +126,8 @@
       "scope": "macos",
       "key": "referral-codes",
       "label": "Referral Codes",
-      "description": "Show the referral invite link and stats panel on the Billing tab in Settings",
-      "defaultEnabled": false
+      "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
+      "defaultEnabled": true
     },
     {
       "id": "managed-sign-in",

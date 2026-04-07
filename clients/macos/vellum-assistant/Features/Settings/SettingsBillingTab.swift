@@ -22,6 +22,7 @@ struct SettingsBillingTab: View {
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
     @State private var isReferralCodesEnabled: Bool = false
+    @State private var showEarnCreditsModal: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -31,9 +32,9 @@ struct SettingsBillingTab: View {
             } else if !topUpAmounts.isEmpty {
                 addFundsCard
             }
-            if isReferralCodesEnabled {
-                SettingsBillingReferralCard()
-            }
+        }
+        .sheet(isPresented: $showEarnCreditsModal) {
+            EarnCreditsModal()
         }
         .task {
             isReferralCodesEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("referral-codes")
@@ -59,7 +60,21 @@ struct SettingsBillingTab: View {
     // MARK: - Balance Card
 
     private var balanceCard: some View {
-        SettingsCard(title: "Credit Balance") {
+        SettingsCard(
+            title: "Credit Balance",
+            accessory: {
+                if isReferralCodesEnabled {
+                    VButton(
+                        label: "Earn credits",
+                        leftIcon: VIcon.gift.rawValue,
+                        style: .outlined,
+                        size: .compact
+                    ) {
+                        showEarnCreditsModal = true
+                    }
+                }
+            }
+        ) {
             if isLoading {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     // Effective balance skeleton
