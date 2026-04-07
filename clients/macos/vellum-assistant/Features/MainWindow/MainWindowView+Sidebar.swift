@@ -345,7 +345,6 @@ extension MainWindowView {
                         sidebarPinnedAppRow(app)
                     }
                 }
-                .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
                 sidebarSectionDivider()
             }
@@ -477,7 +476,6 @@ extension MainWindowView {
                         sidebarPinnedAppRow(app, isExpanded: false)
                     }
                 }
-                .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
                 sidebarSectionDivider()
             }
