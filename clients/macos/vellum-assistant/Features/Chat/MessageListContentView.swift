@@ -55,6 +55,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.highlightedMessageId == rhs.highlightedMessageId
             && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
             && lhs.hasEverSentMessage == rhs.hasEverSentMessage
+            && lhs.isSending == rhs.isSending
             && lhs.showInspectButton == rhs.showInspectButton
             && lhs.isTTSEnabled == rhs.isTTSEnabled
             && lhs.selectedModel == rhs.selectedModel
@@ -77,6 +78,7 @@ struct MessageListContentView: View, Equatable {
     let highlightedMessageId: UUID?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
     let hasEverSentMessage: Bool
+    let isSending: Bool
     let showInspectButton: Bool
     let isTTSEnabled: Bool
     let selectedModel: String
@@ -269,9 +271,11 @@ struct MessageListContentView: View, Equatable {
             }
 
             // Dynamic spacer: ensures user message can reach top even with short assistant output
-            Color.clear
-                .frame(height: max(0, viewportHeight - 100))
-                .id("scroll-bottom-spacer")
+            if isSending {
+                Color.clear
+                    .frame(height: max(0, viewportHeight - 100))
+                    .id("scroll-bottom-spacer")
+            }
 
             // Bottom anchor for explicit jumps
             Color.clear
