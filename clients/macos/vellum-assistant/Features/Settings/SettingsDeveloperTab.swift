@@ -915,7 +915,7 @@ struct SettingsDeveloperTab: View {
             let cacheValues = Dictionary(uniqueKeysWithValues: flags.map { ($0.key, $0.enabled) })
             AssistantFeatureFlagResolver.writeCachedFlags(cacheValues)
         } catch {
-            // Fall back to the bundled registry + local persisted overrides
+            // Fall back to the bundled registry + cached gateway flags
             if let registry = loadFeatureFlagRegistry() {
                 let resolved = AssistantFeatureFlagResolver.resolvedFlags(registry: registry)
                 assistantFlags = registry.assistantScopeFlags().map { def in
