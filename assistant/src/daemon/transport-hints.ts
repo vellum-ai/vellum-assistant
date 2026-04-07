@@ -1,33 +1,14 @@
-import { parseInterfaceId } from "../channels/types.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 
 /**
- * Build enriched transport hints from conversation transport metadata.
+ * Build transport hints from conversation transport metadata.
  *
- * Interface ID first, then host environment (macOS only), then any
- * client-provided hints. Shared between the conversation creation path
- * (server.ts) and the queue drain path (conversation-process.ts).
+ * Only forwards client-provided hints. Interface identity is already
+ * covered by `<turn_context>`, and host environment fields (home dir,
+ * username) are rendered in the `<workspace>` block.
  */
 export function buildTransportHints(
   transport: ConversationTransportMetadata,
 ): string[] {
-  const hints: string[] = [];
-
-  const interfaceLabel = parseInterfaceId(transport.interfaceId) ?? "vellum";
-  hints.push(`User is messaging from interface: ${interfaceLabel}`);
-
-  if (transport.interfaceId === "macos") {
-    if (transport.hostHomeDir) {
-      hints.push(`Host home directory: ${transport.hostHomeDir}`);
-    }
-    if (transport.hostUsername) {
-      hints.push(`Host username: ${transport.hostUsername}`);
-    }
-  }
-
-  if (transport.hints) {
-    hints.push(...transport.hints);
-  }
-
-  return hints;
+  return transport.hints ? [...transport.hints] : [];
 }
