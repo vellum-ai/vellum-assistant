@@ -475,8 +475,8 @@ public enum GatewayHTTPClient {
         /// Platform (managed): `["X-Session-Token": token, "Vellum-Organization-Id": orgId]`
         /// Local/remote (bearer): `["Authorization": "Bearer <jwt>"]`
         public let headers: [String: String]
-        /// Path prefix inserted between `/v1/` and the user-supplied path for managed
-        /// connections (e.g. `"assistants/<id>"`). Empty for local/remote connections.
+        /// Path prefix inserted between `/v1/` and the user-supplied path
+        /// (e.g. `"assistants/<id>/"`). Empty when `assistantId` is not available.
         public let pathPrefix: String
     }
 
@@ -499,7 +499,7 @@ public enum GatewayHTTPClient {
             }
         }
         let pathPrefix: String
-        if connection.isManaged && !connection.assistantId.isEmpty {
+        if !connection.assistantId.isEmpty {
             pathPrefix = "assistants/\(connection.assistantId)/"
         } else {
             pathPrefix = ""
