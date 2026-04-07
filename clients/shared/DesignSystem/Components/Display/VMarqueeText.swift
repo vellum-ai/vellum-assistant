@@ -24,6 +24,20 @@ public struct VMarqueeText: View {
     let foregroundStyle: Color
     let isHovered: Bool
 
+    public init(
+        text: String,
+        font: Font,
+        measuringFont: NSFont,
+        foregroundStyle: Color,
+        isHovered: Bool
+    ) {
+        self.text = text
+        self.font = font
+        self.measuringFont = measuringFont
+        self.foregroundStyle = foregroundStyle
+        self.isHovered = isHovered
+    }
+
     /// Points per second the text scrolls. Tuned for comfortable reading.
     private static let scrollSpeed: CGFloat = 30
 
