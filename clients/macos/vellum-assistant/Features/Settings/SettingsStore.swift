@@ -740,7 +740,7 @@ public final class SettingsStore: ObservableObject {
             } else if let error = result.error {
                 apiKeySaveError = error
                 if !result.isTransient {
-                    APIKeyManager.deleteKey(for: "anthropic")
+                    let _: Void = APIKeyManager.deleteKey(for: "anthropic")
                     hasKey = false
                     maskedKey = ""
                 }
@@ -774,7 +774,7 @@ public final class SettingsStore: ObservableObject {
             } else if let error = result.error {
                 braveKeySaveError = error
                 if !result.isTransient {
-                    APIKeyManager.deleteKey(for: "brave")
+                    let _: Void = APIKeyManager.deleteKey(for: "brave")
                 }
             }
         }
@@ -803,7 +803,7 @@ public final class SettingsStore: ObservableObject {
             } else if let error = result.error {
                 perplexityKeySaveError = error
                 if !result.isTransient {
-                    APIKeyManager.deleteKey(for: "perplexity")
+                    let _: Void = APIKeyManager.deleteKey(for: "perplexity")
                 }
             }
         }
@@ -834,7 +834,7 @@ public final class SettingsStore: ObservableObject {
             } else if let error = result.error {
                 imageGenKeySaveError = error
                 if !result.isTransient {
-                    APIKeyManager.deleteKey(for: "gemini")
+                    let _: Void = APIKeyManager.deleteKey(for: "gemini")
                 }
             }
         }
@@ -896,7 +896,7 @@ public final class SettingsStore: ObservableObject {
                     apiKeySaveError = error
                 }
                 if !result.isTransient {
-                    APIKeyManager.deleteKey(for: provider)
+                    let _: Void = APIKeyManager.deleteKey(for: provider)
                 }
             }
         }
