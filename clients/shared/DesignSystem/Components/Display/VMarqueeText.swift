@@ -76,6 +76,7 @@ public struct VMarqueeText: View {
                                 .foregroundStyle(foregroundStyle)
                                 .fixedSize(horizontal: true, vertical: false)
                                 .offset(x: animationOffset)
+                                .accessibilityHidden(true)
                         }
                         .clipped()
                 }
@@ -97,8 +98,16 @@ public struct VMarqueeText: View {
                 }
             }
             .onChange(of: text) { _, _ in
-                animationOffset = 0
+                withAnimation(nil) {
+                    animationOffset = 0
+                }
+                if isHovered && isTruncated {
+                    withAnimation(.linear(duration: scrollDuration)) {
+                        animationOffset = -overflow
+                    }
+                }
             }
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(text)
     }
 }
