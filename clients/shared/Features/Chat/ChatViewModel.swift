@@ -2090,13 +2090,16 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             self.reconnectLatchTimeoutTask?.cancel()
             self.isReconnectHistoryLoading = false
             refreshModelMetadataIfNeeded(hasModelCommand)
-        } else if messages.contains(where: { $0.role == .user }) {
+        } else if messages.contains(where: { $0.role == .user && !$0.isContentStripped }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
             // ones the user sent (and any assistant replies) before the
             // history_response arrived. Deduplicate by only prepending
             // history messages whose timestamps precede the earliest
             // existing message.
+            // Content-stripped messages (from trimForBackground) are excluded
+            // from this check — they should be fully replaced by fresh server
+            // data, not preserved with their heavy content cleared.
             let earliestExisting = self.messages.map(\.timestamp).min()
             let uniqueHistory: [ChatMessage]
             if let earliest = earliestExisting {
