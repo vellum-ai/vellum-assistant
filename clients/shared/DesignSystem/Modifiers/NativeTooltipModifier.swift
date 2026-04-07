@@ -78,6 +78,9 @@ private final class VTooltipCoordinator {
 /// - Only one tooltip is visible at a time (coordinator-managed singleton)
 /// - Won't show if the source view or any ancestor is hidden, fully
 ///   transparent, or zero-sized (e.g., sidebar behind the settings panel)
+/// - Clamps to screen bounds so the tooltip never goes off-screen
+/// - Wraps long text at ~300 pt to match native tooltip max-width
+/// - Dismisses on mouse-down, key-press, window move/resize (like native)
 ///
 /// Usage:
 /// ```swift
@@ -139,6 +142,10 @@ private final class VTooltipTrackerView: NSView {
     private var scrollObserver: NSObjectProtocol?
     private var scrollEndObserver: NSObjectProtocol?
     private var appDeactivationObserver: NSObjectProtocol?
+    private var mouseDownMonitor: Any?
+    private var keyDownMonitor: Any?
+    private var windowMovedObserver: NSObjectProtocol?
+    private var windowResizedObserver: NSObjectProtocol?
 
     /// Suppresses synthetic mouseEntered events during and briefly after scroll.
     /// Static because the re-entry can hit a different VTooltipTrackerView instance
@@ -176,6 +183,8 @@ private final class VTooltipTrackerView: NSView {
         showTimer?.invalidate()
         stopObservingScroll()
         stopObservingAppDeactivation()
+        stopObservingInteraction()
+        stopObservingWindowGeometry()
         hideTooltip()
         super.removeFromSuperview()
     }
@@ -185,10 +194,14 @@ private final class VTooltipTrackerView: NSView {
         if window != nil {
             startObservingScroll()
             startObservingAppDeactivation()
+            startObservingInteraction()
+            startObservingWindowGeometry()
         } else {
             showTimer?.invalidate()
             stopObservingScroll()
             stopObservingAppDeactivation()
+            stopObservingInteraction()
+            stopObservingWindowGeometry()
             hideTooltip()
         }
     }
@@ -248,6 +261,77 @@ private final class VTooltipTrackerView: NSView {
         if let observer = appDeactivationObserver {
             NotificationCenter.default.removeObserver(observer)
             appDeactivationObserver = nil
+        }
+    }
+
+    // MARK: Mouse-down & key-down dismiss
+
+    /// Native tooltips dismiss on any mouse-down (click, drag, right-click)
+    /// and on any key press. We mirror this with local event monitors.
+    private func startObservingInteraction() {
+        guard mouseDownMonitor == nil else { return }
+        mouseDownMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+            return event
+        }
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: .keyDown
+        ) { [weak self] event in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+            return event
+        }
+    }
+
+    private func stopObservingInteraction() {
+        if let monitor = mouseDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseDownMonitor = nil
+        }
+        if let monitor = keyDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyDownMonitor = nil
+        }
+    }
+
+    // MARK: Window move / resize dismiss
+
+    /// Native tooltips dismiss when the parent window moves or resizes.
+    private func startObservingWindowGeometry() {
+        guard windowMovedObserver == nil else { return }
+        windowMovedObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+        }
+        windowResizedObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+        }
+    }
+
+    private func stopObservingWindowGeometry() {
+        if let observer = windowMovedObserver {
+            NotificationCenter.default.removeObserver(observer)
+            windowMovedObserver = nil
+        }
+        if let observer = windowResizedObserver {
+            NotificationCenter.default.removeObserver(observer)
+            windowResizedObserver = nil
         }
     }
 
@@ -314,16 +398,55 @@ private final class VTooltipTrackerView: NSView {
         p.contentView = host
         p.setContentSize(host.fittingSize)
 
-        // Use AppKit's native coordinate conversion — works on any display
+        // Position the tooltip, clamped to the screen's visible frame so
+        // it never extends off any edge. Matches native tooltip behavior.
         let viewFrameInWindow = convert(bounds, to: nil)
+        let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let visibleFrame = screen?.visibleFrame ?? .zero
+        let tooltipSize = host.fittingSize
+        let gap: CGFloat = 4
+
+        // Preferred anchor: center horizontally on the source view.
         let anchorY = tooltipEdge == .bottom ? viewFrameInWindow.minY : viewFrameInWindow.maxY
         let screenPoint = window.convertPoint(toScreen: NSPoint(
             x: viewFrameInWindow.midX,
             y: anchorY
         ))
 
-        let x = screenPoint.x - host.fittingSize.width / 2
-        let y = tooltipEdge == .bottom ? screenPoint.y - host.fittingSize.height - 4 : screenPoint.y + 4
+        // Compute preferred Y, then flip edge if it would go off-screen.
+        var preferredEdge = tooltipEdge
+        var y: CGFloat
+        if preferredEdge == .bottom {
+            y = screenPoint.y - tooltipSize.height - gap
+            if y < visibleFrame.minY {
+                // Flip to top
+                let topAnchor = window.convertPoint(toScreen: NSPoint(
+                    x: viewFrameInWindow.midX, y: viewFrameInWindow.maxY
+                )).y
+                y = topAnchor + gap
+                preferredEdge = .top
+            }
+        } else {
+            y = screenPoint.y + gap
+            if y + tooltipSize.height > visibleFrame.maxY {
+                // Flip to bottom
+                let bottomAnchor = window.convertPoint(toScreen: NSPoint(
+                    x: viewFrameInWindow.midX, y: viewFrameInWindow.minY
+                )).y
+                y = bottomAnchor - tooltipSize.height - gap
+                preferredEdge = .bottom
+            }
+        }
+
+        // Horizontal: center on source, then clamp to screen edges.
+        var x = screenPoint.x - tooltipSize.width / 2
+        x = max(x, visibleFrame.minX)
+        x = min(x, visibleFrame.maxX - tooltipSize.width)
+
+        // Final vertical clamp (safety net after flip).
+        y = max(y, visibleFrame.minY)
+        y = min(y, visibleFrame.maxY - tooltipSize.height)
+
         p.setFrameOrigin(NSPoint(x: x, y: y))
 
         p.alphaValue = 0
@@ -358,9 +481,14 @@ private final class VTooltipTrackerView: NSView {
 private struct VTooltipContent: View {
     let text: String
 
+    /// Maximum tooltip width matching native macOS tooltip behavior (~300 pt).
+    /// Long text wraps to multiple lines instead of extending off-screen.
+    private static let maxWidth: CGFloat = 300
+
     var body: some View {
         Text(text)
-            .fixedSize()
+            .frame(maxWidth: Self.maxWidth, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             .font(VFont.labelDefault)
             .foregroundStyle(VColor.contentDefault)
             .padding(.horizontal, VSpacing.sm)
