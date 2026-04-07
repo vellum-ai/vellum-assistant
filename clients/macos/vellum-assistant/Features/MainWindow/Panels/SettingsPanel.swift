@@ -320,7 +320,7 @@ struct SettingsPanel: View {
                             )
                             // Persist locally so the flag survives app restarts
                             AssistantFeatureFlagResolver.mergeCachedFlag(key: Self.developerFeatureFlagKey, enabled: true)
-                            try? AssistantFeatureFlagResolver.mergePersistedFlag(key: Self.developerFeatureFlagKey, enabled: true)
+                            AssistantFeatureFlagResolver.writePersistedOverride(key: Self.developerFeatureFlagKey, enabled: true)
                             // Best-effort PATCH to the gateway
                             Task {
                                 do {

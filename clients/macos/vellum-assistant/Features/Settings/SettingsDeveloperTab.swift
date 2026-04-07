@@ -912,7 +912,7 @@ struct SettingsDeveloperTab: View {
             var flags = try await featureFlagClient.getFeatureFlags()
             // Merge persisted local overrides so user toggles survive app restarts
             // even when the platform doesn't support the PATCH write endpoint.
-            let persistedOverrides = AssistantFeatureFlagResolver.readPersistedFlags()
+            let persistedOverrides = AssistantFeatureFlagResolver.readPersistedOverrides()
             if !persistedOverrides.isEmpty {
                 flags = flags.map { flag in
                     if let override = persistedOverrides[flag.key] {
@@ -1083,7 +1083,7 @@ struct SettingsDeveloperTab: View {
                         userInfo: ["key": flag.key, "enabled": newValue]
                     )
                     AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: newValue)
-                    try? AssistantFeatureFlagResolver.mergePersistedFlag(key: flag.key, enabled: newValue)
+                    AssistantFeatureFlagResolver.writePersistedOverride(key: flag.key, enabled: newValue)
                     Task {
                         do {
                             try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)

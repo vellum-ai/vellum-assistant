@@ -75,7 +75,7 @@ final class AssistantFeatureFlagStore: ObservableObject {
                 AssistantFeatureFlagResolver.writeCachedFlags(merged)
                 // Apply persisted local overrides on top (user toggles in
                 // Developer Settings survive even when the gateway disagrees).
-                let persisted = AssistantFeatureFlagResolver.readPersistedFlags()
+                let persisted = AssistantFeatureFlagResolver.readPersistedOverrides()
                 self.resolvedFlags = self.registryDefaults
                     .merging(merged) { _, new in new }
                     .merging(persisted) { _, new in new }
