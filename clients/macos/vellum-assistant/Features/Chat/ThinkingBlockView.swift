@@ -9,32 +9,15 @@ struct ThinkingBlockView: View {
     let isStreaming: Bool
 
     @State private var isExpanded: Bool
-    /// Cached parsed markdown segments — updated only when `content` changes,
-    /// not on every SwiftUI body evaluation. Avoids synchronous O(n) reparsing
-    /// on each token update while streaming with the block expanded.
-    @State private var cachedSegments: [MarkdownSegment]
-    @State private var cachedContent: String
+    /// Cached parsed markdown segments — parsed lazily only when the block is
+    /// expanded, avoiding synchronous O(n) work while collapsed (the default).
+    @State private var cachedSegments: [MarkdownSegment] = []
+    @State private var cachedContent: String = ""
 
     init(content: String, isStreaming: Bool, initiallyExpanded: Bool = false) {
         self.content = content
         self.isStreaming = isStreaming
         _isExpanded = State(initialValue: initiallyExpanded)
-        _cachedSegments = State(initialValue: parseMarkdownSegments(content))
-        _cachedContent = State(initialValue: content)
-    }
-
-    static func makeMarkdownView(content: String, isStreaming: Bool) -> MarkdownSegmentView {
-        MarkdownSegmentView(
-            segments: parseMarkdownSegments(content),
-            isStreaming: isStreaming,
-            maxContentWidth: nil,
-            textColor: VColor.contentSecondary,
-            secondaryTextColor: VColor.contentTertiary,
-            mutedTextColor: VColor.contentTertiary,
-            tintColor: VColor.primaryBase,
-            codeTextColor: VColor.contentDefault,
-            codeBackgroundColor: VColor.surfaceBase
-        )
     }
 
     var body: some View {
@@ -64,9 +47,14 @@ struct ThinkingBlockView: View {
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: content) { _, newContent in
-            guard newContent != cachedContent else { return }
+            guard isExpanded, newContent != cachedContent else { return }
             cachedContent = newContent
             cachedSegments = parseMarkdownSegments(newContent)
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            guard expanded, cachedContent != content else { return }
+            cachedContent = content
+            cachedSegments = parseMarkdownSegments(content)
         }
     }
 

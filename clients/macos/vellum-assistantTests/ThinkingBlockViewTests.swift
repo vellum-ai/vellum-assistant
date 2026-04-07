@@ -3,16 +3,6 @@ import XCTest
 
 @MainActor
 final class ThinkingBlockViewTests: XCTestCase {
-    func testMakeMarkdownViewParsesMarkdownContent() {
-        let markdownView = ThinkingBlockView.makeMarkdownView(
-            content: "*italic* and **bold**",
-            isStreaming: false
-        )
-
-        XCTAssertEqual(markdownView.segments, parseMarkdownSegments("*italic* and **bold**"))
-        XCTAssertFalse(markdownView.isStreaming)
-    }
-
     func testExpandedThinkingBlockBodyDoesNotCrashWithMarkdown() {
         let view = ThinkingBlockView(
             content: """
