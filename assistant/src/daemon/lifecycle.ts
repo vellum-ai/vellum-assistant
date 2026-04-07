@@ -75,6 +75,11 @@ import {
   mintPairingBearerToken,
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
+import {
+  initCapabilityTokenSecret,
+  loadOrCreateCapabilityTokenSecret,
+  writeDaemonTokenFallback,
+} from "../runtime/capability-tokens.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
@@ -270,6 +275,20 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
+    // Load (or generate + persist) the capability-token HMAC secret used
+    // to mint scoped tokens for the chrome extension pair endpoint.
+    // Wrapped in try/catch so a disk failure here never blocks startup —
+    // tokens can still be minted using a lazy on-demand load inside the
+    // capability-tokens module.
+    try {
+      initCapabilityTokenSecret(loadOrCreateCapabilityTokenSecret());
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to pre-load capability token secret — continuing startup (lazy load will handle subsequent calls)",
+      );
+    }
+
     // Pre-populate the feature flag cache from the gateway so all
     // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
     // Fired non-blocking so a slow or unreachable gateway doesn't delay
@@ -432,12 +451,28 @@ export async function runDaemon(): Promise<void> {
 
       // Ensure a vellum guardian binding exists so the identity system works
       // without requiring a manual bootstrap step.
+      let localGuardianPrincipalId = "local";
       try {
-        ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
+        localGuardianPrincipalId = ensureVellumGuardianBinding(
+          DAEMON_INTERNAL_ASSISTANT_ID,
+        );
       } catch (err) {
         log.warn(
           { err },
           "Vellum guardian binding backfill failed — continuing startup",
+        );
+      }
+
+      // Write a dev-only fallback capability token to `~/.vellum/daemon-token`
+      // so developers can manually pair the chrome extension without the
+      // native messaging helper. Production pairing goes through
+      // `POST /v1/browser-extension-pair` via the native helper.
+      try {
+        writeDaemonTokenFallback(localGuardianPrincipalId);
+      } catch (err) {
+        log.warn(
+          { err },
+          "Failed to write dev daemon-token fallback — continuing startup",
         );
       }
 
