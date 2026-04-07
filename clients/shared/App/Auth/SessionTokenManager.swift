@@ -43,7 +43,8 @@ public enum SessionTokenManager {
     /// Scope platform-token writes to the active assistant instance when the
     /// current lockfile entry exposes assistant-specific storage paths.
     private static func connectedAssistantPlatformTokenPath() -> String? {
-        guard let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        #if os(macOS)
+        guard let connectedAssistantId = LockfileAssistant.loadActiveAssistantId(),
               let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]],
               let assistant = assistants.first(where: { ($0["assistantId"] as? String) == connectedAssistantId }) else {
@@ -66,6 +67,9 @@ public enum SessionTokenManager {
         }
 
         return nil
+        #else
+        return nil
+        #endif
     }
 
     /// XDG-compliant shared path (~/.config/vellum/platform-token).

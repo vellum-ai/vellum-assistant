@@ -15,9 +15,8 @@ extension AppDelegate {
 
     // MARK: - Lockfile & Transport
 
-    /// Reads `connectedAssistantId` from UserDefaults, looks it up in the lockfile
-    /// (falling back to the latest entry), and writes its config so the client connects
-    /// to the correct assistant.
+    /// Reads the active assistant from the lockfile (falling back to the latest
+    /// entry), and writes its config so the client connects to the correct assistant.
     ///
     /// Returns the loaded assistant for transport selection, or nil if none found.
     /// Rejects managed assistants from a different platform environment (e.g.
@@ -25,14 +24,14 @@ extension AppDelegate {
     /// first valid current-environment assistant.
     @discardableResult
     func loadAssistantFromLockfile() -> LockfileAssistant? {
-        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        // Migration: fall back to UserDefaults for users upgrading from
+        // the old version whose lockfile doesn't yet have activeAssistant.
+        let storedId = LockfileAssistant.loadActiveAssistantId()
+            ?? UserDefaults.standard.string(forKey: "connectedAssistantId")
         var assistant: LockfileAssistant?
 
         if let storedId, let found = LockfileAssistant.loadByName(storedId) {
             assistant = found
-        } else if let activeId = LockfileAssistant.loadActiveAssistantId(),
-                  let active = LockfileAssistant.loadByName(activeId) {
-            assistant = active
         } else {
             assistant = LockfileAssistant.loadLatest()
         }
@@ -41,7 +40,7 @@ extension AppDelegate {
         // clear the stale stored ID and fall back to any valid assistant.
         if let resolved = assistant, !resolved.isCurrentEnvironment {
             log.info("Stored assistant \(resolved.assistantId, privacy: .public) is cross-environment — searching for fallback")
-            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+            LockfileAssistant.setActiveAssistantId(nil)
             assistant = LockfileAssistant.loadAll().first { $0.isCurrentEnvironment }
         }
 
@@ -61,7 +60,7 @@ extension AppDelegate {
             featureFlagStore.reloadFromDisk()
         }
 
-        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId(assistant.assistantId)
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         return assistant
     }
@@ -124,7 +123,7 @@ extension AppDelegate {
         // wake it via the CLI before retrying.
         connectionManager.wakeHandler = { [weak self] in
             guard let self else { return }
-            let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
+            let name = LockfileAssistant.loadActiveAssistantId() ?? "default"
             log.info("Auto-wake: waking assistant '\(name, privacy: .public)' via CLI")
             try await self.vellumCli.wake(name: name)
         }
@@ -145,7 +144,7 @@ extension AppDelegate {
         Task {
             // Import guardian token from CLI file before connecting, so the
             // health check has valid credentials in the credential store.
-            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+            if let assistantId = LockfileAssistant.loadActiveAssistantId(),
                !ActorTokenManager.hasToken {
                 _ = GuardianTokenFileReader.importIfAvailable(assistantId: assistantId)
             }
@@ -394,7 +393,7 @@ extension AppDelegate {
                         log.info("Received authenticationRequired error for managed assistant — showing reauth screen")
                         // Only set pending if not already set (preserve user's intended switch target)
                         if UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId") == nil,
-                           let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                           let assistantId = LockfileAssistant.loadActiveAssistantId() {
                             UserDefaults.standard.set(assistantId, forKey: "pendingManagedSwitchAssistantId")
                         }
                         self.showAuthWindow()
@@ -564,7 +563,7 @@ extension AppDelegate {
             guard let self else { return }
             let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let targetVersion = self.updateManager.pendingUpdateVersion ?? "unknown"
-            let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            let name = LockfileAssistant.loadActiveAssistantId() ?? ""
 
             // Single CLI call replaces 8 steps of pre-update orchestration
             let backupPath = try? await self.vellumCli.upgradePrepare(

@@ -37,7 +37,6 @@ private final class MockConversationDetailURLProtocol: URLProtocol {
 final class ConversationDetailClientTests: XCTestCase {
     private let assistantId = "assistant-detail-test"
     private let gatewayPort = 7832
-    private var originalConnectedAssistantId: Any?
     private var originalPrimaryLockfileData: Data?
     private var primaryLockfileExisted = false
 
@@ -45,8 +44,6 @@ final class ConversationDetailClientTests: XCTestCase {
         try super.setUpWithError()
         MockConversationDetailURLProtocol.requestHandler = nil
         URLProtocol.registerClass(MockConversationDetailURLProtocol.self)
-
-        originalConnectedAssistantId = SharedUserDefaults.standard.object(forKey: "connectedAssistantId")
 
         let primaryLockfileURL = LockfilePaths.primary
         primaryLockfileExisted = FileManager.default.fileExists(atPath: primaryLockfileURL.path)
@@ -65,12 +62,6 @@ final class ConversationDetailClientTests: XCTestCase {
             try originalPrimaryLockfileData?.write(to: LockfilePaths.primary, options: .atomic)
         } else {
             try? FileManager.default.removeItem(at: LockfilePaths.primary)
-        }
-
-        if let originalConnectedAssistantId {
-            SharedUserDefaults.standard.set(originalConnectedAssistantId, forKey: "connectedAssistantId")
-        } else {
-            SharedUserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         }
 
         try super.tearDownWithError()
@@ -145,6 +136,7 @@ final class ConversationDetailClientTests: XCTestCase {
 
     private func installLockfileFixture() throws {
         let lockfile: [String: Any] = [
+            "activeAssistant": assistantId,
             "assistants": [
                 [
                     "assistantId": assistantId,
@@ -158,6 +150,5 @@ final class ConversationDetailClientTests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: lockfile, options: [.sortedKeys])
         try data.write(to: LockfilePaths.primary, options: .atomic)
-        SharedUserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
     }
 }

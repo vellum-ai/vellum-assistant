@@ -1430,7 +1430,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     // MARK: - Managed Key Reprovisioning
 
     private func reprovisionManagedKey() async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId(), !assistantId.isEmpty else {
             log.warning("Cannot reprovision — no connected assistant ID")
             return
         }

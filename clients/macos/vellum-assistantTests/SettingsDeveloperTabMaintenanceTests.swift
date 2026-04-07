@@ -75,6 +75,7 @@ final class SettingsDeveloperTabRecoveryTests: XCTestCase {
         lockfileBackup = try? Data(contentsOf: primaryURL)
 
         let lockfileContent: [String: Any] = [
+            "activeAssistant": testAssistantId,
             "assistants": [
                 [
                     "assistantId": testAssistantId,
@@ -88,7 +89,6 @@ final class SettingsDeveloperTabRecoveryTests: XCTestCase {
         let data = try! JSONSerialization.data(withJSONObject: lockfileContent)
         try! data.write(to: primaryURL, options: .atomic)
 
-        UserDefaults.standard.set(testAssistantId, forKey: "connectedAssistantId")
         UserDefaults.standard.set(testOrgId, forKey: "connectedOrganizationId")
 
         URLProtocol.registerClass(DevTabRecoveryURLProtocol.self)
@@ -117,7 +117,6 @@ final class SettingsDeveloperTabRecoveryTests: XCTestCase {
         }
         lockfileBackup = nil
 
-        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         super.tearDown()
     }

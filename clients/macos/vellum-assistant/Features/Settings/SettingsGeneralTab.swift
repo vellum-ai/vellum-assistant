@@ -92,7 +92,7 @@ struct SettingsGeneralTab: View {
         .onAppear {
             Task { await authManager.checkSession() }
             store.refreshApprovedDevices()
-            selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
             Task {

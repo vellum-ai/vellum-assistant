@@ -816,7 +816,7 @@ private struct AssistantLoadingOverlayContent: View {
     @MainActor
     private static func detectPlatformURLMismatch() -> PlatformURLMismatchInfo? {
         #if os(macOS)
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId(),
               let assistant = LockfileAssistant.loadByName(assistantId),
               assistant.isManaged,
               let lockfileURL = assistant.runtimeUrl,

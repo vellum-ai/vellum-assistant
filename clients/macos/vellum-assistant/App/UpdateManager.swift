@@ -152,7 +152,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         do {
             // Resolve current topology from the lockfile
             let assistants = LockfileAssistant.loadAll()
-            guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+            guard let connectedId = LockfileAssistant.loadActiveAssistantId(),
                   let assistant = assistants.first(where: { $0.assistantId == connectedId }) else {
                 log.warning("Service group update check skipped: no connected assistant in lockfile")
                 clearServiceGroupFlags()

@@ -28,7 +28,7 @@ enum SentryDeviceInfo {
     /// `configureSentryScope` (for the live scope after start).
     static func applyTags(to scope: Scope) {
         scope.setTag(value: deviceId, key: "device_id")
-        if let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        if let storedId = LockfileAssistant.loadActiveAssistantId(),
            LockfileAssistant.loadAll().contains(where: { $0.assistantId == storedId }) {
             scope.setTag(value: storedId, key: "assistant_id")
         } else {

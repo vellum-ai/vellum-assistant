@@ -127,7 +127,7 @@ extension MainWindowView {
     func rewakeAssistant() {
         Task {
             guard let appDelegate = AppDelegate.shared,
-                  let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+                  let assistantName = LockfileAssistant.loadActiveAssistantId() else { return }
             try? await appDelegate.vellumCli.sleep(name: assistantName)
             try? await appDelegate.vellumCli.wake(name: assistantName)
         }
@@ -166,7 +166,7 @@ extension MainWindowView {
         case .rolledBack(_, let to):
             let verb: String = {
                 let assistants = LockfileAssistant.loadAll()
-                let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                let connectedId = LockfileAssistant.loadActiveAssistantId()
                 if let id = connectedId,
                    let assistant = assistants.first(where: { $0.assistantId == id }),
                    assistant.isManaged {

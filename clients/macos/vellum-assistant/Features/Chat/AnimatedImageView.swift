@@ -115,7 +115,7 @@ struct AnimatedImageView: View {
 
         // Relative workspace paths — fetch via gateway, keyed by assistant ID to avoid collisions.
         if !urlString.contains("://") {
-            let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "default"
+            let assistantId = LockfileAssistant.loadActiveAssistantId() ?? "default"
             let cacheKey = "workspace://\(assistantId)/\(urlString)"
             return (cacheKey as NSString, nil, urlString)
         }

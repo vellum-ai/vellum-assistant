@@ -19,7 +19,7 @@ The app supports a **managed sign-in** flow that connects to a platform-hosted a
 1. User clicks "Sign in" during first-run onboarding
 2. WorkOS authentication opens in the system browser
 3. On success, `ManagedAssistantBootstrapService.ensureManagedAssistant()` discovers or creates a platform assistant
-4. A lockfile entry is written with `cloud: "vellum"` and the `connectedAssistantId` is persisted in UserDefaults
+4. A lockfile entry is written with `cloud: "vellum"` and the `activeAssistant` field is set in the lockfile
 5. HTTP transport is configured in `platformAssistantProxy` mode with session token auth
 
 ### Transport Modes
@@ -42,7 +42,7 @@ The app supports a **managed sign-in** flow that connects to a platform-hosted a
 |-------|----------|
 | Session token | Credential Store (`AuthManager`) |
 | Lockfile entry | `~/.vellum.lock.json` (with `cloud: "vellum"`) |
-| Connected assistant ID | UserDefaults (`connectedAssistantId`) |
+| Connected assistant ID | Lockfile (`activeAssistant` field in `~/.vellum.lock.json`) |
 
 For the full managed sign-in architecture, see `clients/ARCHITECTURE.md`.
 

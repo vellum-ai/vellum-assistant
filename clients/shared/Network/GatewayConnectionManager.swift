@@ -57,7 +57,7 @@ public final class GatewayConnectionManager: ObservableObject {
     /// Applies to local and Docker assistants (not remote or managed).
     private var isLocal: Bool {
         #if os(macOS)
-        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        guard let id = LockfileAssistant.loadActiveAssistantId(),
               let assistant = LockfileAssistant.loadByName(id) else {
             return false
         }
@@ -70,7 +70,7 @@ public final class GatewayConnectionManager: ObservableObject {
     /// Whether the connected assistant is a managed (platform-hosted) assistant.
     private var isManaged: Bool {
         #if os(macOS)
-        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        guard let id = LockfileAssistant.loadActiveAssistantId(),
               let assistant = LockfileAssistant.loadByName(id) else {
             return false
         }
@@ -306,9 +306,11 @@ public final class GatewayConnectionManager: ObservableObject {
             if let decoded = try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data) {
                 if let newVersion = decoded.version, newVersion != assistantVersion {
                     assistantVersion = newVersion
-                    if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty {
+                    #if os(macOS)
+                    if let id = LockfileAssistant.loadActiveAssistantId(), !id.isEmpty {
                         LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
                     }
+                    #endif
                     handleDaemonVersionChanged(newVersion)
                 } else if let newVersion = decoded.version {
                     assistantVersion = newVersion
@@ -702,7 +704,7 @@ public final class GatewayConnectionManager: ObservableObject {
         // Single CLI call replaces direct HTTP calls for broadcast + workspace commit
         Task {
             guard let handler = postSparkleUpdateHandler,
-                  let name = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+                  let name = LockfileAssistant.loadActiveAssistantId() else { return }
             await handler(name, preUpdateVersion)
         }
     }

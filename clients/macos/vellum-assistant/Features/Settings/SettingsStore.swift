@@ -318,9 +318,9 @@ public final class SettingsStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
-    /// In-memory cache of `connectedAssistantId` to avoid repeated
-    /// UserDefaults IPC on every access. Seeded once in `init` and
-    /// kept in sync via `UserDefaults.publisher(for:)`.
+    /// In-memory cache of the active assistant ID to avoid repeated
+    /// lockfile I/O on every access. Seeded once in `init` and
+    /// kept in sync via `LockfileAssistant.activeAssistantDidChange`.
     private var cachedAssistantId: String?
 
     /// In-memory cache of `connectedOrganizationId`.
@@ -393,9 +393,9 @@ public final class SettingsStore: ObservableObject {
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
         self.verificationStatusPollWindow = max(self.verificationStatusPollInterval, verificationStatusPollWindow)
 
-        // Seed cached UserDefaults values with a single read each so that
+        // Seed cached values with a single read each so that
         // the ~50 call sites throughout SettingsStore never hit IPC again.
-        self.cachedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        self.cachedAssistantId = LockfileAssistant.loadActiveAssistantId()
         self.cachedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
 
         // Credential reads are deferred to a Task so that file-backed
@@ -540,11 +540,10 @@ public final class SettingsStore: ObservableObject {
 
         // Re-resolve lockfile-derived state whenever the connected assistant changes
         // so that isCurrentAssistantRemote and localGatewayTarget stay in sync.
-        UserDefaults.standard.publisher(for: \.connectedAssistantId)
-            .dropFirst()
+        NotificationCenter.default.publisher(for: LockfileAssistant.activeAssistantDidChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.cachedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                self?.cachedAssistantId = LockfileAssistant.loadActiveAssistantId()
                 self?.refreshLockfileState()
                 Task { await IdentityInfo.refreshCache() }
             }
@@ -596,12 +595,8 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh when the connected assistant changes so the state reflects
         // the newly selected managed assistant rather than the previous one.
-        // Uses scoped publisher(for:) + debounce per AGENTS.md to avoid
-        // firing on every UserDefaults write app-wide.
-        UserDefaults.standard.publisher(for: \.connectedAssistantId)
-            .dropFirst()
+        NotificationCenter.default.publisher(for: LockfileAssistant.activeAssistantDidChange)
             .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
-            .removeDuplicates()
             .sink { [weak self] _ in
                 guard let self else { return }
                 // Reset stale maintenance state immediately before async refresh.
@@ -685,7 +680,7 @@ public final class SettingsStore: ObservableObject {
     /// Reads lockfile-derived state off the main thread. The result is applied
     /// to @Published properties on the main actor via `applyLockfileState`.
     private nonisolated static func loadLockfileState() -> LockfileState {
-        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistantId = LockfileAssistant.loadActiveAssistantId()
         let gatewayUrl = LockfilePaths.resolveGatewayUrl(connectedAssistantId: assistantId)
         let assistant = assistantId.flatMap { LockfileAssistant.loadByName($0) }
         return LockfileState(
