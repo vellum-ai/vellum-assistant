@@ -60,7 +60,7 @@ function fakeCredentialCache(
 
 function defaultCredentials(): Record<string, string> {
   return {
-    "credential/vellum/platform_base_url": "https://assistant.vellum.ai",
+    "credential/vellum/platform_base_url": "https://vellum.ai",
     "credential/vellum/platform_assistant_id": "asst-123",
     "credential/vellum/assistant_api_key": "test-api-key",
   };
