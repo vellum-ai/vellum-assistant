@@ -13,13 +13,16 @@ export function registerEmailCommand(program: Command): void {
   const domain = getAssistantDomain();
   const email = program
     .command("email")
-    .description("Email channel operations")
+    .description(
+      `Get your own email address (@${domain}) — register, send, receive, and manage email natively`,
+    )
     .option("--json", "Machine-readable compact JSON output");
 
   email.addHelpText(
     "after",
     `
-Manage the assistant's email channel on the Vellum platform.
+Set up and manage this assistant's native email address on the Vellum
+platform. No third-party email provider or browser sign-up needed.
 
 Examples:
   $ assistant email register mybot

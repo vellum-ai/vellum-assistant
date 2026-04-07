@@ -236,8 +236,15 @@ matches_safe_line_pattern() {
             # We check the value (not the case name) because CodingKeys case
             # names naturally mirror property names like `assistantApiKey`.
             if printf '%s\n' "$text" | grep -iE "case[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*=[[:space:]]*['\"]" >/dev/null 2>&1; then
-                if printf '%s\n' "$text" | grep -iE "case[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*=[[:space:]]*['\"][a-z_]*(password|passwd|secret|token|credential|bearer)[a-z_]*['\"]" >/dev/null 2>&1; then
-                    continue
+                    if printf '%s\n' "$text" | grep -iE "case[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*=[[:space:]]*['\"][a-z_]*(password|passwd|secret|token|credential|bearer)[a-z_]*['\"]" >/dev/null 2>&1; then
+                        # Exception: known-safe JSON field names that happen to contain
+                        # a sensitive word but are not credentials (e.g. "webhook_secret"
+                        # is a CodingKey mapping for a JSON key name, not a real secret).
+                        if printf '%s\n' "$text" | grep -E "case[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*=[[:space:]]*['\"](webhook_secret)['\"]" >/dev/null 2>&1; then
+                            : # known-safe — fall through to return 0
+                        else
+                            continue
+                        fi
                 fi
             fi
             return 0
@@ -383,6 +390,8 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_CODING_KEY='        case assistantApiKey = "assistant_api_key"'
     # Swift CodingKeys with a real secret value (dangerous — must NOT be whitelisted)
     UNSAFE_SWIFT_CODING_KEY='        case apiKey = "sk_live_1234567890abcdef"'
+    # Swift CodingKeys enum case with known-safe JSON field name containing "secret" (false positive to whitelist)
+    SAFE_SWIFT_CODING_KEY_WEBHOOK_SECRET='        case webhookSecret = "webhook_secret"'
     # Swift CodingKeys enum case with sensitive name and all-lowercase value (dangerous — must NOT be whitelisted)
     # Single-word value without underscore — rejected by the regex itself (requires underscore)
     UNSAFE_SWIFT_CODING_KEY_SENSITIVE_NAME='        case apiKey = "supersecretvalue"'
@@ -705,6 +714,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY_SENSITIVE_NAME"; then
         echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with sensitive name (apiKey) was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_CODING_KEY_WEBHOOK_SECRET" && ! matches_safe_line_pattern "$SAFE_SWIFT_CODING_KEY_WEBHOOK_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Swift CodingKeys webhook_secret enum case false positive"
         exit 1
     fi
     if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY_PASSWORD"; then

@@ -58,6 +58,7 @@ import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
@@ -100,6 +101,7 @@ import type {
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
   inboundActorContextFromTrust,
@@ -261,6 +263,8 @@ export interface AgentLoopConversationContext {
   lastAttachmentWarnings: string[];
 
   hasNoClient: boolean;
+  /** True when this conversation is itself a subagent (suppresses subagent status injection). */
+  isSubagent?: boolean;
   headlessLock?: boolean;
   readonly streamThinking: boolean;
   readonly prompter: PermissionPrompter;
@@ -503,6 +507,7 @@ export async function runAgentLoopImpl(
 
     const isFirstMessage = ctx.messages.length === 1;
     let shouldInjectWorkspace = isFirstMessage;
+    let compactedThisTurn = false;
 
     const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
     if (compactCheck.needed) {
@@ -558,6 +563,7 @@ export async function runAgentLoopImpl(
         collapseRawResponses(compacted.summaryRawResponses),
       );
       shouldInjectWorkspace = true;
+      compactedThisTurn = true;
     }
 
     const state = createEventHandlerState();
@@ -782,11 +788,20 @@ export async function runAgentLoopImpl(
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
     const currentNowContent = readNowScratchpad();
-    const nowScratchpad = isFirstMessage ? currentNowContent : null;
+    const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
+    const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
     const currentPkbContent = readPkbContext();
-    const pkbContext = isFirstMessage ? currentPkbContent : null;
+    const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
+
+    // Subagent status injection — gives the parent LLM visibility into active/completed children.
+    // Skipped when this conversation IS a subagent (no nesting) or has no children.
+    const subagentStatusBlock = ctx.isSubagent
+      ? null
+      : buildSubagentStatusBlock(
+          getSubagentManager().getChildrenOf(ctx.conversationId),
+        );
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
@@ -803,6 +818,7 @@ export async function runAgentLoopImpl(
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
+      subagentStatusBlock,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";

@@ -71,3 +71,6 @@ Set `send_result_to_user: false` when spawning a subagent whose result is for in
 - Use `notify_parent` for interim findings instead of waiting for completion. This lets the parent act on partial results early.
 - Use `subagent_message` to send follow-up instructions to a running subagent.
 - Use `subagent_abort` to cancel a subagent that is no longer needed.
+- Default to spawning subagents for any task that involves web research, multi-file exploration, or independent coding work. Serial execution should be the exception, not the rule.
+- When a user request has both an information-gathering component and an action component, spawn a researcher immediately rather than doing the research inline yourself.
+- Prefer spawning 2-3 focused subagents over one large general-purpose subagent. Smaller scopes finish faster and fail more gracefully.

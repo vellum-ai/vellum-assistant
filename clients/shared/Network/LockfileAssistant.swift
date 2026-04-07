@@ -64,7 +64,6 @@ public struct LockfileAssistant {
     public let containerInfo: ContainerInfo?
     public let previousServiceGroupVersion: String?
     public let previousContainerInfo: ContainerInfo?
-
     public init(
         assistantId: String,
         runtimeUrl: String?,
@@ -132,6 +131,11 @@ public struct LockfileAssistant {
     /// Whether this assistant is running in Docker.
     public var isDocker: Bool {
         cloud.lowercased() == "docker"
+    }
+
+    /// Whether this assistant uses the Apple Containers runtime.
+    public var isAppleContainer: Bool {
+        cloud.lowercased() == "apple-container"
     }
 
     /// The resolved workspace directory for this assistant, accounting for both

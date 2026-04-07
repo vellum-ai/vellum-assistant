@@ -121,40 +121,45 @@ struct SidebarConversationItem: View, Equatable {
         // Use a tap gesture instead of Button so .onDrag can coexist —
         // Button captures mouse-down and prevents drag initiation on macOS.
         HStack(spacing: VSpacing.xs) {
-            // Leading 20x20 slot: always shows the status indicator.
-            // The pin button is rendered as a leading overlay (after .onTapGesture)
-            // so it has hit-test priority on macOS. When hovered, the overlay pin
-            // icon covers this slot visually.
-            switch interactionState {
-            case .processing:
-                VBusyIndicator()
+            // Leading 20x20 slot: status indicator when not hovered, clear
+            // placeholder when hovered (pin overlay covers this slot visually
+            // but uses ghost/transparent styling, so we suppress the indicator
+            // to prevent visual overlap).
+            if isHovered {
+                Color.clear
                     .frame(width: 20, height: 20)
-                    .nativeTooltip("Processing")
-                    .accessibilityLabel("Processing")
-            case .waitingForInput:
-                VIconView(.circleAlert, size: 12)
-                    .foregroundStyle(VColor.systemMidStrong)
-                    .frame(width: 20, height: 20)
-                    .nativeTooltip("Waiting for input")
-                    .accessibilityLabel("Waiting for input")
-            case .error:
-                VIconView(.circleAlert, size: 12)
-                    .foregroundStyle(VColor.systemNegativeStrong)
-                    .frame(width: 20, height: 20)
-                    .nativeTooltip("Error")
-                    .accessibilityLabel("Error")
-                    .transition(.opacity)
-            case .idle:
-                if conversation.hasUnseenLatestAssistantMessage {
-                    VBadge(style: .dot, color: VColor.systemMidStrong)
-                        .accessibilityLabel("Unread")
+            } else {
+                switch interactionState {
+                case .processing:
+                    VBusyIndicator()
                         .frame(width: 20, height: 20)
-                        .nativeTooltip("Unread")
+                        .nativeTooltip("Processing")
+                        .accessibilityLabel("Processing")
+                case .waitingForInput:
+                    VIconView(.circleAlert, size: 12)
+                        .foregroundStyle(VColor.systemMidStrong)
+                        .frame(width: 20, height: 20)
+                        .nativeTooltip("Waiting for input")
+                        .accessibilityLabel("Waiting for input")
+                case .error:
+                    VIconView(.circleAlert, size: 12)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .frame(width: 20, height: 20)
+                        .nativeTooltip("Error")
+                        .accessibilityLabel("Error")
                         .transition(.opacity)
-                } else {
-                    Color.clear
-                        .frame(width: 20, height: 20)
-                        .accessibilityLabel(conversation.isPinned ? "Pinned" : "")
+                case .idle:
+                    if conversation.hasUnseenLatestAssistantMessage {
+                        VBadge(style: .dot, color: VColor.systemMidStrong)
+                            .accessibilityLabel("Unread")
+                            .frame(width: 20, height: 20)
+                            .nativeTooltip("Unread")
+                            .transition(.opacity)
+                    } else {
+                        Color.clear
+                            .frame(width: 20, height: 20)
+                            .accessibilityLabel(conversation.isPinned ? "Pinned" : "")
+                    }
                 }
             }
             if conversation.kind == .private {

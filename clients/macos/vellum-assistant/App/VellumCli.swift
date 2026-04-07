@@ -57,7 +57,7 @@ struct DaemonStartupError {
 /// daemon. It also includes a health monitor that periodically checks whether
 /// the daemon process is still alive and restarts it via the CLI.
 @MainActor
-final class VellumCli {
+final class VellumCli: AssistantManagementClient {
 
     /// Structured error emitted by the CLI for upgrade/rollback failures.
     ///

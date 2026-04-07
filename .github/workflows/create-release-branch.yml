@@ -142,6 +142,13 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install assistant dependencies
+        working-directory: assistant
+        run: bun install --frozen-lockfile
+
       - name: Create release branch and bump versions
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -168,6 +175,9 @@ jobs:
 
           # Bump macOS app version
           sed -i "s/^let appVersion = .*/let appVersion = \"$VERSION\"/" clients/Package.swift
+
+          # Regenerate OpenAPI spec with the new version
+          cd assistant && bun run generate:openapi && cd ..
 
           git add -A
           if ! git diff --cached --quiet; then

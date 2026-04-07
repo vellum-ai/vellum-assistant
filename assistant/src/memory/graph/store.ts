@@ -2,7 +2,7 @@
 // Memory Graph — Data access layer
 // ---------------------------------------------------------------------------
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db.js";
@@ -351,7 +351,7 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(sql`${memoryGraphNodes.significance} DESC`);
 
-  if (filters.limit) {
+  if (filters.limit != null) {
     query = query.limit(filters.limit) as typeof query;
   }
 
@@ -409,7 +409,7 @@ export function getEdgesForNode(
       ? eq(memoryGraphEdges.sourceNodeId, nodeId)
       : direction === "incoming"
         ? eq(memoryGraphEdges.targetNodeId, nodeId)
-        : sql`${memoryGraphEdges.sourceNodeId} = ${nodeId} OR ${memoryGraphEdges.targetNodeId} = ${nodeId}`;
+        : or(eq(memoryGraphEdges.sourceNodeId, nodeId), eq(memoryGraphEdges.targetNodeId, nodeId));
 
   // Exclude edges where either endpoint has fidelity='gone' (soft-deleted)
   const condition = and(
@@ -527,12 +527,23 @@ export function getActiveTriggersByType(
     return rows.map((r) => rowToTrigger(r.trigger));
   }
 
-  return db
-    .select()
+  const rows = db
+    .select({
+      trigger: memoryGraphTriggers,
+    })
     .from(memoryGraphTriggers)
-    .where(and(...conditions))
-    .all()
-    .map(rowToTrigger);
+    .innerJoin(
+      memoryGraphNodes,
+      eq(memoryGraphTriggers.nodeId, memoryGraphNodes.id),
+    )
+    .where(
+      and(
+        ...conditions,
+        sql`${memoryGraphNodes.fidelity} != 'gone'`,
+      ),
+    )
+    .all();
+  return rows.map((r) => rowToTrigger(r.trigger));
 }
 
 // ---------------------------------------------------------------------------

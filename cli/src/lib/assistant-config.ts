@@ -181,6 +181,12 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     return false;
   }
 
+  // Apple-containers entries are fully managed by the macOS app.
+  // Skip legacy migration to avoid corrupting their fields.
+  if (raw.cloud === "apple-container") {
+    return false;
+  }
+
   let mutated = false;
 
   // Migrate top-level `baseDataDir` → `resources.instanceDir`
