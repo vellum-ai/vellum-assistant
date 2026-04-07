@@ -6,16 +6,9 @@ struct APIKeyEntryStepView: View {
     @Bindable var state: OnboardingState
 
     @State private var apiKey: String = ""
-    @State private var hasExistingKey = false
-    @State private var maskedKeyDisplay: String = ""
-    @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
     @FocusState private var keyFieldFocused: Bool
-
-    /// Cancels the in-flight provider lookup when the user switches
-    /// providers again before the previous lookup completes.
-    @State private var providerLookupTask: Task<Void, Never>?
 
     // MARK: - Provider Catalog
 
@@ -110,7 +103,7 @@ struct APIKeyEntryStepView: View {
                     apiKeyField
                 }
 
-                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && !hasExistingKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     saveAndHatch()
                 }
 
@@ -137,10 +130,6 @@ struct APIKeyEntryStepView: View {
                 showContent = true
             }
             Task { @MainActor in
-                if let masked = await APIKeyManager.maskedKey(for: state.selectedProvider) {
-                    maskedKeyDisplay = masked
-                    hasExistingKey = true
-                }
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 guard !Task.isCancelled else { return }
                 keyFieldFocused = true
@@ -150,22 +139,7 @@ struct APIKeyEntryStepView: View {
             if let entry = providerCatalog.first(where: { $0.id == newProvider }) {
                 state.selectedModel = entry.defaultModel
             }
-            providerLookupTask?.cancel()
-            providerLookupTask = Task {
-                let masked = await APIKeyManager.maskedKey(for: newProvider)
-                guard !Task.isCancelled else { return }
-                if let masked {
-                    apiKey = ""
-                    maskedKeyDisplay = masked
-                    hasExistingKey = true
-                    isEditing = false
-                } else {
-                    apiKey = ""
-                    maskedKeyDisplay = ""
-                    hasExistingKey = false
-                    isEditing = false
-                }
-            }
+            apiKey = ""
         }
     }
 
@@ -189,43 +163,17 @@ struct APIKeyEntryStepView: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        Group {
-            if hasExistingKey && !isEditing {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("\(providerDisplayName) API Key")
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text(maskedKeyDisplay)
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentDefault)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.xs)
-                        .frame(height: 32)
-                        .vInputChrome()
-                        .onTapGesture {
-                            isEditing = true
-                            Task { @MainActor in
-                                try? await Task.sleep(nanoseconds: 100_000_000)
-                                guard !Task.isCancelled else { return }
-                                keyFieldFocused = true
-                            }
-                        }
-                }
-            } else {
-                VTextField(
-                    "\(providerDisplayName) API Key",
-                    placeholder: currentProviderEntry?.apiKeyPlaceholder ?? "Enter your API key",
-                    text: $apiKey,
-                    isSecure: true,
-                    onSubmit: {
-                        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                        saveAndHatch()
-                    },
-                    isFocused: $keyFieldFocused
-                )
-            }
-        }
+        VTextField(
+            "\(providerDisplayName) API Key",
+            placeholder: currentProviderEntry?.apiKeyPlaceholder ?? "Enter your API key",
+            text: $apiKey,
+            isSecure: true,
+            onSubmit: {
+                guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                saveAndHatch()
+            },
+            isFocused: $keyFieldFocused
+        )
         .frame(maxWidth: .infinity)
     }
 
@@ -239,8 +187,8 @@ struct APIKeyEntryStepView: View {
 
     private func saveAndHatch() {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !providerRequiresKey || !trimmed.isEmpty || hasExistingKey else { return }
-        if providerRequiresKey && !trimmed.isEmpty {
+        guard !providerRequiresKey || !trimmed.isEmpty else { return }
+        if providerRequiresKey {
             state.enteredApiKey = trimmed
             let provider = state.selectedProvider
             Task { await APIKeyManager.setKey(trimmed, for: provider) }
