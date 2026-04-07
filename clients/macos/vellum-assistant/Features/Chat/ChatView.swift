@@ -103,11 +103,11 @@ struct ChatView: View {
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
 
     private var isEmptyState: Bool {
-        viewModel.messages.isEmpty && viewModel.isHistoryLoaded
+        viewModel.paginatedVisibleMessages.isEmpty && viewModel.isHistoryLoaded
     }
 
     private var shouldShowSkeleton: Bool {
-        viewModel.messages.isEmpty && !viewModel.isHistoryLoaded
+        viewModel.paginatedVisibleMessages.isEmpty && !viewModel.isHistoryLoaded
     }
 
     /// Message IDs whose text contains the search query, ordered chronologically.
