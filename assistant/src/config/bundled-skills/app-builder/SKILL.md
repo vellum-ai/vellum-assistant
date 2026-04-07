@@ -215,8 +215,9 @@ export const App: FunctionComponent = () => {
 
   useEffect(() => {
     window.vellum.fetch("/v1/x/projects")
-      .then((res) => res.ok ? res.json() : [])
-      .then(setRecords);
+      .then((res) => res.ok ? res.json() : Promise.reject(res.status))
+      .then(setRecords)
+      .catch(console.error);
   }, []);
 
   return (
