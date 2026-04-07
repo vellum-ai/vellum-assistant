@@ -237,19 +237,17 @@ struct ChatBubble: View, Equatable {
         }
     }
 
+    /// Wraps bubble content with padding, background fill/border, and
+    /// width constraints.  Each message type gets only the modifiers it
+    /// actually needs — modifiers that would evaluate to no-ops (e.g.
+    /// `.padding(EdgeInsets())` or `.frame(maxWidth: nil)`) are omitted
+    /// so SwiftUI doesn't create `_PaddingLayout` / `_FlexFrameLayout`
+    /// wrappers that still recurse during `sizeThatFits`.
     @ViewBuilder
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
-        // Background + border combined into one modifier so the border
-        // lives in the background layer outside the content measurement
-        // path.
-        //
-        // Padding and the inner error-expansion frame are applied
-        // conditionally to avoid creating no-op _PaddingLayout /
-        // _FlexFrameLayout wrappers that still participate in
-        // sizeThatFits recursion during LazyVStack measurement.
         if message.isError {
-            // Error path: padding + full-width expansion frame.
+            // Error: chrome padding + full-width inner expansion frame.
             content()
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
                                     bottom: VSpacing.md, trailing: VSpacing.lg))
@@ -259,9 +257,7 @@ struct ChatBubble: View, Equatable {
                 }
                 .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         } else if isPlainAssistant {
-            // Plain assistant: no chrome padding, no inner frame —
-            // skip both to avoid zero-inset _PaddingLayout and no-op
-            // _FlexFrameLayout wrappers.
+            // Plain assistant: no chrome padding, no inner frame.
             content()
                 .background {
                     bubbleChromeBackground
@@ -279,8 +275,8 @@ struct ChatBubble: View, Equatable {
         }
     }
 
-    /// Shared background layers for `bubbleChrome` — extracted to avoid
-    /// duplicating the shape + border views across branches.
+    /// Background fill and optional error border shared across all
+    /// `bubbleChrome` branches.
     @ViewBuilder
     private var bubbleChromeBackground: some View {
         RoundedRectangle(cornerRadius: VRadius.lg)
