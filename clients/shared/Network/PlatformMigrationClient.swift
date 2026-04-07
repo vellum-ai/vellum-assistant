@@ -144,7 +144,7 @@ public enum PlatformMigrationClient {
 
         for attempt in 0...maxRetries {
             log.info("PUT \(urlPath, privacy: .public)\(attempt > 0 ? " (retry \(attempt)/\(maxRetries))" : "")")
-            let (_, response) = try await session.upload(for: request, from: bundleData)
+            let (_, response) = try await session.upload(for: request, from: bundleData, delegate: delegate)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             log.info("PUT \(urlPath, privacy: .public) → \(statusCode)")
 
