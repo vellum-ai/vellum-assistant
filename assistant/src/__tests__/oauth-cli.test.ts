@@ -26,6 +26,11 @@ const disconnectOAuthProviderCalls: string[] = [];
 const disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
   "not-found";
 
+// In-memory provider store used by registerProvider/updateProvider/getProvider
+// mocks below. Tests that exercise the providers register/update/get commands
+// can read and write through this map directly.
+const mockProviderStore = new Map<string, Record<string, unknown>>();
+
 // App upsert mock state
 let mockUpsertAppCalls: Array<{
   provider: string;
@@ -151,10 +156,91 @@ mock.module("../oauth/oauth-store.js", () => ({
     mockGetMostRecentAppByProvider(provider),
   listApps: () => [],
   deleteApp: async () => false,
-  getProvider: (provider: string) => mockGetProvider(provider),
+  getProvider: (provider: string) => {
+    // If the test has plugged in a custom mockGetProvider, prefer that.
+    const custom = mockGetProvider(provider);
+    if (custom !== undefined) return custom;
+    return mockProviderStore.get(provider);
+  },
   listProviders: () => mockListProviders(),
-  registerProvider: () => ({}),
-  updateProvider: () => undefined,
+  registerProvider: (params: Record<string, unknown>) => {
+    const now = Date.now();
+    const row: Record<string, unknown> = {
+      provider: params.provider,
+      authorizeUrl: params.authorizeUrl,
+      tokenExchangeUrl: params.tokenExchangeUrl,
+      tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? null,
+      userinfoUrl: params.userinfoUrl ?? null,
+      baseUrl: params.baseUrl ?? null,
+      defaultScopes: JSON.stringify(params.defaultScopes ?? []),
+      scopePolicy: JSON.stringify(params.scopePolicy ?? {}),
+      scopeSeparator: (params.scopeSeparator as string | undefined) ?? " ",
+      authorizeParams: params.authorizeParams
+        ? JSON.stringify(params.authorizeParams)
+        : null,
+      pingUrl: params.pingUrl ?? null,
+      pingMethod: params.pingMethod ?? null,
+      pingHeaders: params.pingHeaders
+        ? JSON.stringify(params.pingHeaders)
+        : null,
+      pingBody:
+        params.pingBody !== undefined ? JSON.stringify(params.pingBody) : null,
+      managedServiceConfigKey: params.managedServiceConfigKey ?? null,
+      displayLabel: params.displayLabel ?? null,
+      description: params.description ?? null,
+      dashboardUrl: params.dashboardUrl ?? null,
+      clientIdPlaceholder: params.clientIdPlaceholder ?? null,
+      requiresClientSecret: params.requiresClientSecret ?? 1,
+      loopbackPort: params.loopbackPort ?? null,
+      injectionTemplates: params.injectionTemplates
+        ? JSON.stringify(params.injectionTemplates)
+        : null,
+      appType: params.appType ?? null,
+      setupNotes: params.setupNotes ? JSON.stringify(params.setupNotes) : null,
+      identityUrl: params.identityUrl ?? null,
+      identityMethod: params.identityMethod ?? null,
+      identityHeaders: params.identityHeaders
+        ? JSON.stringify(params.identityHeaders)
+        : null,
+      identityBody:
+        params.identityBody !== undefined
+          ? JSON.stringify(params.identityBody)
+          : null,
+      identityResponsePaths: params.identityResponsePaths
+        ? JSON.stringify(params.identityResponsePaths)
+        : null,
+      identityFormat: params.identityFormat ?? null,
+      identityOkField: params.identityOkField ?? null,
+      featureFlag: params.featureFlag ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    mockProviderStore.set(params.provider as string, row);
+    return row;
+  },
+  updateProvider: (provider: string, params: Record<string, unknown>) => {
+    const existing = mockProviderStore.get(provider);
+    if (!existing) return undefined;
+    const updated: Record<string, unknown> = { ...existing };
+    if (params.scopeSeparator !== undefined) {
+      updated.scopeSeparator = params.scopeSeparator;
+    }
+    if (params.authorizeUrl !== undefined) {
+      updated.authorizeUrl = params.authorizeUrl;
+    }
+    if (params.tokenExchangeUrl !== undefined) {
+      updated.tokenExchangeUrl = params.tokenExchangeUrl;
+    }
+    if (params.defaultScopes !== undefined) {
+      updated.defaultScopes = JSON.stringify(params.defaultScopes);
+    }
+    if (params.displayLabel !== undefined) {
+      updated.displayLabel = params.displayLabel;
+    }
+    updated.updatedAt = Date.now();
+    mockProviderStore.set(provider, updated);
+    return updated;
+  },
   deleteProvider: () => false,
   seedProviders: () => {},
   getActiveConnection: () => undefined,
@@ -1311,5 +1397,131 @@ describe("assistant oauth mode", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.provider).toBe("google");
     expect(parsed.mode).toBe("your-own");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// providers register / update / get — --scope-separator wiring
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth providers --scope-separator", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockProviderStore.clear();
+    // Default getProvider falls through to mockProviderStore via the
+    // oauth-store mock module. Tests in this describe block don't need
+    // a per-test mockGetProvider override.
+    mockGetProvider = () => undefined;
+    mockGetConfig = () => ({ services: {} });
+  });
+
+  afterEach(() => {
+    mockProviderStore.clear();
+    mockGetProvider = () => undefined;
+  });
+
+  test("providers register --scope-separator , stores ',' on the provider row", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-linear",
+      "--auth-url",
+      "https://linear.app/oauth/authorize",
+      "--token-url",
+      "https://api.linear.app/oauth/token",
+      "--scopes",
+      "read,write",
+      "--scope-separator",
+      ",",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-linear");
+    expect(stored).toBeDefined();
+    expect(stored?.scopeSeparator).toBe(",");
+  });
+
+  test("providers register without --scope-separator stores the default ' '", async () => {
+    const { exitCode } = await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-default-sep",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--scopes",
+      "read,write",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const stored = mockProviderStore.get("custom-default-sep");
+    expect(stored).toBeDefined();
+    expect(stored?.scopeSeparator).toBe(" ");
+  });
+
+  test("providers update --scope-separator , updates an existing custom provider", async () => {
+    // Seed the store with an existing custom provider that uses the default
+    // " " separator.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-update-target",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--scopes",
+      "read",
+      "--json",
+    ]);
+    expect(mockProviderStore.get("custom-update-target")?.scopeSeparator).toBe(
+      " ",
+    );
+
+    const { exitCode } = await runCli([
+      "providers",
+      "update",
+      "custom-update-target",
+      "--scope-separator",
+      ",",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockProviderStore.get("custom-update-target")?.scopeSeparator).toBe(
+      ",",
+    );
+  });
+
+  test("providers get <key> --json includes scopeSeparator from the serialized output", async () => {
+    // Seed the store with a custom provider that uses ',' as the separator.
+    await runCli([
+      "providers",
+      "register",
+      "--provider-key",
+      "custom-get-target",
+      "--auth-url",
+      "https://example.com/oauth/authorize",
+      "--token-url",
+      "https://example.com/oauth/token",
+      "--scopes",
+      "read,write",
+      "--scope-separator",
+      ",",
+      "--json",
+    ]);
+
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "get",
+      "custom-get-target",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.scopeSeparator).toBe(",");
   });
 });

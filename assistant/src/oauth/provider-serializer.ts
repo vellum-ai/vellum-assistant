@@ -85,6 +85,7 @@ function _serializeProvider(
     supportsManagedMode: !!row.managedServiceConfigKey,
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
+    scopeSeparator: row.scopeSeparator,
     extraParams: authorizeParams ? JSON.parse(authorizeParams) : null,
     pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
     pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,

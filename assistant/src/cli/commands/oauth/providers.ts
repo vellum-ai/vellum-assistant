@@ -227,6 +227,10 @@ Examples:
       'Comma-separated default scopes (e.g. "read,write,profile")',
     )
     .option(
+      "--scope-separator <sep>",
+      'Separator used to join scopes in the authorize URL (default: " "). Use "," for providers like Linear that expect comma-separated scopes.',
+    )
+    .option(
       "--token-auth-method <method>",
       'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
     )
@@ -341,6 +345,12 @@ Examples:
       --ping-method POST \\
       --ping-body '{"query":"{ viewer { id } }"}'
   $ assistant oauth providers register \\
+      --provider-key linear-custom \\
+      --auth-url https://linear.app/oauth/authorize \\
+      --token-url https://api.linear.app/oauth/token \\
+      --scopes read,write \\
+      --scope-separator ","
+  $ assistant oauth providers register \\
       --provider-key my-api \\
       --auth-url https://example.com/auth \\
       --token-url https://example.com/token \\
@@ -358,6 +368,7 @@ Examples:
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
+          scopeSeparator?: string;
           tokenAuthMethod?: string;
           pingUrl?: string;
           pingMethod?: string;
@@ -391,6 +402,7 @@ Examples:
             userinfoUrl: opts.userinfoUrl,
             defaultScopes: opts.scopes ? opts.scopes.split(",") : [],
             scopePolicy: {},
+            scopeSeparator: opts.scopeSeparator,
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
             pingUrl: opts.pingUrl,
             pingMethod: opts.pingMethod,
@@ -460,6 +472,10 @@ Examples:
     .option(
       "--scopes <scopes>",
       'Comma-separated default scopes (e.g. "read,write,profile")',
+    )
+    .option(
+      "--scope-separator <sep>",
+      'Separator used to join scopes in the authorize URL (default: " "). Use "," for providers like Linear that expect comma-separated scopes.',
     )
     .option(
       "--token-auth-method <method>",
@@ -562,6 +578,7 @@ Examples:
   $ assistant oauth providers update custom-api --display-name "My Custom API"
   $ assistant oauth providers update custom-api --scopes read,write --auth-url https://new.example.com/auth
   $ assistant oauth providers update custom-api --ping-url https://api.example.com/me --json
+  $ assistant oauth providers update custom-api --scope-separator ","
   $ assistant oauth providers update custom-api \\
       --identity-url https://api.example.com/me \\
       --identity-response-paths email,name
@@ -577,6 +594,7 @@ Examples:
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
+          scopeSeparator?: string;
           tokenAuthMethod?: string;
           pingUrl?: string;
           pingMethod?: string;
@@ -643,6 +661,8 @@ Examples:
             params.userinfoUrl = opts.userinfoUrl;
           if (opts.scopes !== undefined)
             params.defaultScopes = opts.scopes.split(",");
+          if (opts.scopeSeparator !== undefined)
+            params.scopeSeparator = opts.scopeSeparator;
           if (opts.tokenAuthMethod !== undefined)
             params.tokenEndpointAuthMethod = opts.tokenAuthMethod;
           if (opts.pingUrl !== undefined) params.pingUrl = opts.pingUrl;
