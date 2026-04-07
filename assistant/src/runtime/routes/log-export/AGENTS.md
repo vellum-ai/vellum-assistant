@@ -83,9 +83,19 @@ most-relevant records first.
 
 - **`conversations/`**
   - **Path**: `<workspace>/conversations/<ISO-with-dashes>_<conversationId>/`
-  - **Honors filters**: time (via the parsed timestamp prefix on each
-    directory name) and `conversationId` (exact match on the suffix — no
-    substring matching).
+  - **Honors filters**: time (union of parsed `createdAt` prefix _and_
+    per-message `ts` inside `messages.jsonl`) and `conversationId`
+    (exact match on the directory-name suffix — no substring matching).
+  - **Time semantics**: A conversation directory is included if EITHER
+    its `createdAt` (parsed from the directory name) falls in the
+    requested window OR `messages.jsonl` contains at least one message
+    whose `ts` falls in the window. The cheap directory-name check runs
+    first; the per-message scan only runs as a fallback when the cheap
+    check failed, so the common in-window case stays IO-free. This is
+    the "support bundle" union — false positives are cheaper than false
+    negatives because the user almost always wants the conversations
+    they were _active in_ during the window, not just the ones they
+    _started_ during it.
   - **Cap**: shares the 10 MB workspace cap defined by
     `MAX_WORKSPACE_PAYLOAD_BYTES` in `workspace-allowlist.ts`.
   - **Notes**: Directory names that don't match the canonical

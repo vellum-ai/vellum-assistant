@@ -14,7 +14,14 @@
  * `<ISO-with-dashes>_<conversationId>` format are silently skipped (Rule 3).
  */
 
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { parseConversationDirName } from "../../../memory/conversation-directories.js";
@@ -117,6 +124,64 @@ function dirSizeWithinBudget(
   return total;
 }
 
+/**
+ * Scan a conversation's `messages.jsonl` file and report whether any
+ * message's `ts` (an ISO 8601 string written by `conversation-disk-view`)
+ * falls inside the `[startTime, endTime]` window.
+ *
+ * Returns:
+ *   - `true`  if at least one message timestamp lies in the window.
+ *   - `false` otherwise (including: file is missing, file is empty, every
+ *     line fails to parse, or no parsed line lands in the window).
+ *
+ * Lines that fail to parse as JSON or whose `ts` is not a parseable date
+ * are silently skipped — they shouldn't be able to make the function
+ * throw, since the export pipeline must never crash on a malformed
+ * conversation file.
+ *
+ * The scan bails out as soon as it finds the first matching message, so
+ * the worst case for an in-window conversation is "one early hit", and
+ * the worst case for an out-of-window conversation is "read the whole
+ * file once". Files are bounded by the workspace cap so this is safe.
+ */
+function conversationHasMessageInWindow(
+  conversationDir: string,
+  startTime: number | undefined,
+  endTime: number | undefined,
+): boolean {
+  // No window means every message trivially "matches", but the only
+  // caller (`collectConversations`) already short-circuits in that case
+  // and never invokes this helper. Defensive check kept so the helper is
+  // safe to reuse.
+  if (startTime === undefined && endTime === undefined) return true;
+
+  const messagesPath = join(conversationDir, "messages.jsonl");
+  let raw: string;
+  try {
+    raw = readFileSync(messagesPath, "utf-8");
+  } catch {
+    // Missing or unreadable messages file → no in-window evidence.
+    return false;
+  }
+
+  for (const line of raw.split("\n")) {
+    if (!line) continue;
+    let record: { ts?: unknown };
+    try {
+      record = JSON.parse(line) as { ts?: unknown };
+    } catch {
+      continue;
+    }
+    if (typeof record.ts !== "string") continue;
+    const ms = Date.parse(record.ts);
+    if (Number.isNaN(ms)) continue;
+    if (startTime !== undefined && ms < startTime) continue;
+    if (endTime !== undefined && ms > endTime) continue;
+    return true;
+  }
+  return false;
+}
+
 function collectConversations(
   opts: CollectWorkspaceDataOptions,
   result: CollectWorkspaceDataResult,
@@ -182,11 +247,41 @@ function collectConversations(
     ) {
       continue;
     }
-    if (opts.startTime !== undefined && parsed.createdAtMs < opts.startTime) {
-      continue;
-    }
-    if (opts.endTime !== undefined && parsed.createdAtMs > opts.endTime) {
-      continue;
+
+    // Time-window filter: keep the conversation if EITHER its createdAt
+    // (parsed from the directory name) OR any individual message inside
+    // `messages.jsonl` falls in the requested window. This is the union
+    // semantics — a conversation that was started before the window but
+    // received messages during it should still ship, since the user
+    // running an export almost always wants to see the activity that
+    // happened during the window, not just conversations that were
+    // _created_ in it.
+    if (opts.startTime !== undefined || opts.endTime !== undefined) {
+      const createdAtInWindow =
+        (opts.startTime === undefined ||
+          parsed.createdAtMs >= opts.startTime) &&
+        (opts.endTime === undefined || parsed.createdAtMs <= opts.endTime);
+      if (!createdAtInWindow) {
+        // Fall back to scanning messages.jsonl for in-window activity.
+        // This is more expensive than the directory-name parse, so we
+        // only do it when the cheap check failed.
+        const conversationDir = join(sourceDir, name);
+        let hasMessageInWindow: boolean;
+        try {
+          hasMessageInWindow = conversationHasMessageInWindow(
+            conversationDir,
+            opts.startTime,
+            opts.endTime,
+          );
+        } catch (err) {
+          log.warn(
+            { err, conversationDir },
+            "Failed to scan messages.jsonl for window match; skipping",
+          );
+          continue;
+        }
+        if (!hasMessageInWindow) continue;
+      }
     }
 
     candidates.push({ name, parsed });

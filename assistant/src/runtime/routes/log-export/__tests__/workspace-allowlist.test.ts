@@ -225,6 +225,158 @@ describe("collectWorkspaceData — conversations entry", () => {
     expect(existsSync(join(staging, "workspace", "conversations"))).toBe(false);
   });
 
+  test("includes conversation when createdAt is outside window but a message ts is inside", () => {
+    // Conversation was created on Jan 10 but received a message on
+    // Jan 18. With a [Jan 14, Jan 22] window, the directory-name parse
+    // says "out of window" but the message scan should keep it.
+    const conversationsDir = getConversationsDir();
+    mkdirSync(conversationsDir, { recursive: true });
+    const dir = join(conversationsDir, CONV_DIRS.jan10);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "meta.json"),
+      JSON.stringify({ name: CONV_DIRS.jan10 }, null, 2),
+      "utf-8",
+    );
+    writeFileSync(
+      join(dir, "messages.jsonl"),
+      [
+        '{"role":"user","ts":"2025-01-10T00:00:00.000Z","content":"created"}',
+        '{"role":"user","ts":"2025-01-18T12:00:00.000Z","content":"in window"}',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const result = collectWorkspaceData({
+      staging,
+      startTime: Date.parse("2025-01-14T00:00:00Z"),
+      endTime: Date.parse("2025-01-22T00:00:00Z"),
+    });
+
+    expect(result.entries[0].itemCount).toBe(1);
+    const copied = readdirSync(join(staging, "workspace", "conversations"));
+    expect(copied).toEqual([CONV_DIRS.jan10]);
+  });
+
+  test("excludes conversation when createdAt and every message ts are outside the window", () => {
+    // Conversation created on Jan 10 with messages only before/after the
+    // [Jan 14, Jan 22] window. Both filters miss → directory must be skipped.
+    const conversationsDir = getConversationsDir();
+    mkdirSync(conversationsDir, { recursive: true });
+    const dir = join(conversationsDir, CONV_DIRS.jan10);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "meta.json"),
+      JSON.stringify({ name: CONV_DIRS.jan10 }, null, 2),
+      "utf-8",
+    );
+    writeFileSync(
+      join(dir, "messages.jsonl"),
+      [
+        '{"role":"user","ts":"2025-01-10T00:00:00.000Z","content":"too early"}',
+        '{"role":"user","ts":"2025-01-12T00:00:00.000Z","content":"still early"}',
+        '{"role":"user","ts":"2025-01-25T00:00:00.000Z","content":"too late"}',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const result = collectWorkspaceData({
+      staging,
+      startTime: Date.parse("2025-01-14T00:00:00Z"),
+      endTime: Date.parse("2025-01-22T00:00:00Z"),
+    });
+
+    expect(result.entries[0].itemCount).toBe(0);
+    expect(existsSync(join(staging, "workspace", "conversations"))).toBe(false);
+  });
+
+  test("includes conversation when createdAt is in window even if messages.jsonl is missing", () => {
+    // Conversation created on Jan 15 with no messages.jsonl yet (e.g.
+    // brand-new conversation). The cheap createdAt check is enough; we
+    // should never even open messages.jsonl.
+    const conversationsDir = getConversationsDir();
+    mkdirSync(conversationsDir, { recursive: true });
+    const dir = join(conversationsDir, CONV_DIRS.jan15);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "meta.json"),
+      JSON.stringify({ name: CONV_DIRS.jan15 }, null, 2),
+      "utf-8",
+    );
+
+    const result = collectWorkspaceData({
+      staging,
+      startTime: Date.parse("2025-01-14T00:00:00Z"),
+      endTime: Date.parse("2025-01-22T00:00:00Z"),
+    });
+
+    expect(result.entries[0].itemCount).toBe(1);
+    const copied = readdirSync(join(staging, "workspace", "conversations"));
+    expect(copied).toEqual([CONV_DIRS.jan15]);
+  });
+
+  test("excludes conversation when createdAt is out of window and messages.jsonl is missing", () => {
+    // Conversation created on Jan 10 (out of window) with no
+    // messages.jsonl at all. Both checks miss → skip.
+    const conversationsDir = getConversationsDir();
+    mkdirSync(conversationsDir, { recursive: true });
+    const dir = join(conversationsDir, CONV_DIRS.jan10);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "meta.json"),
+      JSON.stringify({ name: CONV_DIRS.jan10 }, null, 2),
+      "utf-8",
+    );
+
+    const result = collectWorkspaceData({
+      staging,
+      startTime: Date.parse("2025-01-14T00:00:00Z"),
+      endTime: Date.parse("2025-01-22T00:00:00Z"),
+    });
+
+    expect(result.entries[0].itemCount).toBe(0);
+    expect(existsSync(join(staging, "workspace", "conversations"))).toBe(false);
+  });
+
+  test("malformed messages.jsonl lines are silently skipped during the window scan", () => {
+    // Conversation created on Jan 10 (out of window). messages.jsonl
+    // has garbage on most lines but ONE valid line whose ts is in
+    // window — that single valid line should be enough to keep the dir.
+    const conversationsDir = getConversationsDir();
+    mkdirSync(conversationsDir, { recursive: true });
+    const dir = join(conversationsDir, CONV_DIRS.jan10);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "meta.json"),
+      JSON.stringify({ name: CONV_DIRS.jan10 }, null, 2),
+      "utf-8",
+    );
+    writeFileSync(
+      join(dir, "messages.jsonl"),
+      [
+        "not json at all",
+        '{"role":"user"}', // missing ts
+        '{"role":"user","ts":"not-a-date"}', // ts isn't parseable
+        '{"role":"user","ts":42}', // ts is wrong type
+        '{"role":"user","ts":"2025-01-18T12:00:00.000Z","content":"valid"}',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const result = collectWorkspaceData({
+      staging,
+      startTime: Date.parse("2025-01-14T00:00:00Z"),
+      endTime: Date.parse("2025-01-22T00:00:00Z"),
+    });
+
+    expect(result.entries[0].itemCount).toBe(1);
+    const copied = readdirSync(join(staging, "workspace", "conversations"));
+    expect(copied).toEqual([CONV_DIRS.jan10]);
+  });
+
   test("byte cap enforcement skips every conversation when too tight", () => {
     seedConversations();
 
