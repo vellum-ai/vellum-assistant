@@ -76,7 +76,7 @@ export class RemoteFeatureFlagSync {
   private async fetchAndCache(): Promise<void> {
     const values = await this.fetchRemoteFeatureFlags();
     if (values === null) {
-      log.debug("Skipping cache write — fetch returned no usable data");
+      log.warn("Skipping cache write — fetch returned no usable data");
       return;
     }
     writeRemoteFeatureFlags(values);
