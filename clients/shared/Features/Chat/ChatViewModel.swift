@@ -2116,7 +2116,21 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             } else {
                 uniqueHistory = chatMessages
             }
-            var mergedMessages = uniqueHistory + self.messages
+            // Replace stripped non-pending messages with fresh server copies.
+            // Pending messages are kept as-is since the server doesn't have
+            // them yet, but stripped messages that already exist on the server
+            // should be refreshed with their full content.
+            let freshById = Dictionary(chatMessages.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+            let refreshedExisting = self.messages.map { msg -> ChatMessage in
+                if msg.isContentStripped
+                    && !pendingMessageIds.contains(msg.id)
+                    && msg.status != .pendingOffline,
+                   let fresh = freshById[msg.id] {
+                    return fresh
+                }
+                return msg
+            }
+            var mergedMessages = uniqueHistory + refreshedExisting
             mergedMessages.sort { $0.timestamp < $1.timestamp }
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
             self.messages = mergedMessages
