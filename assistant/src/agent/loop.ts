@@ -709,10 +709,10 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
  * once by the LLM on the turn it was captured, then replaced with a text
  * placeholder on subsequent turns.
  *
- * We look for the last user message with tool_results (not just the last user
- * message) because the empty-response nudge path appends a text-only user
- * message after the tool results. Preserving images in that case ensures
- * the model still sees the screenshot on the retry.
+ * We target the last user message with tool_results (not just the last user
+ * message) because a plain-text user message may follow the tool-result
+ * turn. Using the last user message unconditionally would leave the most
+ * recent tool screenshots unprotected from stripping.
  */
 function stripOldImageBlocks(history: Message[]): Message[] {
   // Find the last user message that contains tool_result blocks.
