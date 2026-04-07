@@ -135,31 +135,27 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 3: requestPinToBottom Hot Path
+    // MARK: - Test 3: Near-Bottom Update Hot Path
 
-    /// Measures the synchronous hot path of requestPinToBottom on the scroll
-    /// state: request a pin, transition back to followingBottom — repeated 100 times.
+    /// Measures the synchronous hot path of updateNearBottom on the scroll
+    /// state — repeated 100 times. This mirrors the per-scroll-frame hot path
+    /// for hysteresis-based near-bottom detection.
     @MainActor
-    func testPinToBottomPerformance() {
+    func testNearBottomUpdatePerformance() {
         measure(metrics: [XCTClockMetric()]) {
             let scrollState = MessageListScrollState()
-            var scrollCallCount = 0
+            scrollState.contentHeight = 5000
+            scrollState.viewportHeight = 800
 
-            scrollState.scrollTo = { _, _ in
-                scrollCallCount += 1
+            // Run 100 update cycles alternating between near and far positions.
+            for i in 0..<100 {
+                // Alternate between near-bottom and far-from-bottom.
+                scrollState.contentOffsetY = (i % 2 == 0) ? 4190 : 3000
+                scrollState.updateNearBottom()
             }
 
-            // Ensure we start in followingBottom mode.
-            scrollState.transition(to: .followingBottom)
-
-            // Run 100 pin request cycles to get a stable measurement.
-            for _ in 0..<100 {
-                scrollState.requestPinToBottom()
-                scrollState.transition(to: .followingBottom)
-            }
-
-            XCTAssertGreaterThan(scrollCallCount, 0)
-            scrollState.cancelAll()
+            // Verify final state is deterministic.
+            XCTAssertFalse(scrollState.isNearBottom)
         }
     }
 
@@ -203,8 +199,8 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             orphanSubagents: [],
             effectiveStatusText: nil
         )
-        tracking.cachedLayoutKey = key
-        tracking.cachedLayoutMetadata = layout
+        tracking.derivedStateCache.cachedLayoutKey = key
+        tracking.derivedStateCache.cachedLayoutMetadata = layout
 
         // Simulate streaming: append text to the last message (same count,
         // same isStreaming flag — the version counter does NOT bump).
@@ -223,8 +219,8 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         )
 
         // The cache key hasn't changed — layout cache should still hit.
-        XCTAssertEqual(key, tracking.cachedLayoutKey)
-        XCTAssertNotNil(tracking.cachedLayoutMetadata)
+        XCTAssertEqual(key, tracking.derivedStateCache.cachedLayoutKey)
+        XCTAssertNotNil(tracking.derivedStateCache.cachedLayoutMetadata)
 
         // But the live message must reflect the updated text.
         let lastId = messages.last!.id

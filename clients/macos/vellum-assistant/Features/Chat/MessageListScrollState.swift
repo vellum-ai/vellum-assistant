@@ -94,6 +94,23 @@ final class MessageListScrollState {
     /// cooldown between successive pagination fires.
     @ObservationIgnored var lastPaginationCompletedAt: Date = .distantPast
 
+    // MARK: - Bottom Anchor Tracking
+
+    /// Whether the bottom anchor element has appeared in the LazyVStack.
+    /// Set by `MessageListContentView`'s `onAppear` on the bottom spacer.
+    @ObservationIgnored var bottomAnchorAppeared: Bool = false
+
+    /// Whether the user has interacted with the scroll view (scrolled away
+    /// from initial position). Used to gate initial auto-scroll behavior.
+    @ObservationIgnored var hasBeenInteracted: Bool = false
+
+    // MARK: - Derived State Cache
+
+    /// Non-observable cache for memoizing derived state computations.
+    /// Kept off the observation graph to avoid "modifying state during view
+    /// update" warnings while still enabling memoization hot paths.
+    @ObservationIgnored lazy var derivedStateCache = MessageListDerivedStateCache()
+
     // MARK: - Computed Properties
 
     /// Distance from the bottom of the scrollable content.
@@ -159,6 +176,41 @@ final class MessageListScrollState {
         return true
     }
 
+    /// Called when the viewport reaches the bottom of the content.
+    /// Marks the scroll state as interacted and near-bottom.
+    func handleReachedBottom() {
+        hasBeenInteracted = true
+        isNearBottom = true
+        showScrollToLatest = false
+    }
+
+    /// Records a body evaluation timestamp for circuit-breaker throttling.
+    /// If more than 60 evaluations occur within 500ms, activates throttle
+    /// mode to prevent runaway layout loops. Auto-recovers after 500ms.
+    func recordBodyEvaluation() {
+        let now = CFAbsoluteTimeGetCurrent()
+        let cache = derivedStateCache
+        cache.bodyEvalTimestamps.append(now)
+
+        // Prune timestamps older than 500ms
+        let cutoff = now - 0.5
+        cache.bodyEvalTimestamps.removeAll { $0 < cutoff }
+
+        if cache.bodyEvalTimestamps.count > 60 && !cache.isThrottled {
+            cache.isThrottled = true
+            scrollLog.warning("Circuit breaker tripped: \(cache.bodyEvalTimestamps.count) body evals in 500ms")
+
+            cache.throttleRecoveryTask?.cancel()
+            cache.throttleRecoveryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                self?.derivedStateCache.isThrottled = false
+                self?.derivedStateCache.bodyEvalTimestamps.removeAll()
+                scrollLog.debug("Circuit breaker recovered")
+            }
+        }
+    }
+
     /// Called when the user taps "Scroll to latest". Resets near-bottom
     /// state and hides the CTA so the caller can perform the actual scroll.
     func handleScrollToLatestTapped() {
@@ -183,6 +235,9 @@ final class MessageListScrollState {
         showScrollToLatest = false
         scrollIndicatorsHidden = false
         lastAutoFocusedRequestId = nil
+        bottomAnchorAppeared = false
+        hasBeenInteracted = false
+        derivedStateCache.reset()
 
         scrollLog.debug("Reset for conversation: \(conversationId)")
     }
