@@ -4,8 +4,7 @@
 // Runs daily (or on demand). Processes nodes in partitions:
 // 1. Recency: nodes from last 7 days — merge duplicates, initial narrative
 // 2. Significance: top N by significance — update narrative arcs
-// 3. Decay: nodes at faded/gist fidelity — candidates for merging or marking gone
-// 4. Random sample: cross-pollination and pattern detection
+// 3. Random sample: cross-pollination and pattern detection
 //
 // Each partition is a separate LLM call. The LLM produces a MemoryDiff
 // (same format as extraction) that is applied to the graph.
@@ -159,7 +158,7 @@ const CONSOLIDATE_TOOL_SCHEMA = {
       },
       delete_ids: {
         type: "array" as const,
-        description: "Node IDs to delete (merged duplicates, gone memories)",
+        description: "Node IDs to delete (merged duplicates only)",
         items: { type: "string" as const },
       },
       merge_edges: {
