@@ -2,7 +2,7 @@
  * Centralized platform API client.
  *
  * Owns managed proxy context resolution, prerequisite validation, and
- * authenticated fetch for all platform API calls.
+ * authenticated fetch for all platform API calls that use Api-Key auth.
  */
 
 import { getPlatformAssistantId } from "../config/env.js";
@@ -74,13 +74,13 @@ export class VellumPlatformClient {
   /**
    * Authenticated fetch against the platform API.
    *
-   * Prepends `platformBaseUrl` to `path` and injects the Bearer auth header.
+   * Prepends `platformBaseUrl` to `path` and injects the `Api-Key` auth header.
    * Callers handle response parsing and domain-specific error mapping.
    */
   async fetch(path: string, init?: RequestInit): Promise<Response> {
     const url = `${this.platformBaseUrl}${path}`;
     const headers = new Headers(init?.headers);
-    headers.set("Authorization", `Bearer ${this.apiKey}`);
+    headers.set("Authorization", `Api-Key ${this.apiKey}`);
 
     return fetch(url, { ...init, headers });
   }
