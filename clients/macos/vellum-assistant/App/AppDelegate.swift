@@ -527,6 +527,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             Self.installCLISymlinkIfNeeded(isDevMode: isDevMode)
         }
 
+        // Install the Chrome native messaging host manifest so the
+        // Vellum Chrome extension can spawn the bundled helper binary
+        // via `chrome.runtime.connectNative("com.vellum.daemon")`.
+        // Best-effort and idempotent — see
+        // `AppDelegate+NativeMessaging.swift` for details. Runs off
+        // the main thread because it touches `~/Library` on disk.
+        Task.detached(priority: .utility) {
+            Self.installChromeNativeMessagingHostIfNeeded()
+        }
+
         let hasAssistants = lockfileHasAssistants()
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
 
