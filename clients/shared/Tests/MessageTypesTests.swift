@@ -25,7 +25,7 @@ final class MessageTypesTests: XCTestCase {
                 "transitionType": "typed"
               },
               "cdpSessionId": "session-555",
-              "timeout_seconds": 45
+              "timeout_seconds": 45.5
             }
             """.utf8
         )
@@ -42,11 +42,44 @@ final class MessageTypesTests: XCTestCase {
         XCTAssertEqual(request.conversationId, "conv-xyz-789")
         XCTAssertEqual(request.cdpMethod, "Page.navigate")
         XCTAssertEqual(request.cdpSessionId, "session-555")
-        XCTAssertEqual(request.timeoutSeconds, 45)
+        XCTAssertEqual(request.timeoutSeconds, 45.5)
 
         let params = try XCTUnwrap(request.cdpParams)
         XCTAssertEqual(params["url"]?.value as? String, "https://example.com")
         XCTAssertEqual(params["transitionType"]?.value as? String, "typed")
+    }
+
+    /// Regression test for the typing fix that changed `timeoutSeconds` from
+    /// `Int?` to `Double?`. The daemon's wire contract is `timeout_seconds?:
+    /// number`, which permits fractional values such as `0.01`. With the old
+    /// `Int?` typing, `JSONDecoder` would throw a type-mismatch on this
+    /// payload and the SSE decoder would drop the entire `host_browser_request`
+    /// event — exactly the failure mode this Phase 2 PR is meant to prevent.
+    func testDecodes_hostBrowserRequest_withFractionalTimeoutSeconds() throws {
+        let json = Data(
+            """
+            {
+              "type": "host_browser_request",
+              "requestId": "req-frac",
+              "conversationId": "conv-frac",
+              "cdpMethod": "Page.navigate",
+              "timeout_seconds": 0.01
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .hostBrowserRequest(let request) = message else {
+            XCTFail("Expected .hostBrowserRequest, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(request.type, "host_browser_request")
+        XCTAssertEqual(request.requestId, "req-frac")
+        XCTAssertEqual(request.conversationId, "conv-frac")
+        XCTAssertEqual(request.cdpMethod, "Page.navigate")
+        XCTAssertEqual(request.timeoutSeconds, 0.01)
     }
 
     func testDecodes_hostBrowserRequest_withOptionalFieldsAbsent() throws {

@@ -1619,7 +1619,12 @@ public struct HostBrowserRequest: Decodable, Sendable {
     public let cdpMethod: String
     public let cdpParams: [String: AnyCodable]?
     public let cdpSessionId: String?
-    public let timeoutSeconds: Int?
+    // Modeled as Double? to match the daemon's `timeout_seconds?: number` wire
+    // contract (which permits fractional values such as 0.01) and to mirror
+    // `HostBashRequest.timeoutSeconds`. Using Int? here would cause
+    // JSONDecoder to throw a type-mismatch on fractional timeouts and drop the
+    // entire host_browser_request event from the SSE stream.
+    public let timeoutSeconds: Double?
 
     private enum CodingKeys: String, CodingKey {
         case type
