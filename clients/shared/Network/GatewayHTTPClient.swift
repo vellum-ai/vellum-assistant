@@ -467,6 +467,37 @@ public enum GatewayHTTPClient {
         return try resolveConnection().isManaged
     }
 
+    /// Credentials needed by the WebView JS fetch bridge (`window.vellum.fetch`).
+    public struct WebViewCredentials {
+        /// Gateway base URL including scheme and port (e.g. `http://127.0.0.1:7830`).
+        public let baseURL: String
+        /// Auth header entries to inject into every fetch request.
+        /// Platform (managed): `["X-Session-Token": token, "Vellum-Organization-Id": orgId]`
+        /// Local/remote (bearer): `["Authorization": "Bearer <jwt>"]`
+        public let headers: [String: String]
+    }
+
+    /// Resolves the gateway base URL and auth headers for injection into a WKWebView.
+    ///
+    /// Use this to populate `window.vellum.fetch` so that app frontends can call
+    /// custom routes (`/v1/x/...`) with proper authentication.
+    ///
+    /// - Returns: A ``WebViewCredentials`` with the base URL and auth headers,
+    ///   or `nil` if the connection cannot be resolved or is not authenticated.
+    public static func resolveWebViewCredentials() -> WebViewCredentials? {
+        guard let connection = try? resolveConnection() else { return nil }
+        var headers: [String: String] = [:]
+        if let auth = connection.authHeader {
+            headers[auth.field] = auth.value
+        }
+        if connection.isManaged {
+            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+                headers["Vellum-Organization-Id"] = orgId
+            }
+        }
+        return WebViewCredentials(baseURL: connection.baseURL, headers: headers)
+    }
+
     /// Constructs a gateway URL for the given path and query parameters.
     ///
     /// Use this when you need a raw URL (e.g. for media viewers) rather than

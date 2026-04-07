@@ -335,11 +335,44 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 """
         }
 
+        // Inject window.vellum.fetch — an authenticated fetch wrapper that routes
+        // requests through the gateway with proper auth headers.
+        if let credentials = GatewayHTTPClient.resolveWebViewCredentials() {
+            let escapedBaseURL = credentials.baseURL
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+            let headerEntries = credentials.headers.map { key, value in
+                let escapedKey = key
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                let escapedValue = value
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                return "'\(escapedKey)': '\(escapedValue)'"
+            }.joined(separator: ", ")
+
+            jsSource += """
+
+                window.vellum.fetch = function(path, options) {
+                    options = options || {};
+                    var headers = options.headers || {};
+                    var authHeaders = {\(headerEntries)};
+                    for (var k in authHeaders) {
+                        if (!headers[k]) headers[k] = authHeaders[k];
+                    }
+                    options.headers = headers;
+                    var url = '\(escapedBaseURL)' + path;
+                    return fetch(url, options);
+                };
+                """
+        }
+
         jsSource += """
 
             document.addEventListener('DOMContentLoaded', function() {
                 var hasData = !!(window.vellum && window.vellum.data);
-                console.log('[vellum] Bridge check: vellum.data ' + (hasData ? 'available' : 'NOT available (appId not set)'));
+                var hasFetch = !!(window.vellum && window.vellum.fetch);
+                console.log('[vellum] Bridge check: vellum.data ' + (hasData ? 'available' : 'NOT available (appId not set)') + ', vellum.fetch ' + (hasFetch ? 'available' : 'NOT available'));
             });
             """
 
