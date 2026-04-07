@@ -40,6 +40,32 @@ final class AppURLsTests: XCTestCase {
         XCTAssertEqual(AppURLs.docsBaseURL, "https://www.vellum.ai/docs")
     }
 
+    func testDocsBaseURLRejectsMalformedURLAndFallsBack() {
+        setenv("VELLUM_DOCS_BASE_URL", "not a url", 1)
+        XCTAssertEqual(AppURLs.docsBaseURL, "https://www.vellum.ai/docs")
+    }
+
+    func testDocsBaseURLRejectsURLWithoutSchemeAndFallsBack() {
+        setenv("VELLUM_DOCS_BASE_URL", "vellum.ai/docs", 1)
+        XCTAssertEqual(AppURLs.docsBaseURL, "https://www.vellum.ai/docs")
+    }
+
+    func testDocsBaseURLRejectsNonHTTPSchemeAndFallsBack() {
+        setenv("VELLUM_DOCS_BASE_URL", "ftp://files.vellum.ai/docs", 1)
+        XCTAssertEqual(AppURLs.docsBaseURL, "https://www.vellum.ai/docs")
+    }
+
+    func testDocsBaseURLAcceptsHTTPScheme() {
+        setenv("VELLUM_DOCS_BASE_URL", "http://localhost:3000/docs", 1)
+        XCTAssertEqual(AppURLs.docsBaseURL, "http://localhost:3000/docs")
+    }
+
+    func testConcreteURLsFallBackOnMalformedEnv() {
+        setenv("VELLUM_DOCS_BASE_URL", "not a url", 1)
+        XCTAssertEqual(AppURLs.pricingDocs.absoluteString, "https://www.vellum.ai/docs/pricing")
+        XCTAssertEqual(AppURLs.hostingOptionsDocs.absoluteString, "https://www.vellum.ai/docs/hosting-options")
+    }
+
     // MARK: - Concrete URL constructions
 
     func testPricingDocsURLConstruction() {

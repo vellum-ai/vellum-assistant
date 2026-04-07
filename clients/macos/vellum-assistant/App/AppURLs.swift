@@ -15,11 +15,28 @@ public enum AppURLs {
     /// Base URL for Vellum docs. Honors `VELLUM_DOCS_BASE_URL` if set, otherwise
     /// returns `defaultDocsBaseURL`. Trailing slashes are stripped so callers can
     /// safely append paths with `/`.
+    ///
+    /// The env override is validated: it must parse as an absolute http(s) URL
+    /// with a non-nil host. Malformed values fall back to `defaultDocsBaseURL`
+    /// to prevent downstream force-unwraps in `docsURL(...)` from crashing.
     public static var docsBaseURL: String {
         let raw = ProcessInfo.processInfo.environment["VELLUM_DOCS_BASE_URL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = (raw?.isEmpty == false ? raw! : defaultDocsBaseURL)
-        return base.hasSuffix("/") ? String(base.dropLast()) : base
+        guard let candidate = raw, !candidate.isEmpty else {
+            return defaultDocsBaseURL
+        }
+        let normalized = candidate.hasSuffix("/") ? String(candidate.dropLast()) : candidate
+        // Reject the override if it isn't a parseable absolute http(s) URL.
+        // This prevents downstream force-unwraps from crashing on malformed values.
+        guard
+            let url = URL(string: normalized),
+            let scheme = url.scheme?.lowercased(),
+            scheme == "http" || scheme == "https",
+            url.host != nil
+        else {
+            return defaultDocsBaseURL
+        }
+        return normalized
     }
 
     // MARK: - Concrete docs URLs
