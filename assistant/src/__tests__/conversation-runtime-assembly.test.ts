@@ -19,8 +19,8 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { SubagentState } from "../subagent/types.js";
 import type { Message } from "../providers/types.js";
+import type { SubagentState } from "../subagent/types.js";
 
 // ---------------------------------------------------------------------------
 // resolveChannelCapabilities
@@ -1525,7 +1525,11 @@ function makeSubagentState(
     startedAt: overrides.startedAt ?? Date.now() - 55_000,
     completedAt: overrides.completedAt,
     error: overrides.error,
-    usage: overrides.usage ?? { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+    usage: overrides.usage ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+    },
   };
 }
 
@@ -1536,7 +1540,11 @@ describe("buildSubagentStatusBlock", () => {
 
   test("formats running subagent with elapsed time", () => {
     const children = [
-      makeSubagentState({ id: "abc-123", label: "research-auth", status: "running" }),
+      makeSubagentState({
+        id: "abc-123",
+        label: "research-auth",
+        status: "running",
+      }),
     ];
     const block = buildSubagentStatusBlock(children)!;
     expect(block).toContain("<active_subagents>");
@@ -1578,7 +1586,12 @@ describe("buildSubagentStatusBlock", () => {
     const children = [
       makeSubagentState({ id: "a", label: "researcher", status: "running" }),
       makeSubagentState({ id: "b", label: "coder", status: "completed" }),
-      makeSubagentState({ id: "c", label: "planner", status: "failed", error: "timeout" }),
+      makeSubagentState({
+        id: "c",
+        label: "planner",
+        status: "failed",
+        error: "timeout",
+      }),
     ];
     const block = buildSubagentStatusBlock(children)!;
     expect(block).toContain('"researcher"');
@@ -1593,11 +1606,14 @@ describe("injectSubagentStatus", () => {
       role: "user",
       content: [{ type: "text", text: "hello" }],
     };
-    const result = injectSubagentStatus(msg, "<active_subagents>\ntest\n</active_subagents>");
-    expect(result.content).toHaveLength(2);
-    expect((result.content[1] as { type: string; text: string }).text).toContain(
-      "<active_subagents>",
+    const result = injectSubagentStatus(
+      msg,
+      "<active_subagents>\ntest\n</active_subagents>",
     );
+    expect(result.content).toHaveLength(2);
+    expect(
+      (result.content[1] as { type: string; text: string }).text,
+    ).toContain("<active_subagents>");
   });
 });
 
@@ -1609,7 +1625,8 @@ describe("applyRuntimeInjections — subagent status", () => {
 
   test("includes subagent status in full mode", () => {
     const result = applyRuntimeInjections([userMsg], {
-      subagentStatusBlock: "<active_subagents>\n- [running] test\n</active_subagents>",
+      subagentStatusBlock:
+        "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "full",
     });
     const tail = result[result.length - 1];
@@ -1621,7 +1638,8 @@ describe("applyRuntimeInjections — subagent status", () => {
 
   test("skips subagent status in minimal mode", () => {
     const result = applyRuntimeInjections([userMsg], {
-      subagentStatusBlock: "<active_subagents>\n- [running] test\n</active_subagents>",
+      subagentStatusBlock:
+        "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "minimal",
     });
     const tail = result[result.length - 1];
