@@ -201,7 +201,6 @@ export class AgentLoop {
   ): Promise<Message[]> {
     const history = [...messages];
     let toolUseTurns = 0;
-    let nudgedForEmptyResponse = false;
     let consecutiveErrorTurns = 0;
     let lastLlmCallTime = 0;
     const rlog = requestId ? log.child({ requestId }) : log;
@@ -403,40 +402,7 @@ export class AgentLoop {
             block.type === "tool_use",
         );
 
-        // Check if the assistant turn contained any visible text (used for
-        // the empty-response nudge).
-        const hasTextBlock = response.content.some(
-          (block) => block.type === "text" && block.text.trim().length > 0,
-        );
-
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
-          // Check if the LLM returned no text after tool results — nudge it to respond
-          const lastUserMsg =
-            history.length >= 2 ? history[history.length - 2] : undefined;
-          const lastWasToolResult =
-            lastUserMsg?.role === "user" &&
-            lastUserMsg.content.some((block) => block.type === "tool_result");
-
-          if (!hasTextBlock && lastWasToolResult && !nudgedForEmptyResponse) {
-            nudgedForEmptyResponse = true;
-            // Remove the empty assistant response we just pushed — it carries
-            // no content and would force the provider to inject a placeholder
-            // to maintain role alternation.
-            history.pop();
-            // Append the nudge to the existing tool_result user message
-            // (same pattern as the error nudge below) so neither a separate
-            // system_notice message nor a PLACEHOLDER appears in the API request.
-            const toolResultMsg = history[history.length - 1];
-            if (toolResultMsg?.role === "user") {
-              toolResultMsg.content.push({
-                type: "text",
-                text: "<system_notice>You executed tools but didn't tell the user what happened. Provide a brief, conversational summary of the results.</system_notice>",
-              });
-            }
-            continue;
-          }
-
-          // No tool calls or no executor — done
           break;
         }
 
