@@ -490,7 +490,7 @@ struct MarkdownSegmentView: View, Equatable {
                 default: 14
                 }
                 let weightValue: Int = level == 1 ? 700 : 600
-                headingAttr.appKit.font = VFont.resolvedDMSansFont(weight: weightValue, size: headingSize)
+                headingAttr.setAppKitFont(VFont.resolvedDMSansFont(weight: weightValue, size: headingSize))
                 if index > 0 {
                     let paraStyle = NSMutableParagraphStyle()
                     paraStyle.paragraphSpacingBefore = level == 1 ? 8 : 4
@@ -607,6 +607,13 @@ struct MarkdownSegmentView: View, Equatable {
             let intent: InlinePresentationIntent
             let hasExplicitFont: Bool
         }
+        // Create the NSMutableAttributedString up-front so we can check for
+        // explicit AppKit font attributes via the untyped .font key, avoiding
+        // the typed `.appKit.font` accessor which triggers an NSFont Sendable
+        // warning (NSFont's conformance was explicitly revoked by Apple).
+        let ns = NSMutableAttributedString(source)
+        let fullRange = NSRange(location: 0, length: ns.length)
+
         var emphasisRuns: [EmphasisRun] = []
         var utf16Offset = 0
         for run in source.runs {
@@ -614,18 +621,17 @@ struct MarkdownSegmentView: View, Equatable {
             let utf16Length = String(runContent.characters).utf16.count
             if let intent = runContent.inlinePresentationIntent,
                intent.contains(.emphasized) || intent.contains(.stronglyEmphasized) {
+                let hasExplicitFont = runContent.font != nil
+                    || (utf16Offset < ns.length && ns.attribute(.font, at: utf16Offset, effectiveRange: nil) != nil)
                 emphasisRuns.append(EmphasisRun(
                     utf16Offset: utf16Offset,
                     utf16Length: utf16Length,
                     intent: intent,
-                    hasExplicitFont: runContent.font != nil || runContent.appKit.font != nil
+                    hasExplicitFont: hasExplicitFont
                 ))
             }
             utf16Offset += utf16Length
         }
-
-        let ns = NSMutableAttributedString(source)
-        let fullRange = NSRange(location: 0, length: ns.length)
 
         // Validate offset consistency — if the AttributedString→NSAttributedString
         // conversion changed the text encoding (e.g. Unicode normalization), the
@@ -640,11 +646,13 @@ struct MarkdownSegmentView: View, Equatable {
                     let nsOffset = (prefixStr as NSString).length
                     let runStr = String(source[run.range].characters)
                     let nsLen = (runStr as NSString).length
+                    let hasExplicitFont = source[run.range].font != nil
+                        || (nsOffset < ns.length && ns.attribute(.font, at: nsOffset, effectiveRange: nil) != nil)
                     emphasisRuns.append(EmphasisRun(
                         utf16Offset: nsOffset,
                         utf16Length: nsLen,
                         intent: intent,
-                        hasExplicitFont: source[run.range].font != nil || source[run.range].appKit.font != nil
+                        hasExplicitFont: hasExplicitFont
                     ))
                 }
             }
@@ -867,9 +875,18 @@ private struct CodeBlockView: View, Equatable {
     }
 }
 
-// MARK: - NSParagraphStyle Sendable workaround
+// MARK: - AppKit Attribute Sendable Workarounds
 
 private extension AttributedString {
+    /// Sets an AppKit font via NSMutableAttributedString to avoid the compiler
+    /// warning about NSFont's revoked Sendable conformance when using the typed
+    /// `.appKit.font` accessor on AttributedString.
+    mutating func setAppKitFont(_ font: NSFont) {
+        let ns = NSMutableAttributedString(self)
+        ns.addAttribute(.font, value: font, range: NSRange(location: 0, length: ns.length))
+        self = AttributedString(ns)
+    }
+
     /// Applies a paragraph style via NSMutableAttributedString to avoid the
     /// compiler warning about NSParagraphStyle's revoked Sendable conformance.
     mutating func applyParagraphStyle(_ style: NSParagraphStyle) {
