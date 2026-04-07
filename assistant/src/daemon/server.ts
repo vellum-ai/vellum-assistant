@@ -1233,6 +1233,7 @@ export class DaemonServer {
       conversation.updateClient(onEvent, false);
     } else if (
       persistInterface &&
+      !supportsHostProxy(persistInterface) &&
       supportsHostProxy(persistInterface, "host_browser")
     ) {
       conversation.hostBrowserProxy?.updateSender(onEvent, true);

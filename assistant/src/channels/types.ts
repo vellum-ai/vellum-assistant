@@ -93,8 +93,8 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
 
 /**
  * Host proxy capabilities that an interface can support. The macOS client
- * historically supports all four; the chrome-extension interface only
- * supports host_browser (via the Chrome DevTools Protocol proxy).
+ * supports all four; the chrome-extension interface only supports
+ * host_browser (via the Chrome DevTools Protocol proxy).
  */
 export type HostProxyCapability =
   | "host_bash"
@@ -107,7 +107,7 @@ export type HostProxyCapability =
  *
  * The no-arg form `supportsHostProxy(id)` asks "does this interface support
  * the full desktop host proxy set?" — it returns `true` only for macOS, which
- * historically supports all four capabilities. It returns `false` for
+ * supports all four capabilities. It returns `false` for
  * chrome-extension because chrome-extension only supports `host_browser`,
  * and the no-arg form is the gate that legacy desktop-only call sites use
  * (e.g. preactivating computer-use, restoring all four proxies in the drain
