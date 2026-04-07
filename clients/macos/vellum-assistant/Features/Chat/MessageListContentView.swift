@@ -268,6 +268,13 @@ struct MessageListContentView: View, Equatable {
                 compactingIndicatorRow()
             }
 
+            // Bottom fill: ensures content area is tall enough for user message
+            // to reach viewport top. Since scroll targets go to lastMessageId
+            // (not the anchor), this space is only visible at absolute bottom.
+            Color.clear
+                .frame(height: max(0, viewportHeight - 100))
+                .allowsHitTesting(false)
+
             // Bottom anchor for explicit jumps
             Color.clear
                 .frame(height: 1)
@@ -288,7 +295,6 @@ struct MessageListContentView: View, Equatable {
         .padding(.top, VSpacing.md)
         .padding(.bottom, VSpacing.md)
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-        .frame(minHeight: viewportHeight, alignment: .top)
         .frame(maxWidth: .infinity)
         .environment(\.bubbleMaxWidth, containerWidth > 0
             ? min(VSpacing.chatBubbleMaxWidth, max(containerWidth - 2 * VSpacing.xl, 0))
