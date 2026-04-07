@@ -123,6 +123,8 @@ final class ManagedAssistantConnectionCoordinator {
 
         // Clear stale cached feature flags from any previous assistant so the
         // new managed assistant resolves flags from its own configuration.
+        // NOTE: this clear also covers `multi-platform-assistant` — do not
+        // add a duplicate clear elsewhere when wiring up that flag's gates.
         AssistantFeatureFlagResolver.clearCachedFlags()
 
         updateAssistantTag(assistant.id)

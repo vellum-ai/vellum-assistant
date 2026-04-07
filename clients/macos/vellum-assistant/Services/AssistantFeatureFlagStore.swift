@@ -53,6 +53,14 @@ final class AssistantFeatureFlagStore: ObservableObject {
         resolvedFlags[key] ?? registryDefaults[key] ?? true
     }
 
+    /// Typed accessor for the `multi-platform-assistant` flag, which gates the
+    /// macOS rollout of multi-platform-hosted-assistant support (assistant
+    /// switcher UI, per-assistant settings scoping, bootstrap fallback to
+    /// existing assistants instead of auto-hatching). Defined as a single
+    /// symbol so the gate can be removed across the codebase via one grep
+    /// after rollout. See `.private/plans/multi-host-assistant.md`.
+    var multiPlatformAssistantEnabled: Bool { isEnabled("multi-platform-assistant") }
+
     /// Reload flags from local disk + UserDefaults cache.
     /// Used as a fallback when the gateway is not reachable.
     func reloadFromDisk() {
