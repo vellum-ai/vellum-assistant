@@ -37,8 +37,12 @@ final class MessageListScrollState {
     // MARK: - Near-Bottom Detection (hysteresis)
 
     /// Whether the viewport is considered "near bottom".
-    /// Uses hysteresis: enters at <= 10pt from bottom, leaves at > 50pt.
+    /// Uses hysteresis: enters at <= 50pt from bottom, leaves at > 200pt.
     @ObservationIgnored var isNearBottom: Bool = true
+
+    /// Suppresses the leave-near-bottom check while a programmatic
+    /// scroll-to-bottom animation is in flight.
+    @ObservationIgnored var isScrollingToBottom: Bool = false
 
     // MARK: - Geometry State
 
@@ -128,23 +132,24 @@ final class MessageListScrollState {
 
     /// Updates `isNearBottom` using hysteresis thresholds.
     ///
-    /// - If currently near bottom, leave at > 50pt from bottom.
-    /// - If not near bottom, enter at <= 10pt from bottom.
+    /// - If currently near bottom, leave at > 200pt from bottom.
+    /// - If not near bottom, enter at <= 50pt from bottom.
     ///
     /// Also updates `showScrollToLatest` based on the new value.
     func updateNearBottom() {
         let distance = distanceFromBottom
 
         if isNearBottom {
-            // Leave near-bottom when distance exceeds 50pt
-            if distance > 50 {
+            // Leave near-bottom when distance exceeds 200pt (suppress during programmatic scroll)
+            if !isScrollingToBottom && distance > 200 {
                 isNearBottom = false
                 scrollLog.debug("Near-bottom: left (distance: \(distance, format: .fixed(precision: 1))pt)")
             }
         } else {
-            // Enter near-bottom when distance is 10pt or less
-            if distance <= 10 {
+            // Enter near-bottom when distance is 50pt or less
+            if distance <= 50 {
                 isNearBottom = true
+                isScrollingToBottom = false  // clear flag once arrived
                 scrollLog.debug("Near-bottom: entered (distance: \(distance, format: .fixed(precision: 1))pt)")
             }
         }
@@ -216,7 +221,15 @@ final class MessageListScrollState {
     func handleScrollToLatestTapped() {
         isNearBottom = true
         showScrollToLatest = false
+        isScrollingToBottom = true
         scrollLog.debug("Scroll to latest tapped — resetting near-bottom state")
+
+        // Safety timeout: clear the suppression flag after 1s in case
+        // the scroll animation doesn't reach the exact bottom.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            isScrollingToBottom = false
+        }
     }
 
     /// Resets all state for a conversation switch.
@@ -234,6 +247,7 @@ final class MessageListScrollState {
         lastPaginationCompletedAt = .distantPast
         showScrollToLatest = false
         scrollIndicatorsHidden = false
+        isScrollingToBottom = false
         lastAutoFocusedRequestId = nil
         bottomAnchorAppeared = false
         hasBeenInteracted = false
