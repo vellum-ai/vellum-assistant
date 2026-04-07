@@ -225,6 +225,7 @@ extension MainWindowView {
             } : nil,
             moveToGroups: conversationManager.groups.filter { group in
                 group.id != conversation.groupId &&
+                group.id != ConversationGroup.scheduled.id &&
                 (assistantFeatureFlagStore.isEnabled("conversation-groups-ui") || group.isSystemGroup)
             },
             onMoveToGroup: { targetGroupId in
