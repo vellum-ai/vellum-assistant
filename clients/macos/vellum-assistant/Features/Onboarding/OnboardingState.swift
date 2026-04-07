@@ -157,9 +157,10 @@ final class OnboardingState {
         }
 
         // enteredApiKey is not persisted (plaintext secrets shouldn't live in
-        // UserDefaults). If the app was killed after the API key entry step but
-        // before hatching completed, send the user back to re-enter their key.
-        if currentStep > 2 && !skippedAPIKeyEntry && !hasHatched {
+        // UserDefaults). If the app was killed after the API key entry step,
+        // send the user back to re-enter their key. Users who skipped API key
+        // entry (managed/cloud path) are unaffected.
+        if currentStep > 2 && !skippedAPIKeyEntry {
             currentStep = 2
         }
 
