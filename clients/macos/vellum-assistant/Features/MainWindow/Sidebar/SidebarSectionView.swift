@@ -373,7 +373,8 @@ struct SidebarSectionView: View {
                         VButton(
                             label: subGroupShowAll ? "Show less" : "Show more",
                             style: .ghost,
-                            size: .compact
+                            size: .compact,
+                            tintColor: VColor.contentTertiary
                         ) {
                             withAnimation(VAnimation.fast) {
                                 if subGroupShowAll {
@@ -410,7 +411,8 @@ struct SidebarSectionView: View {
                 VButton(
                     label: showAll ? "Show less" : "Show more",
                     style: .ghost,
-                    size: .compact
+                    size: .compact,
+                    tintColor: VColor.contentTertiary
                 ) {
                     withAnimation(VAnimation.fast) { onToggleShowAll() }
                     if !showAll {
