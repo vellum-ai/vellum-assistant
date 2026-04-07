@@ -104,6 +104,7 @@ import {
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostBrowserProxy } from "./host-browser-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
@@ -180,6 +181,7 @@ export class Conversation {
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostBashProxy?: HostBashProxy;
+  /** @internal */ hostBrowserProxy?: HostBrowserProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ cesClient?: CesClient;
@@ -501,6 +503,7 @@ export class Conversation {
     this.traceEmitter.updateSender(sendToClient);
     if (!opts?.skipProxySenderUpdate) {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
+      this.hostBrowserProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
     }
@@ -527,6 +530,7 @@ export class Conversation {
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void {
     this.hostBashProxy?.updateSender(this.sendToClient, false);
+    this.hostBrowserProxy?.updateSender(this.sendToClient, false);
     this.hostCuProxy?.updateSender(this.sendToClient, false);
     this.hostFileProxy?.updateSender(this.sendToClient, false);
   }
@@ -535,6 +539,7 @@ export class Conversation {
   restoreProxyAvailability(): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
+      this.hostBrowserProxy?.updateSender(this.sendToClient, true);
       this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
     }
@@ -570,6 +575,7 @@ export class Conversation {
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
     this.hostBashProxy?.dispose();
+    this.hostBrowserProxy?.dispose();
     this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
     // CES client is owned by DaemonServer — just drop the reference.
@@ -866,6 +872,20 @@ export class Conversation {
       this.hostBashProxy.dispose();
     }
     this.hostBashProxy = proxy;
+  }
+
+  resolveHostBrowser(
+    requestId: string,
+    response: { content: string; isError: boolean },
+  ): void {
+    this.hostBrowserProxy?.resolve(requestId, response);
+  }
+
+  setHostBrowserProxy(proxy: HostBrowserProxy | undefined): void {
+    if (this.hostBrowserProxy && this.hostBrowserProxy !== proxy) {
+      this.hostBrowserProxy.dispose();
+    }
+    this.hostBrowserProxy = proxy;
   }
 
   resolveHostFile(
