@@ -109,7 +109,7 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     private func performConversationDrop() -> Bool {
         let sourceId = sidebar.draggingConversationId
         sidebar.endConversationDrag()
-        guard let sourceId else { return false }
+        guard !isScheduledGroup, let sourceId else { return false }
         if let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
            source.groupId == groupId { return false }
         conversationManager.moveConversationToGroup(sourceId, groupId: groupId)
