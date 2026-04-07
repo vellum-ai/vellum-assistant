@@ -8,7 +8,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 class FileListTool implements Tool {
   name = "file_list";
   description =
-    "List the contents of a directory. Returns file and subdirectory names with type indicators and sizes.";
+    "List the contents of a directory on your own machine. Returns file and subdirectory names with type indicators and sizes.";
   category = "filesystem";
   defaultRiskLevel = RiskLevel.Low;
 
