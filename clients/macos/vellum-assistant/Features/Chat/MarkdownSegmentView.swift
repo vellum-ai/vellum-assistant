@@ -627,7 +627,7 @@ struct MarkdownSegmentView: View, Equatable {
             }
         }
 
-        for emphRun in emphasisRuns where !emphRun.intent.contains(.code) && emphRun.utf16Length > 0 {
+        for emphRun in emphasisRuns where !emphRun.intent.contains(.code) && !emphRun.hasExplicitFont && emphRun.utf16Length > 0 {
             let nsRange = NSRange(location: emphRun.utf16Offset, length: emphRun.utf16Length)
             guard nsRange.location + nsRange.length <= ns.length else { continue }
             guard let actualFont = ns.attribute(.font, at: nsRange.location, effectiveRange: nil) as? NSFont else {
