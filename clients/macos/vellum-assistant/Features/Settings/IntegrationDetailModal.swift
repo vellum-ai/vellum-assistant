@@ -270,8 +270,6 @@ struct IntegrationDetailModal: View {
         }
     }
 
-    @State private var hoveredManagedConnectionId: String?
-
     private func managedConnectionRow(for entry: OAuthConnectionEntry) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.circleUser, size: 14)
@@ -285,32 +283,19 @@ struct IntegrationDetailModal: View {
 
             Spacer()
 
-            if hoveredManagedConnectionId == entry.id {
-                Button {
-                    connectionToDisconnect = entry
-                    showDisconnectAlert = true
-                } label: {
-                    VIconView(.trash, size: 14)
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Disconnect Account")
-                .transition(.opacity.animation(VAnimation.fast))
+            VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
+                connectionToDisconnect = entry
+                showDisconnectAlert = true
             }
+            .accessibilityLabel("Disconnect Account")
         }
-        .padding(.vertical, VSpacing.xs)
-        .padding(.horizontal, VSpacing.sm)
+        .padding(VSpacing.lg)
         .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .onHover { hovering in
-            withAnimation(VAnimation.fast) {
-                hoveredManagedConnectionId = hovering ? entry.id : nil
-            }
-        }
     }
 
     // MARK: - Your Own Tab
@@ -456,18 +441,11 @@ struct IntegrationDetailModal: View {
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
 
-                if hoveredAppId == app.id {
-                    Button {
-                        appToDelete = app
-                        showDeleteAppAlert = true
-                    } label: {
-                        VIconView(.trash, size: 14)
-                            .foregroundStyle(VColor.systemNegativeStrong)
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Delete OAuth App")
-                    .transition(.opacity.animation(VAnimation.fast))
+                VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
+                    appToDelete = app
+                    showDeleteAppAlert = true
                 }
+                .accessibilityLabel("Delete OAuth App")
             }
 
             // Connections or empty state
@@ -511,11 +489,6 @@ struct IntegrationDetailModal: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .onHover { hovering in
-            withAnimation(VAnimation.fast) {
-                hoveredAppId = hovering ? app.id : nil
-            }
-        }
     }
 
     @State private var hoveredYourOwnConnId: String?
