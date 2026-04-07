@@ -32,8 +32,8 @@ mock.module("../export/transcript-formatter.js", () => ({
   buildAnalysisTranscript: () => "user: hi",
 }));
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { SendMessageDeps } from "../runtime/http-types.js";
 import { conversationAnalysisRouteDefinitions } from "../runtime/routes/conversation-analysis-routes.js";
 
@@ -44,18 +44,6 @@ beforeEach(() => {
   mockCreateConversation.mockClear();
   mockAddMessage.mockClear();
 });
-
-function getAnalyzeRoute() {
-  const routes = conversationAnalysisRouteDefinitions({
-    sendMessageDeps: null as never,
-    buildConversationDetailResponse: () => ({ id: "analysis-1" }),
-  });
-  const route = routes.find(
-    (r) => r.method === "POST" && r.endpoint === "conversations/:id/analyze",
-  );
-  if (!route) throw new Error("analyze route missing");
-  return route;
-}
 
 function makeConversation() {
   return {
