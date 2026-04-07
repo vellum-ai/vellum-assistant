@@ -512,7 +512,7 @@ describe("assistant oauth providers list", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(1);
-    expect(parsed[0].provider).toBe("slack");
+    expect(parsed[0].providerKey).toBe("slack");
   });
 
   test("filters by comma-separated OR values", async () => {
