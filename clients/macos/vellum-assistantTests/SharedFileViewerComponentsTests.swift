@@ -6,11 +6,11 @@ final class SharedFileViewerComponentsTests: XCTestCase {
     // MARK: availableViewModes
 
     func testJsonlReturnsTreeAndSource() {
-        XCTAssertEqual(availableViewModes(for: "messages.jsonl", mimeType: ""), [.source, .tree])
+        XCTAssertEqual(availableViewModes(for: "messages.jsonl", mimeType: ""), [.tree, .source])
     }
 
     func testNdjsonReturnsTreeAndSource() {
-        XCTAssertEqual(availableViewModes(for: "events.ndjson", mimeType: ""), [.source, .tree])
+        XCTAssertEqual(availableViewModes(for: "events.ndjson", mimeType: ""), [.tree, .source])
     }
 
     func testJsonStillReturnsTreeAndSource() {
@@ -22,21 +22,19 @@ final class SharedFileViewerComponentsTests: XCTestCase {
     }
 
     func testApplicationJsonlMimeReturnsTreeAndSource() {
-        XCTAssertEqual(availableViewModes(for: "weird.txt", mimeType: "application/jsonl"), [.source, .tree])
+        XCTAssertEqual(availableViewModes(for: "weird.txt", mimeType: "application/jsonl"), [.tree, .source])
     }
 
     func testApplicationXNdjsonMimeReturnsTreeAndSource() {
-        XCTAssertEqual(availableViewModes(for: "weird.txt", mimeType: "application/x-ndjson"), [.source, .tree])
+        XCTAssertEqual(availableViewModes(for: "weird.txt", mimeType: "application/x-ndjson"), [.tree, .source])
     }
 
-    func testSourceIsFirstUntilJsonlParserIsWired() {
+    func testTreeIsFirstSoSkillDetailDefaultsToTree() {
         // SkillDetailView uses `autoModes.first` to pick the default mode for
-        // newly opened files. JSONL files default to .source until the
-        // follow-up PR wires the JSONL parser into FileContentView, at which
-        // point the order will flip so JSONL files default to .tree.
+        // newly opened files. JSONL files must default to .tree (matching JSON
+        // behavior), now that FileContentView wires parseJSONL via isJSONL.
         let modes = availableViewModes(for: "messages.jsonl", mimeType: "")
-        XCTAssertEqual(modes.first, .source)
-        XCTAssertTrue(modes.contains(.tree), "Tree mode must still be reachable so users can toggle to it")
+        XCTAssertEqual(modes.first, .tree)
     }
 
     func testUnknownExtensionFallsBackToSourceOnly() {
