@@ -128,7 +128,7 @@ struct InferenceServiceCard: View {
                             providerHasKey = false
                             apiKeyText = ""
                         },
-                        showReset: isConnected
+                        showReset: providerHasKey
                     )
                 }
             }
