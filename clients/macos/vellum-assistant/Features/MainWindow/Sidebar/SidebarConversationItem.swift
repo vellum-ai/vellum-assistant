@@ -176,12 +176,13 @@ struct SidebarConversationItem: View, Equatable {
                     .nativeTooltip("Private conversation")
                     .accessibilityLabel("Private conversation")
             }
-            Text(conversation.title)
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .vTooltip(conversation.title)
+            VMarqueeText(
+                text: conversation.title,
+                font: VFont.bodyMediumDefault,
+                measuringFont: VFont.nsBodyMediumDefault,
+                foregroundStyle: isSelected ? VColor.contentEmphasized : VColor.contentSecondary,
+                isHovered: isHovered
+            )
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)

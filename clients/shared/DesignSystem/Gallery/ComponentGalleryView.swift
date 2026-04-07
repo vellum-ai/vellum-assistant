@@ -80,6 +80,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vDiffView", "VDiffView", keywords: ["diff view"], description: "Renders unified diff text with per-line colored backgrounds. Green for additions, red for removals."),
                 GalleryComponent("vStreamingWaveform", "VStreamingWaveform", keywords: ["waveform", "streaming"], description: "Animated audio waveform driven by amplitude. Two styles: conversation (centered) and dictation (bottom-aligned)."),
                 GalleryComponent("vFileBrowser", "VFileBrowser", keywords: ["file browser", "file tree", "tree"], description: "Two-pane file browser with a tree-based file list, header actions slot, search with auto-expand, and caller-provided right pane content."),
+                GalleryComponent("vMarqueeText", "VMarqueeText", keywords: ["marquee", "scroll", "truncation", "hover", "overflow"], description: "Horizontally scrolling text that reveals truncated content on hover. Uses programmatic NSFont measurement for zero extra layout overhead."),
             ]
         case .feedback:
             return [

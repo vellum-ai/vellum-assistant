@@ -420,6 +420,21 @@ struct DisplayGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vMarqueeText" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VMarqueeText
+                #if os(macOS)
+                GallerySectionHeader(
+                    title: "VMarqueeText",
+                    description: "Horizontally scrolling text that reveals truncated content on hover. Uses NSFont measurement for zero extra layout overhead."
+                )
+
+                VMarqueeTextGalleryDemo()
+                #endif
+            }
+
             if filter == nil || filter == "vFileBrowser" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -618,6 +633,7 @@ extension DisplayGallerySection {
         case "vDiffView": DisplayGallerySection(filter: "vDiffView")
         case "vStreamingWaveform": DisplayGallerySection(filter: "vStreamingWaveform")
         case "vFileBrowser": DisplayGallerySection(filter: "vFileBrowser")
+        case "vMarqueeText": DisplayGallerySection(filter: "vMarqueeText")
         default:
             if let factory = DisplayGallerySection.externalPageFactories[id] {
                 AnyView(factory())
@@ -636,4 +652,73 @@ extension DisplayGallerySection {
 public func registerDisplayGalleryPage(id: String, factory: @escaping () -> AnyView) {
     DisplayGallerySection.externalPageFactories[id] = factory
 }
+
+// MARK: - VMarqueeText Gallery Demo
+
+#if os(macOS)
+private struct VMarqueeTextGalleryDemo: View {
+    @State private var shortHovered = false
+    @State private var longHovered = false
+    @State private var veryLongHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            Text("Hover each row to see the marquee scroll when text is truncated.")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Fits (no scroll)")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    VMarqueeText(
+                        text: "Short title",
+                        font: VFont.bodyMediumDefault,
+                        measuringFont: VFont.nsBodyMediumDefault,
+                        foregroundStyle: VColor.contentDefault,
+                        isHovered: shortHovered
+                    )
+                    .frame(maxWidth: 200, alignment: .leading)
+                    .onHover { shortHovered = $0 }
+
+                    Divider().background(VColor.borderBase)
+
+                    Text("Truncated (hover to scroll)")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    VMarqueeText(
+                        text: "This is a long conversation title that will be truncated",
+                        font: VFont.bodyMediumDefault,
+                        measuringFont: VFont.nsBodyMediumDefault,
+                        foregroundStyle: VColor.contentDefault,
+                        isHovered: longHovered
+                    )
+                    .frame(maxWidth: 200, alignment: .leading)
+                    .onHover { longHovered = $0 }
+
+                    Divider().background(VColor.borderBase)
+
+                    Text("Very long (hover to scroll)")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    VMarqueeText(
+                        text: "An extremely long conversation name that overflows the sidebar by a very large amount and demonstrates smooth scrolling",
+                        font: VFont.bodyMediumDefault,
+                        measuringFont: VFont.nsBodyMediumDefault,
+                        foregroundStyle: VColor.contentDefault,
+                        isHovered: veryLongHovered
+                    )
+                    .frame(maxWidth: 200, alignment: .leading)
+                    .onHover { veryLongHovered = $0 }
+                }
+            }
+        }
+    }
+}
+#endif
+
 #endif
