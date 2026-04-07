@@ -1050,12 +1050,15 @@ private struct StepDetailRow: View {
             outputTextView(text: text, attributedText: attributedText, isError: isError)
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
+            .background(
                 RoundedRectangle(cornerRadius: VRadius.sm)
                     .fill(VColor.surfaceOverlay.opacity(0.6))
-                    .stroke(VColor.borderBase, lineWidth: 0.5)
-            }
+            )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .stroke(VColor.borderBase, lineWidth: 0.5)
+            )
 
             ChatEquatableButton(
                 config: ChatButtonConfig(
