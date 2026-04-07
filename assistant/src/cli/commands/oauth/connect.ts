@@ -341,8 +341,8 @@ Examples:
             // `assistant credentials` or chat setup instead.
             if (providerRow.authUrl === "urn:manual-token") {
               writeError(
-                `"${provider}" does not use OAuth. ` +
-                  `Configure it with 'assistant credentials set ${provider}'.`,
+                `"${provider}" uses manual token configuration, not an OAuth browser flow. ` +
+                  `Set credentials with 'assistant credentials set --service ${provider} --field <key> <value>'.`,
               );
               return;
             }
