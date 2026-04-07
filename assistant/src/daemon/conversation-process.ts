@@ -302,6 +302,8 @@ export async function drainQueue(
   // conversation happened to have from a previous turn.
   if (next.transport) {
     conversation.setTransportHints(buildTransportHints(next.transport));
+  } else {
+    conversation.setTransportHints(undefined);
   }
 
   // Non-interactive queued messages (channel requests) must not execute tools

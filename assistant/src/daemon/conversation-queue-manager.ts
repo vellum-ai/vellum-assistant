@@ -158,6 +158,11 @@ function estimateItemBytes(item: QueuedMessage): number {
     bytes += a.data.length * 2;
     if (a.extractedText) bytes += a.extractedText.length * 2;
   }
+  // Include transport metadata in the estimate so large transport
+  // payloads (e.g. hostHomeDir, hostUsername) count against the budget.
+  if (item.transport) {
+    bytes += JSON.stringify(item.transport).length * 2;
+  }
   // Small fixed overhead for metadata, pointers, etc. (not worth
   // measuring precisely — the content/attachment data dominates).
   bytes += 512;
