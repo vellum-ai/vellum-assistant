@@ -6,6 +6,7 @@ import VellumAssistantShared
 struct SettingsCard<Content: View, Accessory: View>: View {
     let title: String
     var subtitle: String? = nil
+    var subtitleAttributed: AttributedString? = nil
     var showBorder: Bool = true
     @ViewBuilder let accessory: () -> Accessory
     @ViewBuilder let content: () -> Content
@@ -17,7 +18,16 @@ struct SettingsCard<Content: View, Accessory: View>: View {
                     Text(title)
                         .font(VFont.titleSmall)
                         .foregroundStyle(VColor.contentEmphasized)
-                    if let subtitle {
+                    if let subtitleAttributed {
+                        Text(subtitleAttributed)
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .tint(VColor.primaryBase)
+                            .environment(\.openURL, OpenURLAction { url in
+                                NSWorkspace.shared.open(url)
+                                return .handled
+                            })
+                    } else if let subtitle {
                         Text(subtitle)
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentTertiary)
@@ -35,9 +45,16 @@ struct SettingsCard<Content: View, Accessory: View>: View {
 }
 
 extension SettingsCard where Accessory == EmptyView {
-    init(title: String, subtitle: String? = nil, showBorder: Bool = true, @ViewBuilder content: @escaping () -> Content) {
+    init(
+        title: String,
+        subtitle: String? = nil,
+        subtitleAttributed: AttributedString? = nil,
+        showBorder: Bool = true,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
         self.title = title
         self.subtitle = subtitle
+        self.subtitleAttributed = subtitleAttributed
         self.showBorder = showBorder
         self.accessory = { EmptyView() }
         self.content = content
