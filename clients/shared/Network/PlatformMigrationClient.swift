@@ -154,6 +154,7 @@ public enum PlatformMigrationClient {
                 let delay = UInt64(pow(2.0, Double(attempt))) * 1_000_000_000
                 log.warning("Transient server error (\(statusCode)) — retrying in \(1 << attempt)s")
                 try await Task.sleep(nanoseconds: delay)
+                onProgress(0)
                 continue
             }
 
