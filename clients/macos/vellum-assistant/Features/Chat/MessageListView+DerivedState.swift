@@ -374,6 +374,7 @@ extension MessageListView {
             highlightedMessageId: highlightedMessageId,
             mediaEmbedSettings: mediaEmbedSettings,
             hasEverSentMessage: hasEverSentMessage,
+            isSending: isSending,
             showInspectButton: showInspectButton,
             isTTSEnabled: isTTSEnabled,
             selectedModel: selectedModel,
