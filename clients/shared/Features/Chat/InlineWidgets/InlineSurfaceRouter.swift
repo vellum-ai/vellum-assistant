@@ -111,7 +111,7 @@ public struct InlineSurfaceRouter: View {
         .frame(maxWidth: isTableSurface ? nil : .infinity, alignment: .leading)
         .inlineWidgetCard(interactive: isDynamicPreview || isDocumentPreview)
         .overlay(alignment: .topTrailing) {
-            if isDynamicPreview && !isAppCreated {
+            if isDynamicPreview && !isAppCreated && !isMessageStreaming {
                 Button {
                     if let ref = surface.surfaceRef {
                         NotificationCenter.default.post(

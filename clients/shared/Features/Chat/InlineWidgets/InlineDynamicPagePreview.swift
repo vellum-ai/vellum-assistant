@@ -2,10 +2,11 @@ import SwiftUI
 
 /// Compact preview card for dynamic pages shown inline in chat.
 /// The entire card is clickable to open the workspace panel.
-/// While the parent message is still streaming (`isBuilding`), interaction is disabled.
+/// While the parent message is still streaming (`isBuilding`), the card shows
+/// a reduced-opacity disabled state with no interaction.
 public struct InlineDynamicPagePreview: View {
     public let preview: DynamicPagePreview
-    /// When true, the assistant is still working — disable the click-to-open action.
+    /// When true, the assistant is still working — show a visually disabled state.
     public let isBuilding: Bool
     public let onViewOutput: () -> Void
 
@@ -81,7 +82,10 @@ public struct InlineDynamicPagePreview: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("View output: \(preview.title)")
+        .opacity(isBuilding ? 0.5 : 1.0)
+        .allowsHitTesting(!isBuilding)
+        .animation(VAnimation.fast, value: isBuilding)
+        .accessibilityLabel(isBuilding ? "Building: \(preview.title)" : "View output: \(preview.title)")
         .accessibilityAddTraits(.isButton)
     }
 
