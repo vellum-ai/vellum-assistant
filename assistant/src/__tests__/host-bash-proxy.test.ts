@@ -393,6 +393,152 @@ describe("HostBashProxy", () => {
     });
   });
 
+  describe("abort listener lifecycle", () => {
+    // Helper that wraps an AbortSignal to observe add/removeEventListener
+    // invocations without tripping over tsc's strict overload matching on
+    // AbortSignal itself.
+    type Spied = {
+      signal: AbortSignal;
+      addCalls: string[];
+      removeCalls: string[];
+    };
+    function spySignal(source: AbortSignal): Spied {
+      const addCalls: string[] = [];
+      const removeCalls: string[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const s = source as any;
+      const origAdd = source.addEventListener.bind(source);
+      const origRemove = source.removeEventListener.bind(source);
+      s.addEventListener = (
+        type: string,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...rest: any[]
+      ) => {
+        addCalls.push(type);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (origAdd as any)(type, ...rest);
+      };
+      s.removeEventListener = (
+        type: string,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...rest: any[]
+      ) => {
+        removeCalls.push(type);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (origRemove as any)(type, ...rest);
+      };
+      return { signal: source, addCalls, removeCalls };
+    }
+
+    test("removes abort listener from signal after resolve completes", async () => {
+      setup();
+      const controller = new AbortController();
+      const spy = spySignal(controller.signal);
+
+      const resultPromise = proxy.request(
+        { command: "echo hello" },
+        "session-1",
+        spy.signal,
+      );
+
+      expect(spy.addCalls).toEqual(["abort"]);
+      expect(spy.removeCalls).toEqual([]);
+
+      const requestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(requestId, {
+        stdout: "hello\n",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+      await resultPromise;
+
+      // Listener is detached after normal completion.
+      expect(spy.removeCalls).toEqual(["abort"]);
+
+      // Subsequent aborts are harmless no-ops (no side effects on the proxy).
+      controller.abort();
+      // No additional emitted envelopes from the late abort.
+      expect(sentMessages).toHaveLength(1);
+    });
+
+    test("removes abort listener from signal on timer timeout", async () => {
+      setup();
+
+      const controller = new AbortController();
+      const spy = spySignal(controller.signal);
+
+      // Use a negative timeout_seconds so that proxyTimeoutSec = -2.99 + 3 = 0.01s,
+      // causing the timer to fire quickly.
+      const resultPromise = proxy.request(
+        { command: "echo slow", timeout_seconds: -2.99 },
+        "session-1",
+        spy.signal,
+      );
+
+      expect(spy.addCalls).toEqual(["abort"]);
+      expect(spy.removeCalls).toEqual([]);
+
+      // Wait long enough for the timer (10ms) to fire.
+      await new Promise((r) => setTimeout(r, 50));
+
+      const result = await resultPromise;
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Host bash proxy timed out");
+
+      // Listener is detached after the timer fires.
+      expect(spy.removeCalls).toEqual(["abort"]);
+
+      // Subsequent aborts should be harmless — no cancel emitted.
+      controller.abort();
+      expect(sentMessages).toHaveLength(1);
+    });
+  });
+
+  describe("sender throws synchronously", () => {
+    test("rejects the promise, clears pending state and timer, invokes onInternalResolve", async () => {
+      const resolvedIds: string[] = [];
+      sentMessages = [];
+      sendToClient = () => {
+        throw new Error("transport down");
+      };
+      proxy = new HostBashProxy(sendToClient, (id) => resolvedIds.push(id));
+
+      // request() synchronously calls sendToClient inside the Promise
+      // executor. A throw there surfaces as a rejected promise.
+      const resultPromise = proxy.request(
+        { command: "echo hello" },
+        "session-1",
+      );
+
+      await expect(resultPromise).rejects.toThrow("transport down");
+
+      // The internal resolve should fire exactly once as part of cleanup.
+      expect(resolvedIds).toHaveLength(1);
+
+      // Issue a new request on a fresh (non-throwing) sender and verify
+      // the proxy is still functional — no stale timers or bookkeeping
+      // from the failed request.
+      sentMessages = [];
+      proxy.updateSender((msg) => sentMessages.push(msg), true);
+      const okPromise = proxy.request({ command: "echo ok" }, "session-1");
+      expect(sentMessages).toHaveLength(1);
+      const okRequestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(proxy.hasPendingRequest(okRequestId)).toBe(true);
+      proxy.resolve(okRequestId, {
+        stdout: "ok\n",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+      const okResult = await okPromise;
+      expect(okResult.content).toContain("ok");
+      expect(okResult.isError).toBe(false);
+    });
+  });
+
   describe("onInternalResolve callback", () => {
     test("fires on abort", async () => {
       const resolvedIds: string[] = [];
