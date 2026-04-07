@@ -324,10 +324,11 @@ struct SidebarSectionView: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .vContextMenu {
+            let archivable = subGroup.conversations.filter { !$0.isChannelConversation }
             VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
-                onArchiveAllInSubGroup?(subGroup.label, subGroup.conversations.filter { !$0.isChannelConversation }.map(\.id))
+                onArchiveAllInSubGroup?(subGroup.label, archivable.map(\.id))
             }
-            .disabled(subGroup.conversations.isEmpty)
+            .disabled(archivable.isEmpty)
         }
 
         if isSubGroupExpanded {
