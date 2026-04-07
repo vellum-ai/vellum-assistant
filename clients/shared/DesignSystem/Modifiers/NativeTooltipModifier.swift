@@ -314,16 +314,58 @@ private final class VTooltipTrackerView: NSView {
         p.contentView = host
         p.setContentSize(host.fittingSize)
 
-        // Use AppKit's native coordinate conversion — works on any display
+        // Use AppKit's native coordinate conversion — works on any display.
+        // Pre-compute both edge anchors so the flip logic can use the opposite edge.
         let viewFrameInWindow = convert(bounds, to: nil)
-        let anchorY = tooltipEdge == .bottom ? viewFrameInWindow.minY : viewFrameInWindow.maxY
-        let screenPoint = window.convertPoint(toScreen: NSPoint(
-            x: viewFrameInWindow.midX,
-            y: anchorY
+        let topScreenPoint = window.convertPoint(toScreen: NSPoint(
+            x: viewFrameInWindow.midX, y: viewFrameInWindow.maxY
         ))
+        let bottomScreenPoint = window.convertPoint(toScreen: NSPoint(
+            x: viewFrameInWindow.midX, y: viewFrameInWindow.minY
+        ))
+        let screenPoint = tooltipEdge == .bottom ? bottomScreenPoint : topScreenPoint
 
-        let x = screenPoint.x - host.fittingSize.width / 2
-        let y = tooltipEdge == .bottom ? screenPoint.y - host.fittingSize.height - 4 : screenPoint.y + 4
+        let panelWidth = host.fittingSize.width
+        let panelHeight = host.fittingSize.height
+        let edgeInset: CGFloat = 4
+
+        // Find the screen containing the anchor point (fall back to main display)
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? NSScreen.main
+        guard let visibleFrame = screen?.visibleFrame else {
+            // No screen found — fall back to unclamped positioning
+            p.setFrameOrigin(NSPoint(
+                x: screenPoint.x - panelWidth / 2,
+                y: tooltipEdge == .bottom ? screenPoint.y - panelHeight - edgeInset : screenPoint.y + edgeInset
+            ))
+            p.alphaValue = 0
+            window.addChildWindow(p, ordered: .above)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.12
+                p.animator().alphaValue = 1
+            }
+            panel = p
+            return
+        }
+
+        // Compute initial position centered on the anchor
+        var x = screenPoint.x - panelWidth / 2
+        var y = tooltipEdge == .bottom
+            ? screenPoint.y - panelHeight - edgeInset
+            : screenPoint.y + edgeInset
+
+        // If the tooltip would be clipped on the preferred edge, flip using the opposite anchor
+        if tooltipEdge == .bottom, y < visibleFrame.minY + edgeInset {
+            y = topScreenPoint.y + edgeInset
+        } else if tooltipEdge != .bottom, y + panelHeight > visibleFrame.maxY - edgeInset {
+            y = bottomScreenPoint.y - panelHeight - edgeInset
+        }
+
+        // Clamp horizontally within the visible screen bounds
+        x = max(visibleFrame.minX + edgeInset, min(x, visibleFrame.maxX - panelWidth - edgeInset))
+
+        // Clamp vertically within the visible screen bounds
+        y = max(visibleFrame.minY + edgeInset, min(y, visibleFrame.maxY - panelHeight - edgeInset))
+
         p.setFrameOrigin(NSPoint(x: x, y: y))
 
         p.alphaValue = 0
