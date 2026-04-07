@@ -84,14 +84,6 @@ enum AssistantFeatureFlagResolver {
         UserDefaults.standard.set(enabled, forKey: "\(overridePrefix)\(key)")
     }
 
-    /// Removes all persisted overrides from UserDefaults.
-    static func clearPersistedOverrides() {
-        let defaults = UserDefaults.standard
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(overridePrefix) {
-            defaults.removeObject(forKey: key)
-        }
-    }
-
     // MARK: - Resolution
 
     static func registryDefaults(from registry: FeatureFlagRegistry?) -> [String: Bool] {
