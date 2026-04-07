@@ -66,6 +66,7 @@ public struct ToolCallProgressBar: View {
                 if expandedStepId == toolCall.id {
                     expandedStepId = nil
                 } else if toolCall.isComplete {
+                    cachedResultLineCount = nil
                     expandedStepId = toolCall.id
                 }
             }

@@ -3,10 +3,11 @@ import SwiftUI
 extension View {
     /// Applies an adaptive height constraint to a `ScrollView` inside a `LazyVStack` cell.
     ///
-    /// For content exceeding `lineThreshold` lines **or** `charThreshold` characters, a definite
-    /// `frame(height:)` is used so `LazyVStack` can skip scroll-content measurement during cell
-    /// sizing. The character threshold catches single-line mega-strings (e.g. base64 data,
-    /// minified JSON) that would otherwise trigger an expensive Core Text width measurement.
+    /// For content exceeding `lineThreshold` lines, a definite `frame(height:)` is used so
+    /// `LazyVStack` can skip scroll-content measurement during cell sizing. When content is a
+    /// single line, the `charThreshold` catches mega-strings (e.g. base64 data, minified JSON)
+    /// that would otherwise trigger an expensive Core Text width measurement — the char check
+    /// is skipped for multi-line content since `lineThreshold` already covers that case.
     /// For shorter content `frame(maxHeight:)` is used so the view collapses to its natural
     /// height instead of rendering with blank space.
     ///
@@ -26,7 +27,7 @@ extension View {
         lineCount: Int? = nil
     ) -> some View {
         let lines = lineCount ?? countLines(in: text)
-        let isLong = lines > lineThreshold || text.count > charThreshold
+        let isLong = lines > lineThreshold || (lines == 1 && text.count > charThreshold)
         return self
             .frame(height: isLong ? maxHeight : nil)
             .frame(maxHeight: isLong ? nil : maxHeight)
