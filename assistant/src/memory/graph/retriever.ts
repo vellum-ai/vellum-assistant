@@ -549,12 +549,15 @@ export async function loadContextMemory(
   // SQLite — no Qdrant vectors needed — so capabilities surface even on
   // fresh assistants whose embedding jobs haven't completed yet.
   const capabilityReserve = ctxLoadCfg.capabilityReserve;
-  const rawCapabilityNodes = queryNodes({
-    scopeId: opts.scopeId,
-    types: ["procedural"],
-    fidelityNot: ["gone"],
-    limit: capabilityReserve * 4,
-  });
+  const rawCapabilityNodes =
+    capabilityReserve > 0
+      ? queryNodes({
+          scopeId: opts.scopeId,
+          types: ["procedural"],
+          fidelityNot: ["gone"],
+          limit: capabilityReserve * 4,
+        })
+      : [];
 
   // Dedup: both seeding systems may create nodes for the same capability.
   // Extract capability ID from content and keep only the first node per ID.
@@ -1035,6 +1038,7 @@ export async function retrieveForTurn(
   // Sort and apply threshold — pull a wider pool for dedup, then trim
   scored.sort((a, b) => b.score - a.score);
   const INJECTION_THRESHOLD = 0.3;
+  // Hard cap on candidates fed to the dedup LLM — effectively caps maxNodes
   const PRE_DEDUP_POOL = 20;
   const maxGeneralNodes = Math.max(
     0,

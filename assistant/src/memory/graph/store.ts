@@ -351,7 +351,7 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(sql`${memoryGraphNodes.significance} DESC`);
 
-  if (filters.limit) {
+  if (filters.limit != null) {
     query = query.limit(filters.limit) as typeof query;
   }
 
