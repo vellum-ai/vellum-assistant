@@ -1,8 +1,5 @@
 import Foundation
-import os
 import VellumAssistantShared
-
-private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AssistantFeatureFlagResolver")
 
 /// Resolves assistant-scoped feature flags from the gateway API (cached in
 /// UserDefaults) plus the bundled unified registry.
@@ -14,8 +11,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Assis
 /// cold-start picks up values before the gateway connection is established.
 ///
 /// Writes (user toggles in Developer Settings) are persisted to the gateway
-/// via `PATCH assistants/{id}/feature-flags/{key}` and simultaneously written
-/// to the local cache for optimistic UI.
+/// via ``FeatureFlagClient/setFeatureFlag(key:enabled:)`` and simultaneously
+/// written to the local cache for optimistic UI.
 enum AssistantFeatureFlagResolver {
 
     // MARK: - UserDefaults cache (gateway fetch results)
@@ -60,25 +57,6 @@ enum AssistantFeatureFlagResolver {
         let defaults = UserDefaults.standard
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(cachePrefix) {
             defaults.removeObject(forKey: key)
-        }
-    }
-
-    // MARK: - Gateway persistence
-
-    /// Persists a feature-flag override to the gateway via PATCH.
-    ///
-    /// This is the authoritative write path — the daemon and platform see the
-    /// updated value on the next read. Callers should also call
-    /// ``mergeCachedFlag(key:enabled:)`` for optimistic local UI.
-    static func mergePersistedFlag(key: String, enabled: Bool) async throws {
-        let response = try await GatewayHTTPClient.patch(
-            path: "assistants/{assistantId}/feature-flags/\(key)",
-            json: ["enabled": enabled],
-            timeout: 10
-        )
-        guard response.isSuccess else {
-            log.error("mergePersistedFlag failed (HTTP \(response.statusCode))")
-            throw FeatureFlagError.requestFailed(response.statusCode)
         }
     }
 

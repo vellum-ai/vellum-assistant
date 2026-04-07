@@ -321,7 +321,7 @@ struct SettingsPanel: View {
                             // Persist locally (cache) for optimistic UI + PATCH to gateway
                             AssistantFeatureFlagResolver.mergeCachedFlag(key: Self.developerFeatureFlagKey, enabled: true)
                             Task {
-                                try? await AssistantFeatureFlagResolver.mergePersistedFlag(key: Self.developerFeatureFlagKey, enabled: true)
+                                try? await featureFlagClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
                             }
                         }
                         devUnlockText = ""

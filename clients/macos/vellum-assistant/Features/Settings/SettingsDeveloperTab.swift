@@ -1068,7 +1068,7 @@ struct SettingsDeveloperTab: View {
                     AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: newValue)
                     Task {
                         do {
-                            try await AssistantFeatureFlagResolver.mergePersistedFlag(key: flag.key, enabled: newValue)
+                            try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)
                         } catch {
                             // Best-effort: the local cache already has the override for
                             // optimistic UI. The gateway PATCH may fail for managed
