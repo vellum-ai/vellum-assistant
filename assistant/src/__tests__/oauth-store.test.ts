@@ -456,6 +456,61 @@ describe("provider operations", () => {
       const fetched = getProvider("github");
       expect(fetched!.scopeSeparator).toBe(",");
     });
+
+    test("coerces empty-string scopeSeparator to default ' '", () => {
+      // An empty separator would join scopes into a single concatenated token
+      // (e.g. ["read","write"].join("") === "readwrite") which is never a
+      // valid OAuth authorize URL value. Coerce to the default.
+      seedProviders([
+        {
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+          scopeSeparator: ",",
+        },
+      ]);
+
+      expect(getProvider("github")!.scopeSeparator).toBe(",");
+
+      const updated = updateProvider("github", { scopeSeparator: "" });
+      expect(updated).toBeDefined();
+      expect(updated!.scopeSeparator).toBe(" ");
+      expect(getProvider("github")!.scopeSeparator).toBe(" ");
+    });
+  });
+
+  describe("scopeSeparator empty-string coercion", () => {
+    test("seedProviders coerces empty-string scopeSeparator to ' '", () => {
+      seedProviders([
+        {
+          provider: "linear",
+          authorizeUrl: "https://linear.app/oauth/authorize",
+          tokenExchangeUrl: "https://api.linear.app/oauth/token",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+          scopeSeparator: "",
+        },
+      ]);
+
+      const row = getProvider("linear");
+      expect(row!.scopeSeparator).toBe(" ");
+    });
+
+    test("registerProvider coerces empty-string scopeSeparator to ' '", () => {
+      registerProvider({
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+        scopeSeparator: "",
+      });
+
+      const row = getProvider("linear");
+      expect(row!.scopeSeparator).toBe(" ");
+    });
   });
 });
 
