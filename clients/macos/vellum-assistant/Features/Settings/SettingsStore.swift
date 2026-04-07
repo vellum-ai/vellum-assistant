@@ -2234,6 +2234,14 @@ public final class SettingsStore: ObservableObject {
             self.managedOAuthMode["google"] = mode
             setManagedOAuthMode(mode, providerKey: "google")
         }
+        if let outlookOAuth = services["outlook-oauth"] as? [String: Any],
+           let mode = outlookOAuth["mode"] as? String {
+            self.managedOAuthMode["outlook"] = mode
+        }
+        if let linearOAuth = services["linear-oauth"] as? [String: Any],
+           let mode = linearOAuth["mode"] as? String {
+            self.managedOAuthMode["linear"] = mode
+        }
     }
 
     @discardableResult

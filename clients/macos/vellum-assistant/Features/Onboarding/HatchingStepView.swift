@@ -375,6 +375,8 @@ struct HatchingStepView: View {
             configValues["services.image-generation.mode"] = "managed"
             configValues["services.web-search.mode"] = "managed"
             configValues["services.google-oauth.mode"] = "managed"
+            configValues["services.outlook-oauth.mode"] = "managed"
+            configValues["services.linear-oauth.mode"] = "managed"
         }
         return configValues
     }
