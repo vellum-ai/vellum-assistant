@@ -20,7 +20,7 @@ enum SyntaxLanguage: String, CaseIterable {
             return .javascript
         case "ts", "tsx", "mts", "cts":
             return .typescript
-        case "json":
+        case "json", "jsonl", "ndjson":
             return .json
         case "md", "markdown":
             return .markdown
@@ -30,7 +30,7 @@ enum SyntaxLanguage: String, CaseIterable {
 
         let mime = mimeType.lowercased()
         switch mime {
-        case "application/json":
+        case "application/json", "application/jsonl", "application/x-ndjson", "application/x-jsonlines", "application/jsonlines":
             return .json
         case "application/javascript", "text/javascript":
             return .javascript
