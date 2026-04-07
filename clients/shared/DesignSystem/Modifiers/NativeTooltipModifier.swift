@@ -41,6 +41,10 @@ public extension View {
 /// Ensures only one `.vTooltip()` panel is visible at any time, matching
 /// native macOS tooltip behavior where the system never shows multiple
 /// tooltips simultaneously.
+///
+/// Also owns the app-wide event monitors for mouse-down and key-down
+/// dismiss. A single pair of monitors is shared across all tracker views
+/// (vs. one pair per view, which would scale with sidebar item count).
 private final class VTooltipCoordinator {
     static let shared = VTooltipCoordinator()
     private init() {}
@@ -48,6 +52,13 @@ private final class VTooltipCoordinator {
     /// The tracker view that currently owns the visible tooltip.
     /// Weak so we don't prevent deallocation of removed views.
     private(set) weak var activeTracker: VTooltipTrackerView?
+
+    /// Reference count of tracker views currently in a window.
+    /// Monitors are installed when the first tracker appears and removed
+    /// when the last one leaves.
+    private var trackerCount = 0
+    private var mouseDownMonitor: Any?
+    private var keyDownMonitor: Any?
 
     /// Register a tracker as the active tooltip owner, dismissing any
     /// previously active tooltip first.
@@ -62,6 +73,50 @@ private final class VTooltipCoordinator {
     func deactivate(_ tracker: VTooltipTrackerView) {
         if activeTracker === tracker {
             activeTracker = nil
+        }
+    }
+
+    /// Called when a tracker view is added to a window.
+    func addTracker() {
+        trackerCount += 1
+        if trackerCount == 1 { installMonitors() }
+    }
+
+    /// Called when a tracker view is removed from a window.
+    func removeTracker() {
+        trackerCount = max(trackerCount - 1, 0)
+        if trackerCount == 0 { removeMonitors() }
+    }
+
+    /// Dismiss the active tooltip and cancel any pending timer.
+    private func dismissActiveTooltip() {
+        activeTracker?.dismissTooltip()
+    }
+
+    private func installMonitors() {
+        guard mouseDownMonitor == nil else { return }
+        mouseDownMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            self?.dismissActiveTooltip()
+            return event
+        }
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: .keyDown
+        ) { [weak self] event in
+            self?.dismissActiveTooltip()
+            return event
+        }
+    }
+
+    private func removeMonitors() {
+        if let monitor = mouseDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseDownMonitor = nil
+        }
+        if let monitor = keyDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyDownMonitor = nil
         }
     }
 }
@@ -142,8 +197,6 @@ private final class VTooltipTrackerView: NSView {
     private var scrollObserver: NSObjectProtocol?
     private var scrollEndObserver: NSObjectProtocol?
     private var appDeactivationObserver: NSObjectProtocol?
-    private var mouseDownMonitor: Any?
-    private var keyDownMonitor: Any?
     private var windowMovedObserver: NSObjectProtocol?
     private var windowResizedObserver: NSObjectProtocol?
 
@@ -183,8 +236,8 @@ private final class VTooltipTrackerView: NSView {
         showTimer?.invalidate()
         stopObservingScroll()
         stopObservingAppDeactivation()
-        stopObservingInteraction()
         stopObservingWindowGeometry()
+        VTooltipCoordinator.shared.removeTracker()
         hideTooltip()
         super.removeFromSuperview()
     }
@@ -194,14 +247,14 @@ private final class VTooltipTrackerView: NSView {
         if window != nil {
             startObservingScroll()
             startObservingAppDeactivation()
-            startObservingInteraction()
             startObservingWindowGeometry()
+            VTooltipCoordinator.shared.addTracker()
         } else {
             showTimer?.invalidate()
             stopObservingScroll()
             stopObservingAppDeactivation()
-            stopObservingInteraction()
             stopObservingWindowGeometry()
+            VTooltipCoordinator.shared.removeTracker()
             hideTooltip()
         }
     }
@@ -261,41 +314,6 @@ private final class VTooltipTrackerView: NSView {
         if let observer = appDeactivationObserver {
             NotificationCenter.default.removeObserver(observer)
             appDeactivationObserver = nil
-        }
-    }
-
-    // MARK: Mouse-down & key-down dismiss
-
-    /// Native tooltips dismiss on any mouse-down (click, drag, right-click)
-    /// and on any key press. We mirror this with local event monitors.
-    private func startObservingInteraction() {
-        guard mouseDownMonitor == nil else { return }
-        mouseDownMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        ) { [weak self] event in
-            self?.showTimer?.invalidate()
-            self?.showTimer = nil
-            self?.hideTooltip()
-            return event
-        }
-        keyDownMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: .keyDown
-        ) { [weak self] event in
-            self?.showTimer?.invalidate()
-            self?.showTimer = nil
-            self?.hideTooltip()
-            return event
-        }
-    }
-
-    private func stopObservingInteraction() {
-        if let monitor = mouseDownMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseDownMonitor = nil
-        }
-        if let monitor = keyDownMonitor {
-            NSEvent.removeMonitor(monitor)
-            keyDownMonitor = nil
         }
     }
 
@@ -414,9 +432,8 @@ private final class VTooltipTrackerView: NSView {
         ))
 
         // Compute preferred Y, then flip edge if it would go off-screen.
-        var preferredEdge = tooltipEdge
         var y: CGFloat
-        if preferredEdge == .bottom {
+        if tooltipEdge == .bottom {
             y = screenPoint.y - tooltipSize.height - gap
             if y < visibleFrame.minY {
                 // Flip to top
@@ -424,7 +441,6 @@ private final class VTooltipTrackerView: NSView {
                     x: viewFrameInWindow.midX, y: viewFrameInWindow.maxY
                 )).y
                 y = topAnchor + gap
-                preferredEdge = .top
             }
         } else {
             y = screenPoint.y + gap
@@ -434,7 +450,6 @@ private final class VTooltipTrackerView: NSView {
                     x: viewFrameInWindow.midX, y: viewFrameInWindow.minY
                 )).y
                 y = bottomAnchor - tooltipSize.height - gap
-                preferredEdge = .bottom
             }
         }
 
