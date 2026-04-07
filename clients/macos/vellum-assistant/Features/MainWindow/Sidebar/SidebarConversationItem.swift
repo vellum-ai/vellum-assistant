@@ -209,6 +209,28 @@ struct SidebarConversationItem: View, Equatable {
             selectConversation()
             onSelect?()
         }
+        .overlay(alignment: .leading) {
+            // Pin button rendered as an overlay so it sits above .onTapGesture
+            // in the hit-test chain. Without this, .contentShape(Rectangle()) +
+            // .onTapGesture on the parent intercepts clicks before they reach
+            // child Button views on macOS (same pattern as the trailing
+            // "More options" overlay below).
+            if isHovered {
+                VButton(
+                    label: conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)",
+                    iconOnly: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
+                    style: .ghost,
+                    iconSize: 20,
+                    tooltip: conversation.isPinned ? "Unpin" : "Pin",
+                    iconColor: VColor.contentSecondary,
+                    iconRotation: conversation.isPinned ? .degrees(0) : .degrees(-45)
+                ) {
+                    onTogglePin()
+                }
+                .padding(.leading, VSpacing.xs)
+                .transition(.opacity)
+            }
+        }
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Conversation: \(conversation.title)")
         .accessibilityAction(.default) {
