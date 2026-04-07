@@ -46,12 +46,21 @@ public struct VFileBrowserNode: Identifiable, Hashable {
 ///
 /// The sidebar contains (top to bottom): a header row with a title and
 /// a trailing actions slot, a divider, a search bar (with auto-expand of
-/// matching parents), and a scrollable tree.
+/// matching parents), a scrollable tree, and an optional pinned footer
+/// (e.g. for upload progress). An optional gutter slot renders between
+/// the sidebar card and the right pane — callers use it to host a
+/// resize handle when the sidebar width is user-adjustable.
 ///
 /// The right pane content is provided via a `@ViewBuilder` closure so
 /// callers in the macOS target can pass `FileContentView` (which lives
 /// in VellumAssistantLib, not the shared module).
-public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPane: View>: View {
+public struct VFileBrowser<
+    HeaderActions: View,
+    RowContextMenu: View,
+    ContentPane: View,
+    SidebarTrailingGutter: View,
+    SidebarFooter: View
+>: View {
     let title: String
     let rootNodes: [VFileBrowserNode]
     @Binding var expandedPaths: Set<String>
@@ -64,8 +73,11 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
     let headerActions: () -> HeaderActions
     let rowContextMenu: (VFileBrowserNode) -> RowContextMenu
     let contentPane: (VFileBrowserNode?) -> ContentPane
+    let sidebarTrailingGutter: () -> SidebarTrailingGutter
+    let sidebarFooter: () -> SidebarFooter
 
     @State private var searchText: String = ""
+    @State private var isDropTargeted: Bool = false
 
     public init(
         title: String = "Files",
@@ -79,7 +91,9 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
         onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)? = nil,
         @ViewBuilder headerActions: @escaping () -> HeaderActions = { EmptyView() },
         @ViewBuilder rowContextMenu: @escaping (VFileBrowserNode) -> RowContextMenu = { _ in EmptyView() },
-        @ViewBuilder contentPane: @escaping (VFileBrowserNode?) -> ContentPane
+        @ViewBuilder contentPane: @escaping (VFileBrowserNode?) -> ContentPane,
+        @ViewBuilder sidebarTrailingGutter: @escaping () -> SidebarTrailingGutter = { VFileBrowserDefaultSidebarGutter() },
+        @ViewBuilder sidebarFooter: @escaping () -> SidebarFooter = { EmptyView() }
     ) {
         self.title = title
         self.rootNodes = rootNodes
@@ -93,13 +107,20 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
         self.headerActions = headerActions
         self.rowContextMenu = rowContextMenu
         self.contentPane = contentPane
+        self.sidebarTrailingGutter = sidebarTrailingGutter
+        self.sidebarFooter = sidebarFooter
     }
 
     // MARK: - Body
 
     public var body: some View {
-        HStack(spacing: VSpacing.sm) {
+        // HStack spacing is 0 because the gutter defines its own width.
+        // The default `VFileBrowserDefaultSidebarGutter` is a `VSpacing.sm`-wide clear
+        // spacer that preserves the original layout for callers that don't
+        // supply a custom gutter (e.g. Skills).
+        HStack(spacing: 0) {
             sidebarPane
+            sidebarTrailingGutter()
             rightPane
         }
     }
@@ -144,6 +165,9 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
 
             // Scrollable tree
             treeScrollView
+
+            // Pinned footer (e.g. upload progress). Does NOT scroll with the tree.
+            sidebarFooter()
         }
         .frame(width: sidebarWidth)
         .background(VColor.surfaceLift)
@@ -152,6 +176,14 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
             RoundedRectangle(cornerRadius: VRadius.xl)
                 .strokeBorder(VColor.borderHover, lineWidth: 1)
         )
+        .overlay {
+            if onDrop != nil && isDropTargeted {
+                RoundedRectangle(cornerRadius: VRadius.xl)
+                    .strokeBorder(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [6, 3]))
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     private var treeScrollView: some View {
@@ -181,7 +213,7 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
         if let onDrop {
             Color.clear
                 .contentShape(Rectangle())
-                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
                     onDrop(nil, providers)
                 }
         } else {
@@ -218,8 +250,22 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
                 Task { await onExpand(node) }
             }
         } else {
-            selectedPath = node.path
-            onSelect?(node)
+            // Already-selected guard: no-op if the file is already selected so
+            // callers don't see spurious taps (e.g. a dirty-alert re-prompt for
+            // the same file).
+            if selectedPath == node.path { return }
+            if let onSelect {
+                // Caller owns selection — they'll update `selectedPath` if they
+                // want to. This lets callers veto the selection (e.g. when the
+                // current file has unsaved changes and the user cancels the
+                // dirty alert).
+                onSelect(node)
+            } else {
+                // No caller callback — auto-select for convenience-initializer
+                // callers (e.g. Skills) that rely on the browser to manage
+                // selection on its own.
+                selectedPath = node.path
+            }
         }
     }
 
@@ -287,9 +333,28 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
     }
 }
 
+// MARK: - Default sidebar gutter
+
+/// The default sidebar trailing gutter: a `VSpacing.sm`-wide clear spacer that
+/// preserves the original horizontal gap between the sidebar and the right pane
+/// for callers that do not supply a custom gutter view.
+public struct VFileBrowserDefaultSidebarGutter: View {
+    public init() {}
+
+    public var body: some View {
+        Color.clear.frame(width: VSpacing.sm)
+    }
+}
+
 // MARK: - Convenience overload (no header actions, no row context menu)
 
-extension VFileBrowser where HeaderActions == EmptyView, RowContextMenu == EmptyView {
+extension VFileBrowser
+where
+    HeaderActions == EmptyView,
+    RowContextMenu == EmptyView,
+    SidebarTrailingGutter == VFileBrowserDefaultSidebarGutter,
+    SidebarFooter == EmptyView
+{
     /// Convenience initializer for callers that don't need a header actions slot
     /// or per-row context menus. Provided as a non-defaulted overload so callers
     /// only need to supply `contentPane`.
@@ -317,21 +382,22 @@ extension VFileBrowser where HeaderActions == EmptyView, RowContextMenu == Empty
             onDrop: onDrop,
             headerActions: { EmptyView() },
             rowContextMenu: { _ in EmptyView() },
-            contentPane: contentPane
+            contentPane: contentPane,
+            sidebarTrailingGutter: { VFileBrowserDefaultSidebarGutter() },
+            sidebarFooter: { EmptyView() }
         )
     }
 }
 
 // MARK: - Tree Row
 //
-// `VFileBrowserTreeRow` is the visual analogue of `FileTreeRowLabel` from the
-// macOS target. We intentionally re-implement it here (instead of importing it)
-// because the design system module cannot depend on macOS-target code. The
-// rendering must match `FileTreeRowLabel` exactly: 12pt chevron at fixed
-// 12pt-wide leading position, 12pt folder/file icon, `VFont.bodyMediumDefault`
-// name, `VFont.labelDefault`/`VColor.contentTertiary` trailing size,
-// `CGFloat(depth) * VSpacing.lg + VSpacing.sm` leading padding,
-// `VSpacing.sm` trailing padding, `VSpacing.xs` vertical padding.
+// Visual contract (must remain stable across design-system consumers):
+// - 12pt chevron at a fixed 12pt-wide leading position
+// - 12pt folder/file icon
+// - `VFont.bodyMediumDefault` name
+// - `VFont.labelDefault` / `VColor.contentTertiary` trailing size
+// - `CGFloat(depth) * VSpacing.lg + VSpacing.sm` leading padding,
+//   `VSpacing.sm` trailing padding, `VSpacing.xs` vertical padding.
 
 private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
     let node: VFileBrowserNode
