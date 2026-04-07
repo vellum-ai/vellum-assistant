@@ -28,16 +28,23 @@ public struct DictationClient: DictationClientProtocol {
         "navigate",
     ]
 
+    /// Timeout for the dictation HTTP request. Kept short so the client falls
+    /// back to raw transcription quickly when the assistant is unreachable rather
+    /// than leaving the user staring at a "Processing…" spinner.
+    static let requestTimeout: TimeInterval = 5
+
     public func process(_ request: DictationRequest) async -> DictationResponseMessage {
+        let start = CFAbsoluteTimeGetCurrent()
         do {
             let encodedRequest = try JSONEncoder().encode(request)
             let response = try await GatewayHTTPClient.post(
                 path: "assistants/{assistantId}/dictation",
                 body: encodedRequest,
-                timeout: 10
+                timeout: Self.requestTimeout
             )
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
             guard response.isSuccess else {
-                log.error("process dictation failed (HTTP \(response.statusCode))")
+                log.warning("Dictation request failed (HTTP \(response.statusCode)) after \(String(format: "%.1f", elapsed))s")
                 return fallbackResponse(for: request, errorMessage: "HTTP \(response.statusCode)")
             }
 
@@ -45,11 +52,12 @@ public struct DictationClient: DictationClientProtocol {
             do {
                 return try JSONDecoder().decode(DictationResponseMessage.self, from: patched)
             } catch {
-                log.error("process dictation decode error: \(error.localizedDescription)")
+                log.warning("Dictation response decode failed after \(String(format: "%.1f", elapsed))s: \(error.localizedDescription)")
                 return fallbackResponse(for: request, errorMessage: "Failed to decode dictation response")
             }
         } catch {
-            log.error("process dictation error: \(error.localizedDescription)")
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            log.warning("Dictation request error after \(String(format: "%.1f", elapsed))s: \(error.localizedDescription)")
             return fallbackResponse(for: request, errorMessage: error.localizedDescription)
         }
     }
@@ -58,7 +66,7 @@ public struct DictationClient: DictationClientProtocol {
 
     /// Internal for test coverage.
     func fallbackResponse(for request: DictationRequest, errorMessage: String) -> DictationResponseMessage {
-        log.warning("Falling back to raw dictation response after HTTP failure: \(errorMessage, privacy: .public)")
+        log.warning("Using local transcription fallback (\(errorMessage, privacy: .public)). Transcription length=\(request.transcription.count)")
         let mode = fallbackMode(for: request)
         let text: String
         switch mode {
