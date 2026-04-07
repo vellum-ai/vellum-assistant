@@ -694,6 +694,71 @@ final class ConversationManager: ConversationRestorerDelegate {
         log.info("Archived conversation \(id)")
     }
 
+    func archiveAllConversations(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+
+        var needsReorder = false
+        var newlyArchivedServerIds = Set<String>()
+        let idsSet = Set(ids)
+
+        var draft = listStore.conversations
+        for i in draft.indices where idsSet.contains(draft[i].id) {
+            if draft[i].displayOrder != nil {
+                needsReorder = true
+            }
+            draft[i].isArchived = true
+            draft[i].displayOrder = nil
+            if let cid = draft[i].conversationId {
+                newlyArchivedServerIds.insert(cid)
+            }
+        }
+        listStore.conversations = draft
+
+        if !newlyArchivedServerIds.isEmpty {
+            var archived = listStore.archivedConversationIds
+            archived.formUnion(newlyArchivedServerIds)
+            listStore.archivedConversationIds = archived
+        }
+
+        for id in ids {
+            guard listStore.conversations.contains(where: { $0.id == id }) else { continue }
+
+            AppDelegate.shared?.threadWindowManager?.closeThread(conversationLocalId: id)
+            selectionStore.pinnedViewModelIds.remove(id)
+
+            if let convIndex = listStore.conversations.firstIndex(where: { $0.id == id }) {
+                if listStore.conversations[convIndex].conversationId != nil {
+                    selectionStore.chatViewModels[id]?.stopGenerating()
+                    selectionStore.removeChatViewModel(for: id)
+                } else if selectionStore.chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
+                            && selectionStore.chatViewModels[id]?.isBootstrapping != true {
+                    selectionStore.chatViewModels[id]?.stopGenerating()
+                    selectionStore.removeChatViewModel(for: id)
+                } else {
+                    selectionStore.chatViewModels[id]?.cancelPendingMessage()
+                }
+            }
+        }
+
+        if let activeId = selectionStore.activeConversationId, idsSet.contains(activeId) {
+            if listStore.visibleConversations.isEmpty {
+                enterDraftMode()
+            } else if let firstVisibleId = listStore.visibleConversations.first?.id {
+                selectionStore.performActivation(for: firstVisibleId)
+            }
+        } else if listStore.visibleConversations.isEmpty {
+            enterDraftMode()
+        }
+
+        ConversationSelectionStore.clearRenderCaches()
+
+        if needsReorder {
+            listStore.sendReorderConversations()
+        }
+
+        log.info("Archived \(ids.count) conversations")
+    }
+
     func unarchiveConversation(id: UUID) {
         guard let index = listStore.conversations.firstIndex(where: { $0.id == id }) else { return }
         listStore.conversations[index].isArchived = false
