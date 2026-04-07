@@ -301,9 +301,9 @@ struct MarkdownSegmentView: View, Equatable {
     private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
         os_signpost(.begin, log: PerfSignposts.log, name: "attributedStringBuild")
         defer { os_signpost(.end, log: PerfSignposts.log, name: "attributedStringBuild") }
-        // Build a stable cache key from the segment contents and style
-        // inputs that affect the output (e.g. secondaryTextColor for list
-        // prefix coloring) so different visual contexts don't share entries.
+        // Build a stable cache key from the segment contents, style inputs,
+        // and typography generation so cached heading fonts are invalidated
+        // when DM Sans finishes loading or typography state changes.
         var hasher = Hasher()
         for segment in segments {
             hasher.combine(segment)
@@ -312,6 +312,7 @@ struct MarkdownSegmentView: View, Equatable {
         hasher.combine(textColor.description)
         hasher.combine(codeTextColor.description)
         hasher.combine(codeBackgroundColor.description)
+        hasher.combine(VFont.typographyGeneration)
         let cacheKey = hasher.finalize()
 
         let cacheKeyNS = cacheKey as NSNumber
