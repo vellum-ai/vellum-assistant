@@ -5012,16 +5012,16 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/oauth/providers/{providerKey}:
+  /v1/oauth/providers/{provider}:
     get:
-      operationId: oauth_providers_by_providerKey_get
+      operationId: oauth_providers_by_provider_get
       tags:
         - oauth-providers
       responses:
         "200":
           description: Successful response
       parameters:
-        - name: providerKey
+        - name: provider
           in: path
           required: true
           schema:
