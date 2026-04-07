@@ -80,7 +80,7 @@ export const MemoryCleanupConfigSchema = z
       .nonnegative(
         "memory.cleanup.llmRequestLogRetentionMs must be non-negative",
       )
-      .default(7 * 24 * 60 * 60 * 1000)
+      .default(1 * 24 * 60 * 60 * 1000)
       .describe(
         "Retention period for LLM request/response logs in milliseconds (0 disables pruning)",
       ),
