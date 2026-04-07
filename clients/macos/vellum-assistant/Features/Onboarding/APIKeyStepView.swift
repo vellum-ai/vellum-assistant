@@ -274,7 +274,7 @@ struct APIKeyStepView: View {
 
     private var canContinue: Bool {
         if state.selectedHostingMode == .vellumCloud {
-            return isAuthenticated && !state.skippedAuth
+            return isAuthenticated
         }
         return true
     }
