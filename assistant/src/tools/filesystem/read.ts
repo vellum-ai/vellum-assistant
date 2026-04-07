@@ -14,7 +14,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 class FileReadTool implements Tool {
   name = "file_read";
   description =
-    "Read the contents of a file. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. Always use this tool (not host_file_read) for workspace files under .vellum.";
+    "Read the contents of a file on the assistant's machine. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. Use host_file_read for files on the guardian's machine instead.";
   category = "filesystem";
   defaultRiskLevel = RiskLevel.Low;
 
