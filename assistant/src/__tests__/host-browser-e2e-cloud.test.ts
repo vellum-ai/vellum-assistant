@@ -1,0 +1,336 @@
+/**
+ * E2E smoke test for the cloud-hosted `host_browser_request` round-trip.
+ *
+ * Boots the runtime HTTP server in-process, opens a mock chrome-extension
+ * WebSocket against `/v1/browser-relay`, and drives
+ * `HostBrowserProxy.request()` end-to-end:
+ *
+ *   proxy.request()
+ *     → sendToClient (routed via ChromeExtensionRegistry by guardianId)
+ *     → mock extension WebSocket receives host_browser_request
+ *     → mock CDP handler (Browser.getVersion fake)
+ *     → POST /v1/host-browser-result
+ *     → handleHostBrowserResult → conversation.resolveHostBrowser
+ *     → proxy.resolve() → request() resolves
+ *
+ * Covers:
+ *   - Happy path: Browser.getVersion round-trips and returns the fake
+ *     product string.
+ *   - Abort: an aborted AbortSignal resolves with "Aborted" and the mock
+ *     extension receives a host_browser_cancel frame.
+ *   - Disconnection: if the extension is forcibly disconnected, the
+ *     proxy times out gracefully on a short timeout.
+ *
+ * The test runs entirely in Bun + loopback WebSocket/fetch — no real
+ * Chrome required.
+ */
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// ── Module mocks (must be declared before the real imports below) ────
+
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    ui: {},
+    model: "test",
+    provider: "test",
+    memory: { enabled: false },
+    rateLimit: { maxRequestsPerMinute: 0 },
+    secretDetection: { enabled: false },
+    contextWindow: { maxInputTokens: 200000 },
+    services: {
+      inference: {
+        mode: "your-own",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+      },
+      "image-generation": {
+        mode: "your-own",
+        provider: "gemini",
+        model: "gemini-3.1-flash-image-preview",
+      },
+      "web-search": { mode: "your-own", provider: "inference-provider-native" },
+    },
+  }),
+}));
+
+// ── Real imports (after mocks) ──────────────────────────────────────
+
+import type { Conversation } from "../daemon/conversation.js";
+import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
+import { getDb, initializeDb } from "../memory/db.js";
+import { mintToken } from "../runtime/auth/token-service.js";
+import {
+  __resetChromeExtensionRegistryForTests,
+  getChromeExtensionRegistry,
+} from "../runtime/chrome-extension-registry.js";
+import { RuntimeHttpServer } from "../runtime/http-server.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
+
+initializeDb();
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Wrap a HostBrowserProxy in a sendToClient that:
+ *   1. Routes host_browser_request/host_browser_cancel via the Chrome
+ *      extension registry for the given guardianId.
+ *   2. Registers a pending interaction for each request so the
+ *      `/v1/host-browser-result` HTTP route can find the stub
+ *      conversation and call `resolveHostBrowser` on it.
+ *
+ * Returns the proxy and its stub conversation. In production this
+ * wiring lives in `conversation-routes.ts` `makeHubPublisher`; the test
+ * reproduces the minimum surface needed for the round-trip.
+ */
+function createBoundProxy(
+  guardianId: string,
+  conversationId: string,
+): { proxy: HostBrowserProxy; conversation: Conversation } {
+  // The stub Conversation's `resolveHostBrowser` routes straight back
+  // to the real proxy. Declare the proxy reference first so the stub
+  // can close over it before the proxy itself is constructed below.
+  let proxyRef: HostBrowserProxy | null = null;
+  const conversation = {
+    resolveHostBrowser(
+      requestId: string,
+      response: { content: string; isError: boolean },
+    ) {
+      proxyRef?.resolve(requestId, response);
+    },
+  } as unknown as Conversation;
+
+  const sendToClient = (msg: ServerMessage) => {
+    // Register pending interactions for host_browser_request envelopes
+    // so the /v1/host-browser-result route can look them up.
+    if ((msg as { type: string }).type === "host_browser_request") {
+      const requestId = (msg as { requestId: string }).requestId;
+      pendingInteractions.register(requestId, {
+        conversation,
+        conversationId,
+        kind: "host_browser",
+      });
+    }
+    const ok = getChromeExtensionRegistry().send(guardianId, msg);
+    if (!ok) {
+      throw new Error(
+        `chrome-extension host_browser send failed: no active connection for guardian ${guardianId}`,
+      );
+    }
+  };
+
+  const proxy = new HostBrowserProxy(sendToClient);
+  proxyRef = proxy;
+  return { proxy, conversation };
+}
+
+/**
+ * Mint an actor-bound JWT for the given guardianId. The WebSocket
+ * upgrade handler parses `sub=actor:<assistantId>:<actorPrincipalId>`
+ * and treats `actorPrincipalId` as the guardianId.
+ */
+function mintActorToken(guardianId: string): string {
+  return mintToken({
+    aud: "vellum-daemon",
+    sub: `actor:self:${guardianId}`,
+    scope_profile: "actor_client_v1",
+    policy_epoch: 1,
+    ttlSeconds: 3600,
+  });
+}
+
+// ── Tests ───────────────────────────────────────────────────────────
+
+describe("host_browser cloud-hosted e2e round-trip", () => {
+  let server: RuntimeHttpServer;
+  let port: number;
+  let runtimeBaseUrl: string;
+
+  beforeEach(async () => {
+    // Each test gets a clean DB and a fresh registry so connection
+    // state doesn't leak between cases.
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+    pendingInteractions.clear();
+    __resetChromeExtensionRegistryForTests();
+
+    port = 19800 + Math.floor(Math.random() * 200);
+    runtimeBaseUrl = `http://127.0.0.1:${port}`;
+    server = new RuntimeHttpServer({ port });
+    await server.start();
+  });
+
+  afterEach(async () => {
+    await server?.stop();
+    pendingInteractions.clear();
+    __resetChromeExtensionRegistryForTests();
+  });
+
+  test("happy path: Browser.getVersion round-trips through the mock extension", async () => {
+    const guardianId = `test-guardian-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    // Dynamic import keeps the module cache warm across tests but avoids
+    // binding the fixture at file-load time (where the mocks might not
+    // yet have applied for a freshly forked test worker).
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+
+    // Give the open handler a tick to register the connection in the
+    // ChromeExtensionRegistry (Bun's WebSocket open callback fires
+    // asynchronously after the upgrade handler returns).
+    await waitForRegistryEntry(guardianId);
+
+    const { proxy } = createBoundProxy(guardianId, "conv-happy");
+
+    const result = await proxy.request(
+      { cdpMethod: "Browser.getVersion" },
+      "conv-happy",
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Chrome/MockTest");
+
+    const received = mockExt.receivedRequests();
+    expect(received).toHaveLength(1);
+    expect(received[0].cdpMethod).toBe("Browser.getVersion");
+    expect(typeof received[0].requestId).toBe("string");
+    expect(received[0].conversationId).toBe("conv-happy");
+
+    proxy.dispose();
+    await mockExt.stop();
+  });
+
+  test("abort: AbortSignal resolves to 'Aborted' and extension receives host_browser_cancel", async () => {
+    const guardianId = `test-guardian-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+      // Hang forever so we can abort mid-flight without a race against
+      // the default handler's immediate response.
+      cdpHandler: () => new Promise(() => {}),
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    const { proxy } = createBoundProxy(guardianId, "conv-abort");
+
+    const controller = new AbortController();
+    const resultPromise = proxy.request(
+      { cdpMethod: "Browser.getVersion" },
+      "conv-abort",
+      controller.signal,
+    );
+
+    // Wait for the mock extension to observe the request, then abort so
+    // the cancel envelope has somewhere to land.
+    await waitFor(() => mockExt.receivedRequests().length === 1);
+
+    controller.abort();
+    const result = await resultPromise;
+
+    expect(result.content).toBe("Aborted");
+    expect(result.isError).toBe(true);
+
+    // The cancel frame is dispatched synchronously from the abort
+    // listener, but the WebSocket delivers it asynchronously — give it a
+    // few turns to arrive before asserting.
+    await waitFor(() => mockExt.receivedCancels().length === 1);
+    const cancels = mockExt.receivedCancels();
+    expect(cancels).toHaveLength(1);
+    expect(cancels[0].requestId).toBe(mockExt.receivedRequests()[0].requestId);
+
+    proxy.dispose();
+    await mockExt.stop();
+  });
+
+  test("disconnected extension: proxy.request times out gracefully", async () => {
+    const guardianId = `test-guardian-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    const { createMockChromeExtension } =
+      await import("./fixtures/mock-chrome-extension.js");
+    const mockExt = createMockChromeExtension({
+      runtimeBaseUrl,
+      token,
+    });
+    await mockExt.start();
+    await mockExt.waitForConnection();
+    await waitForRegistryEntry(guardianId);
+
+    const { proxy } = createBoundProxy(guardianId, "conv-disconnect");
+
+    // Force-close the extension's WebSocket before issuing the request
+    // and wait for the registry entry to drain. The send() path will
+    // then return false and the bound sendToClient wrapper will throw,
+    // which HostBrowserProxy surfaces as a rejected promise.
+    mockExt.forceDisconnect();
+    await waitForRegistryGone(guardianId);
+
+    await expect(
+      proxy.request(
+        { cdpMethod: "Browser.getVersion", timeout_seconds: 0.2 },
+        "conv-disconnect",
+      ),
+    ).rejects.toThrow(/no active connection/);
+
+    proxy.dispose();
+    await mockExt.stop();
+  });
+});
+
+// ── Local wait helpers ──────────────────────────────────────────────
+
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `waitFor: predicate did not become true within ${timeoutMs}ms`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+async function waitForRegistryEntry(
+  guardianId: string,
+  timeoutMs = 2000,
+): Promise<void> {
+  await waitFor(
+    () => getChromeExtensionRegistry().get(guardianId) !== undefined,
+    timeoutMs,
+  );
+}
+
+async function waitForRegistryGone(
+  guardianId: string,
+  timeoutMs = 2000,
+): Promise<void> {
+  await waitFor(
+    () => getChromeExtensionRegistry().get(guardianId) === undefined,
+    timeoutMs,
+  );
+}
