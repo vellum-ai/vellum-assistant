@@ -68,12 +68,14 @@ import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
 import { authenticateRequest } from "./auth/middleware.js";
+import { parseSub } from "./auth/subject.js";
 import {
   mintDaemonDeliveryToken,
   mintUiPageToken,
   verifyToken,
 } from "./auth/token-service.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
+import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
 import { httpError } from "./http-errors.js";
 import type { RouteDefinition } from "./http-router.js";
 import { HttpRouter } from "./http-router.js";
@@ -333,6 +335,19 @@ export class RuntimeHttpServer {
             extensionRelayServer.handleOpen(
               ws as ServerWebSocket<BrowserRelayWebSocketData>,
             );
+            // When the JWT sub resolved to a guardian principal at upgrade
+            // time, also register this connection with the chrome-extension
+            // registry so host_browser_request frames can be routed to it.
+            // The legacy ExtensionCommand protocol handled by
+            // extensionRelayServer continues to work in parallel.
+            if (data.guardianId) {
+              getChromeExtensionRegistry().register({
+                id: data.connectionId,
+                guardianId: data.guardianId,
+                ws,
+                connectedAt: Date.now(),
+              });
+            }
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -372,6 +387,12 @@ export class RuntimeHttpServer {
               code,
               reason?.toString(),
             );
+            // Always attempt to unregister — the registry uses connectionId
+            // as the key and no-ops if the entry is absent (e.g. when the
+            // connection was never registered because guardianId was
+            // undefined, or when it was superseded by a newer registration
+            // for the same guardian).
+            getChromeExtensionRegistry().unregister(data.connectionId);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -635,6 +656,24 @@ export class RuntimeHttpServer {
       );
     }
 
+    // When auth is enabled we parse the JWT sub to extract the actor
+    // principal ID, which we use as the guardianId key for the
+    // ChromeExtensionRegistry. When auth is disabled (dev bypass),
+    // guardianId remains undefined and the registration is skipped —
+    // host_browser_request routing requires an authenticated guardian.
+    //
+    // Gateway path: when the WebSocket upgrade is proxied through the
+    // gateway, the upstream token minted by `mintServiceToken()` has
+    // `sub=svc:gateway:self` with no actor principal id. In that case
+    // we fall back to an explicit `x-guardian-id` header / query param
+    // so the runtime can still register the connection under the real
+    // guardian. TODO(gateway-plumbing): the gateway's
+    // `browser-relay-websocket.ts` does not yet forward this header —
+    // once it does (resolving the actor from the downstream edge token
+    // at upgrade time), the service-token branch below will start
+    // picking up the guardianId. Until then, cloud-path registration
+    // silently no-ops, which is a known limitation tracked for Phase 3.
+    let guardianId: string | undefined;
     if (!isHttpAuthDisabled()) {
       const wsUrl = new URL(req.url);
       const token = wsUrl.searchParams.get("token");
@@ -645,6 +684,23 @@ export class RuntimeHttpServer {
       if (!jwtResult.ok) {
         return httpError("UNAUTHORIZED", "Unauthorized", 401);
       }
+      const subResult = parseSub(jwtResult.claims.sub);
+      if (subResult.ok && subResult.actorPrincipalId) {
+        // Direct actor principal — this is the loopback / desktop path.
+        guardianId = subResult.actorPrincipalId;
+      } else {
+        // Service-token path (gateway-forwarded). Look for an explicit
+        // guardian id plumbed by the gateway as a header or query
+        // param. Header takes precedence because headers are easier
+        // for the gateway to forward without rewriting the URL.
+        const headerGuardianId = req.headers.get("x-guardian-id")?.trim() ?? "";
+        const queryGuardianId =
+          wsUrl.searchParams.get("guardianId")?.trim() ?? "";
+        const fallbackGuardianId = headerGuardianId || queryGuardianId;
+        if (fallbackGuardianId) {
+          guardianId = fallbackGuardianId;
+        }
+      }
     }
 
     const connectionId = crypto.randomUUID();
@@ -652,6 +708,7 @@ export class RuntimeHttpServer {
       data: {
         wsType: "browser-relay",
         connectionId,
+        guardianId,
       } satisfies BrowserRelayWebSocketData,
     });
     if (!upgraded) {
