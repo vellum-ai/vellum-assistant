@@ -72,6 +72,13 @@ export async function sleep(): Promise<void> {
     return;
   }
 
+  if (entry.runtimeBackend === "apple-containers") {
+    console.error(
+      `Error: '${entry.assistantId}' uses the apple-containers runtime. Its lifecycle is managed by the macOS app — use the app to stop it.`,
+    );
+    process.exit(1);
+  }
+
   if (entry.cloud && entry.cloud !== "local") {
     console.error(
       `Error: 'vellum sleep' only works with local and docker assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,

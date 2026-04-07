@@ -1,6 +1,18 @@
 #if os(macOS)
 import Foundation
 
+/// Which local launcher owns a `LockfileAssistant` entry.
+///
+/// - `process`: Standard `vellum-cli hatch` / PID-file lifecycle (default for
+///   all existing and new process-backed local assistants).
+/// - `appleContainers`: Reserved for the Apple Containers runtime path.
+///   Lifecycle is managed by the macOS app via `LinuxPod`; the CLI must not
+///   attempt PID-based operations on such entries.
+public enum LocalRuntimeBackend: String {
+    case process = "process"
+    case appleContainers = "apple-containers"
+}
+
 /// Thread-safe mutable state for the `LockfileAssistant` file watcher.
 /// Stored as a separate class because Swift structs cannot hold static
 /// stored properties in extensions.
@@ -64,6 +76,9 @@ public struct LockfileAssistant {
     public let containerInfo: ContainerInfo?
     public let previousServiceGroupVersion: String?
     public let previousContainerInfo: ContainerInfo?
+    /// Which local launcher owns this assistant.
+    /// Defaults to `.process` when the field is absent in the lockfile.
+    public let runtimeBackend: LocalRuntimeBackend
 
     public init(
         assistantId: String,
@@ -81,7 +96,8 @@ public struct LockfileAssistant {
         serviceGroupVersion: String? = nil,
         containerInfo: ContainerInfo? = nil,
         previousServiceGroupVersion: String? = nil,
-        previousContainerInfo: ContainerInfo? = nil
+        previousContainerInfo: ContainerInfo? = nil,
+        runtimeBackend: LocalRuntimeBackend = .process
     ) {
         self.assistantId = assistantId
         self.runtimeUrl = runtimeUrl
@@ -99,6 +115,7 @@ public struct LockfileAssistant {
         self.containerInfo = containerInfo
         self.previousServiceGroupVersion = previousServiceGroupVersion
         self.previousContainerInfo = previousContainerInfo
+        self.runtimeBackend = runtimeBackend
     }
 
     /// Whether this assistant is running remotely (not on the local machine).
@@ -181,6 +198,13 @@ public struct LockfileAssistant {
                 )
             }
             let previousServiceGroupVersion = entry["previousServiceGroupVersion"] as? String
+            let runtimeBackend: LocalRuntimeBackend
+            if let raw = entry["runtimeBackend"] as? String,
+               let parsed = LocalRuntimeBackend(rawValue: raw) {
+                runtimeBackend = parsed
+            } else {
+                runtimeBackend = .process
+            }
             var previousContainerInfo: ContainerInfo? = nil
             if let pci = entry["previousContainerInfo"] as? [String: Any] {
                 previousContainerInfo = ContainerInfo(
@@ -209,7 +233,8 @@ public struct LockfileAssistant {
                 serviceGroupVersion: serviceGroupVersion,
                 containerInfo: containerInfo,
                 previousServiceGroupVersion: previousServiceGroupVersion,
-                previousContainerInfo: previousContainerInfo
+                previousContainerInfo: previousContainerInfo,
+                runtimeBackend: runtimeBackend
             )
         }
     }
