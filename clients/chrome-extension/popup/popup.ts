@@ -3,9 +3,18 @@
  *
  * Auto-fetches a bearer token from the local gateway on Connect.
  * Falls back to manual token entry if the gateway is unreachable.
+ *
+ * Also exposes a "Sign in with Vellum (cloud)" button that drives the
+ * OAuth flow in background/cloud-auth.ts. Cloud sign-in and self-hosted
+ * token entry coexist — they represent the two possible relay transports.
  */
 
+import { signInCloud, getStoredToken } from '../background/cloud-auth.js';
+
 const DEFAULT_RELAY_PORT = 7830;
+// PR 14 will plumb this through config; hard-coded for the Phase 2 skeleton.
+const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
+const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 const tokenInput = document.getElementById('token-input') as HTMLInputElement;
 const portInput = document.getElementById('port-input') as HTMLInputElement;
@@ -16,6 +25,8 @@ const statusText = document.getElementById('status-text') as HTMLParagraphElemen
 const errorText = document.getElementById('error-text') as HTMLParagraphElement;
 const manualToggle = document.getElementById('manual-toggle') as HTMLButtonElement;
 const tokenGroup = document.getElementById('token-group') as HTMLDivElement;
+const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
+const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
 
 let manualMode = false;
 
@@ -143,3 +154,46 @@ btnDisconnect.addEventListener('click', () => {
     setConnected(false);
   });
 });
+
+// ── Cloud sign-in (new in Phase 2 PR 8) ────────────────────────────
+//
+// This is a skeleton: the token is persisted but not yet used on any
+// WebSocket. A later PR will plumb it through the relay connection so
+// cloud-hosted users can connect to the Vellum gateway without running
+// a local daemon.
+
+function setCloudStatus(text: string, signedIn: boolean): void {
+  cloudStatus.textContent = text;
+  cloudStatus.classList.toggle('signed-in', signedIn);
+}
+
+async function refreshCloudStatus(): Promise<void> {
+  try {
+    const existing = await getStoredToken();
+    if (existing) {
+      setCloudStatus(`Signed in as guardian:${existing.guardianId}`, true);
+    } else {
+      setCloudStatus('Not signed in', false);
+    }
+  } catch (err) {
+    setCloudStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, false);
+  }
+}
+
+btnCloudSignIn.addEventListener('click', async () => {
+  btnCloudSignIn.disabled = true;
+  setCloudStatus('Signing in…', false);
+  try {
+    const stored = await signInCloud({
+      gatewayBaseUrl: CLOUD_GATEWAY_BASE_URL,
+      clientId: CLOUD_OAUTH_CLIENT_ID,
+    });
+    setCloudStatus(`Signed in as guardian:${stored.guardianId}`, true);
+  } catch (err) {
+    setCloudStatus(`Sign-in failed: ${err instanceof Error ? err.message : String(err)}`, false);
+  } finally {
+    btnCloudSignIn.disabled = false;
+  }
+});
+
+refreshCloudStatus();
