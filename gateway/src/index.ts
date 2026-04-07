@@ -95,6 +95,11 @@ import { fetchDmContext } from "./slack/dm-context.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import {
+  resolveWebviewOrigin,
+  handlePreflight,
+  withCorsHeaders,
+} from "./http/middleware/cors.js";
+import {
   createRouter,
   type RouteDefinition,
   type GetClientIp,
@@ -1050,6 +1055,16 @@ async function main() {
       svr.timeout(req, 1800);
       const url = new URL(req.url);
 
+      // ── CORS: webview preflight & origin tracking ──
+      // The macOS WKWebView loads pages from https://{appId}.vellum.local/
+      // which is cross-origin to the gateway at http://127.0.0.1:{port}.
+      // Reflect the origin back on matched requests so window.vellum.fetch
+      // calls succeed.
+      const webviewOrigin = resolveWebviewOrigin(req);
+      if (webviewOrigin && req.method === "OPTIONS") {
+        return handlePreflight(webviewOrigin);
+      }
+
       // ── Pre-router: health/readiness probes ──
       // These bypass rate limiting and tracing for minimal overhead.
       if (url.pathname === "/healthz") {
@@ -1168,12 +1183,20 @@ async function main() {
 
       // ── Route table dispatch ──
       const response = router(req, url, resolveClientIp, svr);
-      if (response !== null) return response;
+      if (response !== null) {
+        if (webviewOrigin) {
+          const resolved = await response;
+          return withCorsHeaders(resolved, webviewOrigin);
+        }
+        return response;
+      }
 
-      return Response.json(
+      const notFound = Response.json(
         { error: "Not found", source: "gateway" },
         { status: 404 },
       );
+      if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
+      return notFound;
     },
   });
 
