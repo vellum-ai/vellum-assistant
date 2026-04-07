@@ -190,6 +190,28 @@ describe("isTextMimeType", () => {
     // A binary plist has a specific MIME type — extension should not override it
     expect(isTextMimeType("application/x-plist", "Info.plist")).toBe(false);
   });
+
+  test("application/octet-stream with .jsonl filename is text", () => {
+    expect(isTextMimeType("application/octet-stream", "messages.jsonl")).toBe(
+      true,
+    );
+  });
+
+  test("application/octet-stream with .ndjson filename is text", () => {
+    expect(isTextMimeType("application/octet-stream", "events.ndjson")).toBe(
+      true,
+    );
+  });
+
+  test("application/octet-stream with .JSONL uppercase is text", () => {
+    expect(isTextMimeType("application/octet-stream", "DATA.JSONL")).toBe(true);
+  });
+
+  test("application/octet-stream with .NDJSON uppercase is text", () => {
+    expect(isTextMimeType("application/octet-stream", "DATA.NDJSON")).toBe(
+      true,
+    );
+  });
 });
 
 // ===========================================================================

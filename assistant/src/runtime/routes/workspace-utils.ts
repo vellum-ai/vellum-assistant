@@ -159,6 +159,8 @@ const TEXT_FILE_EXTENSIONS = new Set([
   "patch",
   "log",
   "lock",
+  "jsonl",
+  "ndjson",
 ]);
 
 export function isTextMimeType(mimeType: string, fileName?: string): boolean {
