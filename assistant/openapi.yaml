@@ -3140,6 +3140,9 @@ paths:
                 conversationId:
                   description: Scope to a single conversation
                   type: string
+                includeAllConversations:
+                  description: Include messages, LLM request logs, and usage events for all conversations
+                  type: boolean
                 startTime:
                   description: Lower bound epoch ms
                   type: number
@@ -4335,6 +4338,9 @@ paths:
                 conversationId:
                   description: Scope to a single conversation
                   type: string
+                includeAllConversations:
+                  description: Include messages, LLM request logs, and usage events for all conversations
+                  type: boolean
                 startTime:
                   description: Lower bound epoch ms
                   type: number
