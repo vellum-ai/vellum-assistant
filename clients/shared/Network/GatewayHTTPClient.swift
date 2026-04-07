@@ -123,6 +123,78 @@ public enum GatewayHTTPClient {
         }
     }
 
+    /// Performs an authenticated POST request that streams the response and
+    /// reports download progress via an `onProgress` callback.
+    ///
+    /// Uses `URLSession.bytes(for:)` to stream the response body. When the
+    /// server provides a `Content-Length` header, `onProgress` is called on
+    /// the main actor with a value between 0.0 and 1.0 representing
+    /// `bytesReceived / totalBytes`. When `Content-Length` is absent (e.g.
+    /// chunked transfer encoding), `onProgress` is called once with `-1` to
+    /// signal indeterminate progress.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - body: Optional HTTP body data.
+    ///   - params: Optional query parameters.
+    ///   - contentType: Optional Content-Type header value.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    ///   - onProgress: Closure called on the main actor with the current
+    ///     download fraction (0.0–1.0), or `-1` for indeterminate.
+    /// - Returns: A `Response` with the raw data and HTTP status code.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    public static func post(
+        path: String,
+        body: Data? = nil,
+        params: [String: String]? = nil,
+        contentType: String? = nil,
+        timeout: TimeInterval = 30,
+        onProgress: @escaping @MainActor (Double) -> Void
+    ) async throws -> Response {
+        let connection = try resolveConnection()
+        var request = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: connection)
+        request.httpBody = body
+        if let contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+        logOutgoing(request, quiet: false)
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            // Non-HTTP response — collect all bytes without progress.
+            var collected = Data()
+            for try await byte in bytes {
+                collected.append(byte)
+            }
+            return Response(data: collected, statusCode: -1)
+        }
+
+        logResponse(request, http: http, quiet: false)
+
+        let totalBytes = http.expectedContentLength // -1 when unknown
+
+        if totalBytes <= 0 {
+            // Content-Length unavailable — signal indeterminate progress.
+            await MainActor.run { onProgress(-1) }
+        }
+
+        var collected = Data()
+        if totalBytes > 0 {
+            collected.reserveCapacity(Int(totalBytes))
+        }
+
+        for try await byte in bytes {
+            collected.append(byte)
+            if totalBytes > 0 {
+                let fraction = Double(collected.count) / Double(totalBytes)
+                await MainActor.run { onProgress(min(fraction, 1.0)) }
+            }
+        }
+
+        return Response(data: collected, statusCode: http.statusCode)
+    }
+
     /// Performs an authenticated PATCH request against the gateway.
     ///
     /// - Parameters:
