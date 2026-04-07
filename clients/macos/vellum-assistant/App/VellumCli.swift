@@ -144,6 +144,34 @@ final class VellumCli {
         return env
     }
 
+    /// Writes a platform session token to the file the CLI reads for auth.
+    ///
+    /// The CLI's `readPlatformToken()` reads `~/.config/vellum/platform-token`.
+    /// When the desktop app has a session token (via `SessionTokenManager`)
+    /// but the user hasn't run `vellum login` separately, the file won't
+    /// exist and the CLI will fail with "Not logged in". This bridges the
+    /// gap by writing the desktop's token to the expected path.
+    nonisolated private static func writePlatformTokenFile(_ token: String) {
+        // Always write to ~/.config/vellum/ — the CLI child process does not
+        // receive XDG_CONFIG_HOME (it's not in forwardedEnvKeys), so it always
+        // reads from the default path.
+        let configDir = (FileManager.default.homeDirectoryForCurrentUser.path as NSString)
+            .appendingPathComponent(".config/vellum")
+        let tokenPath = (configDir as NSString).appendingPathComponent("platform-token")
+
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: configDir) {
+            try? fm.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
+
+        do {
+            try (token + "\n").write(toFile: tokenPath, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenPath)
+        } catch {
+            log.error("Failed to write platform token file at \(tokenPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     // MARK: - Binary Discovery
 
     private var cliBinaryURL: URL? {
@@ -519,6 +547,308 @@ final class VellumCli {
             throw CLIError.executionFailed(stderr)
         }
         log.info("CLI rollback completed successfully for '\(name, privacy: .public)'")
+    }
+
+    // MARK: - Teleport (pass-through to CLI)
+
+    /// Structured result parsed from the CLI's `TELEPORT_EVENT:` JSON line.
+    struct TeleportResult {
+        let newAssistantId: String
+        let sourceRetired: Bool
+    }
+
+    /// How long to wait for the teleport CLI command before giving up.
+    /// Teleport involves export, optional hatch, and import — allow up to 10 min.
+    private static let teleportTimeout: TimeInterval = 600.0
+
+    /// Teleport an assistant's data to a different hosting environment via the CLI.
+    ///
+    /// Invokes `vellum teleport --from <source> --<targetEnv> [--keep-source]` and
+    /// streams stdout/stderr lines to `onOutput` so the UI can display progress.
+    /// Returns the parsed `TeleportResult` from the CLI's structured event line.
+    ///
+    /// - Parameters:
+    ///   - from: Assistant ID (name) of the source assistant.
+    ///   - targetEnv: Target environment flag: `"local"`, `"docker"`, or `"platform"`.
+    ///   - keepSource: When `true`, the CLI preserves the source assistant after transfer.
+    ///   - onOutput: Called on each stdout/stderr line for UI progress display.
+    /// - Returns: The parsed teleport result containing the new assistant ID.
+    func teleport(
+        from sourceName: String,
+        targetEnv: String,
+        keepSource: Bool = false,
+        onOutput: @escaping @Sendable (String) -> Void
+    ) async throws -> TeleportResult {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping teleport (dev mode)")
+            throw CLIError.binaryNotFound
+        }
+
+        log.info("Running teleport via CLI at \(binaryURL.path, privacy: .public) --from \(sourceName, privacy: .public) --\(targetEnv, privacy: .public)")
+        log.info("[audit] CLI invoke: teleport args=--from \(sourceName, privacy: .public) --\(targetEnv, privacy: .public)\(keepSource ? " --keep-source" : "", privacy: .public)")
+        let teleportStartTime = ContinuousClock.now
+
+        var teleportArgs = ["teleport", "--from", sourceName, "--\(targetEnv)"]
+        if keepSource {
+            teleportArgs.append("--keep-source")
+        }
+
+        let proc = Process()
+        proc.executableURL = binaryURL
+        proc.arguments = teleportArgs
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        proc.standardOutput = stdoutPipe
+        proc.standardError = stderrPipe
+
+        var env = Self.makeBaseEnvironment()
+
+        if env["VELLUM_PLATFORM_URL"] == nil {
+            #if DEBUG
+            env["VELLUM_PLATFORM_URL"] = "https://dev-platform.vellum.ai"
+            #else
+            env["VELLUM_PLATFORM_URL"] = "https://platform.vellum.ai"
+            #endif
+        }
+
+        // Forward stored provider API keys so the CLI can authenticate
+        // with remote assistants during export/import.
+        for (provider, envVar) in VellumCli.providerEnvVars {
+            if env[envVar] == nil,
+               let storedKey = APIKeyManager.getKey(for: provider),
+               !storedKey.isEmpty {
+                env[envVar] = storedKey
+            }
+        }
+
+        // Ensure the CLI can find the platform session token.
+        // The CLI reads from ~/.config/vellum/platform-token (file-based),
+        // not from an environment variable. Write the desktop's token to
+        // that file so the CLI can authenticate with managed/platform
+        // assistants even if the user hasn't separately run `vellum login`.
+        if let sessionToken = SessionTokenManager.getToken() {
+            Self.writePlatformTokenFile(sessionToken)
+        }
+
+        proc.environment = env
+
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+
+        // Accumulate stderr so the error message includes the actual failure reason.
+        let stderrAccumulator = StderrAccumulator()
+
+        // Capture the structured teleport event line from stdout.
+        final class TeleportEventCapture: @unchecked Sendable {
+            private let lock = NSLock()
+            private var result: TeleportResult?
+
+            func set(_ r: TeleportResult) {
+                lock.lock()
+                defer { lock.unlock() }
+                result = r
+            }
+
+            var captured: TeleportResult? {
+                lock.lock()
+                defer { lock.unlock() }
+                return result
+            }
+        }
+        let eventCapture = TeleportEventCapture()
+
+        let teleportEventPrefix = "TELEPORT_EVENT:"
+
+        // Line buffers: readabilityHandler delivers arbitrary Data chunks,
+        // not guaranteed line-delimited strings. We accumulate bytes and
+        // split on newline so onOutput always receives complete lines.
+        let newlineByte: UInt8 = 0x0A
+        var stdoutBuffer = Data()
+        var stderrBuffer = Data()
+        let bufferQueue = DispatchQueue(label: "com.vellum.cli.teleport-line-buffer")
+
+        stdoutHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            bufferQueue.sync {
+                stdoutBuffer.append(data)
+                while let newlineIndex = stdoutBuffer.firstIndex(of: newlineByte) {
+                    let lineData = stdoutBuffer[stdoutBuffer.startIndex..<newlineIndex]
+                    stdoutBuffer = Data(stdoutBuffer[(newlineIndex + 1)...])
+                    if let line = String(data: lineData, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            // Parse structured teleport event lines
+                            if trimmed.hasPrefix(teleportEventPrefix) {
+                                let json = String(trimmed.dropFirst(teleportEventPrefix.count))
+                                if let data = json.data(using: .utf8),
+                                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                                   let newId = parsed["newAssistantId"] as? String {
+                                    let retired = parsed["sourceRetired"] as? Bool ?? false
+                                    eventCapture.set(TeleportResult(newAssistantId: newId, sourceRetired: retired))
+                                }
+                            } else {
+                                onOutput(trimmed)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stderrHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            bufferQueue.sync {
+                stderrBuffer.append(data)
+                while let newlineIndex = stderrBuffer.firstIndex(of: newlineByte) {
+                    let lineData = stderrBuffer[stderrBuffer.startIndex..<newlineIndex]
+                    stderrBuffer = Data(stderrBuffer[(newlineIndex + 1)...])
+                    if let line = String(data: lineData, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            stderrAccumulator.append(trimmed)
+                            onOutput(trimmed)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Use terminationHandler + continuation instead of waitUntilExit()
+        // so the MainActor is suspended (not blocked), allowing queued
+        // onOutput callbacks to update the UI while the process runs.
+        let once = OnceFlag()
+        let timeoutSeconds = Int(Self.teleportTimeout)
+
+        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+            let timeoutItem = DispatchWorkItem { [weak proc] in
+                if once.trySet() {
+                    log.error("Teleport timed out after \(timeoutSeconds) seconds — terminating CLI process")
+                    proc?.terminate()
+                    continuation.resume(throwing: CLIError.executionFailed("Teleport timed out after \(timeoutSeconds) seconds"))
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.teleportTimeout, execute: timeoutItem)
+
+            proc.terminationHandler = { finished in
+                timeoutItem.cancel()
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+
+                // Drain any data that arrived after the last readabilityHandler
+                // callback but before we nil'd the handlers.
+                let remainingStdout = stdoutHandle.availableData
+                let remainingStderr = stderrHandle.availableData
+
+                bufferQueue.sync {
+                    if !remainingStdout.isEmpty {
+                        stdoutBuffer.append(remainingStdout)
+                        while let newlineIndex = stdoutBuffer.firstIndex(of: newlineByte) {
+                            let lineData = stdoutBuffer[stdoutBuffer.startIndex..<newlineIndex]
+                            stdoutBuffer = Data(stdoutBuffer[(newlineIndex + 1)...])
+                            if let line = String(data: lineData, encoding: .utf8) {
+                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    if trimmed.hasPrefix(teleportEventPrefix) {
+                                        let json = String(trimmed.dropFirst(teleportEventPrefix.count))
+                                        if let data = json.data(using: .utf8),
+                                           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                                           let newId = parsed["newAssistantId"] as? String {
+                                            let retired = parsed["sourceRetired"] as? Bool ?? false
+                                            eventCapture.set(TeleportResult(newAssistantId: newId, sourceRetired: retired))
+                                        }
+                                    } else {
+                                        onOutput(trimmed)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !remainingStderr.isEmpty {
+                        stderrBuffer.append(remainingStderr)
+                        while let newlineIndex = stderrBuffer.firstIndex(of: newlineByte) {
+                            let lineData = stderrBuffer[stderrBuffer.startIndex..<newlineIndex]
+                            stderrBuffer = Data(stderrBuffer[(newlineIndex + 1)...])
+                            if let line = String(data: lineData, encoding: .utf8) {
+                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    stderrAccumulator.append(trimmed)
+                                    onOutput(trimmed)
+                                }
+                            }
+                        }
+                    }
+
+                    // Flush partial lines
+                    if let line = String(data: stdoutBuffer, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            if trimmed.hasPrefix(teleportEventPrefix) {
+                                let json = String(trimmed.dropFirst(teleportEventPrefix.count))
+                                if let data = json.data(using: .utf8),
+                                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                                   let newId = parsed["newAssistantId"] as? String {
+                                    let retired = parsed["sourceRetired"] as? Bool ?? false
+                                    eventCapture.set(TeleportResult(newAssistantId: newId, sourceRetired: retired))
+                                }
+                            } else {
+                                onOutput(trimmed)
+                            }
+                        }
+                    }
+                    stdoutBuffer = Data()
+
+                    if let line = String(data: stderrBuffer, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            stderrAccumulator.append(trimmed)
+                            onOutput(trimmed)
+                        }
+                    }
+                    stderrBuffer = Data()
+                }
+
+                guard once.trySet() else { return }
+                continuation.resume(returning: finished.terminationStatus)
+            }
+            do {
+                try proc.run()
+                log.info("CLI teleport launched with pid \(proc.processIdentifier)")
+            } catch {
+                timeoutItem.cancel()
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+                if once.trySet() {
+                    continuation.resume(throwing: CLIError.executionFailed("Failed to launch teleport: \(error.localizedDescription)"))
+                }
+            }
+        }
+
+        let teleportElapsed = ContinuousClock.now - teleportStartTime
+        let teleportMs = teleportElapsed.components.seconds * 1000 + Int64(teleportElapsed.components.attoseconds / 1_000_000_000_000_000)
+
+        if status != 0 {
+            let stderr = stderrAccumulator.content
+            let detail = stderr.isEmpty
+                ? "Teleport process exited with code \(status)"
+                : stderr
+            log.error("CLI teleport failed with exit code \(status): \(detail, privacy: .private)")
+            log.warning("[audit] CLI done: teleport exit=\(status) duration=\(teleportMs)ms")
+            throw CLIError.executionFailed(detail)
+        }
+
+        log.info("CLI teleport completed successfully")
+        log.info("[audit] CLI done: teleport exit=0 duration=\(teleportMs)ms")
+
+        guard let result = eventCapture.captured else {
+            log.error("CLI teleport exited 0 but no TELEPORT_EVENT line was found in stdout")
+            throw CLIError.executionFailed("Teleport completed but no structured result was emitted by the CLI")
+        }
+
+        return result
     }
 
     // MARK: - Remote Hatch (pass-through to CLI)

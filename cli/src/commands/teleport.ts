@@ -36,6 +36,13 @@ import { validateAssistantName } from "../lib/retire-archive.js";
 import { stopProcessByPidFile } from "../lib/process.js";
 import { join } from "node:path";
 
+const IS_DESKTOP = !!process.env.VELLUM_DESKTOP_APP;
+
+/** Emit a prefixed structured JSON line the desktop app can parse. */
+function emitTeleportEvent(payload: Record<string, unknown>): void {
+  process.stdout.write(`TELEPORT_EVENT:${JSON.stringify(payload)}\n`);
+}
+
 function printHelp(): void {
   console.log(
     "Usage: vellum teleport --from <assistant> <--local | --docker | --platform> [name] [options]",
@@ -1150,6 +1157,13 @@ export async function teleport(): Promise<void> {
 
     // Success summary
     console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
+    if (IS_DESKTOP) {
+      emitTeleportEvent({
+        event: "teleport_complete",
+        newAssistantId: toEntry.assistantId,
+        sourceRetired: false,
+      });
+    }
     return;
   }
 
@@ -1194,6 +1208,7 @@ export async function teleport(): Promise<void> {
   await importToAssistant(toEntry, toCloud, bundleData, false);
 
   // Retire source after successful import
+  let sourceRetired = false;
   if (sourceIsLocalOrDocker && targetIsLocalOrDocker) {
     if (!keepSource) {
       console.log(`Retiring source assistant '${from}'...`);
@@ -1203,6 +1218,7 @@ export async function teleport(): Promise<void> {
         await retireLocal(fromEntry.assistantId, fromEntry);
       }
       removeAssistantEntry(fromEntry.assistantId);
+      sourceRetired = true;
       console.log(`Source assistant '${from}' retired.`);
     } else {
       console.log(`Source assistant '${from}' kept (--keep-source).`);
@@ -1211,4 +1227,11 @@ export async function teleport(): Promise<void> {
 
   // Success summary
   console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
+  if (IS_DESKTOP) {
+    emitTeleportEvent({
+      event: "teleport_complete",
+      newAssistantId: toEntry.assistantId,
+      sourceRetired,
+    });
+  }
 }
