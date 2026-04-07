@@ -310,16 +310,29 @@ private final class VTooltipTrackerView: NSView {
         p.hasShadow = true
         p.ignoresMouseEvents = true
 
-        let host = NSHostingView(rootView: VTooltipContent(text: tooltipText))
-        // Use sizeThatFits(in:) — Apple's recommended API for measuring
-        // NSHostingView with a proposed size. fittingSize doesn't pass a
-        // width proposal, so .fixedSize(horizontal: false) would wrap text
-        // at zero width and return an incorrect (very tall) size.
-        let panelSize = host.sizeThatFits(
-            NSSize(width: 280, height: CGFloat.greatestFiniteMagnitude)
-        )
-        host.frame.size = panelSize
-        p.contentView = host
+        // Two-pass sizing: first measure unconstrained with .fixedSize()
+        // (which gives correct fittingSize), then if the tooltip exceeds the
+        // max width, re-measure with a fixed wrapping width.
+        // .fixedSize(horizontal: false) breaks NSHostingView.fittingSize
+        // because fittingSize has no way to pass a width proposal, causing
+        // text to wrap at zero width and return an incorrect height.
+        let maxTooltipWidth: CGFloat = 280
+        let measureHost = NSHostingView(rootView: VTooltipContent(text: tooltipText))
+        let idealSize = measureHost.fittingSize
+
+        let panelSize: NSSize
+        if idealSize.width > maxTooltipWidth {
+            let wrappedHost = NSHostingView(
+                rootView: VTooltipContent(text: tooltipText, wrapWidth: maxTooltipWidth)
+            )
+            panelSize = wrappedHost.fittingSize
+            wrappedHost.frame.size = panelSize
+            p.contentView = wrappedHost
+        } else {
+            panelSize = idealSize
+            measureHost.frame.size = panelSize
+            p.contentView = measureHost
+        }
         p.setContentSize(panelSize)
 
         // Use AppKit's native coordinate conversion — works on any display.
@@ -407,20 +420,31 @@ private final class VTooltipTrackerView: NSView {
 
 private struct VTooltipContent: View {
     let text: String
+    /// When set, the text wraps at this fixed width instead of using its
+    /// natural single-line width. Used by `showTooltip()` in the two-pass
+    /// sizing flow when the unconstrained tooltip exceeds the max width.
+    var wrapWidth: CGFloat? = nil
 
     var body: some View {
-        Text(text)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: 280, alignment: .leading)
-            .font(VFont.labelDefault)
-            .foregroundStyle(VColor.contentDefault)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(VColor.surfaceLift)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .shadow(color: VColor.auxBlack.opacity(0.12), radius: 4, y: 2)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(text)
+        Group {
+            if let wrapWidth {
+                Text(text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: wrapWidth, alignment: .leading)
+            } else {
+                Text(text)
+                    .fixedSize()
+            }
+        }
+        .font(VFont.labelDefault)
+        .foregroundStyle(VColor.contentDefault)
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.surfaceLift)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .shadow(color: VColor.auxBlack.opacity(0.12), radius: 4, y: 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
     }
 }
 
