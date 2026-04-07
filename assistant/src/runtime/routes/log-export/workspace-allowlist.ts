@@ -143,6 +143,15 @@ function collectConversations(
 
   const destBase = join(opts.staging, "workspace", "conversations");
 
+  // First pass: parse + filter all names and collect the surviving
+  // candidates so we can sort them deterministically before applying the
+  // byte cap. Without this, `readdirSync` order determines which
+  // conversations are dropped on truncation, which both makes capped
+  // exports nondeterministic and can drop the newest conversations.
+  const candidates: Array<{
+    name: string;
+    parsed: { conversationId: string; createdAtMs: number };
+  }> = [];
   for (const name of names) {
     let parsed: ReturnType<typeof parseConversationDirName>;
     try {
@@ -169,7 +178,32 @@ function collectConversations(
       continue;
     }
 
+    candidates.push({ name, parsed });
+  }
+
+  // Newest first so cap-truncation keeps the most recent conversations.
+  candidates.sort((a, b) => b.parsed.createdAtMs - a.parsed.createdAtMs);
+
+  for (const { name } of candidates) {
     const srcPath = join(sourceDir, name);
+
+    // Guard: a canonical-looking entry might actually be a regular file
+    // (not a directory). Without this check, `dirSizeWithinBudget` would
+    // log an ENOTDIR warning and return 0, causing `cpSync` to blindly
+    // copy the file and bypass the byte cap. Skip non-directories
+    // entirely — they don't match the conversation-directory contract.
+    let srcStat: ReturnType<typeof statSync>;
+    try {
+      srcStat = statSync(srcPath);
+    } catch (err) {
+      log.warn({ err, srcPath }, "Failed to stat conversation entry; skipping");
+      continue;
+    }
+    if (!srcStat.isDirectory()) {
+      log.warn({ srcPath }, "Conversation entry is not a directory; skipping");
+      continue;
+    }
+
     const remainingBudget = maxBytes - result.totalBytes;
     let dirBytes: number | null;
     try {

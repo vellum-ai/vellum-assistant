@@ -239,6 +239,86 @@ describe("collectWorkspaceData — conversations entry", () => {
     expect(existsSync(join(staging, "workspace", "conversations"))).toBe(false);
   });
 
+  test("byte cap keeps the newest conversations first", () => {
+    // Seed three dirs with distinct, non-trivial sizes and known
+    // timestamps. Use a padding file per dir so the per-dir byte total
+    // is predictable and large enough to push us past the cap after a
+    // couple entries have been copied.
+    const conversationsDir = getConversationsDir();
+    mkdirSync(conversationsDir, { recursive: true });
+
+    const PADDING_BYTES = 4000;
+    const padding = "a".repeat(PADDING_BYTES);
+    for (const name of [CONV_DIRS.jan10, CONV_DIRS.jan15, CONV_DIRS.jan20]) {
+      const dir = join(conversationsDir, name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "pad.txt"), padding, "utf-8");
+    }
+
+    // Each dir weighs ~PADDING_BYTES. A 10 KB cap fits exactly 2 dirs
+    // (but not the third).
+    const result = collectWorkspaceData({
+      staging,
+      maxBytes: PADDING_BYTES * 2 + 500,
+    });
+
+    expect(result.entries).toHaveLength(1);
+    const [entry] = result.entries;
+    expect(entry.itemCount).toBe(2);
+    expect(entry.skippedDueToCap).toBe(1);
+
+    // The two newest dirs (jan20 and jan15) should have been copied;
+    // jan10 (oldest) should be the one skipped due to the cap.
+    const copied = readdirSync(join(staging, "workspace", "conversations"));
+    expect(copied).toContain(CONV_DIRS.jan20);
+    expect(copied).toContain(CONV_DIRS.jan15);
+    expect(copied).not.toContain(CONV_DIRS.jan10);
+  });
+
+  test("non-directory entries with canonical-looking names are skipped", () => {
+    // Make sure the conversations dir exists and seed one valid dir so
+    // we can confirm the function still copies legit entries alongside
+    // the bogus regular file.
+    const conversationsDir = getConversationsDir();
+    mkdirSync(conversationsDir, { recursive: true });
+
+    // Seed a real canonical conversation dir so there's something to copy.
+    const validDir = join(conversationsDir, CONV_DIRS.jan20);
+    mkdirSync(validDir, { recursive: true });
+    writeFileSync(
+      join(validDir, "meta.json"),
+      JSON.stringify({ name: CONV_DIRS.jan20 }, null, 2),
+      "utf-8",
+    );
+
+    // Seed a REGULAR FILE whose name matches the canonical
+    // `<ISO>_<conversationId>` pattern. Fill it with data that is big
+    // enough to exceed the cap, to prove that the non-dir guard bails
+    // before `dirSizeWithinBudget`/`cpSync` could silently copy it.
+    const bogusName = "2025-01-15T00-00-00.000Z_conv-jan15-as-file";
+    const bogusPath = join(conversationsDir, bogusName);
+    writeFileSync(bogusPath, "x".repeat(1024 * 1024), "utf-8"); // 1 MB
+
+    // Use a tight cap (larger than the valid dir but smaller than the
+    // bogus file) to prove the bogus file is skipped before copying.
+    const result = collectWorkspaceData({
+      staging,
+      maxBytes: 100 * 1024, // 100 KB
+    });
+
+    expect(result.entries).toHaveLength(1);
+    const [entry] = result.entries;
+    // Only the real conversation dir should have been copied.
+    expect(entry.itemCount).toBe(1);
+    // skippedDueToCap should NOT include the bogus file — it's rejected
+    // by the non-dir guard, not by the cap.
+    expect(entry.skippedDueToCap).toBe(0);
+
+    const copied = readdirSync(join(staging, "workspace", "conversations"));
+    expect(copied).toEqual([CONV_DIRS.jan20]);
+    expect(copied).not.toContain(bogusName);
+  });
+
   test("missing conversations dir returns an empty entry summary", () => {
     // Do NOT seed — workspace has no conversations/ subdir.
     const conversationsDir = getConversationsDir();
