@@ -436,12 +436,13 @@ final class MessageListScrollState {
     /// the increment (matching the resize/pagination cleanup pattern).
     @ObservationIgnored private var activeStabilizationCount = 0
 
-    /// Monotonically increasing counter, bumped each time
-    /// `cancelStabilizationTasks()` is called. Expansion timeout tasks
-    /// capture the current generation before sleeping. After waking,
-    /// cancelled tasks only call `endStabilization()` if the generation
-    /// is unchanged — preventing stale tasks from acting on a new
-    /// stabilization cycle that started after the cancellation.
+    /// Monotonically increasing counter, bumped when leaving the
+    /// `.stabilizing` mode — either via `transition(to:)` (to a
+    /// non-stabilizing mode), `reset()`, or `cancelAll()`. Expansion
+    /// timeout tasks capture the current generation before sleeping.
+    /// After waking, cancelled tasks only call `endStabilization()` if
+    /// the generation is unchanged — preventing stale tasks from acting
+    /// on a new stabilization cycle that started after the cancellation.
     @ObservationIgnored private var stabilizationGeneration: UInt64 = 0
 
     // MARK: - Deep-Link Anchor Tracking
@@ -779,6 +780,7 @@ final class MessageListScrollState {
     /// Resets state for a conversation switch.
     func reset(for newConversationId: UUID?) {
         cancelStabilizationTasks()
+        stabilizationGeneration &+= 1
         paginationTask?.cancel()
         paginationTask = nil
         ScrollGeometryUpdateDispatcher.shared.cancel(for: self)
@@ -825,6 +827,7 @@ final class MessageListScrollState {
     /// Cancel all tasks and reset mode. Called from `onDisappear`.
     func cancelAll() {
         cancelStabilizationTasks()
+        stabilizationGeneration &+= 1
         uiSyncTask?.cancel()
         uiSyncTask = nil
         scrollRestoreTask?.cancel()
