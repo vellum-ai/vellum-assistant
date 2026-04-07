@@ -302,7 +302,7 @@ private struct IntegrationItemRow: View {
         let appearance = window.effectiveAppearance
         activePanel = VMenuPanel.show(at: screenPoint, sourceAppearance: appearance, excludeRect: triggerScreenRect) {
             VMenu(width: 200) {
-                VMenuItem(icon: VIcon.pencil.rawValue, label: "Edit connection") {
+                VMenuItem(icon: VIcon.pencil.rawValue, label: "Edit connections") {
                     onEdit()
                 }
                 VMenuItem(icon: VIcon.circleX.rawValue, label: "Disable", variant: .destructive) {
