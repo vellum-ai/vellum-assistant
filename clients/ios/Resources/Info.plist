@@ -22,6 +22,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>vellum-assistant</string>
+				<string>vellum</string>
 			</array>
 		</dict>
 	</array>
