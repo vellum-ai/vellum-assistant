@@ -6,14 +6,14 @@
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
-import { getWorkspacePromptPath } from "../util/platform.js";
+import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 /**
@@ -29,6 +29,8 @@ export interface ChannelCapabilities {
   supportsDynamicUi: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
+  /** The client OS/interface identifier (e.g. "macos", "ios", "vellum"). */
+  clientOS?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel", "im", "mpim"). */
   chatType?: string;
 }
@@ -206,6 +208,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi || iface === "vellum",
         supportsVoiceInput: supportsDesktopUi,
+        clientOS: iface ?? undefined,
         chatType: resolvedChatType,
       };
     }
@@ -526,6 +529,135 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
   ]);
 }
 
+// ---------------------------------------------------------------------------
+// PKB (Personal Knowledge Base) injection
+// ---------------------------------------------------------------------------
+
+const PKB_DEFAULT_FILES = ["INDEX.md", "essentials.md", "threads.md", "buffer.md"];
+
+const AUTOINJECT_FILENAME = "_autoinject.md";
+
+/** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
+const MAX_BUFFER_LINES = 50;
+
+const PKB_SYSTEM_REMINDER =
+  "<system_reminder>" +
+  "\nProactively read any PKB topic files relevant to this conversation — " +
+  "INDEX.md is your table of contents. Don't wait to be asked. " +
+  "Use `remember` for every new fact you learn immediately, don't wait for the next turn." +
+  "\n</system_reminder>";
+
+/**
+ * Read `_autoinject.md` from the PKB directory and return the list of
+ * filenames to inject.
+ *
+ * - Returns `null` when the file is missing or unreadable — callers
+ *   should fall back to the hardcoded defaults.
+ * - Returns `[]` when the file exists but has no entries (empty or
+ *   comments only) — an explicit opt-out meaning "inject nothing."
+ */
+export function readAutoinjectList(pkbDir: string): string[] | null {
+  const filePath = join(pkbDir, AUTOINJECT_FILENAME);
+  if (!existsSync(filePath)) return null;
+  try {
+    const raw = stripCommentLines(readFileSync(filePath, "utf-8"));
+    const files = raw
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    return files.length > 0 ? files : [];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the always-loaded PKB files and append a nudge encouraging the
+ * assistant to proactively read topic files and use `remember` aggressively.
+ *
+ * Which files are loaded is determined by `pkb/_autoinject.md` (one filename
+ * per line). Falls back to the built-in defaults when that file is absent.
+ *
+ * Returns the concatenated content ready for injection, or `null` if all
+ * files are missing or empty.
+ */
+export function readPkbContext(): string | null {
+  const pkbDir = join(getWorkspaceDir(), "pkb");
+  if (!existsSync(pkbDir)) return null;
+
+  const filesToInject = readAutoinjectList(pkbDir) ?? PKB_DEFAULT_FILES;
+
+  const parts: string[] = [];
+  for (const file of filesToInject) {
+    // Path traversal guard: reject entries that escape the pkb directory
+    const filePath = resolve(pkbDir, file);
+    if (!filePath.startsWith(pkbDir + "/")) continue;
+
+    if (!existsSync(filePath)) continue;
+    try {
+      let content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
+      if (file === "buffer.md" && content.length > 0) {
+        // Cap buffer entries to prevent unbounded growth when filing is disabled
+        const lines = content.split("\n");
+        if (lines.length > MAX_BUFFER_LINES) {
+          content = lines.slice(-MAX_BUFFER_LINES).join("\n");
+        }
+      }
+      if (content.length > 0) parts.push(content);
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+/**
+ * Insert PKB context into the user message, after any injected memory
+ * blocks but before NOW.md and the user's original content.
+ */
+export function injectPkbContext(message: Message, content: string): Message {
+  // Escape closing tags that could break out of the XML wrapper
+  const escaped = content.replace(/<\/pkb\s*>/gi, "&lt;/pkb&gt;");
+  const pkbBlock = {
+    type: "text" as const,
+    text: `<pkb>\n${escaped}\n</pkb>`,
+  };
+
+  // Find insertion point: skip any leading memory/image blocks
+  let insertIdx = 0;
+  for (let i = 0; i < message.content.length; i++) {
+    const block = message.content[i];
+    if (
+      block.type === "text" &&
+      (block.text.startsWith("<memory") ||
+        block.text.startsWith("</memory_image>") ||
+        block.text.startsWith("<memory_context"))
+    ) {
+      insertIdx = i + 1;
+    } else if (block.type === "image") {
+      // Memory images precede the memory text block
+      insertIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    ...message,
+    content: [
+      ...message.content.slice(0, insertIdx),
+      pkbBlock,
+      ...message.content.slice(insertIdx),
+    ],
+  };
+}
+
+/** Strip `<pkb>` blocks injected by `injectPkbContext`. */
+export function stripPkbContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ["<pkb>"]);
+}
+
 /**
  * Prepend channel capability context to the last user message so the
  * model knows what the current channel can and cannot do.
@@ -534,12 +666,13 @@ export function injectChannelCapabilityContext(
   message: Message,
   caps: ChannelCapabilities,
 ): Message {
-  // Happy path: desktop with full capabilities — skip injection entirely.
+  // Happy path: desktop with full capabilities and no special context — skip injection.
   if (
     caps.dashboardCapable &&
     caps.supportsDynamicUi &&
     caps.supportsVoiceInput &&
-    !isGroupChatType(caps.chatType)
+    !isGroupChatType(caps.chatType) &&
+    caps.clientOS !== "macos"
   ) {
     return message;
   }
@@ -549,6 +682,16 @@ export function injectChannelCapabilityContext(
   lines.push(`dashboard_capable: ${caps.dashboardCapable}`);
   lines.push(`supports_dynamic_ui: ${caps.supportsDynamicUi}`);
   lines.push(`supports_voice_input: ${caps.supportsVoiceInput}`);
+  if (caps.clientOS) {
+    lines.push(`client_os: ${caps.clientOS}`);
+  }
+
+  if (caps.clientOS === "macos") {
+    lines.push("");
+    lines.push(
+      "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
+    );
+  }
 
   if (!caps.dashboardCapable) {
     lines.push("");
@@ -939,7 +1082,10 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<non_interactive_context>",
   "<NOW.md Always keep this up to date>",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
+  "<pkb>",
+  "<system_reminder>",
   "<transport_hints>",
+  "<system_notice>One or more tool calls returned an error.",
 ];
 
 /**
@@ -958,9 +1104,7 @@ export function stripInjectionsForCompaction(messages: Message[]): Message[] {
  * Extract the most recently injected NOW.md content from the message history.
  * Returns null if no NOW.md injection is found.
  */
-export function findLastInjectedNowContent(
-  messages: Message[],
-): string | null {
+export function findLastInjectedNowContent(messages: Message[]): string | null {
   const prefix = "<NOW.md Always keep this up to date>\n";
   const suffix = "\n</NOW.md>";
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -1002,6 +1146,8 @@ export function applyRuntimeInjections(
     channelCommandContext?: ChannelCommandContext | null;
     unifiedTurnContext?: string | null;
     voiceCallControlPrompt?: string | null;
+    pkbContext?: string | null;
+    pkbActive?: boolean;
     nowScratchpad?: string | null;
     isNonInteractive?: boolean;
     transportHints?: string[] | null;
@@ -1038,6 +1184,34 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectVoiceCallControlContext(userTail, options.voiceCallControlPrompt),
+      ];
+    }
+  }
+
+  if (mode === "full" && options.pkbContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        injectPkbContext(userTail, options.pkbContext),
+      ];
+    }
+  }
+
+  // PKB behavioral nudge — injected on every turn when PKB is active so
+  // the model keeps reading topic files and calling `remember`.
+  if (mode === "full" && options.pkbActive) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        {
+          ...userTail,
+          content: [
+            ...userTail.content,
+            { type: "text" as const, text: PKB_SYSTEM_REMINDER },
+          ],
+        },
       ];
     }
   }

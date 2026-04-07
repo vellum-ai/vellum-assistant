@@ -21,17 +21,16 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../oauth/oauth-store.js", () => ({
-  isProviderConnected: (providerKey: string) =>
-    connectedProviders.has(providerKey),
-  getConnectionByProvider: (providerKey: string) =>
-    connectedProviders.has(providerKey)
-      ? { id: `conn-${providerKey}`, status: "active" }
+  isProviderConnected: (provider: string) => connectedProviders.has(provider),
+  getConnectionByProvider: (provider: string) =>
+    connectedProviders.has(provider)
+      ? { id: `conn-${provider}`, status: "active" }
       : undefined,
 }));
 
 /** Mark a provider as fully connected (active row + access token). */
-function setOAuthConnected(providerKey: string): void {
-  connectedProviders.add(providerKey);
+function setOAuthConnected(provider: string): void {
+  connectedProviders.add(provider);
 }
 
 const { getIntegrationSummary, formatIntegrationSummary, hasCapability } =

@@ -122,6 +122,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "referral-codes",
+      "scope": "macos",
+      "key": "referral-codes",
+      "label": "Referral Codes",
+      "description": "Surface the Earn Credits referral entry points (sidebar drawer row and Billing tab button) that open the referral modal",
+      "defaultEnabled": true
+    },
+    {
       "id": "managed-sign-in",
       "scope": "macos",
       "key": "managed-sign-in",
@@ -279,6 +287,14 @@
       "key": "permission-controls-v2",
       "label": "Permission Controls V2",
       "description": "Replace risk-level permission system with two independent controls: 'Ask before acting' (LLM behavior toggle) and 'Host access' (system-enforced gate)",
+      "defaultEnabled": false
+    },
+    {
+      "id": "apple-container",
+      "scope": "macos",
+      "key": "apple-container",
+      "label": "Apple Container",
+      "description": "Enable assistant sandboxing via Apple Containers on macOS 26+, providing a lightweight native sandbox without third-party dependencies",
       "defaultEnabled": false
     }
   ]

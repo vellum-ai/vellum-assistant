@@ -1,6 +1,3 @@
-#if os(macOS)
-import AppKit
-#endif
 import SwiftUI
 import VellumAssistantShared
 
@@ -11,7 +8,24 @@ struct ThinkingBlockView: View {
     let content: String
     let isStreaming: Bool
 
-    @State private var isExpanded: Bool = false
+    @State private var isExpanded: Bool
+    /// Cached parsed markdown segments — parsed lazily only when the block is
+    /// expanded, avoiding synchronous O(n) work while collapsed (the default).
+    @State private var cachedSegments: [MarkdownSegment]
+    @State private var cachedContent: String
+
+    init(content: String, isStreaming: Bool, initiallyExpanded: Bool = false) {
+        self.content = content
+        self.isStreaming = isStreaming
+        _isExpanded = State(initialValue: initiallyExpanded)
+        if initiallyExpanded {
+            _cachedSegments = State(initialValue: parseMarkdownSegments(content))
+            _cachedContent = State(initialValue: content)
+        } else {
+            _cachedSegments = State(initialValue: [])
+            _cachedContent = State(initialValue: "")
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -21,32 +35,34 @@ struct ThinkingBlockView: View {
                 Divider()
                     .padding(.horizontal, VSpacing.sm)
 
-                #if os(macOS)
-                VSelectableTextView(
-                    attributedString: NSAttributedString(
-                        string: content,
-                        attributes: [
-                            .font: VFont.nsBodyMediumDefault,
-                            .foregroundColor: NSColor(VColor.contentSecondary),
-                        ]
-                    ),
-                    lineSpacing: 0
+                MarkdownSegmentView(
+                    segments: cachedSegments,
+                    isStreaming: isStreaming,
+                    maxContentWidth: nil,
+                    textColor: VColor.contentSecondary,
+                    secondaryTextColor: VColor.contentTertiary,
+                    mutedTextColor: VColor.contentTertiary,
+                    tintColor: VColor.primaryBase,
+                    codeTextColor: VColor.contentDefault,
+                    codeBackgroundColor: VColor.surfaceBase
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)
                 .transition(.opacity)
-                #else
-                Text(content)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(VSpacing.sm)
-                    .transition(.opacity)
-                #endif
             }
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .onChange(of: content) { _, newContent in
+            guard isExpanded, newContent != cachedContent else { return }
+            cachedContent = newContent
+            cachedSegments = parseMarkdownSegments(newContent)
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            guard expanded, cachedContent != content else { return }
+            cachedContent = content
+            cachedSegments = parseMarkdownSegments(content)
+        }
     }
 
     // MARK: - Header

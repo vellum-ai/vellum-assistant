@@ -105,23 +105,26 @@ Examples:
           bundled.length + installed.length + availableCatalog.length;
 
         if (opts.json) {
+          const bundledJson = bundled.map((r) => ({
+            id: r.summary.id,
+            name: r.summary.displayName,
+            description: r.summary.description,
+            emoji: r.summary.emoji,
+            state: r.state,
+          }));
+          const installedJson = installed.map((r) => ({
+            id: r.summary.id,
+            name: r.summary.displayName,
+            description: r.summary.description,
+            emoji: r.summary.emoji,
+            state: r.state,
+          }));
           console.log(
             JSON.stringify({
               ok: true,
-              bundled: bundled.map((r) => ({
-                id: r.summary.id,
-                name: r.summary.displayName,
-                description: r.summary.description,
-                emoji: r.summary.emoji,
-                state: r.state,
-              })),
-              installed: installed.map((r) => ({
-                id: r.summary.id,
-                name: r.summary.displayName,
-                description: r.summary.description,
-                emoji: r.summary.emoji,
-                state: r.state,
-              })),
+              skills: [...bundledJson, ...installedJson, ...availableCatalog],
+              bundled: bundledJson,
+              installed: installedJson,
               catalog: availableCatalog,
             }),
           );

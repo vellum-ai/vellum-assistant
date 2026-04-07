@@ -206,14 +206,6 @@ public final class ChatPaginationState {
         loadMoreTimeoutTask = nil
         isLoadingMoreMessages = false
         recomputeVisibleMessages(from: messageManager.messages)
-        // Re-subscribe so the Combine pipeline picks up messages from the new
-        // conversation. Cancel the old subscription explicitly for clarity.
-        messagesSub?.cancel()
-        messagesSub = messageManager.messagesPublisher
-            .dropFirst()
-            .sink { [weak self] messages in
-                self?.recomputeVisibleMessages(from: messages)
-            }
     }
 
 }

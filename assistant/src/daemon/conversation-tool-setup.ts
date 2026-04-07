@@ -89,7 +89,6 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   assistantId?: string;
   currentRequestId?: string;
   workingDir: string;
-  sandboxOverride?: boolean;
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
@@ -107,6 +106,8 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   callSessionId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client. */
   hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
+  /** Optional proxy for delegating CDP commands to a connected client (managed/cloud-hosted mode). */
+  hostBrowserProxy?: import("./host-browser-proxy.js").HostBrowserProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
   hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
   /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
@@ -186,12 +187,12 @@ export function createToolExecutor(
           : undefined,
       onOutput,
       signal: ctx.abortController?.signal,
-      sandboxOverride: ctx.sandboxOverride,
       allowedToolNames: ctx.allowedToolNames,
       memoryScopeId: ctx.memoryPolicy.scopeId,
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
+      hostBrowserProxy: ctx.hostBrowserProxy,
       hostFileProxy: ctx.hostFileProxy,
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
@@ -371,21 +372,23 @@ export function createProxyApprovalCallback(
       allowlistOptions,
       scopeOptions,
       undefined,
-      undefined,
       ctx.conversationId,
     );
 
     // Persist trust rule if the user chose "always allow" or "always deny"
     if (
-      response.decision === "always_allow" &&
+      (response.decision === "always_allow" ||
+        response.decision === "always_allow_high_risk") &&
       response.selectedPattern &&
       response.selectedScope
     ) {
+      const allowHighRisk = response.decision === "always_allow_high_risk";
       log.info(
         {
           toolName,
           pattern: response.selectedPattern,
           scope: response.selectedScope,
+          allowHighRisk,
         },
         "Persisting always-allow trust rule (proxy)",
       );
@@ -395,6 +398,7 @@ export function createProxyApprovalCallback(
         response.selectedScope,
         "allow",
         100,
+        allowHighRisk ? { allowHighRisk: true } : undefined,
       );
     }
     if (
@@ -447,6 +451,7 @@ export interface SkillProjectionContext {
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
+    clientOS?: string;
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
@@ -502,7 +507,9 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
-    return process.platform === "darwin" && !ctx.hasNoClient;
+    // Check the *client's* platform, not the daemon's process.platform.
+    // In Docker the daemon runs on Linux but the connected client may be macOS.
+    return ctx.channelCapabilities?.clientOS === "macos" && !ctx.hasNoClient;
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;

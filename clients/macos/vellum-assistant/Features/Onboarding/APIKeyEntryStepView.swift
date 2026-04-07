@@ -238,6 +238,8 @@ struct APIKeyEntryStepView: View {
         guard !providerRequiresKey || !trimmed.isEmpty else { return }
         if providerRequiresKey {
             APIKeyManager.setKey(trimmed, for: state.selectedProvider)
+            let provider = state.selectedProvider
+            Task { await APIKeyManager.setKey(trimmed, for: provider) }
         }
         state.advance()
     }

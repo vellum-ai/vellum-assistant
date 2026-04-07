@@ -37,7 +37,10 @@ extension AppDelegate {
                 // of the platform auth session, so the app can open in a logged-out
                 // state and the user can sign in from Settings > General.
                 // Skip managed assistants from a different platform environment.
-                let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                // Migration: fall back to UserDefaults for users upgrading from
+                // the old version whose lockfile doesn't yet have activeAssistant.
+                let storedId = LockfileAssistant.loadActiveAssistantId()
+                    ?? UserDefaults.standard.string(forKey: "connectedAssistantId")
                 let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
                     ?? LockfileAssistant.loadLatest()
                 if let assistant, !assistant.isManaged, assistant.isCurrentEnvironment {
@@ -146,6 +149,13 @@ extension AppDelegate {
     @objc func performRestart() {
         let bundleURL = Bundle.main.bundleURL
 
+        // Disconnect SSE and health checks *before* the CLI kills the
+        // daemon/gateway.  Otherwise the health check detects the daemon
+        // dying, triggers autoWakeIfAssistantDied(), and wakes the daemon
+        // right back up — fighting with the shutdown.  (Same pattern as
+        // performRetireAsync().)
+        connectionManager.disconnect()
+
         // Write a timestamped sentinel so the new instance's single-instance
         // guard knows this is an intentional restart, not a duplicate launch.
         // The sentinel contains the current Unix timestamp; the new instance
@@ -165,10 +175,17 @@ extension AppDelegate {
                 // Clean up the sentinel so a failed restart doesn't leave
                 // a file that could bypass the guard on the next launch.
                 try? FileManager.default.removeItem(at: sentinelPath)
+                // Reconnect SSE and health checks so the app doesn't stay
+                // in a disconnected state after a failed relaunch attempt.
+                // (Same pattern as performRetireAsync()'s cancel path.)
+                Task { @MainActor [weak self] in
+                    try? await self?.connectionManager.connect()
+                }
                 return
             }
             Task { @MainActor [weak self] in
                 await self?.vellumCli.stop()
+                self?.isRestarting = true
                 NSApp.terminate(nil)
             }
         }
@@ -180,8 +197,8 @@ extension AppDelegate {
         managedSwitchTask = nil
 
         Task {
-            // Capture assistant ID before logout clears UserDefaults
-            let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            // Capture assistant ID before logout clears it
+            let connectedAssistantId = LockfileAssistant.loadActiveAssistantId()
 
             // Capture managed status before logout clears UserDefaults
             let wasManaged = isCurrentAssistantManaged
@@ -191,16 +208,16 @@ extension AppDelegate {
                     self?.mainWindow?.windowState.showToast(message: msg, style: style)
                 }
 
-                // Restore connectedAssistantId immediately — authManager.logout()
-                // clears it from UserDefaults, but clearDaemonCredentials() needs
-                // it to resolve the gateway connection via GatewayHTTPClient.
+                // Restore activeAssistant immediately — authManager.logout()
+                // clears it, but clearAssistantCredentials() needs it to resolve
+                // the gateway connection via GatewayHTTPClient.
                 // Without it, all DELETE requests fail with "No connected assistant",
                 // triggering the fallback that disconnects and stops the assistant.
                 // Do NOT restore connectedOrganizationId: the org ID may belong
                 // to a different environment (e.g. dev vs prod). Letting bootstrap
                 // re-resolve it on the next login ensures it matches the session.
                 if let connectedAssistantId {
-                    UserDefaults.standard.set(connectedAssistantId, forKey: "connectedAssistantId")
+                    LockfileAssistant.setActiveAssistantId(connectedAssistantId)
                 }
             } else {
                 // Managed: user is redirected to the reauth screen regardless of
@@ -217,7 +234,7 @@ extension AppDelegate {
             // Skip when the assistant was never set up (e.g. logout during onboarding) —
             // there are no credentials to clear and no assistant to stop.
             if !isCurrentAssistantManaged && (!isCurrentAssistantRemote || isCurrentAssistantDocker) && hasSetupDaemon {
-                let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
+                let cleared = await LocalAssistantBootstrapService.clearAssistantCredentials()
                 if !cleared {
                     log.warning("Credential cleanup incomplete — stopping assistant to prevent stale managed credential state")
                     connectionManager.disconnect()
@@ -258,7 +275,7 @@ extension AppDelegate {
                 // Self-hosted (local or remote): clear auth state but keep the
                 // app running. The user can sign in again from Settings > General.
                 // connectedAssistantId was already restored above (before
-                // clearDaemonCredentials). Preserve the actor token and gateway
+                // clearAssistantCredentials). Preserve the actor token and gateway
                 // connection — the actor token authenticates to the local gateway
                 // (device-scoped, not user-scoped) and is independent of the
                 // platform auth session.
@@ -344,7 +361,7 @@ extension AppDelegate {
             return
         }
 
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId(), !assistantId.isEmpty else {
             log.warning("Skipping local assistant API key provisioning because connectedAssistantId is not set")
             return
         }
@@ -447,7 +464,7 @@ extension AppDelegate {
         mainWindow = nil
 
         // 3. Persist the new assistant selection
-        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId(assistant.assistantId)
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
@@ -497,15 +514,15 @@ extension AppDelegate {
                 // platform returns 404 (deleted) or 403 (revoked). Restore it
                 // so the guard below doesn't confuse this with a concurrent
                 // switch that wrote a different assistant ID.
-                if UserDefaults.standard.string(forKey: "connectedAssistantId") == nil, !Task.isCancelled {
-                    UserDefaults.standard.set(targetId, forKey: "connectedAssistantId")
+                if LockfileAssistant.loadActiveAssistantId() == nil, !Task.isCancelled {
+                    LockfileAssistant.setActiveAssistantId(targetId)
                 }
                 // Guard against a second switch that started while we were
                 // awaiting the bootstrap — only finish if this task hasn't
                 // been cancelled and this assistant is still the selected
                 // target.
                 guard !Task.isCancelled,
-                      UserDefaults.standard.string(forKey: "connectedAssistantId") == targetId else {
+                      LockfileAssistant.loadActiveAssistantId() == targetId else {
                     log.info("Managed switch to \(targetId, privacy: .public) superseded — skipping finishSwitchAssistant")
                     return
                 }
@@ -550,9 +567,17 @@ extension AppDelegate {
         // that depend on connectedAssistantId).
         featureFlagStore.reloadFromDisk()
 
-        // Reload avatar for the new assistant (customAvatarURL now resolves
-        // to the new assistant's path after connectedAssistantId was updated).
-        AvatarAppearanceManager.shared.reloadAvatar()
+        // Reload avatar for the new assistant via the gateway.
+        // Skip the reload when onboarding avatar traits are pending — the async
+        // fetchTraitsViaHTTP inside reloadAvatar would find no traits on the
+        // freshly-hatched assistant and clear the locally-saved character avatar.
+        // syncOnboardingAvatarIfNeeded saves locally first, then syncs to the
+        // assistant, which triggers its own reloadAvatar on success.
+        if onboardingState?.hatchAvatarBodyShape != nil {
+            syncOnboardingAvatarIfNeeded()
+        } else {
+            AvatarAppearanceManager.shared.reloadAvatar()
+        }
 
         showMainWindow()
     }
@@ -570,7 +595,7 @@ extension AppDelegate {
     /// Awaitable so callers (e.g. the first-launch bootstrap) can ensure
     /// LLM provider keys are registered before sending the first message.
     func syncApiKeysViaGateway() async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId(),
               !assistantId.isEmpty else {
             log.warning("syncApiKeysViaGateway: no connected assistant, skipping key sync")
             return
@@ -610,7 +635,7 @@ extension AppDelegate {
     /// `false` if the user cancelled after a failure.
     @discardableResult
     func performRetireAsync() async -> Bool {
-        let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistantName = LockfileAssistant.loadActiveAssistantId()
 
         if assistantName == nil {
             log.error("No stored connected assistant ID found — skipping retire")
@@ -653,7 +678,7 @@ extension AppDelegate {
         // subsequent flows (e.g. managed bootstrap) don't attempt a 404 lookup
         // for the now-retired assistant on the platform. If another assistant is
         // found below, performSwitchAssistant will set the new ID.
-        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId(nil)
 
         // Check if other assistants remain in the lockfile.
         // Prefer remote assistants (always reachable), then try waking local ones.
@@ -689,7 +714,7 @@ extension AppDelegate {
         AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
-        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId(nil)
         SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         SentryDeviceInfo.updateOrganizationTag(nil)

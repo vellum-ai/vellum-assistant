@@ -45,8 +45,14 @@ public struct VDiffView: View {
     public var body: some View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         if let maxHeight {
-            diffScrollView(lines: lines, axes: [.horizontal, .vertical])
-                .frame(maxHeight: maxHeight)
+            let lineThreshold = Int(maxHeight / 18)
+            if lines.count > lineThreshold {
+                diffScrollView(lines: lines, axes: [.horizontal, .vertical])
+                    .frame(height: maxHeight)
+            } else {
+                diffScrollView(lines: lines, axes: .horizontal)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } else {
             diffScrollView(lines: lines, axes: .horizontal)
                 .fixedSize(horizontal: false, vertical: true)

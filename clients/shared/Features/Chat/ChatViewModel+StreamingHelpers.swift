@@ -451,6 +451,16 @@ extension ChatViewModel {
                messages[msgIndex].toolCalls[tcIndex].confirmationDecision == .approved {
                 messages[msgIndex].toolCalls[tcIndex].confirmationDecision = .denied
             }
+            // When an app tool call completes, mark dynamic page surfaces in the
+            // same message as ready so the inline card enables its "Open App" button.
+            let toolName = messages[msgIndex].toolCalls[tcIndex].toolName
+            if toolName == "app_create" || toolName == "app_refresh" || toolName == "app_update" {
+                for surfIdx in messages[msgIndex].inlineSurfaces.indices {
+                    if case .dynamicPage = messages[msgIndex].inlineSurfaces[surfIdx].data {
+                        messages[msgIndex].inlineSurfaces[surfIdx].isToolCallComplete = true
+                    }
+                }
+            }
         }
         // Auto-open clip files in the default video player.
         // Use msg.toolName from the event payload (stable) instead of the

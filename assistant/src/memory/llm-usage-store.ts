@@ -301,7 +301,7 @@ export function getUsageHourBuckets(range: UsageTimeRange): UsageDayBucket[] {
   }));
 }
 
-type GroupByDimension = "actor" | "provider" | "model";
+type GroupByDimension = "actor" | "provider" | "model" | "conversation";
 
 /**
  * Return grouped breakdowns across the given time range, ordered by total
@@ -312,10 +312,51 @@ export function getUsageGroupBreakdown(
   groupBy: GroupByDimension,
 ): UsageGroupBreakdown[] {
   // Runtime allowlist — defense-in-depth against SQL injection via type assertions.
-  const ALLOWED_COLUMNS = new Set<string>(["actor", "provider", "model"]);
-  if (!ALLOWED_COLUMNS.has(groupBy)) {
-    throw new Error(`Invalid groupBy column: ${groupBy}`);
+  const ALLOWED_DIMENSIONS = new Set<string>([
+    "actor",
+    "provider",
+    "model",
+    "conversation",
+  ]);
+  if (!ALLOWED_DIMENSIONS.has(groupBy)) {
+    throw new Error(`Invalid groupBy dimension: ${groupBy}`);
   }
+
+  // Conversation grouping requires a JOIN with conversations to resolve titles.
+  if (groupBy === "conversation") {
+    const rows = rawAll<GroupRow>(
+      /*sql*/ `
+      SELECT
+        CASE WHEN e.conversation_id IS NULL THEN 'Other'
+             ELSE COALESCE(c.title, 'Untitled')
+        END AS group_key,
+        COALESCE(SUM(e.input_tokens), 0)                 AS total_input_tokens,
+        COALESCE(SUM(e.output_tokens), 0)                AS total_output_tokens,
+        COALESCE(SUM(e.cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
+        COALESCE(SUM(e.cache_read_input_tokens), 0)      AS total_cache_read_tokens,
+        COALESCE(SUM(e.estimated_cost_usd), 0)           AS total_estimated_cost_usd,
+        COALESCE(SUM(COALESCE(e.llm_call_count, 1)), 0)  AS event_count
+      FROM llm_usage_events e
+      LEFT JOIN conversations c ON e.conversation_id = c.id
+      WHERE e.created_at >= ?1 AND e.created_at <= ?2
+      GROUP BY e.conversation_id
+      ORDER BY total_estimated_cost_usd DESC
+      LIMIT 50
+      `,
+      range.from,
+      range.to,
+    );
+    return rows.map((r) => ({
+      group: r.group_key,
+      totalInputTokens: r.total_input_tokens,
+      totalOutputTokens: r.total_output_tokens,
+      totalCacheCreationTokens: r.total_cache_creation_tokens,
+      totalCacheReadTokens: r.total_cache_read_tokens,
+      totalEstimatedCostUsd: r.total_estimated_cost_usd ?? 0,
+      eventCount: r.event_count,
+    }));
+  }
+
   const column = groupBy;
   const rows = rawAll<GroupRow>(
     /*sql*/ `

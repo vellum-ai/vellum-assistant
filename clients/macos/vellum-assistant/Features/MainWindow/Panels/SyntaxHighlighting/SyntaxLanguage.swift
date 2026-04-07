@@ -20,7 +20,7 @@ enum SyntaxLanguage: String, CaseIterable {
             return .javascript
         case "ts", "tsx", "mts", "cts":
             return .typescript
-        case "json":
+        case "json", "jsonl", "ndjson":
             return .json
         case "md", "markdown":
             return .markdown
@@ -28,9 +28,13 @@ enum SyntaxLanguage: String, CaseIterable {
             break
         }
 
-        let mime = mimeType.lowercased()
+        // Normalize the MIME type to strip trailing parameters like
+        // `; charset=utf-8` before comparison. Without this, servers that
+        // include standard MIME parameters would fall through to .plain even
+        // though the base type is recognized.
+        let mime = normalizedMimeType(mimeType)
         switch mime {
-        case "application/json":
+        case "application/json", "application/jsonl", "application/x-ndjson", "application/x-jsonlines", "application/jsonlines":
             return .json
         case "application/javascript", "text/javascript":
             return .javascript

@@ -184,6 +184,106 @@ const MemoryFreshnessConfigSchema = z
     "Freshness-based ranking for memory retrieval — down-ranks old items unless recently reinforced",
   );
 
+const MemoryContextLoadInjectionSchema = z
+  .object({
+    maxNodes: z
+      .number({
+        error:
+          "memory.retrieval.injection.contextLoad.maxNodes must be a number",
+      })
+      .int("memory.retrieval.injection.contextLoad.maxNodes must be an integer")
+      .positive(
+        "memory.retrieval.injection.contextLoad.maxNodes must be a positive integer",
+      )
+      .default(25)
+      .describe("Maximum number of memory nodes to load at conversation start"),
+    serendipitySlots: z
+      .number({
+        error:
+          "memory.retrieval.injection.contextLoad.serendipitySlots must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.contextLoad.serendipitySlots must be an integer",
+      )
+      .nonnegative(
+        "memory.retrieval.injection.contextLoad.serendipitySlots must be non-negative",
+      )
+      .default(5)
+      .describe("Number of random wildcard memory picks at conversation start"),
+    capabilityReserve: z
+      .number({
+        error:
+          "memory.retrieval.injection.contextLoad.capabilityReserve must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.contextLoad.capabilityReserve must be an integer",
+      )
+      .nonnegative(
+        "memory.retrieval.injection.contextLoad.capabilityReserve must be non-negative",
+      )
+      .default(5)
+      .describe(
+        "Reserved slots for skill/CLI capability nodes at conversation start",
+      ),
+  })
+  .describe("Memory injection limits at conversation start");
+
+const MemoryPerTurnInjectionSchema = z
+  .object({
+    maxNodes: z
+      .number({
+        error: "memory.retrieval.injection.perTurn.maxNodes must be a number",
+      })
+      .int("memory.retrieval.injection.perTurn.maxNodes must be an integer")
+      .positive(
+        "memory.retrieval.injection.perTurn.maxNodes must be a positive integer",
+      )
+      .default(6)
+      .describe(
+        "Maximum total memory nodes injected per turn (general + capability + serendipity)",
+      ),
+    serendipitySlots: z
+      .number({
+        error:
+          "memory.retrieval.injection.perTurn.serendipitySlots must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.perTurn.serendipitySlots must be an integer",
+      )
+      .nonnegative(
+        "memory.retrieval.injection.perTurn.serendipitySlots must be non-negative",
+      )
+      .default(1)
+      .describe("Number of random wildcard memory picks per turn"),
+    capabilityReserve: z
+      .number({
+        error:
+          "memory.retrieval.injection.perTurn.capabilityReserve must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.perTurn.capabilityReserve must be an integer",
+      )
+      .nonnegative(
+        "memory.retrieval.injection.perTurn.capabilityReserve must be non-negative",
+      )
+      .default(2)
+      .describe("Reserved slots for skill/CLI capability nodes per turn"),
+  })
+  .describe("Memory injection limits for mid-conversation turns");
+
+export const MemoryInjectionConfigSchema = z
+  .object({
+    contextLoad: MemoryContextLoadInjectionSchema.default(
+      MemoryContextLoadInjectionSchema.parse({}),
+    ),
+    perTurn: MemoryPerTurnInjectionSchema.default(
+      MemoryPerTurnInjectionSchema.parse({}),
+    ),
+  })
+  .describe(
+    "Controls how many memory items are injected at conversation start and per turn",
+  );
+
 export const MemoryRetrievalConfigSchema = z
   .object({
     maxInjectTokens: z
@@ -208,6 +308,9 @@ export const MemoryRetrievalConfigSchema = z
       ),
     dynamicBudget: MemoryDynamicBudgetConfigSchema.default(
       MemoryDynamicBudgetConfigSchema.parse({}),
+    ),
+    injection: MemoryInjectionConfigSchema.default(
+      MemoryInjectionConfigSchema.parse({}),
     ),
   })
   .describe(

@@ -11,7 +11,7 @@ let mockGetProvider: (
 ) => Record<string, unknown> | undefined = () => undefined;
 
 let mockListActiveConnectionsByProvider: (
-  providerKey: string,
+  provider: string,
 ) => Array<Record<string, unknown>> = () => [];
 
 let mockGetManagedServiceConfigKey: (key: string) => string | null = () => null;
@@ -71,8 +71,8 @@ mock.module("../../../../config/loader.js", () => ({
 
 mock.module("../../../../oauth/oauth-store.js", () => ({
   getProvider: (key: string) => mockGetProvider(key),
-  listActiveConnectionsByProvider: (providerKey: string) =>
-    mockListActiveConnectionsByProvider(providerKey),
+  listActiveConnectionsByProvider: (provider: string) =>
+    mockListActiveConnectionsByProvider(provider),
   listConnections: () => [],
   getConnection: () => undefined,
   getConnectionByProvider: () => undefined,
@@ -276,7 +276,7 @@ describe("assistant oauth mode", () => {
 
     test("provider without managedServiceConfigKey returns your-own with managedModeSupported: false", async () => {
       mockGetProvider = () => ({
-        providerKey: "slack",
+        provider: "slack",
         managedServiceConfigKey: null,
       });
       mockGetManagedServiceConfigKey = () => null;
@@ -296,7 +296,7 @@ describe("assistant oauth mode", () => {
 
     test("provider in managed mode returns mode: managed with managedModeSupported: true", async () => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -319,7 +319,7 @@ describe("assistant oauth mode", () => {
 
     test("provider in your-own mode returns mode: your-own with managedModeSupported: true", async () => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -348,7 +348,7 @@ describe("assistant oauth mode", () => {
   describe("set mode", () => {
     test("invalid mode value returns error listing valid values", async () => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -370,7 +370,7 @@ describe("assistant oauth mode", () => {
 
     test("provider without managedServiceConfigKey returns error about managed mode not available when --set managed", async () => {
       mockGetProvider = () => ({
-        providerKey: "slack",
+        provider: "slack",
         managedServiceConfigKey: null,
       });
       mockGetManagedServiceConfigKey = () => null;
@@ -391,7 +391,7 @@ describe("assistant oauth mode", () => {
 
     test("provider without managedServiceConfigKey treats --set your-own as successful no-op", async () => {
       mockGetProvider = () => ({
-        providerKey: "slack",
+        provider: "slack",
         managedServiceConfigKey: null,
       });
       mockGetManagedServiceConfigKey = () => null;
@@ -414,7 +414,7 @@ describe("assistant oauth mode", () => {
 
     test("set to same mode returns changed: false", async () => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -440,7 +440,7 @@ describe("assistant oauth mode", () => {
 
     test("switch managed -> your-own with active managed connections and no BYO connections includes hint", async () => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -483,7 +483,7 @@ describe("assistant oauth mode", () => {
 
     test("switch your-own -> managed with active BYO connections and no managed connections includes hint", async () => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -496,7 +496,7 @@ describe("assistant oauth mode", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-local-1",
-          providerKey: "google",
+          provider: "google",
           status: "active",
         },
       ];
@@ -526,7 +526,7 @@ describe("assistant oauth mode", () => {
 
     test("switch mode with connections on both sides has no hint", async () => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -549,7 +549,7 @@ describe("assistant oauth mode", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-local-1",
-          providerKey: "google",
+          provider: "google",
           status: "active",
         },
       ];
@@ -571,7 +571,7 @@ describe("assistant oauth mode", () => {
 
     test("switch mode with no connections on either side has no hint", async () => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -604,7 +604,7 @@ describe("assistant oauth mode", () => {
 
     test("saveRawConfig is called with the correct nested path", async () => {
       mockGetProvider = () => ({
-        providerKey: "google",
+        provider: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";

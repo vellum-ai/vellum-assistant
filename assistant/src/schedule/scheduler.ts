@@ -242,6 +242,7 @@ async function runScheduleOnce(
         );
         // Create a fallback conversation for the schedule run record
         const fallbackConversation = bootstrapConversation({
+          conversationType: "scheduled",
           source: "schedule",
           scheduleJobId: job.id,
           groupId: "system:scheduled",
@@ -273,6 +274,7 @@ async function runScheduleOnce(
     }
     if (!conversationId) {
       const conversation = bootstrapConversation({
+        conversationType: "scheduled",
         source: "schedule",
         scheduleJobId: job.id,
         groupId: "system:scheduled",

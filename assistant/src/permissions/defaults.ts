@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getBundledSkillsDir } from "../config/skills.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -42,7 +43,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // Some test suites mock getConfig() with partial objects; treat missing
   // branches as defaults so rule generation remains deterministic.
   const config = getConfig() as {
-    sandbox?: { enabled?: boolean };
     skills?: { load?: { extraDirs?: unknown } };
   };
 
@@ -67,12 +67,11 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 50,
   };
 
-  // Sandboxed bash commands run in an isolated container — auto-allow all of
-  // them (including high-risk) so the user is never prompted for sandbox work.
-  // Only emit this rule when the sandbox is actually enabled; otherwise bash
-  // commands execute on the host and must go through normal permission checks.
-  const sandboxEnabled = config.sandbox?.enabled !== false;
-  const sandboxShellRule: DefaultRuleTemplate | null = sandboxEnabled
+  // When running inside a container (IS_CONTAINERIZED=true), bash commands
+  // execute in an isolated environment — auto-allow all of them (including
+  // high-risk) so the user is never prompted.  Outside a container, bash
+  // commands run on the host and go through normal permission checks.
+  const bashShellRule: DefaultRuleTemplate | null = getIsContainerized()
     ? {
         id: "default:allow-bash-global",
         tool: "bash",
@@ -300,7 +299,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   return [
     ...hostFileRules,
     hostShellRule,
-    ...(sandboxShellRule ? [sandboxShellRule] : []),
+    ...(bashShellRule ? [bashShellRule] : []),
     ...computerUseRules,
     ...managedSkillRules,
     ...workspacePromptRules,

@@ -141,6 +141,13 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.groupedConversations
     }
 
+    var sidebarGroupEntries: [SidebarGroupEntry] { listStore.sidebarGroupEntries }
+
+    var customGroupsEnabled: Bool {
+        get { listStore.customGroupsEnabled }
+        set { listStore.customGroupsEnabled = newValue }
+    }
+
     var visibleConversations: [ConversationModel] { listStore.visibleConversations }
 
     var unseenVisibleConversationCount: Int { listStore.unseenVisibleConversationCount }
@@ -190,7 +197,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationRestorer.delegate = self
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
         if listStore.groups.isEmpty {
-            listStore.groups = [.pinned, .scheduled, .background]
+            listStore.groups = [.pinned, .scheduled, .background, .all]
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -486,7 +493,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     private func promoteDraft(fromUserSend: Bool) {
         guard let viewModel = selectionStore.draftViewModel else { return }
 
-        let conversation = ConversationModel(title: "Untitled")
+        let conversation = ConversationModel(title: "Untitled", groupId: ConversationGroup.all.id)
         let localId = conversation.id
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
@@ -606,14 +613,15 @@ final class ConversationManager: ConversationRestorerDelegate {
         log.info("Created schedule conversation \(localId) for conversation \(conversationId) (schedule \(scheduleJobId))")
     }
 
-    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String) {
+    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String, groupId: String? = nil, source: String? = nil) {
         guard let localId = createBackgroundConversation(
             conversationId: conversationId,
             title: title,
-            source: "notification",
-            markHistoryLoaded: false
+            source: source ?? "notification",
+            markHistoryLoaded: false,
+            groupId: groupId ?? ConversationGroup.all.id
         ) else { return }
-        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName))")
+        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName), groupId: \(groupId ?? "nil"))")
     }
 
     func createHeartbeatConversation(conversationId: String, title: String) {
@@ -693,6 +701,71 @@ final class ConversationManager: ConversationRestorerDelegate {
         log.info("Archived conversation \(id)")
     }
 
+    func archiveAllConversations(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+
+        var needsReorder = false
+        var newlyArchivedServerIds = Set<String>()
+        let idsSet = Set(ids)
+
+        var draft = listStore.conversations
+        for i in draft.indices where idsSet.contains(draft[i].id) {
+            if draft[i].displayOrder != nil {
+                needsReorder = true
+            }
+            draft[i].isArchived = true
+            draft[i].displayOrder = nil
+            if let cid = draft[i].conversationId {
+                newlyArchivedServerIds.insert(cid)
+            }
+        }
+        listStore.conversations = draft
+
+        if !newlyArchivedServerIds.isEmpty {
+            var archived = listStore.archivedConversationIds
+            archived.formUnion(newlyArchivedServerIds)
+            listStore.archivedConversationIds = archived
+        }
+
+        for id in ids {
+            guard listStore.conversations.contains(where: { $0.id == id }) else { continue }
+
+            AppDelegate.shared?.threadWindowManager?.closeThread(conversationLocalId: id)
+            selectionStore.pinnedViewModelIds.remove(id)
+
+            if let convIndex = listStore.conversations.firstIndex(where: { $0.id == id }) {
+                if listStore.conversations[convIndex].conversationId != nil {
+                    selectionStore.chatViewModels[id]?.stopGenerating()
+                    selectionStore.removeChatViewModel(for: id)
+                } else if selectionStore.chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
+                            && selectionStore.chatViewModels[id]?.isBootstrapping != true {
+                    selectionStore.chatViewModels[id]?.stopGenerating()
+                    selectionStore.removeChatViewModel(for: id)
+                } else {
+                    selectionStore.chatViewModels[id]?.cancelPendingMessage()
+                }
+            }
+        }
+
+        if let activeId = selectionStore.activeConversationId, idsSet.contains(activeId) {
+            if listStore.visibleConversations.isEmpty {
+                enterDraftMode()
+            } else if let firstVisibleId = listStore.visibleConversations.first?.id {
+                selectionStore.performActivation(for: firstVisibleId)
+            }
+        } else if listStore.visibleConversations.isEmpty {
+            enterDraftMode()
+        }
+
+        ConversationSelectionStore.clearRenderCaches()
+
+        if needsReorder {
+            listStore.sendReorderConversations()
+        }
+
+        log.info("Archived \(ids.count) conversations")
+    }
+
     func unarchiveConversation(id: UUID) {
         guard let index = listStore.conversations.firstIndex(where: { $0.id == id }) else { return }
         listStore.conversations[index].isArchived = false
@@ -709,6 +782,10 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func selectConversation(id: UUID) {
         guard let conversation = listStore.conversations.first(where: { $0.id == id }) else { return }
+
+        // Clear stale streaming segment data from previous conversation to prevent
+        // cross-conversation cache pollution from the single-entry streaming dedup cache.
+        ChatBubble.lastStreamingSegments = nil
 
         selectionStore.removeAbandonedEmptyConversation(switching: id)
 
@@ -935,7 +1012,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         for i in updated.indices where updated[i].groupId == groupId {
             updated[i].isArchived = true
             updated[i].displayOrder = nil
-            updated[i].groupId = nil
+            updated[i].groupId = ConversationGroup.all.id
             if let cid = updated[i].conversationId {
                 newlyArchivedServerIds.insert(cid)
             }
@@ -1041,6 +1118,11 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.markAllConversationsSeen()
     }
 
+    @discardableResult
+    func markConversationsSeen(in localIds: Set<UUID>) -> [UUID] {
+        listStore.markConversationsSeen(in: localIds)
+    }
+
     func commitPendingSeenSignals() {
         listStore.commitPendingSeenSignals()
     }
@@ -1131,7 +1213,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversation.lastInteractedAt = Date()
 
         if localId != selectionStore.activeConversationId {
-            conversation.hasUnseenLatestAssistantMessage = true
+            if !conversation.shouldSuppressUnreadIndicator {
+                conversation.hasUnseenLatestAssistantMessage = true
+            }
             conversation.latestAssistantMessageAt = Date()
             listStore.pendingSeenConversationIds.removeAll { $0 == daemonConversationId }
         }
@@ -1315,7 +1399,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             if isNewMessage || streamingJustCompleted {
                 shouldEmitSeenSignal = true
             }
-        } else if !conversation.hasUnseenLatestAssistantMessage {
+        } else if !conversation.hasUnseenLatestAssistantMessage && !conversation.shouldSuppressUnreadIndicator {
             conversation.hasUnseenLatestAssistantMessage = true
         }
         listStore.conversations[index] = conversation
@@ -1353,7 +1437,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     // MARK: - Managed Key Reprovisioning
 
     private func reprovisionManagedKey() async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId(), !assistantId.isEmpty else {
             log.warning("Cannot reprovision — no connected assistant ID")
             return
         }

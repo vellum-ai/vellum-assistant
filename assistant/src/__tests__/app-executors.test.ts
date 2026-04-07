@@ -11,7 +11,10 @@ mock.module("../bundler/app-compiler.js", () => ({
 
 import type { AppDefinition } from "../memory/app-store.js";
 import type { AppStore } from "../tools/apps/executors.js";
-import { executeAppCreate } from "../tools/apps/executors.js";
+import {
+  executeAppCreate,
+  executeAppRefresh,
+} from "../tools/apps/executors.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,6 +56,7 @@ function mockStore(
   return {
     getApp: (id: string) => (id === app.id ? app : null),
     listApps: () => [app],
+    appFileExists: (_appId: string, path: string) => path in files,
     createApp: () => app,
     updateApp: () => app,
     deleteApp: () => {},
@@ -156,5 +160,48 @@ describe("executeAppCreate", () => {
     expect(files["src/index.html"]).toBe(customHtml);
     // main.tsx scaffold should still be written
     expect(files["src/main.tsx"]).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeAppRefresh
+// ---------------------------------------------------------------------------
+
+describe("executeAppRefresh", () => {
+  test("legacy app: bumps updatedAt without compiling", async () => {
+    const app = makeLegacyApp();
+    const store = mockStore(app);
+    const result = await executeAppRefresh({ app_id: app.id }, store);
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.refreshed).toBe(true);
+    expect(parsed.appId).toBe(app.id);
+    // Legacy apps should not have compile-related fields
+    expect(parsed.compiled).toBeUndefined();
+    expect(parsed.compile_errors).toBeUndefined();
+  });
+
+  test("multifile app: compiles src/ and returns result", async () => {
+    const app = makeMultifileApp();
+    const store = mockStore(app);
+    const result = await executeAppRefresh({ app_id: app.id }, store);
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.refreshed).toBe(true);
+    expect(parsed.appId).toBe(app.id);
+    expect(parsed.compiled).toBe(true);
+    expect(parsed.compile_duration_ms).toBeDefined();
+  });
+
+  test("returns error for unknown app", async () => {
+    const app = makeLegacyApp();
+    const store = mockStore(app);
+    const result = await executeAppRefresh({ app_id: "nonexistent" }, store);
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.error).toContain("not found");
   });
 });

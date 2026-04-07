@@ -336,6 +336,17 @@ Examples:
             // BYO PATH
             // =============================================================
 
+            // Manual-token providers (slack_channel, telegram) don't use
+            // OAuth2 browser flows — credentials are configured via
+            // `assistant credentials` or chat setup instead.
+            if (providerRow.authorizeUrl === "urn:manual-token") {
+              writeError(
+                `"${provider}" uses manual token configuration, not an OAuth browser flow. ` +
+                  `Set the token with: assistant credentials set <token_value> --service ${provider} --field <field_name>`,
+              );
+              return;
+            }
+
             // a. Resolve client credentials from the DB
             const dbApp = opts.clientId
               ? getAppByProviderAndClientId(provider, opts.clientId)
@@ -403,12 +414,15 @@ Examples:
                 writeOutput(cmd, {
                   ok: true,
                   deferred: true,
-                  authUrl: result.authUrl,
+                  // Wire key stays `authUrl` for backward compatibility with
+                  // existing CLI script consumers; the internal field on
+                  // `result` is `authorizeUrl`.
+                  authUrl: result.authorizeUrl,
                   service: result.service,
                 });
               } else {
                 process.stdout.write(
-                  `\nAuthorize with ${provider}:\n\n${result.authUrl}\n\nThe connection will complete automatically once you authorize.\n`,
+                  `\nAuthorize with ${provider}:\n\n${result.authorizeUrl}\n\nThe connection will complete automatically once you authorize.\n`,
                 );
               }
               return;

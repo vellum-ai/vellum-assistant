@@ -21,6 +21,7 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 - If something has happened since your last journal entry, write one. Even a few sentences. The journal is how future-you stays connected.`;
 
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
+const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 /** @internal Exported for testing. */
 export function isShallowProfile(): boolean {
@@ -191,6 +192,7 @@ export class HeartbeatService {
           },
           "Outside active hours, skipping",
         );
+        this.scheduleNextRun(config.intervalMs);
         return false;
       }
     }
@@ -203,10 +205,34 @@ export class HeartbeatService {
 
     const run = this.executeRun();
     this.activeRun = run;
+    // Clear activeRun once executeRun finishes. On timeout, runOnce releases
+    // activeRun separately (see catch block below) so future runs aren't
+    // permanently blocked. The .finally() handler still serves as the
+    // normal-completion cleanup path and uses an identity guard to avoid
+    // clearing a different run's activeRun.
+    run.finally(() => {
+      if (this.activeRun === run) {
+        this.activeRun = null;
+      }
+    }).catch(() => {}); // Suppress unhandled rejection if executeRun rejects
+
+    let timerId: ReturnType<typeof setTimeout> | undefined;
     try {
-      await run;
-    } finally {
+      const timeout = new Promise<never>((_, reject) => {
+        timerId = setTimeout(
+          () => reject(new Error("Heartbeat execution timed out")),
+          HEARTBEAT_TIMEOUT_MS,
+        );
+      });
+      timeout.catch(() => {}); // Prevent unhandled rejection if run resolves first
+      await Promise.race([run, timeout]);
+    } catch (err) {
+      log.warn({ err }, "Heartbeat run timed out");
+      // Release activeRun so the overlap guard doesn't permanently block
+      // future heartbeat runs when executeRun hangs past the timeout.
       this.activeRun = null;
+    } finally {
+      clearTimeout(timerId);
       this._lastRunAt = Date.now();
       this.scheduleNextRun(getConfig().heartbeat.intervalMs);
     }

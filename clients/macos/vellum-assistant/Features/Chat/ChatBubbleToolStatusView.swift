@@ -49,7 +49,9 @@ extension ChatBubble {
                 onConfirmationDeny: onConfirmationDeny,
                 onAlwaysAllow: onAlwaysAllow,
                 onTemporaryAllow: onTemporaryAllow,
-                activeConfirmationRequestId: activeConfirmationRequestId
+                activeConfirmationRequestId: activeConfirmationRequestId,
+                expandedStepIds: $expandedStepIds,
+                cardExpansionOverrides: $cardExpansionOverrides
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 
@@ -105,11 +107,7 @@ extension ChatBubble {
                 .font(VFont.labelDefault)
                 .foregroundStyle(chipColor)
         }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(
-            Capsule().fill(Color.clear)
-        )
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
         .overlay(
             Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
         )

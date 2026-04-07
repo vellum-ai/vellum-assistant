@@ -5,6 +5,13 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationListStore")
 
+/// Lightweight identifiable wrapper for ForEach over grouped conversations.
+struct SidebarGroupEntry: Identifiable {
+    let id: String
+    let group: ConversationGroup
+    let conversations: [ConversationModel]
+}
+
 /// Owns the conversation and group arrays plus all sidebar-derived computed
 /// properties, pagination, grouping, pinning, ordering, and seen/unseen state.
 ///
@@ -24,6 +31,15 @@ final class ConversationListStore {
     }
     var groups: [ConversationGroup] = [] {
         didSet { recomputeDerivedProperties() }
+    }
+
+    /// Whether custom conversation groups UI is enabled. Updated by the view
+    /// layer when the feature flag changes; triggers sidebar entry recomputation.
+    var customGroupsEnabled: Bool = false {
+        didSet {
+            guard oldValue != customGroupsEnabled else { return }
+            recomputeSidebarGroupEntries()
+        }
     }
 
     /// Whether the daemon returned a non-empty groups array, indicating it supports
@@ -129,7 +145,7 @@ final class ConversationListStore {
     private(set) var sortedGroups: [ConversationGroup] = []
 
     /// Conversations organized by group. Groups appear in sortPosition order;
-    /// ungrouped conversations (including orphans with unknown groupId) appear last.
+    /// ungrouped and orphaned conversations are folded into the system:all bucket.
     private(set) var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] = []
 
     /// Non-archived, non-private conversations sorted for the sidebar.
@@ -139,6 +155,12 @@ final class ConversationListStore {
     private(set) var unseenVisibleConversationCount: Int = 0
 
     private(set) var archivedConversations: [ConversationModel] = []
+
+    /// Pre-computed sidebar group entries with feature-flag-aware folding applied.
+    /// When custom groups are disabled, non-system-group conversations are folded
+    /// into the system:all bucket. Recomputed alongside other derived properties
+    /// so the view body reads a ready-made array without inline computation.
+    private(set) var sidebarGroupEntries: [SidebarGroupEntry] = []
 
     /// Recompute all derived sidebar properties from `conversations` and `groups`.
     /// Called from `conversations.didSet` and `groups.didSet`. Skips work when
@@ -151,6 +173,7 @@ final class ConversationListStore {
             visibleConversations = []
             unseenVisibleConversationCount = 0
             archivedConversations = []
+            sidebarGroupEntries = []
             return
         }
         let currentSortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
@@ -164,6 +187,7 @@ final class ConversationListStore {
 
         unseenVisibleConversationCount = conversations.count {
             !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage
+                && !$0.shouldSuppressUnreadIndicator
         }
 
         archivedConversations = conversations.filter { $0.isArchived }
@@ -187,11 +211,56 @@ final class ConversationListStore {
         }
 
         var grouped: [(ConversationGroup?, [ConversationModel])] = []
+        var didFoldIntoAll = false
         for group in currentSortedGroups {
-            grouped.append((group, buckets[group.id] ?? []))
+            if group.id == ConversationGroup.all.id {
+                // Fold nil-groupId and orphaned conversations into the system:all bucket
+                // so they are never silently dropped by sidebar rendering.
+                grouped.append((group, (buckets[group.id] ?? []) + ungrouped + orphaned))
+                didFoldIntoAll = true
+            } else {
+                grouped.append((group, buckets[group.id] ?? []))
+            }
         }
-        grouped.append((nil, ungrouped + orphaned))
+        // If system:all wasn't in the groups list (e.g. old daemon), create a
+        // synthetic entry so ungrouped/orphaned conversations are still visible.
+        if !didFoldIntoAll && (!ungrouped.isEmpty || !orphaned.isEmpty) {
+            grouped.append((ConversationGroup.all, ungrouped + orphaned))
+        }
         groupedConversations = grouped
+        recomputeSidebarGroupEntries()
+    }
+
+    /// Derive sidebar group entries from `groupedConversations` and the current
+    /// `customGroupsEnabled` flag. Called from `recomputeDerivedProperties()` and
+    /// when `customGroupsEnabled` changes.
+    private func recomputeSidebarGroupEntries() {
+        let raw = groupedConversations
+        var entries: [SidebarGroupEntry] = []
+        var extraForAll: [ConversationModel] = []
+        for entry in raw {
+            guard let group = entry.group else { continue }
+            if !group.isSystemGroup && !customGroupsEnabled {
+                extraForAll.append(contentsOf: entry.conversations)
+            } else {
+                entries.append(SidebarGroupEntry(id: group.id, group: group, conversations: entry.conversations))
+            }
+        }
+        if !extraForAll.isEmpty {
+            if let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
+                let existing = entries[allIndex]
+                entries[allIndex] = SidebarGroupEntry(
+                    id: existing.id, group: existing.group,
+                    conversations: existing.conversations + extraForAll
+                )
+            } else {
+                entries.append(SidebarGroupEntry(
+                    id: ConversationGroup.all.id, group: ConversationGroup.all,
+                    conversations: extraForAll
+                ))
+            }
+        }
+        sidebarGroupEntries = entries
     }
 
     // MARK: - Sort Helpers
@@ -232,18 +301,18 @@ final class ConversationListStore {
     ) -> ConversationModel {
         let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
         let isPinned = item.isPinned ?? false
-        // When the daemon supports groups, groupId: null means "explicitly ungrouped" —
-        // use the server value as-is. Only fall back to source-based heuristics for
-        // old daemons that don't return groupId at all.
+        // When the daemon supports groups, groupId: null means "Recents" (system:all).
+        // Only fall back to source-based heuristics for old daemons that don't return
+        // groupId at all.
         let groupId: String? = daemonSupportsGroups
-            ? (item.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil))
+            ? (item.groupId ?? (isPinned ? ConversationGroup.pinned.id : ConversationGroup.all.id))
             : ConversationModel.deriveGroupId(
                 serverGroupId: item.groupId,
                 isPinned: isPinned,
                 source: item.source,
                 title: item.title
             )
-        return ConversationModel(
+        let model = ConversationModel(
             id: localId,
             title: item.title,
             createdAt: createdAt ?? Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAtMillis) / 1000.0),
@@ -255,7 +324,7 @@ final class ConversationListStore {
             kind: item.conversationType == "private" ? .private : .standard,
             source: item.source,
             scheduleJobId: item.scheduleJobId,
-            hasUnseenLatestAssistantMessage: item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+            hasUnseenLatestAssistantMessage: (item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false),
             latestAssistantMessageAt: item.assistantAttention?.latestAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             },
@@ -265,6 +334,14 @@ final class ConversationListStore {
             forkParent: item.forkParent,
             originChannel: item.channelBinding?.sourceChannel ?? item.conversationOriginChannel
         )
+        // Automated conversations (heartbeat, schedule, background/task) should never
+        // show unread indicators, regardless of what the server reports.
+        if model.shouldSuppressUnreadIndicator {
+            var suppressed = model
+            suppressed.hasUnseenLatestAssistantMessage = false
+            return suppressed
+        }
+        return model
     }
 
     // MARK: - Title / Rename
@@ -295,8 +372,8 @@ final class ConversationListStore {
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
         var conversation = conversations[index]
         conversation.lastInteractedAt = Date()
-        if conversation.groupId == nil {
-            // Clear explicit displayOrder so ungrouped conversations revert to recency-based sorting.
+        if conversation.groupId == ConversationGroup.all.id {
+            // Clear explicit displayOrder so Recents conversations revert to recency-based sorting.
             // Grouped conversations keep their manual ordering.
             let hadOrder = conversation.displayOrder != nil
             if hadOrder { conversation.displayOrder = nil }
@@ -333,13 +410,13 @@ final class ConversationListStore {
            stored == nil || groups.contains(where: { $0.id == stored }) {
             // Restore the saved group only if it still exists (or was nil/ungrouped).
             // If the group was deleted while pinned, fall through to heuristics.
-            conversation.groupId = stored
+            conversation.groupId = stored ?? ConversationGroup.all.id
         } else if conversation.isScheduleConversation {
             conversation.groupId = ConversationGroup.scheduled.id
         } else if conversation.shouldReturnToBackgroundOnUnpin {
             conversation.groupId = ConversationGroup.background.id
         } else {
-            conversation.groupId = nil
+            conversation.groupId = ConversationGroup.all.id
         }
         conversation.displayOrder = nil
         conversations[index] = conversation
@@ -356,18 +433,19 @@ final class ConversationListStore {
             prePinGroupIds[conversationId] = conversations[index].groupId
         }
         var conversation = conversations[index]
-        conversation.groupId = groupId
-        if let groupId {
-            // Place at the end of the target group by assigning max + 1.
-            let maxOrder = conversations
-                .filter { $0.groupId == groupId && $0.id != conversationId }
-                .compactMap(\.displayOrder).max() ?? -1
-            conversation.displayOrder = maxOrder + 1
-        } else {
-            // When ungrouping, clear displayOrder and bump lastInteractedAt so
-            // the conversation appears at the top of the ungrouped list.
+        let effectiveGroupId = groupId ?? ConversationGroup.all.id
+        conversation.groupId = effectiveGroupId
+        if effectiveGroupId == ConversationGroup.all.id {
+            // When moving to Recents (system:all), clear displayOrder and bump
+            // lastInteractedAt so the conversation sorts by recency.
             conversation.displayOrder = nil
             conversation.lastInteractedAt = Date()
+        } else {
+            // Place at the end of the target group by assigning max + 1.
+            let maxOrder = conversations
+                .filter { $0.groupId == effectiveGroupId && $0.id != conversationId }
+                .compactMap(\.displayOrder).max() ?? -1
+            conversation.displayOrder = maxOrder + 1
         }
         conversations[index] = conversation
         sendReorderConversations()
@@ -513,7 +591,7 @@ final class ConversationListStore {
         // Batch-mutate a copy to avoid per-element SwiftUI re-renders
         var updated = conversations
         for i in updated.indices where updated[i].groupId == groupId {
-            updated[i].groupId = nil
+            updated[i].groupId = ConversationGroup.all.id
             updated[i].displayOrder = nil
         }
         conversations = updated
@@ -709,6 +787,22 @@ final class ConversationListStore {
     /// user clicks Undo. Returns the IDs of conversations that were actually marked.
     @discardableResult
     func markAllConversationsSeen() -> [UUID] {
+        markConversationsSeenImpl { _ in true }
+    }
+
+    /// Mark the specified conversations as seen locally.
+    /// Same deferred-signal + undo semantics as `markAllConversationsSeen()`.
+    @discardableResult
+    func markConversationsSeen(in localIds: Set<UUID>) -> [UUID] {
+        markConversationsSeenImpl { localIds.contains($0.id) }
+    }
+
+    /// Shared implementation for bulk mark-as-seen operations.
+    /// `additionalFilter` narrows which conversations are marked beyond the
+    /// standard non-archived, non-private, has-unseen guards.
+    private func markConversationsSeenImpl(
+        where additionalFilter: (ConversationModel) -> Bool
+    ) -> [UUID] {
         // Commit (not cancel) any already-pending signals so a second
         // mark-all invocation doesn't silently drop the first batch.
         commitPendingSeenSignals()
@@ -721,7 +815,8 @@ final class ConversationListStore {
         for idx in snapshot.indices {
             guard !snapshot[idx].isArchived,
                   snapshot[idx].kind != .private,
-                  snapshot[idx].hasUnseenLatestAssistantMessage else { continue }
+                  snapshot[idx].hasUnseenLatestAssistantMessage,
+                  additionalFilter(snapshot[idx]) else { continue }
             let localId = snapshot[idx].id
             let conversationId = snapshot[idx].conversationId
             priorStates[localId] = MarkAllSeenPriorState(
@@ -796,6 +891,7 @@ final class ConversationListStore {
         var snapshot = conversations
         for id in conversationIds {
             if let idx = snapshot.firstIndex(where: { $0.id == id }) {
+                guard !snapshot[idx].shouldSuppressUnreadIndicator else { continue }
                 snapshot[idx].hasUnseenLatestAssistantMessage = true
                 if let prior = priorStates[id] {
                     snapshot[idx].lastSeenAssistantMessageAt = prior.lastSeenAssistantMessageAt
@@ -836,8 +932,9 @@ final class ConversationListStore {
         // trigger a single conversations.didSet (and one recomputeDerivedProperties)
         // instead of one per field assignment.
         var conversation = conversations[index]
+        let serverUnseen = item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
         conversation.hasUnseenLatestAssistantMessage =
-            item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+            conversation.shouldSuppressUnreadIndicator ? false : serverUnseen
         conversation.latestAssistantMessageAt =
             item.assistantAttention?.latestAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
@@ -959,7 +1056,8 @@ final class ConversationListStore {
 
     func canMarkConversationUnread(conversationId: UUID, at conversationIndex: Int) -> Bool {
         guard conversations[conversationIndex].conversationId != nil,
-              !conversations[conversationIndex].hasUnseenLatestAssistantMessage else { return false }
+              !conversations[conversationIndex].hasUnseenLatestAssistantMessage,
+              !conversations[conversationIndex].shouldSuppressUnreadIndicator else { return false }
         // Live assistant replies update the in-memory activity snapshot before
         // conversation-list hydration backfills latestAssistantMessageAt.
         return conversations[conversationIndex].latestAssistantMessageAt != nil

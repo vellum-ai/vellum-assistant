@@ -4,13 +4,13 @@ import { seedProviders } from "./oauth-store.js";
  * Protocol-level seed data for each well-known OAuth provider.
  *
  * These values are upserted into the `oauth_providers` SQLite table on
- * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, userinfoUrl, extraParams,
+ * every startup. Only Vellum implementation fields (authorizeUrl, tokenExchangeUrl,
+ * tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
  * identityResponsePaths, identityFormat, identityOkField, featureFlag)
- * and display metadata (displayName,
+ * and display metadata (displayLabel,
  * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
  * are overwritten on subsequent startups — user-customizable
  * fields (defaultScopes, scopePolicy) are only
@@ -19,9 +19,9 @@ import { seedProviders } from "./oauth-store.js";
 const PROVIDER_SEED_DATA: Record<
   string,
   {
-    providerKey: string;
-    authUrl: string;
-    tokenUrl: string;
+    provider: string;
+    authorizeUrl: string;
+    tokenExchangeUrl: string;
     tokenEndpointAuthMethod?: string;
     userinfoUrl?: string;
     pingUrl?: string;
@@ -35,9 +35,9 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: string[];
       forbiddenScopes: string[];
     };
-    extraParams?: Record<string, string>;
+    authorizeParams?: Record<string, string>;
     managedServiceConfigKey?: string;
-    displayName: string;
+    displayLabel: string;
     description: string;
     dashboardUrl: string | null;
     clientIdPlaceholder: string | null;
@@ -62,13 +62,13 @@ const PROVIDER_SEED_DATA: Record<
   }
 > = {
   google: {
-    providerKey: "google",
-    authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-    tokenUrl: "https://oauth2.googleapis.com/token",
+    provider: "google",
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenExchangeUrl: "https://oauth2.googleapis.com/token",
     userinfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
-    displayName: "Google",
+    displayLabel: "Google",
     description: "Gmail, Calendar, and Contacts",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
     clientIdPlaceholder: "123456789.apps.googleusercontent.com",
@@ -89,7 +89,7 @@ const PROVIDER_SEED_DATA: Record<
       ],
       forbiddenScopes: [],
     },
-    extraParams: { access_type: "offline", prompt: "consent" },
+    authorizeParams: { access_type: "offline", prompt: "consent" },
     loopbackPort: 17321,
     managedServiceConfigKey: "google-oauth",
     injectionTemplates: [
@@ -118,12 +118,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   slack: {
-    providerKey: "slack",
-    authUrl: "https://slack.com/oauth/v2/authorize",
-    tokenUrl: "https://slack.com/api/oauth.v2.access",
+    provider: "slack",
+    authorizeUrl: "https://slack.com/oauth/v2/authorize",
+    tokenExchangeUrl: "https://slack.com/api/oauth.v2.access",
     pingUrl: "https://slack.com/api/auth.test",
     baseUrl: "https://slack.com/api",
-    displayName: "Slack",
+    displayLabel: "Slack",
     description: "Workspace messaging",
     dashboardUrl: "https://api.slack.com/apps",
     clientIdPlaceholder: null,
@@ -147,7 +147,7 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
-    extraParams: {
+    authorizeParams: {
       user_scope:
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
@@ -168,13 +168,13 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   notion: {
-    providerKey: "notion",
-    authUrl: "https://api.notion.com/v1/oauth/authorize",
-    tokenUrl: "https://api.notion.com/v1/oauth/token",
+    provider: "notion",
+    authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+    tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
     pingUrl: "https://api.notion.com/v1/users/me",
     pingHeaders: { "Notion-Version": "2022-06-28" },
     baseUrl: "https://api.notion.com",
-    displayName: "Notion",
+    displayLabel: "Notion",
     description: "Pages and databases",
     dashboardUrl: "https://www.notion.so/my-integrations",
     clientIdPlaceholder: null,
@@ -184,7 +184,7 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
-    extraParams: { owner: "user" },
+    authorizeParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17323,
     injectionTemplates: [
@@ -202,12 +202,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   twitter: {
-    providerKey: "twitter",
-    authUrl: "https://twitter.com/i/oauth2/authorize",
-    tokenUrl: "https://api.x.com/2/oauth2/token",
+    provider: "twitter",
+    authorizeUrl: "https://twitter.com/i/oauth2/authorize",
+    tokenExchangeUrl: "https://api.x.com/2/oauth2/token",
     pingUrl: "https://api.x.com/2/users/me",
     baseUrl: "https://api.x.com",
-    displayName: "Twitter",
+    displayLabel: "Twitter",
     description: "Posts and direct messages",
     dashboardUrl: "https://developer.twitter.com/en/portal/dashboard",
     clientIdPlaceholder: null,
@@ -239,12 +239,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   github: {
-    providerKey: "github",
-    authUrl: "https://github.com/login/oauth/authorize",
-    tokenUrl: "https://github.com/login/oauth/access_token",
+    provider: "github",
+    authorizeUrl: "https://github.com/login/oauth/authorize",
+    tokenExchangeUrl: "https://github.com/login/oauth/access_token",
     pingUrl: "https://api.github.com/user",
     baseUrl: "https://api.github.com",
-    displayName: "GitHub",
+    displayLabel: "GitHub",
     description: "Repositories and issues",
     dashboardUrl: "https://github.com/settings/developers",
     clientIdPlaceholder: null,
@@ -275,15 +275,15 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   linear: {
-    providerKey: "linear",
-    authUrl: "https://linear.app/oauth/authorize",
-    tokenUrl: "https://api.linear.app/oauth/token",
+    provider: "linear",
+    authorizeUrl: "https://linear.app/oauth/authorize",
+    tokenExchangeUrl: "https://api.linear.app/oauth/token",
     pingUrl: "https://api.linear.app/graphql",
     pingMethod: "POST",
     pingHeaders: { "Content-Type": "application/json" },
     pingBody: { query: "{ viewer { id name email } }" },
     baseUrl: "https://api.linear.app",
-    displayName: "Linear",
+    displayLabel: "Linear",
     description: "Issues and projects",
     dashboardUrl: "https://linear.app/settings/api",
     clientIdPlaceholder: null,
@@ -293,8 +293,9 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
-    extraParams: { prompt: "consent" },
+    authorizeParams: { prompt: "consent" },
     loopbackPort: 17324,
+    managedServiceConfigKey: "linear-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.linear.app",
@@ -312,12 +313,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   spotify: {
-    providerKey: "spotify",
-    authUrl: "https://accounts.spotify.com/authorize",
-    tokenUrl: "https://accounts.spotify.com/api/token",
+    provider: "spotify",
+    authorizeUrl: "https://accounts.spotify.com/authorize",
+    tokenExchangeUrl: "https://accounts.spotify.com/api/token",
     pingUrl: "https://api.spotify.com/v1/me",
     baseUrl: "https://api.spotify.com/v1",
-    displayName: "Spotify",
+    displayLabel: "Spotify",
     description: "Music and playlists",
     dashboardUrl: "https://developer.spotify.com/dashboard",
     clientIdPlaceholder: null,
@@ -353,12 +354,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   todoist: {
-    providerKey: "todoist",
-    authUrl: "https://todoist.com/oauth/authorize",
-    tokenUrl: "https://todoist.com/oauth/access_token",
+    provider: "todoist",
+    authorizeUrl: "https://todoist.com/oauth/authorize",
+    tokenExchangeUrl: "https://todoist.com/oauth/access_token",
     pingUrl: "https://api.todoist.com/rest/v2/projects",
     baseUrl: "https://api.todoist.com/rest/v2",
-    displayName: "Todoist",
+    displayLabel: "Todoist",
     description: "Tasks and projects",
     dashboardUrl: "https://developer.todoist.com/appconsole.html",
     clientIdPlaceholder: null,
@@ -386,12 +387,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   discord: {
-    providerKey: "discord",
-    authUrl: "https://discord.com/oauth2/authorize",
-    tokenUrl: "https://discord.com/api/v10/oauth2/token",
+    provider: "discord",
+    authorizeUrl: "https://discord.com/oauth2/authorize",
+    tokenExchangeUrl: "https://discord.com/api/v10/oauth2/token",
     pingUrl: "https://discord.com/api/v10/users/@me",
     baseUrl: "https://discord.com/api/v10",
-    displayName: "Discord",
+    displayLabel: "Discord",
     description: "Servers and messages",
     dashboardUrl: "https://discord.com/developers/applications",
     clientIdPlaceholder: null,
@@ -421,13 +422,13 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   dropbox: {
-    providerKey: "dropbox",
-    authUrl: "https://www.dropbox.com/oauth2/authorize",
-    tokenUrl: "https://api.dropboxapi.com/oauth2/token",
+    provider: "dropbox",
+    authorizeUrl: "https://www.dropbox.com/oauth2/authorize",
+    tokenExchangeUrl: "https://api.dropboxapi.com/oauth2/token",
     pingUrl: "https://api.dropboxapi.com/2/users/get_current_account",
     pingMethod: "POST",
     baseUrl: "https://api.dropboxapi.com/2",
-    displayName: "Dropbox",
+    displayLabel: "Dropbox",
     description: "Files and folders",
     dashboardUrl: "https://www.dropbox.com/developers/apps",
     clientIdPlaceholder: null,
@@ -442,7 +443,7 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
-    extraParams: { token_access_type: "offline" },
+    authorizeParams: { token_access_type: "offline" },
     loopbackPort: 17327,
     injectionTemplates: [
       {
@@ -465,12 +466,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   asana: {
-    providerKey: "asana",
-    authUrl: "https://app.asana.com/-/oauth_authorize",
-    tokenUrl: "https://app.asana.com/-/oauth_token",
+    provider: "asana",
+    authorizeUrl: "https://app.asana.com/-/oauth_authorize",
+    tokenExchangeUrl: "https://app.asana.com/-/oauth_token",
     pingUrl: "https://app.asana.com/api/1.0/users/me",
     baseUrl: "https://app.asana.com/api/1.0",
-    displayName: "Asana",
+    displayLabel: "Asana",
     description: "Tasks and projects",
     dashboardUrl: "https://app.asana.com/0/my-apps",
     clientIdPlaceholder: null,
@@ -495,12 +496,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   airtable: {
-    providerKey: "airtable",
-    authUrl: "https://airtable.com/oauth2/v1/authorize",
-    tokenUrl: "https://airtable.com/oauth2/v1/token",
+    provider: "airtable",
+    authorizeUrl: "https://airtable.com/oauth2/v1/authorize",
+    tokenExchangeUrl: "https://airtable.com/oauth2/v1/token",
     pingUrl: "https://api.airtable.com/v0/meta/whoami",
     baseUrl: "https://api.airtable.com/v0",
-    displayName: "Airtable",
+    displayLabel: "Airtable",
     description: "Bases and records",
     dashboardUrl: "https://airtable.com/create/tokens",
     clientIdPlaceholder: null,
@@ -530,12 +531,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   hubspot: {
-    providerKey: "hubspot",
-    authUrl: "https://app.hubspot.com/oauth/authorize",
-    tokenUrl: "https://api.hubapi.com/oauth/v1/token",
+    provider: "hubspot",
+    authorizeUrl: "https://app.hubspot.com/oauth/authorize",
+    tokenExchangeUrl: "https://api.hubapi.com/oauth/v1/token",
     pingUrl: "https://api.hubapi.com/crm/v3/objects/contacts?limit=1",
     baseUrl: "https://api.hubapi.com",
-    displayName: "HubSpot",
+    displayLabel: "HubSpot",
     description: "CRM contacts and deals",
     dashboardUrl: "https://developers.hubspot.com/",
     clientIdPlaceholder: null,
@@ -569,12 +570,12 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   figma: {
-    providerKey: "figma",
-    authUrl: "https://www.figma.com/oauth",
-    tokenUrl: "https://api.figma.com/v1/oauth/token",
+    provider: "figma",
+    authorizeUrl: "https://www.figma.com/oauth",
+    tokenExchangeUrl: "https://api.figma.com/v1/oauth/token",
     pingUrl: "https://api.figma.com/v1/me",
     baseUrl: "https://api.figma.com/v1",
-    displayName: "Figma",
+    displayLabel: "Figma",
     description: "Design files and comments",
     dashboardUrl: "https://www.figma.com/developers/apps",
     clientIdPlaceholder: null,
@@ -600,12 +601,14 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   outlook: {
-    providerKey: "outlook",
-    authUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-    tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    provider: "outlook",
+    authorizeUrl:
+      "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    tokenExchangeUrl:
+      "https://login.microsoftonline.com/common/oauth2/v2.0/token",
     pingUrl: "https://graph.microsoft.com/v1.0/me",
     baseUrl: "https://graph.microsoft.com",
-    displayName: "Outlook / Microsoft",
+    displayLabel: "Outlook / Microsoft",
     description: "Email and calendar",
     dashboardUrl:
       "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
@@ -627,7 +630,7 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: ["Contacts.Read", "Files.Read", "Tasks.ReadWrite"],
       forbiddenScopes: [],
     },
-    extraParams: { prompt: "consent" },
+    authorizeParams: { prompt: "consent" },
     tokenEndpointAuthMethod: "client_secret_post",
     loopbackPort: 17334,
     managedServiceConfigKey: "outlook-oauth",
@@ -646,14 +649,14 @@ const PROVIDER_SEED_DATA: Record<
 
   // Manual-token providers: these don't use OAuth2 flows but need provider
   // rows so that oauth_app and oauth_connection FK chains can reference them.
-  // The authUrl/tokenUrl values are placeholders — never used at runtime.
+  // The authorizeUrl/tokenExchangeUrl values are placeholders — never used at runtime.
   slack_channel: {
-    providerKey: "slack_channel",
-    authUrl: "urn:manual-token",
-    tokenUrl: "urn:manual-token",
+    provider: "slack_channel",
+    authorizeUrl: "urn:manual-token",
+    tokenExchangeUrl: "urn:manual-token",
     pingUrl: "https://slack.com/api/auth.test",
     baseUrl: "https://slack.com/api",
-    displayName: "Slack Channel",
+    displayLabel: "Slack Channel",
     description: "Channel bot token",
     dashboardUrl: null,
     clientIdPlaceholder: null,
@@ -667,11 +670,11 @@ const PROVIDER_SEED_DATA: Record<
   },
 
   telegram: {
-    providerKey: "telegram",
-    authUrl: "urn:manual-token",
-    tokenUrl: "urn:manual-token",
+    provider: "telegram",
+    authorizeUrl: "urn:manual-token",
+    tokenExchangeUrl: "urn:manual-token",
     baseUrl: "https://api.telegram.org",
-    displayName: "Telegram",
+    displayLabel: "Telegram",
     description: "Bot messaging",
     dashboardUrl: null,
     clientIdPlaceholder: null,

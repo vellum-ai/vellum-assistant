@@ -102,6 +102,36 @@ describe("AssistantEventHub — fanout", () => {
     const hub = new AssistantEventHub();
     await expect(hub.publish(makeEvent())).resolves.toBeUndefined();
   });
+
+  test("hasSubscribersForEvent returns true for assistant-wide subscribers", () => {
+    const hub = new AssistantEventHub();
+    hub.subscribe({ assistantId: "ast_1" }, () => {});
+
+    expect(
+      hub.hasSubscribersForEvent({
+        assistantId: "ast_1",
+        conversationId: "sess_A",
+      }),
+    ).toBe(true);
+  });
+
+  test("hasSubscribersForEvent honors conversation scoping", () => {
+    const hub = new AssistantEventHub();
+    hub.subscribe({ assistantId: "ast_1", conversationId: "sess_A" }, () => {});
+
+    expect(
+      hub.hasSubscribersForEvent({
+        assistantId: "ast_1",
+        conversationId: "sess_A",
+      }),
+    ).toBe(true);
+    expect(
+      hub.hasSubscribersForEvent({
+        assistantId: "ast_1",
+        conversationId: "sess_B",
+      }),
+    ).toBe(false);
+  });
 });
 
 // ── Unsubscribe / cleanup ────────────────────────────────────────────────────

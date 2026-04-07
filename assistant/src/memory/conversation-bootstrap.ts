@@ -6,7 +6,7 @@ import {
 } from "./conversation-title-service.js";
 
 export interface BootstrapConversationOptions {
-  conversationType?: "standard" | "private" | "background";
+  conversationType?: "standard" | "private" | "background" | "scheduled";
   source?: string;
   origin: TitleOrigin;
   systemHint: string;

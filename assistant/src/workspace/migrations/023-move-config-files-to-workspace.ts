@@ -3,8 +3,8 @@
  *
  * Previously, dictation-profiles.json, email-guardrails.json, and
  * active-call-leases.json lived directly under getRootDir() (~/.vellum/).
- * This migration moves them into the workspace directory so they are
- * included in diagnostic exports and follow the workspace convention.
+ * This migration moves them into the workspace directory so they follow
+ * the workspace convention for organizational consistency.
  */
 
 import { existsSync, renameSync, unlinkSync } from "node:fs";

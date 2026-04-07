@@ -302,6 +302,7 @@ struct HatchingStepView: View {
     private var estimatedDuration: TimeInterval {
         switch state.cloudProvider {
         case "local": return 10
+        case "apple-container": return 30
         case "docker": return 120
         case "gcp", "aws": return 300
         default: return 60
@@ -375,6 +376,8 @@ struct HatchingStepView: View {
             configValues["services.image-generation.mode"] = "managed"
             configValues["services.web-search.mode"] = "managed"
             configValues["services.google-oauth.mode"] = "managed"
+            configValues["services.outlook-oauth.mode"] = "managed"
+            configValues["services.linear-oauth.mode"] = "managed"
         }
         return configValues
     }

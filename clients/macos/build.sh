@@ -727,6 +727,21 @@ PROVIDER_ENV_VARS_REGISTRY="$SCRIPT_DIR/../../meta/provider-env-vars.json"
 if [ -f "$PROVIDER_ENV_VARS_REGISTRY" ]; then
     cp "$PROVIDER_ENV_VARS_REGISTRY" "$RESOURCES_DIR/provider-env-vars.json"
 fi
+# Bundle Dockerfiles into Contents/Resources/dockerfiles/ for debug builds
+# so that the CLI's findRepoRoot() can locate them when running from a
+# packaged DMG.  This enables `vellum hatch --remote docker` to work
+# without a full source checkout (the CLI detects the missing source tree
+# and falls back to pulling pre-built images instead of building locally).
+if [ "$CONFIG" = "debug" ]; then
+    REPO_ROOT="$SCRIPT_DIR/../.."
+    for svc in assistant credential-executor gateway; do
+        if [ -f "$REPO_ROOT/$svc/Dockerfile" ]; then
+            mkdir -p "$RESOURCES_DIR/dockerfiles/$svc"
+            cp "$REPO_ROOT/$svc/Dockerfile" "$RESOURCES_DIR/dockerfiles/$svc/Dockerfile"
+        fi
+    done
+fi
+
 # Generate character-components.json for pre-daemon avatar rendering
 CHAR_COMP_SRC="$ASSISTANT_SRC_DIR/src/avatar/character-components.ts"
 if command -v bun &>/dev/null && [ -f "$CHAR_COMP_SRC" ]; then
@@ -1134,6 +1149,29 @@ if [ -f "$MACOS_DIR/vellum-daemon" ]; then
     fi
     codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
     echo "Daemon binary signed with entitlements"
+fi
+
+# Pre-flight: detect stray files in the .app bundle root that would cause
+# codesign to fail with the cryptic "unsealed contents present in the bundle
+# root" error. Only Contents/ belongs at the top level of a macOS .app bundle.
+STRAY_ITEMS=()
+for item in "$APP_DIR"/* "$APP_DIR"/.*; do
+    [ -e "$item" ] || continue
+    case "$(basename "$item")" in
+        .|..|Contents) continue ;;
+    esac
+    STRAY_ITEMS+=("$(basename "$item")")
+done
+if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
+    echo ""
+    echo "ERROR: The .app bundle contains unexpected items in its root directory:"
+    printf '  - %s\n' "${STRAY_ITEMS[@]}"
+    echo ""
+    echo "macOS codesign rejects bundles with files outside Contents/."
+    echo "This is usually caused by stale artifacts from a previous build."
+    echo "Fix: run './build.sh clean' and rebuild, or delete the items above from:"
+    echo "  $APP_DIR/"
+    exit 1
 fi
 
 # Sign the outer app bundle with audio-input entitlement (without --deep to preserve nested signatures)

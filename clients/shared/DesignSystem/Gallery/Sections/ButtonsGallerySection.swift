@@ -30,7 +30,6 @@ struct ButtonsGallerySection: View {
                                     (label: "Danger", tag: VButton.Style.danger),
                                     (label: "Danger Outline", tag: VButton.Style.dangerOutline),
                                     (label: "Ghost", tag: VButton.Style.ghost),
-                                    (label: "Contrast", tag: VButton.Style.contrast),
                                 ],
                                 selection: $selectedStyle
                             )
@@ -76,7 +75,7 @@ struct ButtonsGallerySection: View {
 
                 VCard {
                     HStack(spacing: VSpacing.xl) {
-                        ForEach([VButton.Style.primary, .outlined, .danger, .dangerOutline, .ghost, .contrast], id: \.self) { style in
+                        ForEach([VButton.Style.primary, .outlined, .danger, .dangerOutline, .ghost], id: \.self) { style in
                             VStack(spacing: VSpacing.md) {
                                 VButton(label: styleName(style), style: style) {}
                                 VButton(label: "Disabled", style: style, isDisabled: true) {}
@@ -154,10 +153,6 @@ struct ButtonsGallerySection: View {
                         VStack(alignment: .leading, spacing: VSpacing.md) {
                             Text("Danger").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .danger) {}
-                        }
-                        VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Contrast").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                            VButton(label: "Stop", iconOnly: VIcon.square.rawValue, style: .contrast) {}
                         }
                     }
                 }

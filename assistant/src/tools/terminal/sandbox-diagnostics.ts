@@ -1,8 +1,7 @@
 import { execSync } from "node:child_process";
 
-import { getConfig } from "../../config/loader.js";
-import type { SandboxConfig } from "../../config/schema.js";
 import { isLinux, isMacOS } from "../../util/platform.js";
+import type { SandboxConfig } from "./sandbox.js";
 
 export interface SandboxCheckResult {
   label: string;
@@ -69,8 +68,9 @@ function getActiveBackendReason(sandboxConfig: SandboxConfig): string {
  * and reports current configuration.
  */
 export function runSandboxDiagnostics(): SandboxDiagnostics {
-  const config = getConfig();
-  const sandboxConfig = config.sandbox;
+  // Sandbox is disabled — the assistant runs exclusively in Docker or
+  // platform-managed environments.
+  const sandboxConfig: SandboxConfig = { enabled: false };
 
   const checks: SandboxCheckResult[] = [];
 

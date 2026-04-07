@@ -689,7 +689,7 @@ export class AnthropicProvider implements Provider {
       // — the API accepts them. No provider-side stripping needed.
 
       sentMessages = ensureToolPairing(repairOrphanedServerToolUse(formatted));
-      const { effort, speed, output_config, ...restConfig } = (config ??
+      const { effort, speed, output_config, cacheTtl: _cacheTtl, ...restConfig } = (config ??
         {}) as Record<string, unknown> & {
         effort?: Anthropic.OutputConfig["effort"];
         speed?: "standard" | "fast";
@@ -826,15 +826,30 @@ export class AnthropicProvider implements Provider {
       // block of the last message when it falls after the turn-starting user
       // message (i.e. tool-use loop content). This caches the growing tail
       // cheaply without conflicting with the 1h breakpoints above.
+      // Skip thinking/redacted_thinking blocks — Anthropic doesn't allow
+      // cache_control on those types.
+      let tailBreakpointApplied = false;
       if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
-          const lastBlock = lastMsg.content[lastMsg.content.length - 1];
-          if (typeof lastBlock !== "string") {
-            (lastBlock as unknown as Record<string, unknown>).cache_control = {
+          const NON_CACHEABLE_TYPES = new Set(["thinking", "redacted_thinking"]);
+          let tailBlock: (typeof lastMsg.content)[number] | undefined;
+          for (let j = lastMsg.content.length - 1; j >= 0; j--) {
+            const block = lastMsg.content[j];
+            if (
+              typeof block !== "string" &&
+              !NON_CACHEABLE_TYPES.has((block as { type: string }).type)
+            ) {
+              tailBlock = block;
+              break;
+            }
+          }
+          if (tailBlock && typeof tailBlock !== "string") {
+            (tailBlock as unknown as Record<string, unknown>).cache_control = {
               type: "ephemeral",
               ttl: "5m",
             };
+            tailBreakpointApplied = true;
           }
         }
       }
@@ -846,14 +861,16 @@ export class AnthropicProvider implements Provider {
       // small (<1K tokens) so the re-read cost is negligible, while the
       // dynamic block (workspace context) rarely changes mid-session and
       // benefits more from caching.
-      const hasTailBreakpoint =
-        turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1;
+      const hasTailBreakpoint = tailBreakpointApplied;
+      const hasToolCacheBreakpoint =
+        params.tools?.some(
+          (t) => "cache_control" in t && t.cache_control != null,
+        ) ?? false;
       if (
         hasTailBreakpoint &&
         Array.isArray(params.system) &&
         params.system.length === 2 &&
-        params.tools &&
-        params.tools.length > 0
+        hasToolCacheBreakpoint
       ) {
         delete (params.system[0] as unknown as Record<string, unknown>).cache_control;
       }
@@ -965,6 +982,7 @@ export class AnthropicProvider implements Provider {
               type: "server_tool_complete",
               toolUseId: block.tool_use_id,
               isError: !!isError,
+              ...(Array.isArray(block.content) ? { content: block.content } : {}),
             });
           }
           if (event.type === "content_block_stop") {

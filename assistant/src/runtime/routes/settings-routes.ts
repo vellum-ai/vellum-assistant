@@ -62,7 +62,7 @@ import { isSideEffectTool } from "../../tools/side-effects.js";
 import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -123,12 +123,7 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
       return httpError("INTERNAL_ERROR", result.content, 500);
     }
 
-    const avatarPath = join(
-      getWorkspaceDir(),
-      "data",
-      "avatar",
-      "avatar-image.png",
-    );
+    const avatarPath = getAvatarImagePath();
 
     // Notify all connected SSE clients so every macOS/iOS instance
     // reloads the avatar image immediately.
@@ -245,7 +240,7 @@ async function handleOAuthConnectStart(body: {
   try {
     // For HTTP, we cannot send `open_url` mid-request. The auth URL is
     // returned to the client to open.
-    let authUrl: string | undefined;
+    let authorizeUrl: string | undefined;
 
     const result = await orchestrateOAuthConnect({
       service,
@@ -255,7 +250,7 @@ async function handleOAuthConnectStart(body: {
       callbackTransport: "loopback",
       isInteractive: true,
       openUrl: (url: string) => {
-        authUrl = url;
+        authorizeUrl = url;
       },
       onDeferredComplete: (deferredResult) => {
         // Prefer accountInfo from oauth-store when available.
@@ -314,7 +309,9 @@ async function handleOAuthConnectStart(body: {
       return Response.json({
         ok: true,
         deferred: true,
-        authUrl: result.authUrl,
+        // Wire key stays `authUrl` for backward compatibility with existing
+        // clients; the internal field on `result` is `authorizeUrl`.
+        authUrl: result.authorizeUrl,
       });
     }
 
@@ -331,7 +328,9 @@ async function handleOAuthConnectStart(body: {
       ok: true,
       grantedScopes: result.grantedScopes,
       accountInfo: responseAccountInfo,
-      ...(authUrl ? { authUrl } : {}),
+      // Wire key stays `authUrl` for backward compatibility with existing
+      // clients; the local variable was renamed to `authorizeUrl`.
+      ...(authorizeUrl ? { authUrl: authorizeUrl } : {}),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

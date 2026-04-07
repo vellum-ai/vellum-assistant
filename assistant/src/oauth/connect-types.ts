@@ -4,8 +4,8 @@
  * These types are consumed by the token persistence module and the
  * credential vault orchestrator.
  *
- * All provider configuration — protocol-level OAuth config (authUrl,
- * tokenUrl, scopes, etc.) as well as behavioral config (identity
+ * All provider configuration — protocol-level OAuth config (authorizeUrl,
+ * tokenExchangeUrl, scopes, etc.) as well as behavioral config (identity
  * verification, injection templates, setup metadata) — is now stored
  * exclusively in the `oauth_providers` SQLite table and seeded on
  * startup via `seed-providers.ts`.
@@ -47,7 +47,7 @@ export interface OAuthConnectInteractiveResult {
 export interface OAuthConnectDeferredResult {
   success: true;
   deferred: true;
-  authUrl: string;
+  authorizeUrl: string;
   state: string;
   service: string;
 }

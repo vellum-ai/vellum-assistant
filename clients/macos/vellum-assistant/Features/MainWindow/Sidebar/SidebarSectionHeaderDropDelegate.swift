@@ -15,7 +15,6 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         if isConversationDrag {
-            // Conversation drag: allow if the conversation isn't already in this group
             guard let sourceId = sidebar.draggingConversationId,
                   let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
                   source.groupId != groupId else { return false }
@@ -26,7 +25,7 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        return DropProposal(operation: .move)
+        DropProposal(operation: .move)
     }
 
     func dropEntered(info: DropInfo) {
@@ -125,7 +124,7 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
         customGroups.insert(source, at: min(insertIdx, customGroups.count))
 
         let updates = customGroups.enumerated().map { (i, g) in
-            (groupId: g.id, sortPosition: Double(3 + i))
+            (groupId: g.id, sortPosition: Double(4 + i))
         }
         Task { await conversationManager.reorderGroups(updates) }
     }

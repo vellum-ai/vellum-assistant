@@ -50,7 +50,7 @@ struct LogReportFormView: View {
     }
 
     private var canSend: Bool {
-        selectedReason != nil && !email.isEmpty
+        selectedReason != nil && !email.isEmpty && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {

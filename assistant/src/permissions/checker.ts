@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { indexCatalogById } from "../skills/include-graph.js";
@@ -1097,9 +1098,8 @@ export async function check(
     !matchedRule &&
     risk === RiskLevel.Low
   ) {
-    // When sandbox is disabled, bash runs on the host — don't auto-allow
-    const sandboxEnabled = getConfig().sandbox.enabled;
-    if (toolName === "bash" && !sandboxEnabled) {
+    // Outside a container, bash runs on the host — don't auto-allow
+    if (toolName === "bash" && !getIsContainerized()) {
       // Fall through to risk-based policy below
     } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
       return {

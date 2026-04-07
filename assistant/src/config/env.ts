@@ -164,6 +164,27 @@ export function getPlatformBaseUrl(): string {
   );
 }
 
+/**
+ * Derive the assistant service domain from the platform base URL.
+ *
+ * - `dev-platform.vellum.ai`  → `dev.vellum.me`
+ * - `platform.vellum.ai`      → `vellum.me`
+ * - anything else              → `vellum.me` (safe default)
+ */
+export function getAssistantDomain(): string {
+  try {
+    const url = getPlatformBaseUrl();
+    const host = new URL(url).hostname;
+    const prefix = host.replace(/[-.]?platform\.vellum\.ai$/, "");
+    if (prefix) {
+      return `${prefix}.vellum.me`;
+    }
+  } catch {
+    // Fall through to default
+  }
+  return "vellum.me";
+}
+
 let _platformAssistantIdOverride: string | undefined;
 
 export function setPlatformAssistantId(value: string | undefined): void {

@@ -7,7 +7,7 @@ let oauthConnectionStore: Record<
   string,
   { id: string; status: string; accountInfo?: string | null }
 > = {};
-const syncCalls: Array<{ providerKey: string; accountInfo?: string }> = [];
+const syncCalls: Array<{ provider: string; accountInfo?: string }> = [];
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({ telegram: {}, ui: {} }),
@@ -49,32 +49,29 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 mock.module("../oauth/oauth-store.js", () => ({
-  getConnectionByProvider: (providerKey: string) =>
-    oauthConnectionStore[providerKey] ?? undefined,
+  getConnectionByProvider: (provider: string) =>
+    oauthConnectionStore[provider] ?? undefined,
 }));
 
 mock.module("../oauth/manual-token-connection.js", () => ({
   ensureManualTokenConnection: async () => {},
   removeManualTokenConnection: () => {},
-  syncManualTokenConnection: async (
-    providerKey: string,
-    accountInfo?: string,
-  ) => {
-    syncCalls.push({ providerKey, accountInfo });
-    if (providerKey !== "telegram") return;
+  syncManualTokenConnection: async (provider: string, accountInfo?: string) => {
+    syncCalls.push({ provider, accountInfo });
+    if (provider !== "telegram") return;
     const hasBotToken =
       !!secureKeyStore[credentialKey("telegram", "bot_token")];
     const hasWebhookSecret =
       !!secureKeyStore[credentialKey("telegram", "webhook_secret")];
     if (hasBotToken && hasWebhookSecret) {
-      oauthConnectionStore[providerKey] = {
-        id: `conn-${providerKey}`,
+      oauthConnectionStore[provider] = {
+        id: `conn-${provider}`,
         status: "active",
         accountInfo: accountInfo ?? null,
       };
       return;
     }
-    delete oauthConnectionStore[providerKey];
+    delete oauthConnectionStore[provider];
   },
 }));
 
@@ -114,7 +111,7 @@ describe("Telegram config handler", () => {
     expect(result.botUsername).toBe("testbot");
     expect(result.connected).toBe(true);
     expect(syncCalls).toEqual([
-      { providerKey: "telegram", accountInfo: "@testbot" },
+      { provider: "telegram", accountInfo: "@testbot" },
     ]);
     expect(oauthConnectionStore["telegram"]?.accountInfo).toBe("@testbot");
   });

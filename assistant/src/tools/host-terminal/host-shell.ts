@@ -207,30 +207,35 @@ class HostShellTool implements Tool {
         detached: true,
       });
 
+      // Kill the entire process tree. Tries the process group first
+      // (negative PID), then falls back to killing the direct child if the
+      // PID is unavailable or the group kill fails.
+      const killTree = () => {
+        if (child.pid != null) {
+          try {
+            process.kill(-child.pid, "SIGKILL");
+            return;
+          } catch {
+            // Process group may have already exited — fall through.
+          }
+        }
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Child may have already exited.
+        }
+      };
+
       const timer = setTimeout(() => {
         timedOut = true;
-        try {
-          process.kill(-child.pid!, "SIGKILL");
-        } catch {
-          // Process group may have already exited.
-        }
+        killTree();
       }, timeoutMs);
 
       // Cooperative cancellation via AbortSignal
-      const onAbort = () => {
-        try {
-          process.kill(-child.pid!, "SIGKILL");
-        } catch {
-          // Process group may have already exited.
-        }
-      };
+      const onAbort = () => killTree();
       if (context.signal) {
         if (context.signal.aborted) {
-          try {
-            process.kill(-child.pid!, "SIGKILL");
-          } catch {
-            // Process group may have already exited.
-          }
+          killTree();
         } else {
           context.signal.addEventListener("abort", onAbort, { once: true });
         }

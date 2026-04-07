@@ -64,6 +64,10 @@ struct InlineAudioAttachmentView: View {
     @State private var isHovering = false
     /// Width of the progress bar track, measured via `.onGeometryChange()`.
     @State private var trackWidth: CGFloat = 0
+    /// Whether the user is currently dragging the scrubber thumb.
+    @State private var isScrubbing = false
+    /// Playback time override while scrubbing (so the thumb tracks the finger, not the player).
+    @State private var scrubTime: TimeInterval = 0
 
     /// Coordinator object that acts as AVAudioPlayerDelegate to detect playback
     /// completion and relay it back to the SwiftUI state.
@@ -179,39 +183,69 @@ struct InlineAudioAttachmentView: View {
     private var progressBar: some View {
         TimelineView(.periodic(from: .now, by: isPlaying ? 0.1 : 60)) { _ in
             let dur = currentDuration
-            let prog = currentProgress
+            let prog = isScrubbing ? scrubTime : currentProgress
+            let trackHeight: CGFloat = isScrubbing || isHovering ? 5 : 3
+            let thumbSize: CGFloat = 12
+
             ZStack(alignment: .leading) {
                 // Track
-                RoundedRectangle(cornerRadius: 1.5)
+                RoundedRectangle(cornerRadius: trackHeight / 2)
                     .fill(VColor.borderBase.opacity(0.5))
-                    .frame(height: 3)
+                    .frame(height: trackHeight)
 
                 // Filled portion
                 if dur > 0, trackWidth > 0 {
-                    RoundedRectangle(cornerRadius: 1.5)
+                    let filledWidth = max(0, trackWidth * CGFloat(prog / dur))
+                    RoundedRectangle(cornerRadius: trackHeight / 2)
                         .fill(VColor.systemPositiveStrong)
-                        .frame(width: max(0, trackWidth * CGFloat(prog / dur)), height: 3)
+                        .frame(width: filledWidth, height: trackHeight)
+
+                    // Thumb
+                    if isHovering || isScrubbing {
+                        Circle()
+                            .fill(VColor.contentDefault)
+                            .frame(width: thumbSize, height: thumbSize)
+                            .offset(x: filledWidth - thumbSize / 2)
+                    }
                 }
             }
+            .frame(height: max(thumbSize, trackHeight))
             .contentShape(Rectangle())
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
             } action: { newWidth in
                 trackWidth = newWidth
             }
-            .onTapGesture { location in
-                guard dur > 0, let player = audioPlayer, trackWidth > 0 else { return }
-                let fraction = max(0, min(1, location.x / trackWidth))
-                player.currentTime = fraction * dur
-            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard dur > 0, trackWidth > 0 else { return }
+                        let fraction = max(0, min(1, value.location.x / trackWidth))
+                        scrubTime = fraction * dur
+                        if !isScrubbing {
+                            isScrubbing = true
+                            audioPlayer?.pause()
+                        }
+                    }
+                    .onEnded { _ in
+                        guard let player = audioPlayer else {
+                            isScrubbing = false
+                            return
+                        }
+                        player.currentTime = scrubTime
+                        isScrubbing = false
+                        if isPlaying {
+                            player.play()
+                        }
+                    }
+            )
         }
-        .frame(height: 3)
     }
 
     private var timeDisplay: some View {
         TimelineView(.periodic(from: .now, by: isPlaying ? 0.1 : 60)) { _ in
             let dur = currentDuration
-            let prog = currentProgress
+            let prog = isScrubbing ? scrubTime : currentProgress
             Group {
                 if dur > 0 || isPlaying {
                     Text("\(formatTime(prog)) / \(formatTime(dur))")

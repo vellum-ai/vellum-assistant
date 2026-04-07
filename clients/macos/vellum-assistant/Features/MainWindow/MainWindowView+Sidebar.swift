@@ -2,15 +2,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
-// MARK: - Sidebar Group Entry
-
-/// Lightweight identifiable wrapper for ForEach over grouped conversations.
-private struct SidebarGroupEntry: Identifiable {
-    let id: String
-    let group: ConversationGroup?
-    let conversations: [ConversationModel]
-}
-
 // MARK: - Sidebar Content
 
 extension MainWindowView {
@@ -100,6 +91,12 @@ extension MainWindowView {
         } message: {
             Text("Enter a new name for this conversation")
         }
+        .onAppear {
+            conversationManager.customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
+        }
+        .onChange(of: assistantFeatureFlagStore.isEnabled("conversation-groups-ui")) { _, newValue in
+            conversationManager.customGroupsEnabled = newValue
+        }
     }
 
     // MARK: - Sidebar Row Factory
@@ -149,7 +146,7 @@ extension MainWindowView {
                 get: { sidebar.renamingGroupName },
                 set: { sidebar.renamingGroupName = $0 }
             ),
-            onRename: { name in
+            onRename: group.isSystemGroup ? nil : { name in
                 sidebar.renamingGroupId = group.id
                 sidebar.renamingGroupName = name
             },
@@ -166,6 +163,33 @@ extension MainWindowView {
                 } else {
                     groupToDelete = group
                 }
+            },
+            onMarkAllRead: {
+                let unreadIds = Set(conversations.filter(\.hasUnseenLatestAssistantMessage).map(\.id))
+                guard !unreadIds.isEmpty else { return }
+                let markedIds = conversationManager.markConversationsSeen(in: unreadIds)
+                guard !markedIds.isEmpty else { return }
+                showMarkAllReadToast(count: markedIds.count, markedIds: markedIds)
+            },
+            onMarkAllReadInSubGroup: { _, ids in
+                let localIdSet = Set(ids)
+                let markedIds = conversationManager.markConversationsSeen(in: localIdSet)
+                guard !markedIds.isEmpty else { return }
+                showMarkAllReadToast(count: markedIds.count, markedIds: markedIds)
+            },
+            onArchiveAll: {
+                let archivableIds = conversations.filter { !$0.isChannelConversation }.map(\.id)
+                guard !archivableIds.isEmpty else { return }
+                archiveAllPending = ArchiveAllTarget(
+                    displayName: group.name,
+                    ids: archivableIds
+                )
+            },
+            onArchiveAllInSubGroup: { subGroupLabel, ids in
+                archiveAllPending = ArchiveAllTarget(
+                    displayName: subGroupLabel,
+                    ids: ids
+                )
             },
             selectedConversationId: conversationManager.activeConversationId,
             onToggleExpand: { sidebar.toggleSection(group.id) },
@@ -225,6 +249,7 @@ extension MainWindowView {
             } : nil,
             moveToGroups: conversationManager.groups.filter { group in
                 group.id != conversation.groupId &&
+                group.id != ConversationGroup.scheduled.id &&
                 (assistantFeatureFlagStore.isEnabled("conversation-groups-ui") || group.isSystemGroup)
             },
             onMoveToGroup: { targetGroupId in
@@ -238,8 +263,6 @@ extension MainWindowView {
         )
     }
 
-    // MARK: - Ungrouped Rows
-
     /// The main conversation groups list content, extracted from the ScrollView body
     /// to reduce type-checker pressure (avoids "ambiguous use of init" on ScrollView).
     @ViewBuilder
@@ -249,102 +272,33 @@ extension MainWindowView {
                 DaemonLoadingConversationsSkeleton()
             }
 
-            let customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
-            let groupEntries: [SidebarGroupEntry] = {
-                let raw = conversationManager.groupedConversations
-                var entries: [SidebarGroupEntry] = []
-                var extraUngrouped: [ConversationModel] = []
-                for entry in raw {
-                    if let group = entry.group {
-                        // Hide custom groups when custom groups flag is off
-                        if !group.isSystemGroup && !customGroupsEnabled {
-                            extraUngrouped.append(contentsOf: entry.conversations)
-                        } else {
-                            entries.append(SidebarGroupEntry(id: group.id, group: group, conversations: entry.conversations))
-                        }
-                    } else {
-                        extraUngrouped.append(contentsOf: entry.conversations)
-                    }
-                }
-                entries.append(SidebarGroupEntry(id: "ungrouped", group: nil, conversations: extraUngrouped))
-                return entries
-            }()
+            let groupEntries = conversationManager.sidebarGroupEntries
             ForEach(groupEntries) { entry in
-                if let group = entry.group {
-                    makeSectionView(group: group, conversations: entry.conversations)
-                } else {
-                    ungroupedConversationRows(entry.conversations)
-                }
+                makeSectionView(group: entry.group, conversations: entry.conversations)
             }
 
-        }
-    }
-
-    /// Renders ungrouped conversations with drag-reorder support.
-    /// These appear without a collapsible header, matching the pre-groups layout.
-    @ViewBuilder
-    private func ungroupedConversationRows(_ conversations: [ConversationModel]) -> some View {
-        let displayed = sidebar.showAllInSection.contains("ungrouped")
-            ? conversations
-            : Array(conversations.prefix(5))
-
-        ForEach(displayed) { conversation in
-            makeSidebarRow(conversation: conversation)
-                .equatable()
-                .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
-                .padding(.bottom, SidebarLayoutMetrics.listRowGap)
-                .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                    if sidebar.dropTargetConversationId == conversation.id {
-                        Rectangle()
-                            .fill(VColor.primaryBase)
-                            .frame(height: 2)
-                            .transition(.opacity)
-                    }
-                }
-                .dropDestination(for: String.self) { items, _ in
-                    guard let droppedId = items.first,
-                          let sourceUUID = UUID(uuidString: droppedId),
-                          sourceUUID != conversation.id else {
-                        sidebar.endConversationDrag()
-                        return false
-                    }
-                    let moved = conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id)
-                    sidebar.endConversationDrag()
-                    return moved
-                } isTargeted: { isTargeted in
-                    if isTargeted && conversation.id != sidebar.draggingConversationId {
-                        sidebar.dropTargetConversationId = conversation.id
-                        if let dragId = sidebar.draggingConversationId {
-                            // Use section-local index (ungrouped conversations only)
-                            let ungroupedConvs = conversationManager.groupedConversations
-                                .first { $0.group == nil }?.conversations ?? []
-                            let sIdx = ungroupedConvs.firstIndex(where: { $0.id == dragId }) ?? 0
-                            let tIdx = ungroupedConvs.firstIndex(where: { $0.id == conversation.id }) ?? 0
-                            sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                        }
-                    } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
-                        sidebar.dropTargetConversationId = nil
-                    }
-                }
-        }
-
-        if conversations.count > 5 {
-            HStack {
-                VButton(
-                    label: sidebar.showAllInSection.contains("ungrouped") ? "Show less" : "Show more",
-                    style: .ghost,
-                    size: .compact
-                ) {
-                    let wasCollapsed = !sidebar.showAllInSection.contains("ungrouped")
-                    withAnimation(VAnimation.fast) { sidebar.toggleShowAll("ungrouped") }
-                    if wasCollapsed {
+            // Pagination fallback sentinel: when every section fits within its
+            // collapse limit, no "Show more" button appears, yet the server may
+            // have additional conversations. Render an invisible trigger to load them.
+            // Pinned is excluded (has its own sentinel in SidebarSectionView).
+            // Scheduled/Background paginate by subgroup count, not conversation count,
+            // so we treat them as fitting — in the rare case they have >5 subgroups
+            // they already have their own "Show more", and the extra fetch is benign.
+            let maxCollapsed = 5
+            let allSectionsFit = groupEntries.allSatisfy { entry in
+                entry.group.id == ConversationGroup.pinned.id
+                    || entry.group.id == ConversationGroup.scheduled.id
+                    || entry.group.id == ConversationGroup.background.id
+                    || entry.conversations.count <= maxCollapsed
+            }
+            if conversationManager.hasMoreConversations && allSectionsFit {
+                Color.clear
+                    .frame(height: 0)
+                    .onAppear {
                         conversationManager.loadAllRemainingConversations()
                     }
-                }
-                Spacer()
             }
-            .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
-            .padding(.bottom, VSpacing.xs)
+
         }
     }
 
@@ -391,7 +345,6 @@ extension MainWindowView {
                         sidebarPinnedAppRow(app)
                     }
                 }
-                .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
                 sidebarSectionDivider()
             }
@@ -413,21 +366,7 @@ extension MainWindowView {
                 onMarkAllSeen: {
                     let markedIds = conversationManager.markAllConversationsSeen()
                     guard !markedIds.isEmpty else { return }
-                    let count = markedIds.count
-                    let toastId = windowState.showToast(
-                        message: "Marked \(count) conversation\(count == 1 ? "" : "s") as seen",
-                        style: .success,
-                        primaryAction: VToastAction(label: "Undo") {
-                            conversationManager.restoreUnseen(conversationIds: markedIds)
-                            windowState.dismissToast()
-                        },
-                        onDismiss: {
-                            conversationManager.commitPendingSeenSignals()
-                        }
-                    )
-                    conversationManager.schedulePendingSeenSignals {
-                        windowState.dismissToast(id: toastId)
-                    }
+                    showMarkAllReadToast(count: markedIds.count, markedIds: markedIds)
                 },
                 onNewConversation: { startNewConversation() },
                 onCreateGroup: assistantFeatureFlagStore.isEnabled("conversation-groups-ui") ? {
@@ -465,6 +404,23 @@ extension MainWindowView {
                         groupToDelete = nil
                     }
                 )
+            }
+            .alert(
+                archiveAllPending.map { "Archive \($0.ids.count) conversation\($0.ids.count == 1 ? "" : "s") in \"\($0.displayName)\"?" } ?? "",
+                isPresented: Binding(
+                    get: { archiveAllPending != nil },
+                    set: { if !$0 { archiveAllPending = nil } }
+                )
+            ) {
+                Button("Cancel", role: .cancel) { archiveAllPending = nil }
+                Button("Archive All", role: .destructive) {
+                    if let pending = archiveAllPending {
+                        archiveAllPending = nil
+                        conversationManager.archiveAllConversations(ids: pending.ids)
+                    }
+                }
+            } message: {
+                Text("This will archive all conversations in this group. You can restore them from Settings \u{203A} Archive.")
             }
             .background(GeometryReader { scrollGeo in
                 Color.clear.preference(
@@ -523,7 +479,6 @@ extension MainWindowView {
                         sidebarPinnedAppRow(app, isExpanded: false)
                     }
                 }
-                .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
                 sidebarSectionDivider()
             }
@@ -599,6 +554,25 @@ extension MainWindowView {
                     }
                 }
             )
+        }
+    }
+
+    // MARK: - Mark All Read Toast
+
+    private func showMarkAllReadToast(count: Int, markedIds: [UUID]) {
+        let toastId = windowState.showToast(
+            message: "Marked \(count) conversation\(count == 1 ? "" : "s") as read",
+            style: .success,
+            primaryAction: VToastAction(label: "Undo") {
+                conversationManager.restoreUnseen(conversationIds: markedIds)
+                windowState.dismissToast()
+            },
+            onDismiss: {
+                conversationManager.commitPendingSeenSignals()
+            }
+        )
+        conversationManager.schedulePendingSeenSignals {
+            windowState.dismissToast(id: toastId)
         }
     }
 

@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.6.0
+  version: 0.6.2
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -3119,7 +3119,7 @@ paths:
     post:
       operationId: export_post
       summary: Export logs and audit data
-      description: Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
+      description: Export audit records, assistant logs, and config as a tar.gz archive.
       tags:
         - export
       responses:
@@ -3140,6 +3140,11 @@ paths:
                 conversationId:
                   description: Scope to a single conversation
                   type: string
+                full:
+                  description:
+                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
+                    debugging.
+                  type: boolean
                 startTime:
                   description: Lower bound epoch ms
                   type: number
@@ -3836,6 +3841,43 @@ paths:
               required:
                 - requestId
               additionalProperties: false
+  /v1/host-browser-result:
+    post:
+      operationId: hostbrowserresult_post
+      summary: Submit host browser result
+      description: Resolve a pending host browser request by requestId.
+      tags:
+        - host
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: Pending browser request ID
+                content:
+                  type: string
+                isError:
+                  type: boolean
+              required:
+                - requestId
+              additionalProperties: false
   /v1/host-cu-result:
     post:
       operationId: hostcuresult_post
@@ -4277,7 +4319,7 @@ paths:
     post:
       operationId: logs_export_post
       summary: Export logs and audit data (alias)
-      description: Alias for /v1/export. Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
+      description: Alias for /v1/export. Export audit records, assistant logs, and config as a tar.gz archive.
       tags:
         - export
       responses:
@@ -4298,6 +4340,11 @@ paths:
                 conversationId:
                   description: Scope to a single conversation
                   type: string
+                full:
+                  description:
+                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
+                    debugging.
+                  type: boolean
                 startTime:
                   description: Lower bound epoch ms
                   type: number
@@ -7672,7 +7719,7 @@ paths:
     get:
       operationId: usage_breakdown_get
       summary: Get usage breakdown
-      description: Return grouped usage breakdown (by actor, provider, or model).
+      description: Return grouped usage breakdown (by actor, provider, model, or conversation).
       tags:
         - usage
       responses:
@@ -7708,7 +7755,7 @@ paths:
           required: false
           schema:
             type: string
-          description: "Group by: actor, provider, or model (required)"
+          description: "Group by: actor, provider, model, or conversation (required)"
   /v1/usage/daily:
     get:
       operationId: usage_daily_get

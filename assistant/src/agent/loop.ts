@@ -82,7 +82,7 @@ export type AgentEvent =
       toolUseId: string;
       input: Record<string, unknown>;
     }
-  | { type: "server_tool_complete"; toolUseId: string; isError: boolean }
+  | { type: "server_tool_complete"; toolUseId: string; isError: boolean; content?: unknown[] }
   | { type: "error"; error: Error }
   | {
       type: "usage";
@@ -201,7 +201,6 @@ export class AgentLoop {
   ): Promise<Message[]> {
     const history = [...messages];
     let toolUseTurns = 0;
-    let nudgedForEmptyResponse = false;
     let consecutiveErrorTurns = 0;
     let lastLlmCallTime = 0;
     const rlog = requestId ? log.child({ requestId }) : log;
@@ -345,6 +344,7 @@ export class AgentLoop {
                   type: "server_tool_complete",
                   toolUseId: event.toolUseId,
                   isError: event.isError,
+                  ...(event.content ? { content: event.content } : {}),
                 });
               }
             },
@@ -403,35 +403,7 @@ export class AgentLoop {
             block.type === "tool_use",
         );
 
-        // Check if the assistant turn contained any visible text (used for
-        // the empty-response nudge).
-        const hasTextBlock = response.content.some(
-          (block) => block.type === "text" && block.text.trim().length > 0,
-        );
-
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
-          // Check if the LLM returned no text after tool results — nudge it to respond
-          const lastUserMsg =
-            history.length >= 2 ? history[history.length - 2] : undefined;
-          const lastWasToolResult =
-            lastUserMsg?.role === "user" &&
-            lastUserMsg.content.some((block) => block.type === "tool_result");
-
-          if (!hasTextBlock && lastWasToolResult && !nudgedForEmptyResponse) {
-            nudgedForEmptyResponse = true;
-            history.push({
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "<system_notice>You executed tools but didn't tell the user what happened. Provide a brief, conversational summary of the results.</system_notice>",
-                },
-              ],
-            });
-            continue;
-          }
-
-          // No tool calls or no executor — done
           break;
         }
 
@@ -738,10 +710,10 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
  * once by the LLM on the turn it was captured, then replaced with a text
  * placeholder on subsequent turns.
  *
- * We look for the last user message with tool_results (not just the last user
- * message) because the empty-response nudge path appends a text-only user
- * message after the tool results. Preserving images in that case ensures
- * the model still sees the screenshot on the retry.
+ * We target the last user message with tool_results (not just the last user
+ * message) because a plain-text user message may follow the tool-result
+ * turn. Using the last user message unconditionally would leave the most
+ * recent tool screenshots unprotected from stripping.
  */
 function stripOldImageBlocks(history: Message[]): Message[] {
   // Find the last user message that contains tool_result blocks.

@@ -12,9 +12,6 @@ final class ComposerTextView: NSTextView {
 
     // MARK: - Properties
 
-    var placeholderString: String = "" {
-        didSet { needsDisplay = true }
-    }
     var cmdEnterToSend: Bool = false
     var onSubmit: (() -> Void)?
     var onTab: (() -> Bool)?
@@ -28,30 +25,6 @@ final class ComposerTextView: NSTextView {
     /// (emoji, slash commands) intercept Return regardless of the
     /// send-mode preference.
     var shouldOverrideReturn: (() -> Bool)?
-
-    // MARK: - Placeholder Drawing
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard string.isEmpty, !placeholderString.isEmpty else { return }
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font ?? NSFont.systemFont(ofSize: 13),
-            .foregroundColor: NSColor.placeholderTextColor,
-        ]
-        let inset = textContainerInset
-        let padding = textContainer?.lineFragmentPadding ?? 5
-        let rect = NSRect(
-            x: inset.width + padding,
-            y: inset.height,
-            width: bounds.width - inset.width * 2 - padding * 2,
-            height: bounds.height - inset.height * 2
-        )
-        placeholderString.draw(in: rect, withAttributes: attrs)
-    }
-
-    override var string: String {
-        didSet { needsDisplay = true }
-    }
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()

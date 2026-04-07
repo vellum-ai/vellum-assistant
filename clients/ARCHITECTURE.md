@@ -466,10 +466,10 @@ Managed sign-in allows macOS users to connect to a platform-hosted assistant dur
 User clicks "Sign in"
   --> WorkOS authentication (via AuthManager)
   --> ManagedAssistantBootstrapService.ensureManagedAssistant()
-      --> If connectedAssistantId stored: GET /v1/assistants/{id}/  (retrieve by ID)
+      --> If activeAssistant in lockfile: GET /v1/assistants/{id}/  (retrieve by ID)
       --> Otherwise: POST /v1/assistants/hatch/  (idempotent — returns existing or creates new)
   --> Upsert lockfile entry (cloud: "vellum")
-  --> Set connectedAssistantId in UserDefaults
+  --> Set activeAssistant in lockfile
   --> Configure managed HTTP transport
   --> Proceed to app
 ```
@@ -501,7 +501,7 @@ When the current assistant is managed (`isCurrentAssistantManaged == true`), the
 | Session token | Credential Store | provider: `session-token` (via `SessionTokenManager`) |
 | Platform token file | Filesystem | `~/.vellum/platform-token` (0600 permissions, daemon-readable) |
 | Managed lockfile entry | Filesystem | `~/.vellum.lock.json` (entry with `cloud: "vellum"`) |
-| Connected assistant ID | UserDefaults | `connectedAssistantId` |
+| Connected assistant ID | Lockfile | `activeAssistant` field in `~/.vellum.lock.json` |
 
 ### 401 Handling in Managed Mode
 

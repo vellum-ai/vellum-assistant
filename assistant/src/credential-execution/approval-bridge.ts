@@ -220,7 +220,6 @@ export async function bridgeCesApproval(
     [], // No allowlist options — CES manages its own grant patterns
     [], // No scope options — CES manages scope internally
     undefined, // No file diff
-    undefined, // Not sandboxed
     options?.conversationId,
     "host", // CES operations target the host
     false, // Persistent decisions are managed by CES, not trust.json

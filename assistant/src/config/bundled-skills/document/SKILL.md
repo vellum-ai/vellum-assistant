@@ -6,6 +6,10 @@ metadata:
   emoji: "📄"
   vellum:
     display-name: "Document"
+    activation-hints:
+      - "User asks to write, draft, or collaborate on long-form content — use the document editor for a better editing experience"
+      - "When content will be iterated on, reviewed, or exported, prefer the document editor over inline markdown"
+      - "When a file attachment contains a draft or document the user wants to iterate on, open it in the editor"
 ---
 
 Create and edit long-form documents using the built-in rich text editor. Documents open in workspace mode with chat docked to the side.

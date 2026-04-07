@@ -3,8 +3,10 @@ import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
 
-extension Notification.Name {
-    static let identityFileDidChange = Notification.Name("identityFileDidChange")
+/// Target for the "Archive All" confirmation alert.
+struct ArchiveAllTarget {
+    let displayName: String
+    let ids: [UUID]
 }
 
 struct MainWindowView: View {
@@ -47,7 +49,7 @@ struct MainWindowView: View {
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     let sidebarExpandedWidth: CGFloat = 240
     let sidebarCollapsedWidth: CGFloat = 52
-    @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 500
+    @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
     @AppStorage("appChatDockWidth") var appChatDockWidth: Double = -1
     let connectionManager: GatewayConnectionManager
@@ -66,15 +68,15 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     @State var showConversationSwitcher = false
+    @State var showEarnCreditsModal = false
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
     @State var groupToDelete: ConversationGroup?
+    @State var archiveAllPending: ArchiveAllTarget?
 
-    /// Cached assistant display name, refreshed when IDENTITY.md changes on disk.
+    /// Cached assistant display name, refreshed when the daemon emits an identity change event.
     @State var cachedAssistantName: String = "Your Assistant"
     /// Whether cachedAssistantName has been resolved from IDENTITY.md at least once.
     @State var assistantNameResolved: Bool = false
-    /// File watcher for IDENTITY.md — fires when the assistant's name changes.
-    @State var identityFileWatcher: DispatchSourceFileSystemObject?
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
@@ -659,6 +661,10 @@ struct MainWindowView: View {
             .overlay { conversationActionsDismissLayer }
             .overlay(alignment: .topLeading) { conversationActionsDrawerLayer }
             .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
+            .sheet(isPresented: $showEarnCreditsModal) {
+                EarnCreditsModal()
+                    .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
+            }
             .overlay { conversationSwitcherDismissLayer }
             .overlay(alignment: .topLeading) { conversationSwitcherDrawerLayer }
             .ignoresSafeArea(edges: .top)
@@ -810,7 +816,7 @@ private struct AssistantLoadingOverlayContent: View {
     @MainActor
     private static func detectPlatformURLMismatch() -> PlatformURLMismatchInfo? {
         #if os(macOS)
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId(),
               let assistant = LockfileAssistant.loadByName(assistantId),
               assistant.isManaged,
               let lockfileURL = assistant.runtimeUrl,

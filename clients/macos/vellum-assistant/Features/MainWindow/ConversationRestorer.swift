@@ -223,7 +223,7 @@ final class ConversationRestorer {
         } else {
             if delegate.groups.isEmpty {
                 withTransaction(groupTransaction) {
-                    delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+                    delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background, ConversationGroup.all]
                 }
             }
             delegate.daemonSupportsGroups = false
@@ -253,7 +253,7 @@ final class ConversationRestorer {
         for session in recentConversations {
             let isPinned = session.isPinned ?? false
             let groupId: String? = daemonSupportsGroups
-                ? (session.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil))
+                ? (session.groupId ?? (isPinned ? ConversationGroup.pinned.id : ConversationGroup.all.id))
                 : ConversationModel.deriveGroupId(
                     serverGroupId: session.groupId,
                     isPinned: isPinned,
@@ -311,9 +311,18 @@ final class ConversationRestorer {
                 forkParent: session.forkParent,
                 originChannel: session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
             )
-            // VM creation is lazy — only the active conversation will get a VM via
-            // getOrCreateViewModel() when it's first accessed.
-            restoredConversations.append(conversation)
+            // Suppress unread indicators for automated conversations on initial load.
+            // The server tracks attention for all conversations, but automated threads
+            // (heartbeat, schedule, background/task) should never show unread state.
+            if conversation.shouldSuppressUnreadIndicator {
+                var suppressed = conversation
+                suppressed.hasUnseenLatestAssistantMessage = false
+                restoredConversations.append(suppressed)
+            } else {
+                // VM creation is lazy — only the active conversation will get a VM via
+                // getOrCreateViewModel() when it's first accessed.
+                restoredConversations.append(conversation)
+            }
         }
 
         // Suppress animations during bulk list assignment. Without this,
@@ -429,7 +438,7 @@ final class ConversationRestorer {
                     // Set serverOffset from foreground count BEFORE merging.
                     // loadMoreConversations pages the foreground endpoint only,
                     // so the offset must not include merged background rows.
-                    self.delegate?.serverOffset = foreground.conversations.count
+                    self.delegate?.serverOffset = foreground.nextOffset ?? foreground.conversations.count
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,

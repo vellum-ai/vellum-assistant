@@ -42,6 +42,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.state.hasActiveToolCall == rhs.state.hasActiveToolCall
             && lhs.state.canInlineProcessing == rhs.state.canInlineProcessing
             && lhs.state.shouldShowThinkingIndicator == rhs.state.shouldShowThinkingIndicator
+            && lhs.state.isStreamingWithoutText == rhs.state.isStreamingWithoutText
             && lhs.state.hasMessages == rhs.state.hasMessages
             && lhs.providerCatalogHash == rhs.providerCatalogHash
             && lhs.isLoadingMoreMessages == rhs.isLoadingMoreMessages
@@ -108,12 +109,18 @@ struct MessageListContentView: View, Equatable {
 
     @ViewBuilder
     private func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
-        RunningIndicator(
-            label: !hasEverSentMessage && hasUserMessage
+        HStack(spacing: VSpacing.sm) {
+            TypingIndicatorView()
+            let label = !hasEverSentMessage && hasUserMessage
                 ? "Waking up..."
-                : assistantStatusText ?? "Thinking",
-            showIcon: false
-        )
+                : assistantStatusText
+            if let label, !label.isEmpty {
+                Text(label)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+            Spacer()
+        }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -247,6 +254,14 @@ struct MessageListContentView: View, Equatable {
                     thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
                 }
                 thinkingAvatarRow
+            } else if state.isStreamingWithoutText && !state.canInlineProcessing {
+                HStack {
+                    TypingIndicatorView()
+                    Spacer()
+                }
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                .id("streaming-without-text-indicator")
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                 compactingIndicatorRow()
             }
@@ -254,17 +269,18 @@ struct MessageListContentView: View, Equatable {
             Color.clear.frame(height: 1)
                 .id("scroll-bottom-anchor")
                 .onAppear {
+                    // Signal that the bottom anchor has materialized —
+                    // isAtBottom is now reliable (based on actual content
+                    // height, not LazyVStack estimates).
+                    scrollState.bottomAnchorAppeared = true
                     if !scrollState.hasBeenInteracted {
                         scrollState.handleReachedBottom()
                     }
                 }
-
-            TailSpacerView(scrollState: scrollState)
         }
         .disabled(!isInteractionEnabled)
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.top, VSpacing.md)
-        .padding(.bottom, VSpacing.md)
+        .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.xl,
+                            bottom: VSpacing.md, trailing: VSpacing.xl))
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity)
         .environment(\.bubbleMaxWidth, containerWidth > 0

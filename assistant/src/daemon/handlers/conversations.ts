@@ -4,6 +4,7 @@ import {
   type InterfaceId,
   parseChannelId,
   parseInterfaceId,
+  supportsHostProxy,
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -30,6 +31,7 @@ import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
 import { HostBashProxy } from "../host-bash-proxy.js";
+import { HostBrowserProxy } from "../host-browser-proxy.js";
 import { HostCuProxy } from "../host-cu-proxy.js";
 import { HostFileProxy } from "../host-file-proxy.js";
 import type {
@@ -103,13 +105,10 @@ export function makeEventSender(params: {
             guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
             toolName: event.toolName,
             commandPreview:
-              redactSecrets(
-                summarizeToolInput(event.toolName, inputRecord),
-              ) || undefined,
+              redactSecrets(summarizeToolInput(event.toolName, inputRecord)) ||
+              undefined,
             riskLevel: event.riskLevel,
-            activityText: activityRaw
-              ? redactSecrets(activityRaw)
-              : undefined,
+            activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
             executionTarget: event.executionTarget,
             status: "pending",
             requestCode: generateCanonicalRequestCode(),
@@ -133,6 +132,12 @@ export function makeEventSender(params: {
         conversation,
         conversationId,
         kind: "host_bash",
+      });
+    } else if (event.type === "host_browser_request") {
+      pendingInteractions.register(event.requestId, {
+        conversation,
+        conversationId,
+        kind: "host_browser",
       });
     } else if (event.type === "host_file_request") {
       pendingInteractions.register(event.requestId, {
@@ -304,11 +309,15 @@ export async function handleConversationCreate(
     // Only create the host bash proxy for desktop client interfaces that can
     // execute commands on the user's machine. Set before updateClient so
     // updateClient's call to hostBashProxy.updateSender targets the new proxy.
-    if (transportInterface === "macos" || transportInterface === "ios") {
+    if (supportsHostProxy(transportInterface)) {
       const proxy = new HostBashProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversationObj.setHostBashProxy(proxy);
+      const browserProxy = new HostBrowserProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      conversationObj.setHostBrowserProxy(browserProxy);
       const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });

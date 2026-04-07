@@ -100,12 +100,11 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
         "file_read",
         "file_list",
         "recall",
-        "remember",
         "notify_parent",
       ],
       skillIds: [],
       systemPromptPreamble:
-        "You are a research-focused subagent with read-only access. Search the web, read files, and recall and store memories. You cannot write files or run shell commands.",
+        "You are a research-focused subagent with read-only access. Search the web, read files, and recall memories. You cannot write files or run shell commands.",
     },
     coder: {
       allowedTools: [

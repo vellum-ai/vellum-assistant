@@ -97,6 +97,7 @@ struct TeleportSection: View {
     @State private var transferTask: Task<Void, Never>?
     @State private var originalAssistant: LockfileAssistant?
     @State private var targetAssistant: LockfileAssistant?
+    @State private var transferProgress: Double? = nil
 
     var body: some View {
         Group {
@@ -139,12 +140,22 @@ struct TeleportSection: View {
             if case .verifying = phase {
                 verifyingBanner
             } else if case .transferring(let step) = phase {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(step)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(spacing: VSpacing.sm) {
+                        if transferProgress == nil || (transferProgress ?? 0) < 0 {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(step)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                    if let transferProgress, transferProgress >= 0 {
+                        ProgressView(value: transferProgress)
+                            .progressViewStyle(.linear)
+                            .tint(VColor.primaryBase)
+                            .frame(maxWidth: 240)
+                    }
                 }
             } else if case .failed(let error) = phase {
                 failedBanner(error: error)
@@ -239,6 +250,7 @@ struct TeleportSection: View {
                 label: "Try Again",
                 style: .outlined
             ) {
+                transferProgress = nil
                 phase = .idle
             }
         }
@@ -258,14 +270,13 @@ struct TeleportSection: View {
             let oldId = original.assistantId
             Task {
                 if original.isManaged {
-                    let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-                    UserDefaults.standard.set(oldId, forKey: "connectedAssistantId")
-                    defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
                     do {
-                        let response = try await GatewayHTTPClient.delete(
-                            path: "assistants/{assistantId}/retire",
-                            timeout: 30
-                        )
+                        let response = try await GatewayHTTPClient.withAssistant(oldId) {
+                            try await GatewayHTTPClient.delete(
+                                path: "assistants/{assistantId}/retire",
+                                timeout: 30
+                            )
+                        }
                         if response.isSuccess {
                             log.info("[teleport] Retired managed assistant \(oldId, privacy: .public)")
                         } else {
@@ -301,6 +312,7 @@ struct TeleportSection: View {
                 }
             }
         }
+        transferProgress = nil
         phase = .idle
         targetAssistant = nil
     }
@@ -322,6 +334,7 @@ struct TeleportSection: View {
                 throw TeleportError.invalidURL
             }
         } catch {
+            transferProgress = nil
             phase = .failed(error: "Teleport failed: \(error.localizedDescription)")
         }
     }
@@ -331,9 +344,10 @@ struct TeleportSection: View {
     private func teleportLocalToPlatform() async throws {
         // Step 1 — Export local assistant data
         phase = .transferring(step: "Exporting assistant data...")
-        let bundleData = try await exportAssistantBundle()
+        let bundleData = try await exportAssistantBundle(onProgress: { self.transferProgress = $0 })
 
         // Step 2 — Resolve and validate org ID before upload (upload reads org from UserDefaults)
+        transferProgress = nil
         phase = .transferring(step: "Resolving organization...")
         let organizationId = try await resolveOrganizationId()
 
@@ -342,7 +356,7 @@ struct TeleportSection: View {
         let bundleKey: String?
         do {
             let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
-            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)
+            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData, onProgress: { self.transferProgress = $0 })
             bundleKey = uploadInfo.bundleKey
         } catch let error as PlatformMigrationClient.PlatformMigrationError {
             if case .signedUrlsNotAvailable = error {
@@ -353,6 +367,7 @@ struct TeleportSection: View {
         }
 
         // Step 4 — Ensure managed assistant exists on platform via direct hatch
+        transferProgress = nil
         phase = .transferring(step: "Setting up cloud assistant...")
         let hatchResult = try await AuthService.shared.hatchAssistant(organizationId: organizationId)
         let platformAssistant: PlatformAssistant
@@ -391,9 +406,10 @@ struct TeleportSection: View {
     private func teleportLocalToDocker() async throws {
         // Step 1 — Export local assistant data
         phase = .transferring(step: "Exporting assistant data...")
-        let bundleData = try await exportAssistantBundle()
+        let bundleData = try await exportAssistantBundle(onProgress: { self.transferProgress = $0 })
 
         // Step 2 — Ensure a docker assistant exists
+        transferProgress = nil
         phase = .transferring(step: "Preparing Docker assistant...")
         var dockerAssistant = LockfileAssistant.loadAll().first(where: { $0.isDocker })
         if dockerAssistant == nil {
@@ -437,15 +453,14 @@ struct TeleportSection: View {
 
         // Step 5 — Import bundle to docker assistant
         phase = .transferring(step: "Importing data to Docker...")
-        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        UserDefaults.standard.set(resolvedDocker.assistantId, forKey: "connectedAssistantId")
-        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
-        let importResponse = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/migrations/import",
-            body: bundleData,
-            contentType: "application/octet-stream",
-            timeout: 120
-        )
+        let importResponse = try await GatewayHTTPClient.withAssistant(resolvedDocker.assistantId) {
+            try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/migrations/import",
+                body: bundleData,
+                contentType: "application/octet-stream",
+                timeout: 120
+            )
+        }
         guard importResponse.isSuccess else {
             throw TeleportError.importFailed(message: "HTTP \(importResponse.statusCode)")
         }
@@ -468,9 +483,10 @@ struct TeleportSection: View {
     private func teleportDockerToPlatform() async throws {
         // Step 1 — Export docker assistant data
         phase = .transferring(step: "Exporting assistant data...")
-        let bundleData = try await exportAssistantBundle()
+        let bundleData = try await exportAssistantBundle(onProgress: { self.transferProgress = $0 })
 
         // Step 2 — Resolve and validate org ID before upload (upload reads org from UserDefaults)
+        transferProgress = nil
         phase = .transferring(step: "Resolving organization...")
         let organizationId = try await resolveOrganizationId()
 
@@ -479,7 +495,7 @@ struct TeleportSection: View {
         let bundleKey: String?
         do {
             let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
-            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)
+            try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData, onProgress: { self.transferProgress = $0 })
             bundleKey = uploadInfo.bundleKey
         } catch let error as PlatformMigrationClient.PlatformMigrationError {
             if case .signedUrlsNotAvailable = error {
@@ -490,6 +506,7 @@ struct TeleportSection: View {
         }
 
         // Step 4 — Ensure managed assistant exists on platform via direct hatch
+        transferProgress = nil
         phase = .transferring(step: "Setting up cloud assistant...")
         let hatchResult = try await AuthService.shared.hatchAssistant(organizationId: organizationId)
         let platformAssistant: PlatformAssistant
@@ -560,11 +577,20 @@ struct TeleportSection: View {
     }
 
     /// Exports the current assistant's data as a `.vbundle` binary archive.
-    private func exportAssistantBundle() async throws -> Data {
-        let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/migrations/export",
-            timeout: 60
-        )
+    private func exportAssistantBundle(onProgress: (@MainActor (Double) -> Void)? = nil) async throws -> Data {
+        let response: GatewayHTTPClient.Response
+        if let onProgress {
+            response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/migrations/export",
+                timeout: 60,
+                onProgress: onProgress
+            )
+        } else {
+            response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/migrations/export",
+                timeout: 60
+            )
+        }
         guard response.isSuccess else {
             throw TeleportError.exportFailed(statusCode: response.statusCode)
         }
@@ -604,36 +630,34 @@ struct TeleportSection: View {
     }
 
     /// Bootstraps an actor token against a target assistant's gateway `/v1/guardian/init`
-    /// endpoint. Temporarily swaps `connectedAssistantId` to target the assistant's gateway.
-    /// Retries with exponential backoff up to ~30s.
+    /// endpoint. Uses the process-local assistant override to route requests to the
+    /// target assistant's gateway. Retries with exponential backoff up to ~30s.
     private func bootstrapActorToken(targetAssistantId: String) async throws -> String {
-        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        UserDefaults.standard.set(targetAssistantId, forKey: "connectedAssistantId")
-        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
-
         let deviceId = PairingQRCodeSheet.computeHostId()
         let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
 
-        var delay: UInt64 = 2_000_000_000
-        for attempt in 0..<6 {
-            try Task.checkCancellation()
+        return try await GatewayHTTPClient.withAssistant(targetAssistantId) {
+            var delay: UInt64 = 2_000_000_000
+            for attempt in 0..<6 {
+                try Task.checkCancellation()
 
-            if let response = try? await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/guardian/init",
-                json: body,
-                timeout: 15
-            ), response.isSuccess,
-               let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-               let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
-                return token
+                if let response = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/guardian/init",
+                    json: body,
+                    timeout: 15
+                ), response.isSuccess,
+                   let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                   let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
+                    return token
+                }
+
+                if attempt < 5 {
+                    try await Task.sleep(nanoseconds: delay)
+                    delay = min(delay * 2, 10_000_000_000)
+                }
             }
 
-            if attempt < 5 {
-                try await Task.sleep(nanoseconds: delay)
-                delay = min(delay * 2, 10_000_000_000)
-            }
+            throw TeleportError.notSignedIn
         }
-
-        throw TeleportError.notSignedIn
     }
 }

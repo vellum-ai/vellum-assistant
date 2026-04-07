@@ -18,6 +18,8 @@ final class ChatBubbleHoverState {
 /// Owns volatile @State (copy confirmation, audio player, popover) so that
 /// changes only re-evaluate this small view, not the full ChatBubble body.
 struct ChatBubbleOverflowMenu: View {
+    private static let reservedRowHeight: CGFloat = 24
+
     let message: ChatMessage
     let hoverState: ChatBubbleHoverState
     let isTTSEnabled: Bool
@@ -99,14 +101,16 @@ struct ChatBubbleOverflowMenu: View {
 
     // MARK: - Body
 
-    // The opacity approach constructs buttons even when hidden, but the
-    // ChatEquatableButton firewall prevents body re-evaluation during
-    // unrelated parent cascades. This preserves the fade animation while
-    // eliminating the primary performance cost (repeated VButton body work).
     var body: some View {
         if hasOverflowActions {
-            menuContent
-                .opacity(showOverflowMenu ? 1 : 0)
+            Color.clear
+                .frame(height: Self.reservedRowHeight)
+                .overlay(alignment: .leading) {
+                    if showOverflowMenu {
+                        menuContent
+                            .transition(.opacity)
+                    }
+                }
                 .animation(VAnimation.fast, value: showOverflowMenu)
         }
     }
@@ -116,7 +120,7 @@ struct ChatBubbleOverflowMenu: View {
             Text(formattedTimestamp)
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentTertiary)
-                .help(detailedTimestamp)
+                .nativeTooltip(detailedTimestamp)
             if hasCopyableText {
                 ChatEquatableButton(
                     label: showCopyConfirmation ? "Copied" : "Copy message",
@@ -159,8 +163,25 @@ struct ChatBubbleOverflowMenu: View {
     // MARK: - Copy
 
     private func copyMessageText() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.text, forType: .string)
+        let pasteboard = NSPasteboard.general
+        let textToCopy = message.text
+
+        pasteboard.clearContents()
+        pasteboard.setString(textToCopy, forType: .string)
+
+        // Verify the write landed. If another pasteboard writer (e.g. a delayed
+        // clipboard-restore timer from ActionExecutor or DictationTextInserter)
+        // overwrites us, re-claim ownership.
+        // Reference: https://developer.apple.com/documentation/appkit/nspasteboard/changecount
+        let expectedChangeCount = pasteboard.changeCount
+        DispatchQueue.main.async {
+            let pb = NSPasteboard.general
+            if pb.changeCount != expectedChangeCount {
+                pb.clearContents()
+                pb.setString(textToCopy, forType: .string)
+            }
+        }
+
         copyConfirmationTimer?.cancel()
         showCopyConfirmation = true
         let timer = DispatchWorkItem { showCopyConfirmation = false }

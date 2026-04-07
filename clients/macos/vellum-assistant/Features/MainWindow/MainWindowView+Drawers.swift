@@ -130,6 +130,10 @@ extension MainWindowView {
                     sidebar.showPreferencesDrawer = false
                     settingsStore.pendingSettingsTab = .billing
                     windowState.selection = .panel(.settings)
+                },
+                onEarnCredits: {
+                    sidebar.showPreferencesDrawer = false
+                    showEarnCreditsModal = true
                 }
             )
             .frame(width: drawerWidth)

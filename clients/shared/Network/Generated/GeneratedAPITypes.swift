@@ -2070,14 +2070,20 @@ public struct HistoryResponseSurface: Codable, Sendable {
     public let data: [String: AnyCodable]
     public let actions: [HistoryResponseSurfaceAction]?
     public let display: String?
+    /// True when the surface was completed (e.g. form submitted).
+    public let completed: Bool?
+    /// Human-readable summary shown in the completion chip.
+    public let completionSummary: String?
 
-    public init(surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [HistoryResponseSurfaceAction]? = nil, display: String? = nil) {
+    public init(surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [HistoryResponseSurfaceAction]? = nil, display: String? = nil, completed: Bool? = nil, completionSummary: String? = nil) {
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
         self.title = title
         self.data = data
         self.actions = actions
         self.display = display
+        self.completed = completed
+        self.completionSummary = completionSummary
     }
 }
 
@@ -2819,13 +2825,21 @@ public struct NotificationConversationCreated: Codable, Sendable {
     /// When set, this conversation was created for a guardian-sensitive notification
     /// and should only be surfaced by clients bound to this guardian identity.
     public let targetGuardianPrincipalId: String?
+    /// Conversation group identifier from the signal producer (e.g. "system:scheduled").
+    /// Clients use this to place the conversation in the correct sidebar folder.
+    public let groupId: String?
+    /// Semantic source of the conversation (e.g. "schedule", "reminder").
+    /// Allows clients to override the default "notification" source.
+    public let source: String?
 
-    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil) {
+    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil, groupId: String? = nil, source: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
         self.sourceEventName = sourceEventName
         self.targetGuardianPrincipalId = targetGuardianPrincipalId
+        self.groupId = groupId
+        self.source = source
     }
 }
 
@@ -3588,12 +3602,18 @@ public struct ConversationTransportMetadata: Codable, Sendable {
     public let hints: [String]?
     /// Optional concise UX brief for this channel.
     public let uxBrief: String?
+    /// Home directory of the host macOS user. Only populated when interfaceId == "macos".
+    public let hostHomeDir: String?
+    /// Username of the host macOS user. Only populated when interfaceId == "macos".
+    public let hostUsername: String?
 
-    public init(channelId: String, interfaceId: String? = nil, hints: [String]? = nil, uxBrief: String? = nil) {
+    public init(channelId: String, interfaceId: String? = nil, hints: [String]? = nil, uxBrief: String? = nil, hostHomeDir: String? = nil, hostUsername: String? = nil) {
         self.channelId = channelId
         self.interfaceId = interfaceId
         self.hints = hints
         self.uxBrief = uxBrief
+        self.hostHomeDir = hostHomeDir
+        self.hostUsername = hostUsername
     }
 }
 
@@ -3720,6 +3740,33 @@ public struct SignBundlePayloadResponse: Codable, Sendable {
         self.keyId = keyId
         self.publicKey = publicKey
         self.error = error
+    }
+}
+
+/// Sent by the daemon when workspace config.json changes on disk.
+public struct ConfigChanged: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+/// Sent by the daemon when sounds config or sound files change on disk.
+public struct SoundsConfigUpdated: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+/// Sent by the daemon when feature flag files change on disk.
+public struct FeatureFlagsChanged: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
     }
 }
 

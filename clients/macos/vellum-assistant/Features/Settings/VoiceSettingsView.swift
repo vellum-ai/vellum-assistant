@@ -11,6 +11,8 @@ struct VoiceSettingsView: View {
 
     @State private var elevenLabsKeyText: String = ""
     @State private var ttsSetupExpanded: Bool = false
+    /// Whether an ElevenLabs API key is stored (fetched per-component).
+    @State private var elevenLabsHasKey = false
     @State private var isRecordingCustomKey: Bool = false
     @State private var recordingMonitors: [Any] = []
     @State private var modifierHoldTimer: Timer? = nil
@@ -43,6 +45,11 @@ struct VoiceSettingsView: View {
         }
         .onDisappear {
             stopRecordingCustomKey()
+        }
+        .onAppear {
+            // ElevenLabs key is still saved locally (not yet synced to daemon),
+            // so use the sync check until 22a-3 migrates saveElevenLabsKey.
+            elevenLabsHasKey = APIKeyManager.getKey(for: "elevenlabs") != nil
         }
         .onChange(of: conversationTimeoutSeconds) {
             VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds
@@ -279,11 +286,12 @@ struct VoiceSettingsView: View {
 
     private var ttsCard: some View {
         SettingsCard(title: "Text-to-Speech", subtitle: "ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.") {
-            if store.hasElevenLabsKey {
+            if elevenLabsHasKey {
                 HStack(spacing: VSpacing.sm) {
                     VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
                     VButton(label: "Disconnect", style: .danger) {
                         store.clearElevenLabsKey()
+                        elevenLabsHasKey = false
                         elevenLabsKeyText = ""
                         ttsSetupExpanded = false
                     }
@@ -309,6 +317,7 @@ struct VoiceSettingsView: View {
                     HStack(spacing: VSpacing.sm) {
                         VButton(label: "Connect", style: .outlined, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                             store.saveElevenLabsKey(elevenLabsKeyText)
+                            elevenLabsHasKey = true
                             elevenLabsKeyText = ""
                             ttsSetupExpanded = false
                         }

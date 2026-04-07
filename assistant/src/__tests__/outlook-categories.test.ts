@@ -15,7 +15,7 @@ const mockListMasterCategories = mock(() =>
   }),
 );
 const mockResolveOAuthConnection = mock(() =>
-  Promise.resolve({ id: "conn-1", providerKey: "outlook" }),
+  Promise.resolve({ id: "conn-1", provider: "outlook" }),
 );
 
 mock.module("../messaging/providers/outlook/client.js", () => ({

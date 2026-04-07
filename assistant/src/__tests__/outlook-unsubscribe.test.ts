@@ -57,7 +57,7 @@ const { run } =
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const fakeConnection = { id: "outlook-conn-1", providerKey: "outlook" };
+const fakeConnection = { id: "outlook-conn-1", provider: "outlook" };
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {

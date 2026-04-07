@@ -103,11 +103,11 @@ struct ImproveExperienceStepView: View {
                     .fill(tosAccepted ? VColor.primaryBase : Color.clear)
 
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .strokeBorder(tosAccepted ? Color.clear : VColor.borderBase, lineWidth: 1.5)
+                    .strokeBorder(tosAccepted ? Color.clear : VColor.borderElement, lineWidth: 1.5)
 
                 if tosAccepted {
                     VIconView(.check, size: 12)
-                        .foregroundStyle(VColor.auxWhite)
+                        .foregroundStyle(VColor.contentInset)
                 }
             }
             .frame(width: 20, height: 20)

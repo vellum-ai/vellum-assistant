@@ -31,6 +31,7 @@ extension MessageListView {
     /// transitions). All checks are O(1). `isSending` / `isThinking`
     /// transitions are handled via `PrecomputedCacheKey` fields directly.
     func refreshMessageListVersionIfNeeded(visibleMessages: [ChatMessage]) {
+        let cache = scrollState.derivedStateCache
         let currentRawCount = messages.count
         let currentVisibleCount = visibleMessages.count
         let currentLastStreaming = visibleMessages.last?.isStreaming ?? false
@@ -44,29 +45,29 @@ extension MessageListView {
 
         var changed = false
 
-        if currentRawCount != scrollState.lastKnownRawMessageCount {
-            scrollState.lastKnownRawMessageCount = currentRawCount
+        if currentRawCount != cache.lastKnownRawMessageCount {
+            cache.lastKnownRawMessageCount = currentRawCount
             changed = true
         }
-        if currentVisibleCount != scrollState.lastKnownVisibleMessageCount {
-            scrollState.lastKnownVisibleMessageCount = currentVisibleCount
+        if currentVisibleCount != cache.lastKnownVisibleMessageCount {
+            cache.lastKnownVisibleMessageCount = currentVisibleCount
             changed = true
         }
-        if currentLastStreaming != scrollState.lastKnownLastMessageStreaming {
-            scrollState.lastKnownLastMessageStreaming = currentLastStreaming
+        if currentLastStreaming != cache.lastKnownLastMessageStreaming {
+            cache.lastKnownLastMessageStreaming = currentLastStreaming
             changed = true
         }
-        if currentIncompleteToolCalls != scrollState.lastKnownIncompleteToolCallCount {
-            scrollState.lastKnownIncompleteToolCallCount = currentIncompleteToolCalls
+        if currentIncompleteToolCalls != cache.lastKnownIncompleteToolCallCount {
+            cache.lastKnownIncompleteToolCallCount = currentIncompleteToolCalls
             changed = true
         }
-        if currentIdFingerprint != scrollState.lastKnownVisibleIdFingerprint {
-            scrollState.lastKnownVisibleIdFingerprint = currentIdFingerprint
+        if currentIdFingerprint != cache.lastKnownVisibleIdFingerprint {
+            cache.lastKnownVisibleIdFingerprint = currentIdFingerprint
             changed = true
         }
 
         if changed {
-            scrollState.messageListVersion += 1
+            cache.messageListVersion += 1
         }
     }
 
@@ -92,16 +93,17 @@ extension MessageListView {
     /// Computes all derived values needed by the message list body.
     ///
     /// Structural metadata (IDs, timestamps, role-based indices, subagent
-    /// grouping) is memoized behind a lightweight O(1) cache key stored on
-    /// the `@ObservationIgnored` fields of `MessageListScrollState`. Content-derived state
-    /// (message data, confirmation placement, thinking indicators) is
+    /// grouping) is memoized behind a lightweight O(1) cache key stored in a
+    /// non-observable cache attached to `MessageListScrollState`.
+    /// Content-derived state (message data, confirmation placement, thinking indicators) is
     /// always computed fresh from the live `visibleMessages` array so
     /// SwiftUI's `.equatable()` diffing sees every mutation.
     var derivedState: MessageListDerivedState {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
         scrollState.recordBodyEvaluation()
+        let cache = scrollState.derivedStateCache
 
-        if scrollState.isThrottled, let cached = scrollState.cachedDerivedStateBox as? MessageListDerivedState {
+        if cache.isThrottled, let cached = cache.cachedDerivedState {
             os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
             return cached
         }
@@ -109,11 +111,11 @@ extension MessageListView {
         // Compute visible messages first so version tracking and layout
         // both operate on the same filtered set.
         let liveMessages = visibleMessages
-        scrollState.cachedFirstVisibleMessageId = liveMessages.first?.id
+        cache.cachedFirstVisibleMessageId = liveMessages.first?.id
         refreshMessageListVersionIfNeeded(visibleMessages: liveMessages)
 
         let key = PrecomputedCacheKey(
-            messageListVersion: scrollState.messageListVersion,
+            messageListVersion: cache.messageListVersion,
             isSending: isSending,
             isThinking: isThinking,
             isCompacting: isCompacting,
@@ -124,8 +126,8 @@ extension MessageListView {
 
         // --- Stage 1: Cached structural metadata ---
         let layout: CachedMessageLayoutMetadata
-        if key == scrollState.cachedLayoutKey,
-           let cached = scrollState.cachedLayoutMetadata,
+        if key == cache.cachedLayoutKey,
+           let cached = cache.cachedLayoutMetadata,
            cached.displayMessageIds.count == liveMessages.count {
             #if DEBUG
             var seen = Set<UUID>()
@@ -138,7 +140,7 @@ extension MessageListView {
             os_signpost(.event, log: stallLog, name: "DerivedState.layoutCacheHit")
             layout = cached
         } else {
-            os_signpost(.event, log: stallLog, name: "DerivedState.layoutCacheMiss", "version=%d", scrollState.messageListVersion)
+            os_signpost(.event, log: stallLog, name: "DerivedState.layoutCacheMiss", "version=%d", cache.messageListVersion)
 
             let displayMessageIds: [UUID] = {
                 var seen = Set<UUID>()
@@ -174,8 +176,8 @@ extension MessageListView {
                 orphanSubagents: orphanSubagents,
                 effectiveStatusText: effectiveStatusText
             )
-            scrollState.cachedLayoutKey = key
-            scrollState.cachedLayoutMetadata = layout
+            cache.cachedLayoutKey = key
+            cache.cachedLayoutMetadata = layout
         }
 
         // --- Stage 2: Live content-derived state (always fresh) ---
@@ -238,6 +240,11 @@ extension MessageListView {
         let lastVisibleIsAssistant = lastVisible?.role == .assistant
         let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
         let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
+        let isStreamingWithoutText = isSending
+            && (lastVisible?.isStreaming == true)
+            && (lastVisible?.text.isEmpty ?? true)
+            && !hasActiveToolCall
+            && !canInlineProcessing
 
         let result = MessageListDerivedState(
             messageIndexById: layout.messageIndexById,
@@ -262,10 +269,11 @@ extension MessageListView {
             hasActiveToolCall: hasActiveToolCall,
             canInlineProcessing: canInlineProcessing,
             shouldShowThinkingIndicator: shouldShowThinkingIndicator,
+            isStreamingWithoutText: isStreamingWithoutText,
             hasMessages: !liveMessages.isEmpty
         )
 
-        scrollState.cachedDerivedStateBox = result
+        cache.cachedDerivedState = result
         os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
         return result
     }

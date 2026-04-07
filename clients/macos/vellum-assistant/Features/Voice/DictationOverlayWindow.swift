@@ -261,7 +261,7 @@ final class DictationOverlayWindow {
 
     private func makeTranscriptionLabel() -> NSTextField {
         let field = NSTextField(labelWithString: "")
-        field.font = NSFont(name: "Inter", size: 10) ?? NSFont.systemFont(ofSize: 10)
+        field.font = NSFont(name: "DMSans-Regular", size: 10) ?? NSFont.systemFont(ofSize: 10)
         field.textColor = NSColor(VColor.contentTertiary)
         field.lineBreakMode = .byWordWrapping
         field.maximumNumberOfLines = 2

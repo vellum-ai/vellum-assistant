@@ -17,17 +17,14 @@ import {
   type InterfaceId,
   parseChannelId,
   parseInterfaceId,
+  supportsHostProxy,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import {
-  getApp,
-  getAppDirPath,
-  isMultifileApp,
-} from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -64,6 +61,7 @@ import { getSubagentManager } from "../subagent/index.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import {
+  getAvatarImagePath,
   getSandboxWorkingDir,
   getWorkspacePromptPath,
 } from "../util/platform.js";
@@ -88,12 +86,14 @@ import type {
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostBrowserProxy } from "./host-browser-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import { buildTransportHints } from "./transport-hints.js";
 
 const log = getLogger("server");
 
@@ -159,9 +159,10 @@ function resolveCanonicalRequestSourceType(
 
 /**
  * Build an onEvent callback that registers pending interactions when the agent
- * loop emits confirmation_request, secret_request, host_bash_request, or
- * host_file_request events. This ensures that channel approval interception
- * can look up the conversation by requestId.
+ * loop emits confirmation_request, secret_request, host_bash_request,
+ * host_browser_request, host_file_request, or host_cu_request events. This
+ * ensures that channel approval interception can look up the conversation by
+ * requestId.
  */
 function makePendingInteractionRegistrar(
   conversation: Conversation,
@@ -210,13 +211,10 @@ function makePendingInteractionRegistrar(
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           commandPreview:
-            redactSecrets(
-              summarizeToolInput(msg.toolName, inputRecord),
-            ) || undefined,
+            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+            undefined,
           riskLevel: msg.riskLevel,
-          activityText: activityRaw
-            ? redactSecrets(activityRaw)
-            : undefined,
+          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
           executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
@@ -252,6 +250,12 @@ function makePendingInteractionRegistrar(
         conversation,
         conversationId,
         kind: "host_bash",
+      });
+    } else if (msg.type === "host_browser_request") {
+      pendingInteractions.register(msg.requestId, {
+        conversation,
+        conversationId,
+        kind: "host_browser",
       });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
@@ -379,7 +383,7 @@ export class DaemonServer {
       { channelId: transport.channelId },
       "Transport metadata received",
     );
-    conversation.setTransportHints(transport.hints);
+    conversation.setTransportHints(buildTransportHints(transport));
   }
 
   constructor() {
@@ -531,6 +535,25 @@ export class DaemonServer {
     } catch (err) {
       log.error({ err }, "Failed to broadcast identity change");
     }
+  }
+
+  private broadcastConfigChanged(): void {
+    this.broadcast({ type: "config_changed" });
+  }
+
+  private broadcastSoundsConfigUpdated(): void {
+    this.broadcast({ type: "sounds_config_updated" });
+  }
+
+  private broadcastFeatureFlagsChanged(): void {
+    this.broadcast({ type: "feature_flags_changed" });
+  }
+
+  private broadcastAvatarUpdated(): void {
+    this.broadcast({
+      type: "avatar_updated",
+      avatarPath: getAvatarImagePath(),
+    });
   }
 
   /**
@@ -720,11 +743,13 @@ export class DaemonServer {
     this.configWatcher.start(
       () => this.evictConversationsForReload(),
       () => this.broadcastIdentityChanged(),
+      () => this.broadcastSoundsConfigUpdated(),
+      () => this.broadcastAvatarUpdated(),
+      () => this.broadcastConfigChanged(),
+      () => this.broadcastFeatureFlagsChanged(),
     );
 
-    this.appSourceWatcher.start((appId) =>
-      this.handleAppSourceChange(appId),
-    );
+    this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
@@ -952,7 +977,13 @@ export class DaemonServer {
       }
       this.evictor.touch(conversationId);
     } else {
-      this.applyTransportMetadata(conversation, options);
+      // Only apply transport metadata when the conversation is idle.
+      // When processing, the hints are stored on the queued message and
+      // will be applied at dequeue time — applying them here would
+      // overwrite the in-flight conversation's transportHints.
+      if (!conversation.isProcessing()) {
+        this.applyTransportMetadata(conversation, options);
+      }
       this.evictor.touch(conversationId);
     }
     return conversation;
@@ -1065,10 +1096,17 @@ export class DaemonServer {
     // Guard: don't replace an active proxy during concurrent turn races —
     // another request may have started processing between the isProcessing()
     // check above and the await on ensureActorScopedHistory().
-    if (resolvedInterface === "macos" || resolvedInterface === "ios") {
+    if (supportsHostProxy(resolvedInterface)) {
       if (!conversation.isProcessing() || !conversation.hostBashProxy) {
         conversation.setHostBashProxy(
           new HostBashProxy(conversation.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
+      }
+      if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
+        conversation.setHostBrowserProxy(
+          new HostBrowserProxy(conversation.getCurrentSender(), (requestId) => {
             pendingInteractions.resolve(requestId);
           }),
         );
@@ -1090,6 +1128,7 @@ export class DaemonServer {
       conversation.addPreactivatedSkillId("computer-use");
     } else if (!conversation.isProcessing()) {
       conversation.setHostBashProxy(undefined);
+      conversation.setHostBrowserProxy(undefined);
       conversation.setHostFileProxy(undefined);
       conversation.setHostCuProxy(undefined);
     }
@@ -1422,8 +1461,9 @@ export class DaemonServer {
    */
   async getConversationForMessages(
     conversationId: string,
+    options?: ConversationCreateOptions,
   ): Promise<Conversation> {
-    return this.getOrCreateConversation(conversationId);
+    return this.getOrCreateConversation(conversationId, options);
   }
 
   /**

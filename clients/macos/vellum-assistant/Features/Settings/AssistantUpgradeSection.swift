@@ -515,7 +515,7 @@ struct AssistantUpgradeSection: View {
             errorMessage = "CLI not available"
             return
         }
-        let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        let name = LockfileAssistant.loadActiveAssistantId() ?? ""
         let version = selectedVersion ?? latestRelease?.version
         dockerOperationLabel = isRollback ? "Rolling back assistant..." : "Upgrading assistant..."
         isDockerOperationInProgress = true
@@ -561,7 +561,7 @@ struct AssistantUpgradeSection: View {
             errorMessage = "CLI not available"
             return
         }
-        let name = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        let name = LockfileAssistant.loadActiveAssistantId() ?? ""
         let version = selectedVersion ?? latestRelease?.version
         do {
             if isRollback {

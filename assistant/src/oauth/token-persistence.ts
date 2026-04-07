@@ -188,7 +188,7 @@ export async function storeOAuth2Tokens(
   } else {
     const conn = createConnection({
       oauthAppId: app.id,
-      providerKey: service,
+      provider: service,
       accountInfo: resolvedAccountInfo,
       grantedScopes,
       expiresAt: expiresAt ?? undefined,

@@ -220,7 +220,7 @@ extension AppDelegate {
     func revertActivationPolicyIfNoWindows(excluding closedWindow: NSWindow? = nil) {
         // Keep the dock icon alive while the user has a connected assistant —
         // they can click the dock icon to re-open the main window.
-        if UserDefaults.standard.string(forKey: "connectedAssistantId") != nil {
+        if LockfileAssistant.loadActiveAssistantId() != nil {
             return
         }
 
@@ -312,6 +312,11 @@ extension AppDelegate {
             // Clear any stale panel state so the user lands on chat, not settings
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
+            // Retain the onboarding state so avatar traits generated during
+            // hatching can be synced to the assistant.
+            self?.onboardingState = state
+            self?.syncOnboardingAvatarIfNeeded()
+
             self?.showMainWindow()
         }
         onboarding.onDismiss = { [weak self] in
@@ -357,6 +362,10 @@ extension AppDelegate {
             self?.onboardingWindow = nil
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
+            // Retain the onboarding state so avatar traits generated during
+            // hatching can be synced to the assistant after the switch.
+            self?.onboardingState = state
+
             // Detect the newly hatched assistant by diffing lockfile against snapshot.
             // loadAll() returns newest-first, so the first new ID is the most recently hatched.
             let allAssistants = LockfileAssistant.loadAll()
@@ -367,7 +376,7 @@ extension AppDelegate {
             } else {
                 // No new assistant detected (e.g. managed bootstrap set connectedAssistantId
                 // but reused an existing entry). Check if connectedAssistantId changed.
-                if let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+                if let connectedId = LockfileAssistant.loadActiveAssistantId(),
                    !existingIds.isEmpty,
                    let connected = allAssistants.first(where: { $0.assistantId == connectedId }) {
                     self?.performSwitchAssistant(to: connected)
@@ -400,7 +409,7 @@ extension AppDelegate {
     /// Check whether the local gateway is healthy by hitting its /healthz endpoint.
     /// Port resolution: env var > lockfile > default 7830.
     func isGatewayHealthy() async -> Bool {
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedId = LockfileAssistant.loadActiveAssistantId()
         let port = LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId)
         guard let url = URL(string: "http://localhost:\(port)/healthz") else { return false }
         var request = URLRequest(url: url)
@@ -689,7 +698,7 @@ extension AppDelegate {
         // without gating on feature flags.
         let settingsTab: SettingsTab?
         switch tab {
-        case "Archived Threads": settingsTab = .archivedConversations
+        case "Archived Threads", "Archived Conversations": settingsTab = .archivedConversations
         default: settingsTab = SettingsTab(rawValue: tab)
         }
         if let settingsTab {

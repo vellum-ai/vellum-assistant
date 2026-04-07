@@ -40,7 +40,7 @@ mock.module("../messaging/providers/outlook/client.js", () => ({
 }));
 
 const mockResolveOAuthConnection =
-  mock<(providerKey: string) => Promise<unknown>>();
+  mock<(provider: string) => Promise<unknown>>();
 
 mock.module("../oauth/connection-resolver.js", () => ({
   resolveOAuthConnection: mockResolveOAuthConnection,

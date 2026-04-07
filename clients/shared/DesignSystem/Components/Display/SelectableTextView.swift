@@ -9,7 +9,9 @@ private final class SelectableNSTextView: NSTextView {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
-            setSelectedRange(NSRange(location: 0, length: 0))
+            DispatchQueue.main.async { [weak self] in
+                self?.setSelectedRange(NSRange(location: 0, length: 0))
+            }
         }
         return result
     }
@@ -141,6 +143,8 @@ public struct VSelectableTextView: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainerInset = .zero
 
+        textView.delegate = context.coordinator
+
         textView.linkTextAttributes = [
             .foregroundColor: tintColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
@@ -155,7 +159,12 @@ public struct VSelectableTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         guard coordinator.lastAttributedString != attributedString
             || coordinator.lastLineSpacing != lineSpacing else { return }
-        coordinator.applyAttributedString(attributedString, lineSpacing: lineSpacing, to: textView)
+        if useExternalSizing {
+            coordinator.scheduleAttributedStringApply(attributedString, lineSpacing: lineSpacing, to: textView)
+        } else {
+            coordinator.cancelPendingApply()
+            coordinator.applyAttributedString(attributedString, lineSpacing: lineSpacing, to: textView)
+        }
     }
 
     /// When `useExternalSizing` is `true`, returns `nil` so SwiftUI uses
@@ -181,14 +190,73 @@ public struct VSelectableTextView: NSViewRepresentable {
 
     public static func dismantleNSView(_ textView: NSTextView, coordinator: Coordinator) {
         textView.textStorage?.setAttributedString(NSAttributedString())
-        coordinator.lastAttributedString = nil
+        coordinator.reset()
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator() }
 
-    public final class Coordinator {
+    public final class Coordinator: NSObject, NSTextViewDelegate {
         var lastAttributedString: NSAttributedString?
         var lastLineSpacing: CGFloat = 0
+        private var pendingAttributedString: NSAttributedString?
+        private var pendingLineSpacing: CGFloat?
+        private weak var pendingTextView: NSTextView?
+        private var hasScheduledApply = false
+
+        func reset() {
+            lastAttributedString = nil
+            lastLineSpacing = 0
+            pendingAttributedString = nil
+            pendingLineSpacing = nil
+            pendingTextView = nil
+            hasScheduledApply = false
+        }
+
+        func cancelPendingApply() {
+            pendingAttributedString = nil
+            pendingLineSpacing = nil
+            pendingTextView = nil
+        }
+
+        func scheduleAttributedStringApply(
+            _ attributedString: NSAttributedString,
+            lineSpacing: CGFloat,
+            to textView: NSTextView
+        ) {
+            pendingAttributedString = attributedString
+            pendingLineSpacing = lineSpacing
+            pendingTextView = textView
+            guard !hasScheduledApply else { return }
+            hasScheduledApply = true
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.hasScheduledApply = false
+                guard let textView = self.pendingTextView,
+                      let attributedString = self.pendingAttributedString,
+                      let lineSpacing = self.pendingLineSpacing else { return }
+                self.pendingTextView = nil
+                self.pendingAttributedString = nil
+                self.pendingLineSpacing = nil
+                self.applyAttributedString(attributedString, lineSpacing: lineSpacing, to: textView)
+            }
+        }
+
+        // MARK: - NSTextViewDelegate
+
+        /// Opens clicked links in the default browser.
+        /// Reference: https://developer.apple.com/documentation/appkit/nstextviewdelegate/textview(_:clickedonlink:at:)
+        public func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            if let url = link as? URL {
+                NSWorkspace.shared.open(url)
+                return true
+            }
+            if let string = link as? String, let url = URL(string: string) {
+                NSWorkspace.shared.open(url)
+                return true
+            }
+            return false
+        }
 
         func applyAttributedString(
             _ attributedString: NSAttributedString,

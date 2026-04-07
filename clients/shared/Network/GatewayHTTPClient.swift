@@ -123,6 +123,150 @@ public enum GatewayHTTPClient {
         }
     }
 
+    /// Performs an authenticated POST request that streams the response and
+    /// reports download progress via an `onProgress` callback.
+    ///
+    /// Uses a custom `URLSessionDataDelegate` to receive the response body in
+    /// network-sized chunks and track progress. When the server provides a
+    /// `Content-Length` header, `onProgress` is called on the main actor with
+    /// a value between 0.0 and 1.0 representing `bytesReceived / totalBytes`.
+    /// When `Content-Length` is absent (e.g. chunked transfer encoding),
+    /// `onProgress` is called once with `-1` to signal indeterminate progress.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - body: Optional HTTP body data.
+    ///   - params: Optional query parameters.
+    ///   - contentType: Optional Content-Type header value.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    ///   - onProgress: Closure called on the main actor with the current
+    ///     download fraction (0.0–1.0), or `-1` for indeterminate.
+    /// - Returns: A `Response` with the raw data and HTTP status code.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    public static func post(
+        path: String,
+        body: Data? = nil,
+        params: [String: String]? = nil,
+        contentType: String? = nil,
+        timeout: TimeInterval = 30,
+        onProgress: @escaping @MainActor (Double) -> Void
+    ) async throws -> Response {
+        let connection = try resolveConnection()
+        var request = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: connection)
+        request.httpBody = body
+        if let contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+        logOutgoing(request, quiet: false)
+
+        let (result, _) = try await performStreamingPost(request: request, onProgress: onProgress)
+
+        // 401 retry for non-managed (bearer token) connections.
+        if result.statusCode == 401, !connection.isManaged {
+            if await refreshBearerCredentials(connection: connection) {
+                let freshConnection = try resolveConnection()
+                var retryRequest = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: freshConnection)
+                retryRequest.httpBody = body
+                if let contentType {
+                    retryRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
+                }
+                logOutgoing(retryRequest, quiet: false)
+
+                let (retryResult, _) = try await performStreamingPost(request: retryRequest, onProgress: onProgress)
+                return retryResult
+            }
+
+            // Refresh failed — return the original 401 response.
+            return result
+        }
+
+        return result
+    }
+
+    /// Performs a POST request with progress tracking using a delegate-based data task
+    /// that receives data in chunks (not byte-by-byte).
+    private static func performStreamingPost(
+        request: URLRequest,
+        onProgress: @escaping @MainActor (Double) -> Void
+    ) async throws -> (Response, HTTPURLResponse?) {
+        let delegate = DownloadProgressDelegate(onProgress: onProgress)
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        defer {
+            delegate.invalidate()
+            session.finishTasksAndInvalidate()
+        }
+
+        let (data, response) = try await session.data(for: request, delegate: delegate)
+        let http = response as? HTTPURLResponse
+        let statusCode = http?.statusCode ?? -1
+
+        if let http {
+            logResponse(request, http: http, quiet: false)
+        }
+
+        // Send final progress if we tracked determinately.
+        if delegate.totalBytes > 0, delegate.lastReportedFraction < 1.0 {
+            await MainActor.run { onProgress(1.0) }
+        }
+
+        return (Response(data: data, statusCode: statusCode), http)
+    }
+
+    /// URLSessionDataDelegate that tracks download progress via `didReceive data:` chunks.
+    /// Uses a generation counter to prevent stale callbacks from firing after invalidation.
+    private class DownloadProgressDelegate: NSObject, URLSessionDataDelegate {
+        let onProgress: @MainActor (Double) -> Void
+        var totalBytes: Int64 = -1
+        var receivedBytes: Int64 = 0
+        var lastReportedFraction: Double = 0.0
+        private var reportedIndeterminate = false
+        private var generation: Int = 0
+        private var invalidated = false
+
+        init(onProgress: @escaping @MainActor (Double) -> Void) {
+            self.onProgress = onProgress
+        }
+
+        /// Prevents any further progress callbacks from being dispatched.
+        func invalidate() {
+            invalidated = true
+            generation += 1
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            totalBytes = response.expectedContentLength // -1 when unknown
+            if totalBytes <= 0, !reportedIndeterminate, !invalidated {
+                reportedIndeterminate = true
+                let callback = self.onProgress
+                let gen = self.generation
+                Task { [weak self] in
+                    guard self?.generation == gen else { return }
+                    await callback(-1)
+                }
+            }
+            completionHandler(.allow)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            receivedBytes += Int64(data.count)
+            guard totalBytes > 0, !invalidated else { return }
+            let fraction = Double(receivedBytes) / Double(totalBytes)
+            guard fraction - lastReportedFraction >= 0.01 || receivedBytes >= totalBytes else { return }
+            lastReportedFraction = fraction
+            let callback = self.onProgress
+            let gen = self.generation
+            Task { [weak self] in
+                guard self?.generation == gen else { return }
+                await callback(min(fraction, 1.0))
+            }
+        }
+    }
+
     /// Performs an authenticated PATCH request against the gateway.
     ///
     /// - Parameters:
@@ -353,9 +497,52 @@ public enum GatewayHTTPClient {
     // MARK: - Internals
 
     #if os(macOS)
+    /// Process-local override for the connected assistant ID. Used by
+    /// `withAssistant(_:_:)` to temporarily route requests to a different
+    /// assistant's gateway without mutating the lockfile or UserDefaults.
+    /// This is concurrency-unsafe (same limitation as the old temp-swap
+    /// pattern) but at least keeps the override in-process.
+    private static var _assistantOverride: String?
+
+    /// Temporarily overrides the connected assistant for the duration of
+    /// `body`, so that `resolveConnectedAssistant()` resolves the given
+    /// assistant instead of reading from the lockfile.
+    ///
+    /// This replaces the old pattern of temporarily swapping
+    /// `connectedAssistantId` in UserDefaults (which was visible to the
+    /// CLI and other processes).
+    ///
+    /// - Parameters:
+    ///   - id: The assistant ID to resolve during `body`.
+    ///   - body: The async work that should target the overridden assistant.
+    /// - Returns: The result of `body`.
+    public static func withAssistant<T>(_ id: String, _ body: () async throws -> T) async rethrows -> T {
+        let previous = _assistantOverride
+        _assistantOverride = id
+        defer { _assistantOverride = previous }
+        return try await body()
+    }
+
     /// Resolves the currently connected assistant from the lockfile.
+    ///
+    /// Checks the process-local `_assistantOverride` first (set by
+    /// `withAssistant(_:_:)`), then falls back to the lockfile's
+    /// `activeAssistant` field via `LockfileAssistant.loadActiveAssistantId()`.
+    /// As a migration fallback, reads UserDefaults `connectedAssistantId`
+    /// for users upgrading from the old version whose lockfile doesn't
+    /// yet have `activeAssistant`.
     private static func resolveConnectedAssistant() -> LockfileAssistant? {
-        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty else { return nil }
+        let id: String
+        if let override = _assistantOverride, !override.isEmpty {
+            id = override
+        } else if let activeId = LockfileAssistant.loadActiveAssistantId(), !activeId.isEmpty {
+            id = activeId
+        } else if let legacyId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !legacyId.isEmpty {
+            // Migration: pre-upgrade users may not have activeAssistant in the lockfile yet.
+            id = legacyId
+        } else {
+            return nil
+        }
         return LockfileAssistant.loadByName(id)
     }
     #endif
@@ -465,6 +652,46 @@ public enum GatewayHTTPClient {
     /// should use flat paths (required by non-managed runtimes).
     public static func isConnectionManaged() throws -> Bool {
         return try resolveConnection().isManaged
+    }
+
+    /// Credentials needed by the WebView JS fetch bridge (`window.vellum.fetch`).
+    public struct WebViewCredentials {
+        /// Gateway base URL including scheme and port (e.g. `http://127.0.0.1:7830`).
+        public let baseURL: String
+        /// Auth header entries to inject into every fetch request.
+        /// Platform (managed): `["X-Session-Token": token, "Vellum-Organization-Id": orgId]`
+        /// Local/remote (bearer): `["Authorization": "Bearer <jwt>"]`
+        public let headers: [String: String]
+        /// Path prefix inserted between `/v1/` and the user-supplied path
+        /// (e.g. `"assistants/<id>/"`). Empty when `assistantId` is not available.
+        public let pathPrefix: String
+    }
+
+    /// Resolves the gateway base URL and auth headers for injection into a WKWebView.
+    ///
+    /// Use this to populate `window.vellum.fetch` so that app frontends can call
+    /// custom routes (`/v1/x/...`) with proper authentication.
+    ///
+    /// - Returns: A ``WebViewCredentials`` with the base URL and auth headers,
+    ///   or `nil` if the connection cannot be resolved or is not authenticated.
+    public static func resolveWebViewCredentials() -> WebViewCredentials? {
+        guard let connection = try? resolveConnection() else { return nil }
+        var headers: [String: String] = [:]
+        if let auth = connection.authHeader {
+            headers[auth.field] = auth.value
+        }
+        if connection.isManaged {
+            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+                headers["Vellum-Organization-Id"] = orgId
+            }
+        }
+        let pathPrefix: String
+        if !connection.assistantId.isEmpty {
+            pathPrefix = "assistants/\(connection.assistantId)/"
+        } else {
+            pathPrefix = ""
+        }
+        return WebViewCredentials(baseURL: connection.baseURL, headers: headers, pathPrefix: pathPrefix)
     }
 
     /// Constructs a gateway URL for the given path and query parameters.

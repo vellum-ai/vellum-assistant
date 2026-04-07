@@ -72,7 +72,6 @@ struct ComposerView: View {
     #endif
     @State private var composerFocus: Bool = false
     @State private var isComposerFocused = false
-    @State private var measuredTextHeight: CGFloat = 32
     @State private var textViewIsFocused: Bool = false
     @State var cursorPosition: Int = 0
 
@@ -222,6 +221,14 @@ struct ComposerView: View {
                 .lineLimit(2)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
+        } else if inputText.isEmpty, !placeholderText.isEmpty {
+            Text(placeholderText)
+                .font(font)
+                .foregroundStyle(Color(nsColor: .placeholderTextColor))
+                .lineSpacing(4)
+                .lineLimit(2)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 
@@ -237,14 +244,12 @@ struct ComposerView: View {
                 .padding(.top, ComposerTextEditor.textInsetY)
             ComposerTextEditor(
                 text: $inputText,
-                measuredHeight: $measuredTextHeight,
                 isFocused: $textViewIsFocused,
                 font: nsFont,
                 lineSpacing: 4,
                 insertionPointColor: NSColor(VColor.primaryBase),
                 minHeight: composerActionButtonSize,
                 maxHeight: composerMaxHeight,
-                placeholder: ghostSuffix == nil ? placeholderText : "",
                 isEditable: isInteractionEnabled,
                 cmdEnterToSend: cmdEnterToSend,
                 textColorOverride: hasSlashHighlight
@@ -429,7 +434,7 @@ struct ComposerView: View {
                 VButton(
                     label: "Stop generation",
                     iconOnly: VIcon.square.rawValue,
-                    style: .contrast,
+                    style: .primary,
                     iconSize: composerActionButtonSize,
                     action: onStop
                 )
@@ -614,7 +619,7 @@ VStreamingWaveform(
                     VButton(
                         label: manager.state == .listening ? "Mute" : "Unmute",
                         iconOnly: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
-                        style: .contrast,
+                        style: .primary,
                         iconSize: composerActionButtonSize,
                         action: { manager.toggleListening() }
                     )
@@ -679,4 +684,3 @@ VStreamingWaveform(
     }
 
 }
-

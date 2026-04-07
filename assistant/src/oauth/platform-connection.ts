@@ -22,7 +22,7 @@ export class ProviderUnreachableError extends BackendError {
 
 export interface PlatformOAuthConnectionOptions {
   id: string;
-  providerKey: string;
+  provider: string;
   externalId: string;
   accountInfo: string | null;
   client: VellumPlatformClient;
@@ -35,7 +35,7 @@ export interface PlatformOAuthConnectionOptions {
 
 export class PlatformOAuthConnection implements OAuthConnection {
   readonly id: string;
-  readonly providerKey: string;
+  readonly provider: string;
   readonly externalId: string;
   readonly accountInfo: string | null;
 
@@ -46,13 +46,13 @@ export class PlatformOAuthConnection implements OAuthConnection {
   constructor(options: PlatformOAuthConnectionOptions) {
     if (!options.connectionId) {
       throw new BackendError(
-        `Platform-managed connection for "${options.providerKey}" cannot be created: missing connection ID. ` +
+        `Platform-managed connection for "${options.provider}" cannot be created: missing connection ID. ` +
           `Log in to the Vellum platform or switch to using your own OAuth app.`,
       );
     }
 
     this.id = options.id;
-    this.providerKey = options.providerKey;
+    this.provider = options.provider;
     this.externalId = options.externalId;
     this.accountInfo = options.accountInfo;
     this.client = options.client;

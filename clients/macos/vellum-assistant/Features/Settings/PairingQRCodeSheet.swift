@@ -178,7 +178,7 @@ struct PairingQRCodeSheet: View {
 
     /// Resolve the local gateway base URL: env var > lockfile > default 7830.
     private var resolvedGatewayBaseUrl: String {
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedId = LockfileAssistant.loadActiveAssistantId()
         return "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
     }
 
@@ -276,7 +276,7 @@ struct PairingQRCodeSheet: View {
 
     private func computeLocalLanUrl() -> String? {
         guard let lanIP = LANIPHelper.currentLANAddress() else { return nil }
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedId = LockfileAssistant.loadActiveAssistantId()
         return "http://\(lanIP):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
     }
 

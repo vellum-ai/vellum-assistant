@@ -207,6 +207,7 @@ public enum PlatformAPIError: LocalizedError, Sendable {
     case serverError(statusCode: Int, detail: String?)
     case authenticationRequired
     case accessDenied(detail: String)
+    case notFound
 
     public var errorDescription: String? {
         switch self {
@@ -222,6 +223,8 @@ public enum PlatformAPIError: LocalizedError, Sendable {
             return "Authentication required"
         case .accessDenied(let detail):
             return detail
+        case .notFound:
+            return "Not found"
         }
     }
 }
@@ -246,11 +249,13 @@ public struct EnsureSelfHostedLocalRegistrationResponse: Codable, Sendable {
     public let assistant: SelfHostedAssistantInfo
     public let registration: SelfHostedRegistrationInfo
     public let assistantApiKey: String?
+    public let webhookSecret: String?
 
     enum CodingKeys: String, CodingKey {
         case assistant
         case registration
         case assistantApiKey = "assistant_api_key"
+        case webhookSecret = "webhook_secret"
     }
 }
 
@@ -305,21 +310,32 @@ public struct SelfHostedProvisioningInfo: Codable, Sendable {
 // MARK: - Billing Models
 
 public struct BillingSummaryResponse: Codable, Sendable {
-    public let settled_balance_usd: String
-    public let pending_compute_usd: String
-    public let effective_balance_usd: String
-    public let minimum_top_up_usd: String
-    public let maximum_top_up_usd: String
-    public let maximum_balance_usd: String
+    public let settled_balance: String
+    public let pending_compute: String
+    public let effective_balance: String
+    public let minimum_top_up: String
+    public let maximum_top_up: String
+    public let maximum_balance: String
     public let allowed_top_up_amounts: [String]?
     public let is_degraded: Bool
 }
 
 public struct TopUpCheckoutRequest: Codable, Sendable {
-    public let amount_usd: String
+    public let amount: String
     public let return_path: String
 }
 
 public struct TopUpCheckoutResponse: Codable, Sendable {
     public let checkout_url: String
+}
+
+public struct ReferralCodeResponse: Codable, Sendable {
+    public let referral_url: String
+    public let referred_count: Int
+    public let total_earned: String
+    public let earning_cap: String
+    /// Credits granted to the referee (the friend who signs up).
+    public let credit_amount: String
+    /// Credits granted to the referrer (the user sharing the link).
+    public let referrer_credit_amount: String
 }

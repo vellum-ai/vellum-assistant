@@ -65,7 +65,8 @@ public final class ManagedAssistantBootstrapService {
         let organizationId = try await resolveOrganizationId()
 
         // If we already have a selected managed assistant, retrieve it directly.
-        if let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+        #if os(macOS)
+        if let connectedId = LockfileAssistant.loadActiveAssistantId() {
             log.info("Found connectedAssistantId: \(connectedId, privacy: .public), retrieving directly")
             let result: PlatformAssistantResult
             do {
@@ -81,13 +82,14 @@ public final class ManagedAssistantBootstrapService {
             case .notFound:
                 // Clear the stale ID and fall through to idempotent hatch.
                 log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID and falling through to hatch")
-                UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+                LockfileAssistant.setActiveAssistantId(nil)
             case .accessDenied:
                 log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
-                UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+                LockfileAssistant.setActiveAssistantId(nil)
                 throw ManagedBootstrapError.accessRevoked(connectedId)
             }
         }
+        #endif
 
         // No selected assistant (or stale one was cleared) — hatch is idempotent
         // and will return the existing assistant if one exists.
@@ -209,6 +211,8 @@ public final class ManagedAssistantBootstrapService {
             return .serverError(statusCode: 0, detail: "Invalid URL configuration")
         case .decodingError(let message):
             return .unexpectedResponse(message)
+        case .notFound:
+            return .serverError(statusCode: 404, detail: "Not found")
         }
     }
 }

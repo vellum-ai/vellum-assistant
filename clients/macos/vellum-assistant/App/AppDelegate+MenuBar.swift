@@ -318,7 +318,7 @@ extension AppDelegate {
     var currentAssistantStatus: AssistantStatus {
         if !connectionManager.isConnected { return .disconnected }
         guard let viewModel = mainWindow?.conversationManager.activeViewModel else { return .idle }
-        if let error = viewModel.errorText { return .error(error) }
+        if viewModel.errorText != nil { return .error }
         if viewModel.isThinking { return .thinking }
         return .idle
     }
@@ -433,7 +433,7 @@ extension AppDelegate {
         guard !markedIds.isEmpty else { return }
         let count = markedIds.count
         let toastId = mainWindow?.windowState.showToast(
-            message: "Marked \(count) conversation\(count == 1 ? "" : "s") as seen",
+            message: "Marked \(count) conversation\(count == 1 ? "" : "s") as read",
             style: .success,
             primaryAction: VToastAction(label: "Undo") { [weak self] in
                 self?.mainWindow?.conversationManager.restoreUnseen(conversationIds: markedIds)
@@ -459,7 +459,7 @@ extension AppDelegate {
         menu.addItem(newChatItem)
 
         let markAllSeenItem = NSMenuItem(
-            title: "Mark All Conversations as Seen",
+            title: "Mark All Conversations as Read",
             action: #selector(markAllConversationsSeen),
             keyEquivalent: ""
         )
@@ -505,7 +505,7 @@ extension AppDelegate {
         // where the Software Update card lives and auto-loads releases.
         // Sparkle is only relevant for local topology.
         let assistants = LockfileAssistant.loadAll()
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedId = LockfileAssistant.loadActiveAssistantId()
         if let id = connectedId,
            let assistant = assistants.first(where: { $0.assistantId == id }),
            assistant.isDocker || assistant.isManaged {

@@ -110,22 +110,27 @@ When a user asks to declutter, clean up, or organize their email - start scannin
 
 ### Workflow
 
-1. **Scan**: Call `gmail_sender_digest`. Default query targets promotions from the last 90 days.
+1. **Scan**: Call `gmail_sender_digest`. Default query targets promotions currently in the inbox from the last 90 days (`in:inbox category:promotions newer_than:90d`). Counts shown in the table reflect only what is currently in the inbox — these are the emails that will be archived.
 2. **Present**: Show results as a `ui_show` table with `selectionMode: "multiple"`:
    - **Columns (exactly 3)**: Sender, Emails Found, Unsub?
      - **Unsub? cell values**: Use rich cell format: `{ "text": "Yes", "icon": "checkmark.circle.fill", "iconColor": "success" }` when `has_unsubscribe` is true, `{ "text": "No", "icon": "minus.circle", "iconColor": "muted" }` when false.
    - **Pre-select all rows** (`selected: true`) - users deselect what they want to keep
    - **Caption**: Include two parts separated by a newline: (1) data scope, e.g. "Newsletters, notifications, and outreach from last 90 days. Deselect anything you want to keep." (adjusted to match the query used), and (2) the Unsub? column legend: "Unsub? - \"Yes\" means these emails contain an unsubscribe link, so I can opt you out automatically. \"No\" means no unsubscribe link was found - these will be archived but you may continue receiving them."
    - **Action buttons (exactly 2)**: "Archive & Unsubscribe" (primary), "Archive Only" (secondary). **NEVER offer Delete, Trash, or any destructive action.**
-3. **Wait for user action**: Stop and wait. Do NOT proceed to archiving or unsubscribing until the user clicks one of the action buttons on the table. When the user clicks an action button:
+3. **Embed scan_id in button data**: When constructing the action buttons in `ui_show`, include the `scan_id` from the `gmail_sender_digest` result in each button's `data` field. This ensures `scan_id` is forwarded automatically when the user clicks — the LLM does not need to recall it from earlier context:
+   ```json
+   { "id": "archive_unsubscribe", "label": "Archive & Unsubscribe", "style": "primary", "data": { "scan_id": "<scan_id value here>" } }
+   ```
+4. **Wait for user action**: Stop and wait. Do NOT proceed to archiving or unsubscribing until the user clicks one of the action buttons on the table. When the user clicks an action button you will receive a surface action message containing `action data: { scan_id, selectedIds }`:
+   - `selectedIds` are **sender IDs** (the `id` values from the scan result rows, base64-encoded email addresses) — NOT Gmail message IDs. Always use them as `sender_ids` with `scan_id`, never as `message_ids`.
    - **Dismiss the table immediately** with `ui_dismiss` - it collapses to a completion chip
    - **Show a `task_progress` card** with steps for each phase (e.g., "Archiving 89 senders (2,400 emails)", "Unsubscribing from 72 senders"). Update each step from `in_progress` → `completed` as each phase finishes.
    - When all senders are processed, set the progress card's `status: "completed"`.
-4. **Act on selection** - batch, don't loop:
-   - **Archive all at once**: Call `gmail_archive` **once** with `scan_id` + **all** selected senders' `id` values in the `sender_ids` array. The tool resolves message IDs server-side and batches the Gmail API calls internally - never loop sender-by-sender.
+5. **Act on selection** - batch, don't loop:
+   - **Archive all at once**: Call `gmail_archive` **once** with `scan_id` (from action data) + `sender_ids` set to all `selectedIds` from the action data. The tool resolves message IDs server-side and batches the Gmail API calls internally - never loop sender-by-sender. **Never** pass `selectedIds` as `message_ids` — they are sender IDs, not Gmail message IDs.
    - **Unsubscribe in bulk**: If the action is "Archive & Unsubscribe", call `gmail_unsubscribe` for each sender that has `has_unsubscribe: true` - but emit **all** unsubscribe tool calls in a **single assistant response** (parallel tool use) rather than one-at-a-time across separate turns.
-5. **Accurate summary**: The scan counts are exact - the `message_count` shown in the table matches the number of messages archived. Format: "Cleaned up [total_archived] emails from [sender_count] senders. Unsubscribed from [unsub_count]."
-6. **Ongoing protection offer**: After reporting results, offer auto-archive filters:
+6. **Accurate summary**: The scan counts are exact - the `message_count` shown in the table matches the number of messages archived. Format: "Cleaned up [total_archived] emails from [sender_count] senders. Unsubscribed from [unsub_count]."
+7. **Ongoing protection offer**: After reporting results, offer auto-archive filters:
    - "Want me to set up auto-archive filters so future emails from these senders skip your inbox?"
    - If yes, call `gmail_filters` with `action: "create"` for each sender with `from` set to the sender's email and `remove_label_ids: ["INBOX"]`.
    - Then offer a recurring declutter schedule: "Want me to scan for new clutter monthly?" If yes, use `schedule_create` to set up a monthly declutter check.

@@ -33,6 +33,9 @@ struct MarkdownSegmentView: View, Equatable {
     var codeTextColor: Color = VColor.systemNegativeStrong
     var codeBackgroundColor: Color = VColor.surfaceActive
     var hrColor: Color = VColor.borderBase
+    #if os(macOS)
+    @ObservedObject private var typographyObserver = VFont.typographyObserver
+    #endif
 
     static func == (lhs: MarkdownSegmentView, rhs: MarkdownSegmentView) -> Bool {
         lhs.segments == rhs.segments
@@ -51,20 +54,19 @@ struct MarkdownSegmentView: View, Equatable {
         let groups = groupedSegments
         let chatFont = VFont.chat
         let scaledCodeLabelSize: CGFloat = 11
+        #if os(macOS)
+        let typographyGeneration = typographyObserver.generation
+        #endif
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
                 case .selectableRun(let runSegments):
                     #if os(macOS)
-                    let (nsAttributed, measuredSize) = resolveSelectableRunMeasurement(runSegments)
-                    VSelectableTextView(
-                        attributedString: nsAttributed,
-                        maxWidth: maxContentWidth,
-                        lineSpacing: 4,
-                        tintColor: NSColor(tintColor),
-                        useExternalSizing: true
+                    SelectableRunView(
+                        markdownView: self,
+                        runSegments: runSegments,
+                        typographyGeneration: typographyGeneration
                     )
-                    .frame(width: measuredSize.width, height: measuredSize.height, alignment: .leading)
                     #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
@@ -119,6 +121,34 @@ struct MarkdownSegmentView: View, Equatable {
         case image(alt: String, url: String)
         case horizontalRule
     }
+
+    #if os(macOS)
+    private struct SelectableRunView: View {
+        let markdownView: MarkdownSegmentView
+        let runSegments: [MarkdownSegment]
+        let typographyGeneration: Int
+
+        var body: some View {
+            let measurement = markdownView.resolveSelectableRunMeasurementResult(
+                runSegments,
+                typographyGeneration: typographyGeneration
+            )
+
+            VSelectableTextView(
+                attributedString: measurement.nsAttributedString,
+                maxWidth: markdownView.maxContentWidth,
+                lineSpacing: 4,
+                tintColor: NSColor(markdownView.tintColor),
+                useExternalSizing: true
+            )
+            .frame(
+                width: measurement.size.width,
+                height: measurement.size.height,
+                alignment: .leading
+            )
+        }
+    }
+    #endif
 
     /// Cache for `computeGroupedSegments` results, keyed by the hash of the
     /// input segments array. Avoids recomputing the grouping on every body
@@ -212,16 +242,28 @@ struct MarkdownSegmentView: View, Equatable {
         return cache
     }()
 
+    @MainActor private static var typographyRetryScheduled = false
+    @MainActor private static var typographyRetryToken: Int = 0
+    @MainActor private static var typographyRetryTimestamps: [TimeInterval] = []
+
     #if DEBUG
     /// Exposed for testing: number of cache insertions into `measuredTextCache`.
     /// NSCache doesn't expose its count, so we maintain a parallel counter.
     @MainActor static var _measuredTextCacheInsertCount: Int = 0
+    /// Exposed for testing: number of times `buildAttributedStringUncached` was
+    /// called (i.e. `attributedStringCache` misses).
+    @MainActor static var _attributedStringBuildCount: Int = 0
     #endif
     #endif
 
     // MARK: - Cache Guardrails
 
     private static let maxCacheableTextLength = 10_000
+    #if os(macOS)
+    private static let typographyRetryDelayNanoseconds: UInt64 = 75_000_000
+    private static let typographyRetryWindowSeconds: TimeInterval = 1.0
+    private static let maxTypographyRetriesPerWindow = 2
+    #endif
     /// Cache for prefix width measurements to avoid repeated Core Text layout calls.
     @MainActor private static var prefixWidthCache: [String: CGFloat] = [:]
 
@@ -234,8 +276,12 @@ struct MarkdownSegmentView: View, Equatable {
         MarkdownTableView.clearCellAttributedStringCache()
         #if os(macOS)
         measuredTextCache.removeAllObjects()
+        typographyRetryScheduled = false
+        typographyRetryToken &+= 1
+        typographyRetryTimestamps.removeAll()
         #if DEBUG
         _measuredTextCacheInsertCount = 0
+        _attributedStringBuildCount = 0
         #endif
         #endif
     }
@@ -259,9 +305,9 @@ struct MarkdownSegmentView: View, Equatable {
     private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
         os_signpost(.begin, log: PerfSignposts.log, name: "attributedStringBuild")
         defer { os_signpost(.end, log: PerfSignposts.log, name: "attributedStringBuild") }
-        // Build a stable cache key from the segment contents and style
-        // inputs that affect the output (e.g. secondaryTextColor for list
-        // prefix coloring) so different visual contexts don't share entries.
+        // Build a stable cache key from the segment contents, style inputs,
+        // and typography generation so cached heading fonts are invalidated
+        // when DM Sans finishes loading or typography state changes.
         var hasher = Hasher()
         for segment in segments {
             hasher.combine(segment)
@@ -270,6 +316,7 @@ struct MarkdownSegmentView: View, Equatable {
         hasher.combine(textColor.description)
         hasher.combine(codeTextColor.description)
         hasher.combine(codeBackgroundColor.description)
+        hasher.combine(VFont.typographyGeneration)
         let cacheKey = hasher.finalize()
 
         let cacheKeyNS = cacheKey as NSNumber
@@ -278,6 +325,9 @@ struct MarkdownSegmentView: View, Equatable {
         }
 
         let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor)
+        #if DEBUG
+        Self._attributedStringBuildCount += 1
+        #endif
 
         // Skip caching for very long segment groups to avoid a single huge
         // entry evicting many smaller, more frequently accessed entries.
@@ -291,6 +341,12 @@ struct MarkdownSegmentView: View, Equatable {
     }
 
     #if os(macOS)
+    struct SelectableRunMeasurementResult {
+        let nsAttributedString: NSAttributedString
+        let size: CGSize
+        let hasUnresolvedEmphasis: Bool
+    }
+
     /// Computes or retrieves from cache the `(NSAttributedString, CGSize)` pair
     /// for a selectable text run.  `internal` so `@testable import` tests can
     /// exercise the cache directly (SwiftUI `body` evaluation does not force
@@ -298,6 +354,15 @@ struct MarkdownSegmentView: View, Equatable {
     @MainActor func resolveSelectableRunMeasurement(
         _ runSegments: [MarkdownSegment]
     ) -> (NSAttributedString, CGSize) {
+        let result = resolveSelectableRunMeasurementResult(runSegments)
+        return (result.nsAttributedString, result.size)
+    }
+
+    @MainActor func resolveSelectableRunMeasurementResult(
+        _ runSegments: [MarkdownSegment],
+        typographyGeneration: Int? = nil
+    ) -> SelectableRunMeasurementResult {
+        let chatFonts = VFont.resolvedChatMarkdownFontSet()
         var hasher = Hasher()
         for segment in runSegments { hasher.combine(segment) }
         hasher.combine(textColor.description)
@@ -306,17 +371,28 @@ struct MarkdownSegmentView: View, Equatable {
         hasher.combine(codeBackgroundColor.description)
         let effectiveMaxWidth = maxContentWidth ?? VSpacing.chatBubbleMaxWidth
         hasher.combine(effectiveMaxWidth)
+        hasher.combine(typographyGeneration ?? VFont.typographyGeneration)
+        for entry in chatFonts.diagnosticPostScriptNames.sorted(by: { $0.key < $1.key }) {
+            hasher.combine(entry.key)
+            hasher.combine(entry.value)
+        }
         let key = hasher.finalize()
 
         let keyNS = key as NSNumber
         if let cached = Self.measuredTextCache.object(forKey: keyNS) {
-            return (cached.nsAttributedString, cached.size)
+            return SelectableRunMeasurementResult(
+                nsAttributedString: cached.nsAttributedString,
+                size: cached.size,
+                hasUnresolvedEmphasis: false
+            )
         }
 
         os_signpost(.begin, log: PerfSignposts.log, name: "selectableRunMeasure")
         let attributed = buildCombinedAttributedString(from: runSegments)
-        let nsAttributed = Self.convertToNSAttributedString(
-            attributed, font: VFont.nsChat, textColor: NSColor(textColor)
+        let (nsAttributed, hasUnresolvedEmphasis) = Self.convertToNSAttributedString(
+            attributed,
+            fontSet: chatFonts,
+            textColor: NSColor(textColor)
         )
         let size = VSelectableTextView.measureSize(
             attributedString: nsAttributed,
@@ -325,8 +401,10 @@ struct MarkdownSegmentView: View, Equatable {
         )
         os_signpost(.end, log: PerfSignposts.log, name: "selectableRunMeasure")
 
+        // Don't cache results where emphasis was expected but not applied —
+        // the next render will rebuild from scratch, which may succeed.
         let textLen = Self.segmentTextLength(runSegments)
-        if textLen <= Self.maxCacheableTextLength {
+        if !hasUnresolvedEmphasis && textLen <= Self.maxCacheableTextLength {
             Self.measuredTextCache.setObject(
                 MeasuredTextCacheEntry(nsAttributedString: nsAttributed, size: size),
                 forKey: keyNS,
@@ -335,8 +413,36 @@ struct MarkdownSegmentView: View, Equatable {
             #if DEBUG
             Self._measuredTextCacheInsertCount += 1
             #endif
+        } else if hasUnresolvedEmphasis {
+            Self.scheduleTypographyRetryIfNeeded()
         }
-        return (nsAttributed, size)
+        return SelectableRunMeasurementResult(
+            nsAttributedString: nsAttributed,
+            size: size,
+            hasUnresolvedEmphasis: hasUnresolvedEmphasis
+        )
+    }
+
+    @MainActor
+    private static func scheduleTypographyRetryIfNeeded() {
+        let now = ProcessInfo.processInfo.systemUptime
+        typographyRetryTimestamps.removeAll {
+            now - $0 > typographyRetryWindowSeconds
+        }
+        guard !typographyRetryScheduled,
+              typographyRetryTimestamps.count < maxTypographyRetriesPerWindow else { return }
+
+        typographyRetryScheduled = true
+        typographyRetryToken &+= 1
+        typographyRetryTimestamps.append(now)
+        let retryToken = typographyRetryToken
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: typographyRetryDelayNanoseconds)
+            guard retryToken == typographyRetryToken else { return }
+            typographyRetryScheduled = false
+            VFont.bumpTypographyGeneration()
+        }
     }
     #endif
 
@@ -359,27 +465,32 @@ struct MarkdownSegmentView: View, Equatable {
 
             switch segment {
             case .text(let text):
-                let attributed = (try? AttributedString(markdown: text, options: mdOptions))
-                    ?? AttributedString(text)
+                var attributed: AttributedString
+                do {
+                    attributed = try AttributedString(markdown: text, options: mdOptions)
+                } catch {
+                    mdConvertLog.warning("AttributedString(markdown:) failed for .text segment: \(error.localizedDescription, privacy: .public)")
+                    attributed = AttributedString(text)
+                }
+                AttributedStringAutolinker.autolinkBareURLs(in: &attributed)
                 result += attributed
 
             case .heading(let level, let text):
-                var headingAttr = (try? AttributedString(markdown: text, options: mdOptions))
-                    ?? AttributedString(text)
+                var headingAttr: AttributedString
+                do {
+                    headingAttr = try AttributedString(markdown: text, options: mdOptions)
+                } catch {
+                    mdConvertLog.warning("AttributedString(markdown:) failed for .heading segment: \(error.localizedDescription, privacy: .public)")
+                    headingAttr = AttributedString(text)
+                }
+                AttributedStringAutolinker.autolinkBareURLs(in: &headingAttr)
                 let headingSize: CGFloat = switch level {
                 case 1: 20
                 case 2: 16
                 default: 14
                 }
-                let wght = 0x77676874 // 'wght' variation axis tag
                 let weightValue: Int = level == 1 ? 700 : 600
-                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, headingSize, nil)
-                let vars: [CFNumber: CFNumber] = [wght as CFNumber: weightValue as CFNumber]
-                let headingCT = CTFontCreateCopyWithAttributes(
-                    baseCT, headingSize, nil,
-                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: vars] as CFDictionary)
-                )
-                headingAttr.font = Font(headingCT as NSFont)
+                headingAttr.setAppKitFont(VFont.resolvedDMSansFont(weight: weightValue, size: headingSize))
                 if index > 0 {
                     let paraStyle = NSMutableParagraphStyle()
                     paraStyle.paragraphSpacingBefore = level == 1 ? 8 : 4
@@ -399,8 +510,14 @@ struct MarkdownSegmentView: View, Equatable {
                     var prefixAttr = AttributedString(indentString + prefix)
                     prefixAttr.foregroundColor = secondaryTextColor
 
-                    let itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
-                        ?? AttributedString(item.text)
+                    var itemAttr: AttributedString
+                    do {
+                        itemAttr = try AttributedString(markdown: item.text, options: mdOptions)
+                    } catch {
+                        mdConvertLog.warning("AttributedString(markdown:) failed for .list item: \(error.localizedDescription, privacy: .public)")
+                        itemAttr = AttributedString(item.text)
+                    }
+                    AttributedStringAutolinker.autolinkBareURLs(in: &itemAttr)
 
                     // Apply hanging indent so wrapped lines align with item text
                     let prefixText = indentString + prefix
@@ -409,7 +526,7 @@ struct MarkdownSegmentView: View, Equatable {
                     if let cached = prefixWidthCache[prefixText] {
                         prefixWidth = cached
                     } else {
-                        let font = NSFont(name: "DMSans-Regular", size: 16) ?? NSFont.systemFont(ofSize: 16)
+                        let font = VFont.resolvedChatMarkdownFontSet().regular
                         let prefixNS = NSString(string: prefixText)
                         prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                         if prefixWidthCache.count < 200 {
@@ -462,18 +579,84 @@ struct MarkdownSegmentView: View, Equatable {
 
     // MARK: - NSAttributedString Conversion
 
+    private static let mdConvertLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "MarkdownConvert")
+
     #if os(macOS)
     /// Converts a SwiftUI `AttributedString` to `NSAttributedString` with a
     /// base font and text color applied as defaults. Runs that already carry
     /// explicit font or color attributes (e.g. inline code, bold, italic)
     /// keep their values; the defaults fill in where no attribute is set.
+    ///
+    /// Returns the converted `NSAttributedString` and a flag indicating
+    /// whether emphasis runs were detected but none could be applied
+    /// (all skipped by guards). When `true`, the caller should avoid
+    /// caching the result so the next render can retry.
     static func convertToNSAttributedString(
         _ source: AttributedString,
-        font: NSFont,
+        fontSet: VFont.ChatMarkdownFontSet,
         textColor: NSColor
-    ) -> NSAttributedString {
+    ) -> (NSAttributedString, Bool) {
+        // Pre-collect emphasis info from the source AttributedString.
+        // Reading inlinePresentationIntent directly from AttributedString.runs
+        // avoids relying on NSAttributedString attribute bridging, which can
+        // silently drop InlinePresentationIntent (a Swift struct / OptionSet)
+        // when it doesn't bridge to NSNumber during the conversion.
+        struct EmphasisRun {
+            let utf16Offset: Int
+            let utf16Length: Int
+            let intent: InlinePresentationIntent
+            let hasExplicitFont: Bool
+        }
+        // Create the NSMutableAttributedString up-front so we can check for
+        // explicit AppKit font attributes via the untyped .font key, avoiding
+        // the typed `.appKit.font` accessor which triggers an NSFont Sendable
+        // warning (NSFont's conformance was explicitly revoked by Apple).
         let ns = NSMutableAttributedString(source)
         let fullRange = NSRange(location: 0, length: ns.length)
+
+        var emphasisRuns: [EmphasisRun] = []
+        var utf16Offset = 0
+        for run in source.runs {
+            let runContent = source[run.range]
+            let utf16Length = String(runContent.characters).utf16.count
+            if let intent = runContent.inlinePresentationIntent,
+               intent.contains(.emphasized) || intent.contains(.stronglyEmphasized) {
+                let hasExplicitFont = runContent.font != nil
+                    || (utf16Offset < ns.length && ns.attribute(.font, at: utf16Offset, effectiveRange: nil) != nil)
+                emphasisRuns.append(EmphasisRun(
+                    utf16Offset: utf16Offset,
+                    utf16Length: utf16Length,
+                    intent: intent,
+                    hasExplicitFont: hasExplicitFont
+                ))
+            }
+            utf16Offset += utf16Length
+        }
+
+        // Validate offset consistency — if the AttributedString→NSAttributedString
+        // conversion changed the text encoding (e.g. Unicode normalization), the
+        // pre-computed offsets are wrong. Recompute from the source ranges directly.
+        if utf16Offset != ns.length && !emphasisRuns.isEmpty {
+            mdConvertLog.warning("UTF-16 offset mismatch: computed \(utf16Offset) vs NSAttributedString length \(ns.length) — recomputing emphasis offsets")
+            emphasisRuns.removeAll()
+            for run in source.runs {
+                if let intent = source[run.range].inlinePresentationIntent,
+                   intent.contains(.emphasized) || intent.contains(.stronglyEmphasized) {
+                    let prefixStr = String(source.characters[source.startIndex..<run.range.lowerBound])
+                    let nsOffset = (prefixStr as NSString).length
+                    let runStr = String(source[run.range].characters)
+                    let nsLen = (runStr as NSString).length
+                    let hasExplicitFont = source[run.range].font != nil
+                        || (nsOffset < ns.length && ns.attribute(.font, at: nsOffset, effectiveRange: nil) != nil)
+                    emphasisRuns.append(EmphasisRun(
+                        utf16Offset: nsOffset,
+                        utf16Length: nsLen,
+                        intent: intent,
+                        hasExplicitFont: hasExplicitFont
+                    ))
+                }
+            }
+        }
 
         // Apply synthetic italic/bold to emphasized runs.
         // DM Sans doesn't ship an italic font face, so we apply a synthetic
@@ -481,37 +664,94 @@ struct MarkdownSegmentView: View, Equatable {
         // (not the SwiftUI AttributedString) because SwiftUI Font attributes set via
         // Font(nsFont) don't reliably survive the AttributedString→NSAttributedString
         // conversion — the oblique transform is lost, leaving plain text.
-        let sz = font.pointSize
-        let wght = 0x77676874 // 'wght' variation axis tag
-        var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
-        let italicNS = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique) as NSFont
-        let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
-        let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
-        let boldNS = CTFontCreateCopyWithAttributes(
-            baseCT, sz, nil,
-            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
-        ) as NSFont
-        let boldItalicNS = CTFontCreateCopyWithAttributes(
-            baseCT, sz, &oblique,
-            CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
-        ) as NSFont
+        var unresolvedEmphasisCount = 0
+        var loggedUnresolvedFonts = false
+        let font = fontSet.regular
 
-        ns.enumerateAttribute(.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
-            guard let rawValue = (value as? NSNumber)?.uintValue else { return }
-            let intent = InlinePresentationIntent(rawValue: rawValue)
-            guard !intent.contains(.code) else { return }
-            // Skip runs that already have an explicit font (e.g. headings)
-            if ns.attribute(.font, at: range.location, effectiveRange: nil) != nil { return }
+        func logUnresolvedFontsIfNeeded() {
+            guard !loggedUnresolvedFonts else { return }
+            loggedUnresolvedFonts = true
+            let diagnostics = fontSet.diagnosticPostScriptNames
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ", ")
+            mdConvertLog.warning(
+                "Expected DM Sans emphasis fonts (family DM Sans), resolved: \(diagnostics, privacy: .public)"
+            )
+        }
 
-            let isEmph = intent.contains(.emphasized)
-            let isBold = intent.contains(.stronglyEmphasized)
-            if isEmph && isBold {
-                ns.addAttribute(.font, value: boldItalicNS, range: range)
-            } else if isEmph {
-                ns.addAttribute(.font, value: italicNS, range: range)
-            } else if isBold {
-                ns.addAttribute(.font, value: boldNS, range: range)
+        func fontHasExpectedTraits(_ font: NSFont, isEmphasized: Bool, isBold: Bool) -> Bool {
+            let matrix = CTFontGetMatrix(font as CTFont)
+            let hasOblique = abs(matrix.b) > 0.0001 || abs(matrix.c) > 0.0001
+            let hasBoldWeight: Bool
+            if isBold,
+               let variations = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber],
+               let weightValue = variations[0x77676874 as NSNumber] {
+                hasBoldWeight = abs(CGFloat(truncating: weightValue) - 700) < 0.5
+            } else {
+                hasBoldWeight = !isBold
             }
+
+            return (!isEmphasized || hasOblique) && hasBoldWeight
+        }
+
+        for emphRun in emphasisRuns {
+            guard !emphRun.intent.contains(.code) else { continue }
+            // Skip runs that already have an explicit font (e.g. headings)
+            guard !emphRun.hasExplicitFont else { continue }
+            let nsRange = NSRange(location: emphRun.utf16Offset, length: emphRun.utf16Length)
+            guard nsRange.location + nsRange.length <= ns.length else {
+                mdConvertLog.warning("Emphasis range \(nsRange.location)+\(nsRange.length) exceeds NSAttributedString length \(ns.length) — skipping")
+                unresolvedEmphasisCount += 1
+                continue
+            }
+            let isEmph = emphRun.intent.contains(.emphasized)
+            let isBold = emphRun.intent.contains(.stronglyEmphasized)
+            if isEmph && isBold {
+                guard fontSet.boldItalicIsResolved else {
+                    unresolvedEmphasisCount += 1
+                    logUnresolvedFontsIfNeeded()
+                    continue
+                }
+                ns.addAttribute(.font, value: fontSet.boldItalic, range: nsRange)
+            } else if isEmph {
+                guard fontSet.italicIsResolved else {
+                    unresolvedEmphasisCount += 1
+                    logUnresolvedFontsIfNeeded()
+                    continue
+                }
+                ns.addAttribute(.font, value: fontSet.italic, range: nsRange)
+            } else if isBold {
+                guard fontSet.boldIsResolved else {
+                    unresolvedEmphasisCount += 1
+                    logUnresolvedFontsIfNeeded()
+                    continue
+                }
+                ns.addAttribute(.font, value: fontSet.bold, range: nsRange)
+            }
+        }
+
+        for emphRun in emphasisRuns where !emphRun.intent.contains(.code) && !emphRun.hasExplicitFont && emphRun.utf16Length > 0 {
+            let nsRange = NSRange(location: emphRun.utf16Offset, length: emphRun.utf16Length)
+            guard nsRange.location + nsRange.length <= ns.length else { continue }
+            guard let actualFont = ns.attribute(.font, at: nsRange.location, effectiveRange: nil) as? NSFont else {
+                unresolvedEmphasisCount += 1
+                logUnresolvedFontsIfNeeded()
+                continue
+            }
+            let isEmph = emphRun.intent.contains(.emphasized)
+            let isBold = emphRun.intent.contains(.stronglyEmphasized)
+            if !fontHasExpectedTraits(actualFont, isEmphasized: isEmph, isBold: isBold) {
+                unresolvedEmphasisCount += 1
+                logUnresolvedFontsIfNeeded()
+            }
+        }
+
+        let hasUnresolvedEmphasis = unresolvedEmphasisCount > 0
+        if hasUnresolvedEmphasis {
+            mdConvertLog.warning(
+                "Emphasis runs detected (\(emphasisRuns.count)) with \(unresolvedEmphasisCount) unresolved run(s) — skipping cache"
+            )
         }
 
         // Apply base font where no explicit font attribute exists
@@ -528,7 +768,7 @@ struct MarkdownSegmentView: View, Equatable {
             }
         }
 
-        return ns
+        return (ns, hasUnresolvedEmphasis)
     }
     #endif
 }
@@ -554,6 +794,14 @@ private struct CodeBlockView: View, Equatable {
         let lm = NSLayoutManager()
         return ceil(lm.defaultLineHeight(for: VFont.nsMono))
     }()
+
+    /// Maximum height for long code blocks inside LazyVStack cells.
+    /// Content exceeding this is vertically scrollable.
+    private static let maxCodeBlockHeight: CGFloat = 400
+
+    /// Line threshold derived from maxCodeBlockHeight / codeLineHeight.
+    /// Content above this count takes the capped-height ScrollView path.
+    private static let lineThreshold: Int = Int(maxCodeBlockHeight / codeLineHeight)
 
     static func == (lhs: CodeBlockView, rhs: CodeBlockView) -> Bool {
         lhs.language == rhs.language
@@ -582,21 +830,35 @@ private struct CodeBlockView: View, Equatable {
                 .padding(.top, VSpacing.xs)
             }
 
-            // Pre-compute height from line count so the ScrollView has a
-            // definite size during LazyVStack's sizeThatFits pass, avoiding
-            // expensive Core Text measurement for off-screen cells.
-            let codeLineCount = code.components(separatedBy: "\n").count
-            let codeBlockHeight = CGFloat(codeLineCount) * Self.codeLineHeight + VSpacing.sm * 2
+            let codeLineCount = code.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+            let isLong = codeLineCount > Self.lineThreshold || (codeLineCount == 1 && code.utf8.count > 50_000)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(.custom("DMMono-Regular", size: 13))
-                    .foregroundStyle(textColor)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: true, vertical: true)
-                    .padding(VSpacing.sm)
+            if isLong {
+                // Long code: both horizontal and vertical scroll, capped height.
+                // .frame(height:) compiles to _FixedSizeLayout — O(1), never
+                // measures children. Safe inside LazyVStack cells.
+                ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                    Text(code)
+                        .font(.custom("DMMono-Regular", size: 13))
+                        .foregroundStyle(textColor)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .padding(VSpacing.sm)
+                }
+                .frame(height: Self.maxCodeBlockHeight)
+            } else {
+                // Short code: horizontal scroll only, natural height.
+                let codeBlockHeight = CGFloat(codeLineCount) * Self.codeLineHeight + VSpacing.sm * 2
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(code)
+                        .font(.custom("DMMono-Regular", size: 13))
+                        .foregroundStyle(textColor)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .padding(VSpacing.sm)
+                }
+                .frame(height: codeBlockHeight)
             }
-            .frame(height: codeBlockHeight)
         }
         .optionalMaxWidth(maxContentWidth)
         .background(codeBackgroundColor)
@@ -613,9 +875,18 @@ private struct CodeBlockView: View, Equatable {
     }
 }
 
-// MARK: - NSParagraphStyle Sendable workaround
+// MARK: - AppKit Attribute Sendable Workarounds
 
 private extension AttributedString {
+    /// Sets an AppKit font via NSMutableAttributedString to avoid the compiler
+    /// warning about NSFont's revoked Sendable conformance when using the typed
+    /// `.appKit.font` accessor on AttributedString.
+    mutating func setAppKitFont(_ font: NSFont) {
+        let ns = NSMutableAttributedString(self)
+        ns.addAttribute(.font, value: font, range: NSRange(location: 0, length: ns.length))
+        self = AttributedString(ns)
+    }
+
     /// Applies a paragraph style via NSMutableAttributedString to avoid the
     /// compiler warning about NSParagraphStyle's revoked Sendable conformance.
     mutating func applyParagraphStyle(_ style: NSParagraphStyle) {
@@ -639,4 +910,3 @@ private extension View {
         }
     }
 }
-
