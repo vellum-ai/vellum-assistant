@@ -827,20 +827,6 @@ private struct WorkspaceFileViewer: View {
 
 }
 
-// MARK: - File Size Formatter
-
-/// Formats an optional byte count into a human-readable size string.
-private func formattedFileSize(_ bytes: Int?) -> String? {
-    guard let bytes else { return nil }
-    if bytes < 1024 {
-        return "\(bytes) bytes"
-    } else if bytes < 1024 * 1024 {
-        return "\(bytes / 1024) KB"
-    } else {
-        return "\(String(format: "%.1f", Double(bytes) / (1024 * 1024))) MB"
-    }
-}
-
 // MARK: - Hidden Path Helper
 
 /// Returns true if any segment of the path starts with a dot (e.g. ".hidden/file.txt" or "dir/.env").

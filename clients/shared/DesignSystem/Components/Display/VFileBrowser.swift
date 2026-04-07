@@ -250,8 +250,22 @@ public struct VFileBrowser<
                 Task { await onExpand(node) }
             }
         } else {
-            selectedPath = node.path
-            onSelect?(node)
+            // Already-selected guard: no-op if the file is already selected so
+            // callers don't see spurious taps (e.g. a dirty-alert re-prompt for
+            // the same file).
+            if selectedPath == node.path { return }
+            if let onSelect {
+                // Caller owns selection — they'll update `selectedPath` if they
+                // want to. This lets callers veto the selection (e.g. when the
+                // current file has unsaved changes and the user cancels the
+                // dirty alert).
+                onSelect(node)
+            } else {
+                // No caller callback — auto-select for convenience-initializer
+                // callers (e.g. Skills) that rely on the browser to manage
+                // selection on its own.
+                selectedPath = node.path
+            }
         }
     }
 
