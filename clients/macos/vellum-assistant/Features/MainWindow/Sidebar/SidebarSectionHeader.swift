@@ -32,7 +32,7 @@ struct SidebarSectionHeader: View {
     var onCommitRename: ((String) -> Void)?
     var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
-    var onArchiveAll: (() -> Void)?
+    var onArchiveAll: (() -> Void)? = nil
     var sidebar: SidebarInteractionState?
 
     @FocusState private var isRenameFocused: Bool

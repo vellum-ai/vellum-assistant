@@ -28,7 +28,7 @@ struct SidebarSectionView: View {
     var onCommitRename: ((String) -> Void)?
     var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
-    var onArchiveAll: (() -> Void)?
+    var onArchiveAll: (() -> Void)? = nil
 
     /// The currently selected conversation ID. Passed through so that SwiftUI
     /// re-evaluates this view's body (and thus re-calls makeRow) when selection changes.
