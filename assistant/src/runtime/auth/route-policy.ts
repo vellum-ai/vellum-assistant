@@ -485,6 +485,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Permission mode
   { endpoint: "permission-mode:GET", scopes: ["settings.read"] },
   { endpoint: "permission-mode", scopes: ["settings.write"] },
+
+  // Home feed
+  { endpoint: "internal/home/feed/actions", scopes: ["chat.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
