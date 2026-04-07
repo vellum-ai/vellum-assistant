@@ -56,6 +56,29 @@ public protocol ManagedAssistantBootstrapAuthServicing: AnyObject {
 
 extension AuthService: ManagedAssistantBootstrapAuthServicing {}
 
+#if os(macOS)
+/// Minimal read/clear abstraction over the persisted active managed-assistant
+/// id. Exists so tests can inject an in-memory fake and verify the bootstrap's
+/// stale-ID clearing behavior without touching the developer's real lockfile.
+@MainActor
+public protocol ActiveAssistantIdStoring: AnyObject {
+    func loadActiveAssistantId() -> String?
+    func clearActiveAssistantId()
+}
+
+/// Production implementation backed by the real `LockfileAssistant` static API.
+@MainActor
+public final class LockfileActiveAssistantIdStore: ActiveAssistantIdStoring {
+    public init() {}
+    public func loadActiveAssistantId() -> String? {
+        LockfileAssistant.loadActiveAssistantId()
+    }
+    public func clearActiveAssistantId() {
+        _ = LockfileAssistant.setActiveAssistantId(nil)
+    }
+}
+#endif
+
 /// Orchestrates discovery or creation of a managed assistant on the platform.
 ///
 /// The bootstrap flow:
@@ -72,10 +95,23 @@ public final class ManagedAssistantBootstrapService {
     public static let shared = ManagedAssistantBootstrapService()
 
     private let authService: ManagedAssistantBootstrapAuthServicing
+    #if os(macOS)
+    private let activeAssistantIdStore: ActiveAssistantIdStoring
+    #endif
 
+    #if os(macOS)
+    public init(
+        authService: ManagedAssistantBootstrapAuthServicing? = nil,
+        activeAssistantIdStore: ActiveAssistantIdStoring? = nil
+    ) {
+        self.authService = authService ?? AuthService.shared
+        self.activeAssistantIdStore = activeAssistantIdStore ?? LockfileActiveAssistantIdStore()
+    }
+    #else
     public init(authService: ManagedAssistantBootstrapAuthServicing? = nil) {
         self.authService = authService ?? AuthService.shared
     }
+    #endif
 
     public func ensureManagedAssistant(
         name: String? = nil,
@@ -87,7 +123,7 @@ public final class ManagedAssistantBootstrapService {
 
         // If we already have a selected managed assistant, retrieve it directly.
         #if os(macOS)
-        if let connectedId = LockfileAssistant.loadActiveAssistantId() {
+        if let connectedId = activeAssistantIdStore.loadActiveAssistantId() {
             log.info("Found connectedAssistantId: \(connectedId, privacy: .public), retrieving directly")
             let result: PlatformAssistantResult
             do {
@@ -106,7 +142,7 @@ public final class ManagedAssistantBootstrapService {
                 // through to hatch — we don't want to silently create a second
                 // assistant when the user already has one.
                 log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID")
-                LockfileAssistant.setActiveAssistantId(nil)
+                activeAssistantIdStore.clearActiveAssistantId()
                 if multiAssistantEnabled {
                     do {
                         let existing = try await authService.listAssistants(organizationId: organizationId)
@@ -123,7 +159,7 @@ public final class ManagedAssistantBootstrapService {
                 }
             case .accessDenied:
                 log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
-                LockfileAssistant.setActiveAssistantId(nil)
+                activeAssistantIdStore.clearActiveAssistantId()
                 throw ManagedBootstrapError.accessRevoked(connectedId)
             }
         }

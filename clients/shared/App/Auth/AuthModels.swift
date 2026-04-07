@@ -116,6 +116,11 @@ public struct EmptyData: Codable, Sendable {}
 public struct PlatformOrganization: Codable, Sendable {
     public let id: String
     public let name: String?
+
+    public init(id: String, name: String? = nil) {
+        self.id = id
+        self.name = name
+    }
 }
 
 public struct PaginatedOrganizationsResponse: Codable, Sendable {

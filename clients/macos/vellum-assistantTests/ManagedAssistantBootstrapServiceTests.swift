@@ -7,58 +7,52 @@ import XCTest
 /// Flag off = today's byte-for-byte behavior (stale ID cleared, fall through to hatch).
 /// Flag on = attempt `listAssistants` first; reuse the most-recent existing assistant
 /// when the list is non-empty; only fall through to hatch on an empty list (first-run UX).
+///
+/// Uses an in-memory `MockActiveAssistantIdStore` and `MockBootstrapAuthService` so the
+/// tests never touch the real lockfile or `UserDefaults.standard`.
 @MainActor
 final class ManagedAssistantBootstrapServiceTests: XCTestCase {
-    private var tempDir: URL!
-    private var lockfilePath: String!
     private var savedConnectedOrgId: String?
 
     override func setUp() {
         super.setUp()
-        tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try! FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        lockfilePath = tempDir.appendingPathComponent(".vellum.lock.json").path
-        // `ManagedAssistantBootstrapService.resolveOrganizationId()` reads this
-        // key from `UserDefaults.standard` directly, so save + restore around
-        // the test rather than mutating global state destructively.
+        // `resolveOrganizationId()` reads `connectedOrganizationId` from
+        // `UserDefaults.standard`; save + restore around the test rather than
+        // clobber whatever the developer has locally.
         savedConnectedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
         UserDefaults.standard.set("org-test", forKey: "connectedOrganizationId")
     }
 
     override func tearDown() {
-        LockfileAssistant.setActiveAssistantId(nil, lockfilePath: lockfilePath)
         if let savedConnectedOrgId {
             UserDefaults.standard.set(savedConnectedOrgId, forKey: "connectedOrganizationId")
         } else {
             UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         }
         savedConnectedOrgId = nil
-        try? FileManager.default.removeItem(at: tempDir)
-        tempDir = nil
-        lockfilePath = nil
         super.tearDown()
     }
 
     // MARK: - Regression guard: flag off preserves today's behavior
 
     func testFlagOff_404_clearsIdAndFallsThroughToHatch() async throws {
-        // Seed a stale connected assistant id.
-        LockfileAssistant.setActiveAssistantId("stale-id", lockfilePath: lockfilePath)
-
-        let mock = MockBootstrapAuthService(
+        let idStore = MockActiveAssistantIdStore(storedId: "stale-id")
+        let auth = MockBootstrapAuthService(
             organizations: [PlatformOrganization(id: "org-test", name: "Org")],
             getAssistantResult: .notFound
         )
-        let service = ManagedAssistantBootstrapService(authService: mock)
-
-        let outcome = try await service.ensureManagedAssistant(
-            multiAssistantEnabled: false
+        let service = ManagedAssistantBootstrapService(
+            authService: auth,
+            activeAssistantIdStore: idStore
         )
 
-        XCTAssertEqual(mock.getAssistantCallCount, 1)
-        XCTAssertEqual(mock.listAssistantsCallCount, 0, "Flag off must not call listAssistants")
-        XCTAssertEqual(mock.hatchCallCount, 1, "Flag off must fall through to hatch")
+        let outcome = try await service.ensureManagedAssistant(multiAssistantEnabled: false)
+
+        XCTAssertEqual(auth.getAssistantCallCount, 1)
+        XCTAssertEqual(idStore.clearCallCount, 1, "Stale ID must be cleared on 404")
+        XCTAssertNil(idStore.storedId, "Store must reflect the cleared id")
+        XCTAssertEqual(auth.listAssistantsCallCount, 0, "Flag off must not call listAssistants")
+        XCTAssertEqual(auth.hatchCallCount, 1, "Flag off must fall through to hatch")
         if case .createdNew(let a) = outcome {
             XCTAssertEqual(a.id, "hatched-id")
         } else {
@@ -69,25 +63,27 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
     // MARK: - Flag on + 404 + non-empty list: reuse most recent, do not hatch
 
     func testFlagOn_404_nonEmptyList_returnsMostRecentWithoutHatching() async throws {
-        LockfileAssistant.setActiveAssistantId("stale-id", lockfilePath: lockfilePath)
-
+        let idStore = MockActiveAssistantIdStore(storedId: "stale-id")
         let older = PlatformAssistant(id: "older", created_at: "2024-01-01T00:00:00Z")
         let newer = PlatformAssistant(id: "newer", created_at: "2025-06-15T12:00:00Z")
         let undated = PlatformAssistant(id: "undated", created_at: nil)
 
-        let mock = MockBootstrapAuthService(
+        let auth = MockBootstrapAuthService(
             organizations: [PlatformOrganization(id: "org-test", name: "Org")],
             getAssistantResult: .notFound,
             listAssistantsResult: [older, undated, newer]
         )
-        let service = ManagedAssistantBootstrapService(authService: mock)
-
-        let outcome = try await service.ensureManagedAssistant(
-            multiAssistantEnabled: true
+        let service = ManagedAssistantBootstrapService(
+            authService: auth,
+            activeAssistantIdStore: idStore
         )
 
-        XCTAssertEqual(mock.listAssistantsCallCount, 1)
-        XCTAssertEqual(mock.hatchCallCount, 0, "Flag on + non-empty list must not hatch")
+        let outcome = try await service.ensureManagedAssistant(multiAssistantEnabled: true)
+
+        XCTAssertEqual(idStore.clearCallCount, 1)
+        XCTAssertNil(idStore.storedId)
+        XCTAssertEqual(auth.listAssistantsCallCount, 1)
+        XCTAssertEqual(auth.hatchCallCount, 0, "Flag on + non-empty list must not hatch")
         if case .reusedExisting(let a) = outcome {
             XCTAssertEqual(a.id, "newer", "Should return the most-recently-created assistant")
         } else {
@@ -98,21 +94,22 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
     // MARK: - Flag on + 404 + empty list: hatch (first-run UX)
 
     func testFlagOn_404_emptyList_fallsThroughToHatch() async throws {
-        LockfileAssistant.setActiveAssistantId("stale-id", lockfilePath: lockfilePath)
-
-        let mock = MockBootstrapAuthService(
+        let idStore = MockActiveAssistantIdStore(storedId: "stale-id")
+        let auth = MockBootstrapAuthService(
             organizations: [PlatformOrganization(id: "org-test", name: "Org")],
             getAssistantResult: .notFound,
             listAssistantsResult: []
         )
-        let service = ManagedAssistantBootstrapService(authService: mock)
-
-        let outcome = try await service.ensureManagedAssistant(
-            multiAssistantEnabled: true
+        let service = ManagedAssistantBootstrapService(
+            authService: auth,
+            activeAssistantIdStore: idStore
         )
 
-        XCTAssertEqual(mock.listAssistantsCallCount, 1)
-        XCTAssertEqual(mock.hatchCallCount, 1, "Empty list must fall through to hatch (first-run UX)")
+        let outcome = try await service.ensureManagedAssistant(multiAssistantEnabled: true)
+
+        XCTAssertEqual(idStore.clearCallCount, 1)
+        XCTAssertEqual(auth.listAssistantsCallCount, 1)
+        XCTAssertEqual(auth.hatchCallCount, 1, "Empty list must fall through to hatch (first-run UX)")
         if case .createdNew = outcome {
             // expected
         } else {
@@ -123,21 +120,23 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
     // MARK: - Flag on + 200: returns the assistant directly, no list call
 
     func testFlagOn_foundAssistant_returnsDirectlyWithoutListing() async throws {
-        LockfileAssistant.setActiveAssistantId("stored-id", lockfilePath: lockfilePath)
-
+        let idStore = MockActiveAssistantIdStore(storedId: "stored-id")
         let stored = PlatformAssistant(id: "stored-id", name: "Stored")
-        let mock = MockBootstrapAuthService(
+        let auth = MockBootstrapAuthService(
             organizations: [PlatformOrganization(id: "org-test", name: "Org")],
             getAssistantResult: .found(stored)
         )
-        let service = ManagedAssistantBootstrapService(authService: mock)
-
-        let outcome = try await service.ensureManagedAssistant(
-            multiAssistantEnabled: true
+        let service = ManagedAssistantBootstrapService(
+            authService: auth,
+            activeAssistantIdStore: idStore
         )
 
-        XCTAssertEqual(mock.listAssistantsCallCount, 0, "Flag on + 200 must not call listAssistants")
-        XCTAssertEqual(mock.hatchCallCount, 0)
+        let outcome = try await service.ensureManagedAssistant(multiAssistantEnabled: true)
+
+        XCTAssertEqual(idStore.clearCallCount, 0, "Found assistant must not clear the id")
+        XCTAssertEqual(idStore.storedId, "stored-id", "Store must be untouched on found")
+        XCTAssertEqual(auth.listAssistantsCallCount, 0, "Flag on + 200 must not call listAssistants")
+        XCTAssertEqual(auth.hatchCallCount, 0)
         if case .reusedExisting(let a) = outcome {
             XCTAssertEqual(a.id, "stored-id")
         } else {
@@ -148,13 +147,15 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
     // MARK: - 403 accessDenied branch unchanged regardless of flag
 
     func testAccessDeniedBranchUnchanged_flagOn() async throws {
-        LockfileAssistant.setActiveAssistantId("forbidden-id", lockfilePath: lockfilePath)
-
-        let mock = MockBootstrapAuthService(
+        let idStore = MockActiveAssistantIdStore(storedId: "forbidden-id")
+        let auth = MockBootstrapAuthService(
             organizations: [PlatformOrganization(id: "org-test", name: "Org")],
             getAssistantResult: .accessDenied
         )
-        let service = ManagedAssistantBootstrapService(authService: mock)
+        let service = ManagedAssistantBootstrapService(
+            authService: auth,
+            activeAssistantIdStore: idStore
+        )
 
         do {
             _ = try await service.ensureManagedAssistant(multiAssistantEnabled: true)
@@ -162,12 +163,31 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
         } catch ManagedBootstrapError.accessRevoked(let id) {
             XCTAssertEqual(id, "forbidden-id")
         }
-        XCTAssertEqual(mock.listAssistantsCallCount, 0)
-        XCTAssertEqual(mock.hatchCallCount, 0)
+        XCTAssertEqual(idStore.clearCallCount, 1, "accessDenied must clear the id")
+        XCTAssertNil(idStore.storedId)
+        XCTAssertEqual(auth.listAssistantsCallCount, 0)
+        XCTAssertEqual(auth.hatchCallCount, 0)
     }
 }
 
-// MARK: - Mock
+// MARK: - Mocks
+
+@MainActor
+private final class MockActiveAssistantIdStore: ActiveAssistantIdStoring {
+    var storedId: String?
+    private(set) var clearCallCount = 0
+
+    init(storedId: String? = nil) {
+        self.storedId = storedId
+    }
+
+    func loadActiveAssistantId() -> String? { storedId }
+
+    func clearActiveAssistantId() {
+        storedId = nil
+        clearCallCount += 1
+    }
+}
 
 @MainActor
 private final class MockBootstrapAuthService: ManagedAssistantBootstrapAuthServicing {
