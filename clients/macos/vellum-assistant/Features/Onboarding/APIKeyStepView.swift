@@ -149,7 +149,7 @@ struct APIKeyStepView: View {
     private func chipLabel(for mode: OnboardingState.HostingMode) -> String? {
         switch mode {
         case .vellumCloud:
-            if !isAuthenticated || state.skippedAuth { return "Requires Account" }
+            if !isAuthenticated { return "Requires Account" }
             return nil
         default:
             return nil
