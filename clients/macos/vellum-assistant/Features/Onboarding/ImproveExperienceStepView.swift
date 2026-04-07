@@ -135,10 +135,9 @@ struct ImproveExperienceStepView: View {
     }
 
     private var tosAttributedString: AttributedString {
+        let markdown = "I agree to the [Terms of Service](\(AppURLs.termsOfUseDocs.absoluteString)) and [Privacy Policy](\(AppURLs.privacyPolicyDocs.absoluteString))"
         // swiftlint:disable:next force_try
-        var str = try! AttributedString(
-            markdown: "I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/privacy-policy)"
-        )
+        var str = try! AttributedString(markdown: markdown)
         for run in str.runs where run.link != nil {
             str[run.range].underlineStyle = .single
         }
