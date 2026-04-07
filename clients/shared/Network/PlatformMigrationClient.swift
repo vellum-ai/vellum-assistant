@@ -285,9 +285,11 @@ public enum PlatformMigrationClient {
     // MARK: - Upload Progress Delegate
 
     /// Tracks upload progress and dispatches throttled updates to the main actor.
+    /// Uses a generation counter to prevent stale callbacks from firing after reset.
     private class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
         private let onProgress: @MainActor (Double) -> Void
         private var lastReportedFraction: Double = 0.0
+        private var generation: Int = 0
 
         init(onProgress: @escaping @MainActor (Double) -> Void) {
             self.onProgress = onProgress
@@ -305,14 +307,18 @@ public enum PlatformMigrationClient {
             guard progress - lastReportedFraction >= 0.01 || progress >= 1.0 else { return }
             lastReportedFraction = progress
             let callback = self.onProgress
-            Task {
+            let gen = self.generation
+            Task { [weak self] in
+                guard self?.generation == gen else { return }
                 await callback(progress)
             }
         }
 
-        /// Resets the throttle so progress reports from 0 again (e.g. on retry).
+        /// Resets the throttle and increments the generation counter so any
+        /// in-flight callbacks from the previous attempt are discarded.
         func reset() {
             lastReportedFraction = 0.0
+            generation += 1
         }
     }
 
