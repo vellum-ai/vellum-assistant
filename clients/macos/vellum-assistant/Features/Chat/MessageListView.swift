@@ -123,14 +123,22 @@ struct MessageListView: View {
             } action: { _, newState in
                 handleScrollGeometryUpdate(newState)
                 if scrollState.canAutoFollow() {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    if let lastId = scrollState.lastMessageId {
+                        proxy.scrollTo(lastId, anchor: .bottom)
+                    } else {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
                 }
             }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .overlay(alignment: .bottom) {
                 ScrollToLatestOverlayView(scrollState: scrollState) {
                     withAnimation(VAnimation.spring) {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        if let lastId = scrollState.lastMessageId {
+                            proxy.scrollTo(lastId, anchor: .bottom)
+                        } else {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
                     }
                 }
             }
