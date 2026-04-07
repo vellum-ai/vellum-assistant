@@ -172,6 +172,49 @@ public enum GatewayHTTPClient {
 
         logResponse(request, http: http, quiet: false)
 
+        // 401 retry for non-managed (bearer token) connections.
+        if http.statusCode == 401, !connection.isManaged {
+            // Drain the 401 response body before attempting credential refresh.
+            for try await _ in bytes {}
+
+            if await refreshBearerCredentials(connection: connection) {
+                // Rebuild with fresh credentials from the credential store.
+                let freshConnection = try resolveConnection()
+                var retryRequest = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: freshConnection)
+                retryRequest.httpBody = body
+                if let contentType {
+                    retryRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
+                }
+                logOutgoing(retryRequest, quiet: false)
+
+                let (retryBytes, retryResponse) = try await URLSession.shared.bytes(for: retryRequest)
+
+                guard let retryHttp = retryResponse as? HTTPURLResponse else {
+                    var collected = Data()
+                    for try await byte in retryBytes {
+                        collected.append(byte)
+                    }
+                    return Response(data: collected, statusCode: -1)
+                }
+
+                logResponse(retryRequest, http: retryHttp, quiet: false)
+
+                return try await collectStreamingResponse(bytes: retryBytes, http: retryHttp, onProgress: onProgress)
+            }
+
+            // Refresh failed — return the original 401 response.
+            return Response(data: Data(), statusCode: http.statusCode)
+        }
+
+        return try await collectStreamingResponse(bytes: bytes, http: http, onProgress: onProgress)
+    }
+
+    /// Collects a streaming byte response into `Data`, reporting progress via `onProgress`.
+    private static func collectStreamingResponse(
+        bytes: URLSession.AsyncBytes,
+        http: HTTPURLResponse,
+        onProgress: @escaping @MainActor (Double) -> Void
+    ) async throws -> Response {
         let totalBytes = http.expectedContentLength // -1 when unknown
 
         if totalBytes <= 0 {
