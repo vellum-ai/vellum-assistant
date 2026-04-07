@@ -211,16 +211,16 @@ describe("GET /v1/oauth/providers", () => {
   });
 });
 
-describe("GET /v1/oauth/providers/:provider", () => {
+describe("GET /v1/oauth/providers/:providerKey", () => {
   test("returns the correct provider", async () => {
     const req = new Request("http://localhost/v1/oauth/providers/google");
     const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers/:provider").handler({
+    const res = await getRoute("GET", "oauth/providers/:providerKey").handler({
       req,
       url,
       server: null as never,
       authContext: null as never,
-      params: { provider: "google" },
+      params: { providerKey: "google" },
     });
 
     expect(res.status).toBe(200);
@@ -245,12 +245,12 @@ describe("GET /v1/oauth/providers/:provider", () => {
   test("returns 404 for unknown provider", async () => {
     const req = new Request("http://localhost/v1/oauth/providers/nonexistent");
     const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers/:provider").handler({
+    const res = await getRoute("GET", "oauth/providers/:providerKey").handler({
       req,
       url,
       server: null as never,
       authContext: null as never,
-      params: { provider: "nonexistent" },
+      params: { providerKey: "nonexistent" },
     });
 
     expect(res.status).toBe(404);

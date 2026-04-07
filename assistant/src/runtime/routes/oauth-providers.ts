@@ -43,16 +43,20 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // GET /v1/oauth/providers/:provider — Get a single provider.
+    // GET /v1/oauth/providers/:providerKey — Get a single provider.
+    // The path parameter name `providerKey` is preserved for backward
+    // compatibility with the published OpenAPI spec (operationId
+    // `oauth_providers_by_providerKey_get`). The actual URL the client hits
+    // (`/v1/oauth/providers/google`) is unchanged either way.
     {
-      endpoint: "oauth/providers/:provider",
+      endpoint: "oauth/providers/:providerKey",
       method: "GET",
       handler: ({ params }) => {
-        const row = getProvider(params.provider);
+        const row = getProvider(params.providerKey);
         if (!row) {
           return httpError(
             "NOT_FOUND",
-            `No OAuth provider registered for "${params.provider}"`,
+            `No OAuth provider registered for "${params.providerKey}"`,
             404,
           );
         }
@@ -60,7 +64,7 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
         if (!isProviderVisible(row, loadConfig())) {
           return httpError(
             "NOT_FOUND",
-            `No OAuth provider registered for "${params.provider}"`,
+            `No OAuth provider registered for "${params.providerKey}"`,
             404,
           );
         }
