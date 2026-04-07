@@ -101,7 +101,7 @@ struct EarnCreditsModal: View {
     // MARK: - Referral Link
 
     private func referralLinkSection(_ code: ReferralCodeResponse) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             SettingsDivider()
 
             HStack(spacing: VSpacing.sm) {
@@ -133,7 +133,7 @@ struct EarnCreditsModal: View {
     // MARK: - Stats
 
     private func statsSection(_ code: ReferralCodeResponse) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             SettingsDivider()
 
             HStack(spacing: VSpacing.xl) {
@@ -169,15 +169,19 @@ struct EarnCreditsModal: View {
     // MARK: - Terms Link
 
     private var termsLink: some View {
-        Button {
-            withAnimation { showTerms = true }
-        } label: {
-            Text("View Terms and Conditions")
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentTertiary)
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            SettingsDivider()
+
+            Button {
+                withAnimation { showTerms = true }
+            } label: {
+                Text("View Terms and Conditions")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     // MARK: - Terms Content
