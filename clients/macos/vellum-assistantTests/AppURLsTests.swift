@@ -1,5 +1,5 @@
 import XCTest
-@testable import vellum_assistant
+@testable import VellumAssistantLib
 
 final class AppURLsTests: XCTestCase {
     private var originalEnvValue: String?
@@ -58,6 +58,16 @@ final class AppURLsTests: XCTestCase {
     func testDocsBaseURLAcceptsHTTPScheme() {
         setenv("VELLUM_DOCS_BASE_URL", "http://localhost:3000/docs", 1)
         XCTAssertEqual(AppURLs.docsBaseURL, "http://localhost:3000/docs")
+    }
+
+    func testDocsBaseURLRejectsBaseWithQueryAndFallsBack() {
+        setenv("VELLUM_DOCS_BASE_URL", "https://example.com/docs?build=123", 1)
+        XCTAssertEqual(AppURLs.docsBaseURL, "https://www.vellum.ai/docs")
+    }
+
+    func testDocsBaseURLRejectsBaseWithFragmentAndFallsBack() {
+        setenv("VELLUM_DOCS_BASE_URL", "https://example.com/docs#section", 1)
+        XCTAssertEqual(AppURLs.docsBaseURL, "https://www.vellum.ai/docs")
     }
 
     func testConcreteURLsFallBackOnMalformedEnv() {

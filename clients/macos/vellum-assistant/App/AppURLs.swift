@@ -26,13 +26,18 @@ public enum AppURLs {
             return defaultDocsBaseURL
         }
         let normalized = candidate.hasSuffix("/") ? String(candidate.dropLast()) : candidate
-        // Reject the override if it isn't a parseable absolute http(s) URL.
+        // Reject the override if it isn't a parseable absolute http(s) URL, or if
+        // it contains a query string or fragment. The contract is "base URL must
+        // be scheme://host[/path]" — a query or fragment would be silently
+        // clobbered or pasted into the middle of the URL by the docsURL helpers.
         // This prevents downstream force-unwraps from crashing on malformed values.
         guard
             let url = URL(string: normalized),
             let scheme = url.scheme?.lowercased(),
             scheme == "http" || scheme == "https",
-            url.host != nil
+            url.host != nil,
+            url.query == nil,
+            url.fragment == nil
         else {
             return defaultDocsBaseURL
         }
