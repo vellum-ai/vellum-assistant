@@ -257,10 +257,7 @@ final class SoundManager {
     func availableSounds() -> [(label: String, filename: String)] {
         if cachedAvailableSounds.isEmpty && !isRefreshingAvailableSounds {
             isRefreshingAvailableSounds = true
-            Task {
-                await refreshAvailableSounds()
-                isRefreshingAvailableSounds = false
-            }
+            Task { await refreshAvailableSounds() }
         }
         return cachedAvailableSounds
     }
