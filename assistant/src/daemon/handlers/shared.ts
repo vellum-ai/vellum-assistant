@@ -344,6 +344,59 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       }
       continue;
     }
+    if (block.type === "server_tool_use") {
+      finalizeSegment();
+      const name = typeof block.name === "string" ? block.name : "unknown";
+      const input = isRecord(block.input)
+        ? (block.input as Record<string, unknown>)
+        : {};
+      const id = typeof block.id === "string" ? block.id : "";
+      const entry: HistoryToolCall = { name, input };
+      toolCalls.push(entry);
+      if (id) pendingToolUses.set(id, entry);
+      contentOrder.push(`tool:${toolCalls.length - 1}`);
+      if (!seenToolUse) {
+        seenToolUse = true;
+        if (!seenText) toolCallsBeforeText = true;
+      }
+      continue;
+    }
+    if (block.type === "web_search_tool_result") {
+      const toolUseId =
+        typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+      const isError =
+        isRecord(block.content) &&
+        (block.content as { type?: string }).type ===
+          "web_search_tool_result_error";
+
+      // Format search results into readable text.
+      let resultContent = "";
+      if (Array.isArray(block.content)) {
+        resultContent = (block.content as unknown[])
+          .filter(
+            (r): r is { type: string; title: string; url: string } =>
+              typeof r === "object" &&
+              r != null &&
+              (r as { type?: string }).type === "web_search_result",
+          )
+          .map((r) => `${r.title}\n${r.url}`)
+          .join("\n\n");
+      }
+
+      const matched = toolUseId ? pendingToolUses.get(toolUseId) : null;
+      if (matched) {
+        matched.result = resultContent;
+        matched.isError = isError;
+      } else {
+        toolCalls.push({
+          name: "web_search",
+          input: {},
+          result: resultContent,
+          isError,
+        });
+      }
+      continue;
+    }
     if (block.type === "tool_result") {
       const toolUseId =
         typeof block.tool_use_id === "string" ? block.tool_use_id : "";
