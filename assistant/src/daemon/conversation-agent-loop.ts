@@ -9,11 +9,13 @@
 
 import { v4 as uuid } from "uuid";
 
+import { backgroundToolManager } from "../agent/background-tool-manager.js";
 import type {
   AgentEvent,
   AgentLoop,
   CheckpointDecision,
   CheckpointInfo,
+  ScheduleCheckInCallback,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -266,6 +268,16 @@ export interface AgentLoopConversationContext {
   readonly streamThinking: boolean;
   readonly prompter: PermissionPrompter;
   readonly queue: MessageQueue;
+
+  /** Handles for outstanding deferred check-in timers, cleared on abort/end. */
+  readonly checkInTimers: Set<ReturnType<typeof setTimeout>>;
+
+  /**
+   * Inject a synthetic check-in message and trigger a new assistant turn.
+   * Used by the deferred check-in callback when a background tool is still
+   * running after the scheduled interval.
+   */
+  injectCheckInMessage(content: string): Promise<void>;
 
   emitActivityState(
     phase:
@@ -598,6 +610,47 @@ export async function runAgentLoopImpl(
           });
         }
       }
+    };
+
+    // Build the deferred check-in callback. When the agent loop schedules a
+    // check-in (via background_tool_control), this callback sets a timer that
+    // fires after the requested interval. If the background execution is still
+    // running at that point, it injects a synthetic user message to trigger a
+    // new assistant turn with a status nudge.
+    const scheduleCheckInCallback: ScheduleCheckInCallback = (checkIn) => {
+      const { afterSeconds, executionId, conversationId } = checkIn;
+
+      const handle = setTimeout(() => {
+        ctx.checkInTimers.delete(handle);
+
+        // Guard: conversation must still be active (not aborted, not ended)
+        if (abortController.signal.aborted) return;
+
+        // If the conversation is currently processing another turn, skip
+        // the check-in — the auto-inject at loop top will handle it.
+        if (ctx.processing) return;
+
+        const status = backgroundToolManager.getStatus(executionId);
+        if (!status) return; // execution not found (already drained)
+        if (status.status === "completed" || status.status === "cancelled") {
+          // No-op: auto-inject at the top of the next agent loop iteration
+          // will pick up completed results.
+          return;
+        }
+
+        // Still running — inject a synthetic system notice to trigger a new turn
+        const totalElapsedSec = Math.round(status.elapsedMs / 1000);
+        const syntheticContent = `<system_notice>Scheduled check-in: background execution ${executionId} (tool: ${status.toolName}) is still running after ${totalElapsedSec}s. Use background_tool_control to wait longer or cancel it.</system_notice>`;
+
+        ctx.injectCheckInMessage(syntheticContent).catch((err) => {
+          rlog.warn(
+            { err, executionId, conversationId },
+            "Failed to inject deferred check-in message",
+          );
+        });
+      }, afterSeconds * 1000);
+
+      ctx.checkInTimers.add(handle);
     };
 
     let runMessages = ctx.messages;
@@ -1042,6 +1095,8 @@ export async function runAgentLoopImpl(
       abortController.signal,
       reqId,
       onCheckpoint,
+      ctx.conversationId,
+      scheduleCheckInCallback,
     );
 
     // ── Proactive mid-loop compaction ───────────────────────────────
@@ -1151,6 +1206,8 @@ export async function runAgentLoopImpl(
         abortController.signal,
         reqId,
         onCheckpoint,
+        ctx.conversationId,
+        scheduleCheckInCallback,
       );
     }
 
@@ -1193,6 +1250,8 @@ export async function runAgentLoopImpl(
         abortController.signal,
         reqId,
         onCheckpoint,
+        ctx.conversationId,
+        scheduleCheckInCallback,
       );
 
       if (state.orderingErrorDetected) {
@@ -1372,6 +1431,8 @@ export async function runAgentLoopImpl(
           abortController.signal,
           reqId,
           onCheckpoint,
+          ctx.conversationId,
+          scheduleCheckInCallback,
         );
 
         // If the rerun still yields at checkpoint, the turn is still
@@ -1495,6 +1556,8 @@ export async function runAgentLoopImpl(
               abortController.signal,
               reqId,
               onCheckpoint,
+              ctx.conversationId,
+              scheduleCheckInCallback,
             );
           } else {
             // User denied compression — emit a graceful assistant explanation
@@ -1614,6 +1677,8 @@ export async function runAgentLoopImpl(
             abortController.signal,
             reqId,
             onCheckpoint,
+            ctx.conversationId,
+            scheduleCheckInCallback,
           );
         }
         // action === "fail_gracefully" falls through to the final error below

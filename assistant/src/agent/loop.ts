@@ -1,5 +1,8 @@
 import * as Sentry from "@sentry/node";
 
+import { backgroundToolManager } from "../agent/background-tool-manager.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import { estimateToolsTokens } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
@@ -15,6 +18,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
+import type { Tool, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-loop");
@@ -83,6 +87,22 @@ export type AgentEvent =
       input: Record<string, unknown>;
     }
   | { type: "server_tool_complete"; toolUseId: string; isError: boolean }
+  | {
+      type: "tool_deferred_to_background";
+      executionId: string;
+      toolName: string;
+      toolUseId: string;
+      elapsedMs: number;
+    }
+  | {
+      type: "background_tool_completed";
+      executionId: string;
+      toolName: string;
+      toolUseId: string;
+      result: string;
+      isError: boolean;
+      durationMs: number;
+    }
   | { type: "error"; error: Error }
   | {
       type: "usage";
@@ -104,6 +124,17 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 };
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
+
+/**
+ * Callback type for scheduling a background tool check-in.
+ * Implemented by the conversation layer (PR 6). The agent loop
+ * calls this when a tool result contains `scheduleCheckIn`.
+ */
+export type ScheduleCheckInCallback = (checkIn: {
+  afterSeconds: number;
+  executionId: string;
+  conversationId: string;
+}) => void;
 
 export interface ResolvedSystemPrompt {
   systemPrompt: string;
@@ -139,8 +170,15 @@ export class AgentLoop {
         contentBlocks?: ContentBlock[];
         sensitiveBindings?: SensitiveOutputBinding[];
         yieldToUser?: boolean;
+        scheduleCheckIn?: {
+          afterSeconds: number;
+          executionId: string;
+          conversationId: string;
+        };
       }>)
     | null;
+  /** Optional lookup for Tool objects — used to check deferralExempt. */
+  private getToolByName: ((name: string) => Tool | undefined) | null;
 
   constructor(
     provider: Provider,
@@ -165,9 +203,15 @@ export class AgentLoop {
       contentBlocks?: ContentBlock[];
       sensitiveBindings?: SensitiveOutputBinding[];
       yieldToUser?: boolean;
+      scheduleCheckIn?: {
+        afterSeconds: number;
+        executionId: string;
+        conversationId: string;
+      };
     }>,
     resolveTools?: (history: Message[]) => ToolDefinition[],
     resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt,
+    getToolByName?: (name: string) => Tool | undefined,
   ) {
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -176,6 +220,7 @@ export class AgentLoop {
     this.resolveTools = resolveTools ?? null;
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
+    this.getToolByName = getToolByName ?? null;
   }
 
   /**
@@ -198,6 +243,8 @@ export class AgentLoop {
     signal?: AbortSignal,
     requestId?: string,
     onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+    conversationId?: string,
+    scheduleCheckInCallback?: ScheduleCheckInCallback,
   ): Promise<Message[]> {
     const history = [...messages];
     let toolUseTurns = 0;
@@ -211,8 +258,52 @@ export class AgentLoop {
     const substitutionMap = new Map<string, string>();
     let streamingPending = "";
 
+    // Check the tool-deferral feature flag once per run.
+    const deferralEnabled = isAssistantFeatureFlagEnabled(
+      "tool-deferral",
+      getConfig(),
+    );
+
     while (true) {
       if (signal?.aborted) break;
+
+      // Auto-inject completed background results at the top of each
+      // iteration (before sending to the provider). Only when deferral
+      // is enabled and we have a conversationId.
+      if (deferralEnabled && conversationId) {
+        const completedBgExecs =
+          backgroundToolManager.drainCompleted(conversationId);
+        if (completedBgExecs.length > 0) {
+          const injectionBlocks: ContentBlock[] = [];
+          for (const exec of completedBgExecs) {
+            const resultContent = exec.result?.content ?? "No result available";
+            const isError = exec.result?.isError ?? false;
+            const durationMs = Date.now() - exec.startedAt;
+            injectionBlocks.push({
+              type: "text",
+              text: `<background_tool_result execution_id="${exec.executionId}" tool="${exec.toolName}" tool_use_id="${exec.toolUseId}" status="${isError ? "error" : "success"}" duration_ms="${durationMs}">\n${resultContent}\n</background_tool_result>`,
+            });
+            onEvent({
+              type: "background_tool_completed",
+              executionId: exec.executionId,
+              toolName: exec.toolName,
+              toolUseId: exec.toolUseId,
+              result: resultContent,
+              isError,
+              durationMs,
+            });
+          }
+
+          // Prepend to the last user message's content blocks if available,
+          // otherwise add a new user message
+          const lastMsg = history[history.length - 1];
+          if (lastMsg?.role === "user") {
+            lastMsg.content = [...injectionBlocks, ...lastMsg.content];
+          } else {
+            history.push({ role: "user", content: injectionBlocks });
+          }
+        }
+      }
 
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
 
@@ -433,47 +524,249 @@ export class AgentLoop {
         // Execute all tools concurrently for reduced latency.
         // Race against the abort signal so cancellation isn't blocked by
         // stuck tools (e.g. a hung browser navigation).
-        const toolExecutionPromise = Promise.all(
-          toolUseBlocks.map(async (toolUse) => {
-            const result = await this.toolExecutor!(
-              toolUse.name,
-              toolUse.input,
-              (chunk) => {
-                onEvent({
-                  type: "tool_output_chunk",
-                  toolUseId: toolUse.id,
-                  chunk,
-                });
-              },
-              toolUse.id,
-            );
+        type ToolUseBlock = Extract<ContentBlock, { type: "tool_use" }>;
+        type ToolResultPair = {
+          toolUse: ToolUseBlock;
+          result: ToolExecutionResult;
+        };
 
-            return { toolUse, result };
-          }),
-        );
-
-        let toolResults: Awaited<typeof toolExecutionPromise>;
-        if (signal && !signal.aborted) {
-          let abortHandler!: () => void;
-          const abortPromise = new Promise<never>((_, reject) => {
-            abortHandler = () =>
-              reject(
-                new DOMException("The operation was aborted", "AbortError"),
-              );
-            signal.addEventListener("abort", abortHandler, { once: true });
+        // Determine if all tools in this batch are deferral-exempt.
+        // If so, skip the threshold race even when deferral is enabled.
+        const allDeferralExempt =
+          deferralEnabled &&
+          this.getToolByName != null &&
+          toolUseBlocks.every((toolUse) => {
+            const toolObj = this.getToolByName!(toolUse.name);
+            return toolObj?.deferralExempt === true;
           });
-          try {
-            toolResults = await Promise.race([
-              toolExecutionPromise,
-              abortPromise,
-            ]);
-          } finally {
+
+        // Should we apply deferral racing for this batch?
+        const applyDeferral =
+          deferralEnabled && conversationId != null && !allDeferralExempt;
+
+        // Track which individual promises have settled (used for deferral)
+        const settled = new Map<number, ToolResultPair>();
+        const toolExecutions = toolUseBlocks.map(async (toolUse, idx) => {
+          const result = await this.toolExecutor!(
+            toolUse.name,
+            toolUse.input,
+            (chunk) => {
+              onEvent({
+                type: "tool_output_chunk",
+                toolUseId: toolUse.id,
+                chunk,
+              });
+            },
+            toolUse.id,
+          );
+          settled.set(idx, { toolUse, result });
+          return { toolUse, result };
+        });
+        const toolExecutionPromise = Promise.all(toolExecutions);
+
+        let toolResults: ToolResultPair[];
+
+        if (applyDeferral) {
+          // Race the batch against the deferral threshold timer
+          const thresholdMs =
+            getConfig().timeouts.toolDeferralThresholdSec * 1000;
+          let thresholdHandle: ReturnType<typeof setTimeout>;
+          const thresholdTimer = new Promise<"threshold">((resolve) => {
+            thresholdHandle = setTimeout(
+              () => resolve("threshold"),
+              thresholdMs,
+            );
+          });
+
+          // Also race against abort if an abort signal is provided
+          let abortHandler: (() => void) | undefined;
+          const racers: Promise<
+            | { type: "all_complete"; results: ToolResultPair[] }
+            | { type: "threshold" }
+            | { type: "aborted" }
+          >[] = [
+            toolExecutionPromise.then((results) => ({
+              type: "all_complete" as const,
+              results,
+            })),
+            thresholdTimer.then(() => ({ type: "threshold" as const })),
+          ];
+          if (signal && !signal.aborted) {
+            const abortPromise = new Promise<{ type: "aborted" }>((resolve) => {
+              abortHandler = () => resolve({ type: "aborted" as const });
+              signal.addEventListener("abort", abortHandler, { once: true });
+            });
+            racers.push(abortPromise);
+          }
+
+          const raceResult = await Promise.race(racers);
+          clearTimeout(thresholdHandle!);
+          if (abortHandler && signal) {
             signal.removeEventListener("abort", abortHandler);
-            // Suppress unhandled rejection from abandoned tool executions
+          }
+
+          if (raceResult.type === "aborted") {
+            // Cancelled — suppress unhandled rejections and synthesize cancellation
             toolExecutionPromise.catch(() => {});
+            const cancelledBlocks: ContentBlock[] = toolUseBlocks.map(
+              (toolUse) => ({
+                type: "tool_result" as const,
+                tool_use_id: toolUse.id,
+                content: "Cancelled by user",
+                is_error: true,
+              }),
+            );
+            history.push({ role: "user", content: cancelledBlocks });
+            break;
+          }
+
+          if (raceResult.type === "all_complete") {
+            // All tools completed before threshold — proceed as normal
+            toolResults = raceResult.results;
+          } else {
+            // Threshold fired — partition into completed and still-running
+            const completedResults: ToolResultPair[] = [];
+            const resultBlocks: ContentBlock[] = [];
+
+            for (let idx = 0; idx < toolUseBlocks.length; idx++) {
+              const toolUse = toolUseBlocks[idx];
+              const completedPair = settled.get(idx);
+              if (completedPair) {
+                completedResults.push(completedPair);
+                // Build a real tool_result block
+                resultBlocks.push({
+                  type: "tool_result" as const,
+                  tool_use_id: toolUse.id,
+                  content: completedPair.result.content,
+                  is_error: completedPair.result.isError,
+                  ...(completedPair.result.contentBlocks
+                    ? { contentBlocks: completedPair.result.contentBlocks }
+                    : {}),
+                });
+                // Merge sensitive bindings from completed results
+                if (completedPair.result.sensitiveBindings) {
+                  for (const binding of completedPair.result
+                    .sensitiveBindings) {
+                    substitutionMap.set(binding.placeholder, binding.value);
+                  }
+                }
+                // Emit tool_result event for the completed tool
+                onEvent({
+                  type: "tool_result",
+                  toolUseId: toolUse.id,
+                  content: completedPair.result.content,
+                  isError: completedPair.result.isError,
+                  diff: completedPair.result.diff,
+                  status: completedPair.result.status,
+                  contentBlocks: completedPair.result.contentBlocks,
+                });
+              } else {
+                // Still running — register with background manager and build placeholder
+                backgroundToolManager.register({
+                  executionId: toolUse.id,
+                  toolName: toolUse.name,
+                  toolUseId: toolUse.id,
+                  conversationId: conversationId!,
+                  startedAt: Date.now() - thresholdMs,
+                  promise: toolExecutions[idx].then((pair) => pair.result),
+                });
+                resultBlocks.push({
+                  type: "tool_result" as const,
+                  tool_use_id: toolUse.id,
+                  content: `This tool is still running in the background (execution_id: ${toolUse.id}).\nElapsed: ${Math.round(thresholdMs / 1000)}s. Use background_tool_control to wait longer, check status, or cancel it.`,
+                  is_error: false,
+                });
+                onEvent({
+                  type: "tool_deferred_to_background",
+                  executionId: toolUse.id,
+                  toolName: toolUse.name,
+                  toolUseId: toolUse.id,
+                  elapsedMs: thresholdMs,
+                });
+              }
+            }
+
+            // Pre-emptively truncate oversized tool results in the deferral
+            // path, matching the non-deferral path's truncation behavior.
+            const { blocks: truncatedResultBlocks, truncatedCount } =
+              truncateOversizedToolResults(
+                resultBlocks,
+                this.config.maxInputTokens ?? 180_000,
+              );
+            if (truncatedCount > 0) {
+              log.warn(
+                `Truncated ${truncatedCount} oversized tool result(s) in deferral path to prevent context overflow`,
+              );
+            }
+
+            // Append system notice about deferred tools (after truncation so
+            // the notice text block is not subject to truncation)
+            truncatedResultBlocks.push({
+              type: "text",
+              text: `<system_notice>One or more tool executions exceeded the ${Math.round(thresholdMs / 1000)}s deferral threshold and are now running in the background. You have full agency — you can respond to the user, call other tools, or use background_tool_control to wait longer, check status, or cancel background executions. Each deferred tool's placeholder result above includes its execution_id.</system_notice>`,
+            });
+
+            // Suppress unhandled rejections from background promises
+            toolExecutionPromise.catch(() => {});
+
+            // Push combined result blocks into history
+            history.push({ role: "user", content: truncatedResultBlocks });
+            toolUseTurns++;
+
+            // Handle scheduleCheckIn from completed results
+            if (scheduleCheckInCallback) {
+              for (const { result } of completedResults) {
+                if (result.scheduleCheckIn) {
+                  scheduleCheckInCallback(result.scheduleCheckIn);
+                }
+              }
+            }
+
+            // If any completed tool result requests yielding to the user,
+            // push results and stop the loop (matching non-deferral path).
+            if (completedResults.some(({ result }) => result.yieldToUser)) {
+              break;
+            }
+
+            // Invoke checkpoint callback after tool results are in history
+            if (onCheckpoint) {
+              const decision = onCheckpoint({
+                turnIndex: toolUseTurns - 1,
+                toolCount: toolUseBlocks.length,
+                hasToolUse: true,
+                history,
+              });
+              if (decision === "yield") {
+                break;
+              }
+            }
+
+            continue;
           }
         } else {
-          toolResults = await toolExecutionPromise;
+          // Non-deferral path: original blocking Promise.all with abort racing
+          if (signal && !signal.aborted) {
+            let abortHandler!: () => void;
+            const abortPromise = new Promise<never>((_, reject) => {
+              abortHandler = () =>
+                reject(
+                  new DOMException("The operation was aborted", "AbortError"),
+                );
+              signal.addEventListener("abort", abortHandler, { once: true });
+            });
+            try {
+              toolResults = await Promise.race([
+                toolExecutionPromise,
+                abortPromise,
+              ]);
+            } finally {
+              signal.removeEventListener("abort", abortHandler);
+              // Suppress unhandled rejection from abandoned tool executions
+              toolExecutionPromise.catch(() => {});
+            }
+          } else {
+            toolResults = await toolExecutionPromise;
+          }
         }
 
         // Merge sensitive output bindings from tool results into the
@@ -549,6 +842,15 @@ export class AgentLoop {
 
         toolUseTurns++;
 
+        // Handle scheduleCheckIn from tool results
+        if (scheduleCheckInCallback) {
+          for (const { result } of toolResults) {
+            if (result.scheduleCheckIn) {
+              scheduleCheckInCallback(result.scheduleCheckIn);
+            }
+          }
+        }
+
         // When any tool returned an error, nudge the LLM to retry with
         // corrected parameters instead of ending its turn. Skip the nudge
         // after MAX_CONSECUTIVE_ERROR_NUDGES consecutive error turns
@@ -612,6 +914,11 @@ export class AgentLoop {
         break;
       }
     }
+
+    // Note: cleanup of background tool state is handled by the conversation
+    // lifecycle teardown (conversation.ts abort path). We intentionally do NOT
+    // cleanup here because running background executions must survive across
+    // run() calls so drainCompleted() can pick them up on the next turn.
 
     return history;
   }

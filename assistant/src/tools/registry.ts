@@ -231,6 +231,8 @@ export async function initializeTools(): Promise<void> {
     explicitTools,
     getCesToolsIfEnabled,
     cesTools,
+    getToolDeferralToolsIfEnabled,
+    toolDeferralTools,
   } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
@@ -264,6 +266,12 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
+  // Tool deferral tools - registered only when the tool-deferral feature flag is enabled.
+  const activeToolDeferralTools = getToolDeferralToolsIfEnabled();
+  for (const tool of activeToolDeferralTools) {
+    registerTool(tool);
+  }
+
   registerUiSurfaceTools();
   registerAppTools();
   registerSystemTools();
@@ -282,6 +290,7 @@ export async function initializeTools(): Promise<void> {
       ...explicitTools.map((t: Tool) => t.name),
       ...hostTools.map((t: Tool) => t.name),
       ...cesTools.map((t: Tool) => t.name),
+      ...toolDeferralTools.map((t: Tool) => t.name),
       ...allComputerUseTools.map((t: Tool) => t.name),
       ...allUiSurfaceTools.map((t: Tool) => t.name),
       ...coreAppProxyTools.map((t: Tool) => t.name),

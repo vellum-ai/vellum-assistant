@@ -288,6 +288,14 @@
       "label": "Permission Controls V2",
       "description": "Replace risk-level permission system with two independent controls: 'Ask before acting' (LLM behavior toggle) and 'Host access' (system-enforced gate)",
       "defaultEnabled": false
+    },
+    {
+      "id": "tool-deferral",
+      "scope": "assistant",
+      "key": "tool-deferral",
+      "label": "Tool Deferral",
+      "description": "When enabled, tool executions that exceed a configurable threshold are deferred to the background. The assistant can continue its turn and manage background executions via background_tool_control.",
+      "defaultEnabled": false
     }
   ]
 }

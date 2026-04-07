@@ -314,6 +314,28 @@ export interface PermissionModeUpdate {
   hostAccess: boolean;
 }
 
+/** Sent when a long-running tool is deferred to background execution. */
+export interface ToolDeferredToBackground {
+  type: "tool_deferred_to_background";
+  executionId: string;
+  toolName: string;
+  toolUseId: string;
+  elapsedMs: number;
+  conversationId?: string;
+}
+
+/** Sent when a background tool finishes execution. */
+export interface BackgroundToolCompleted {
+  type: "background_tool_completed";
+  executionId: string;
+  toolName: string;
+  toolUseId: string;
+  result: string;
+  isError: boolean;
+  durationMs: number;
+  conversationId?: string;
+}
+
 export type TraceEventKind =
   | "request_received"
   | "request_queued"
@@ -376,4 +398,6 @@ export type _MessagesServerMessages =
   | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityState
-  | PermissionModeUpdate;
+  | PermissionModeUpdate
+  | ToolDeferredToBackground
+  | BackgroundToolCompleted;

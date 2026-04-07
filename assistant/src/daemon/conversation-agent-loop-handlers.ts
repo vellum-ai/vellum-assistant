@@ -951,6 +951,28 @@ export async function dispatchAgentEvent(
       case "usage":
         handleUsage(state, deps, event);
         break;
+      case "tool_deferred_to_background":
+        deps.onEvent({
+          type: "tool_deferred_to_background",
+          executionId: event.executionId,
+          toolName: event.toolName,
+          toolUseId: event.toolUseId,
+          elapsedMs: event.elapsedMs,
+          conversationId: deps.ctx.conversationId,
+        });
+        break;
+      case "background_tool_completed":
+        deps.onEvent({
+          type: "background_tool_completed",
+          executionId: event.executionId,
+          toolName: event.toolName,
+          toolUseId: event.toolUseId,
+          result: event.result,
+          isError: event.isError,
+          durationMs: event.durationMs,
+          conversationId: deps.ctx.conversationId,
+        });
+        break;
     }
   } catch (err) {
     log.error(

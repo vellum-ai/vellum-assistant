@@ -105,6 +105,7 @@ describe("AssistantConfigSchema", () => {
       shellMaxTimeoutSec: 600,
       permissionTimeoutSec: 300,
       toolExecutionTimeoutSec: 120,
+      toolDeferralThresholdSec: 10,
       providerStreamTimeoutSec: 1800,
     });
     expect(result.sandbox).toEqual({
@@ -231,6 +232,45 @@ describe("AssistantConfigSchema", () => {
     if (!result.success) {
       expect(result.error.issues.length).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  // ── toolDeferralThresholdSec ───────────────────────────────────────
+
+  test("toolDeferralThresholdSec defaults to 10", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.timeouts.toolDeferralThresholdSec).toBe(10);
+  });
+
+  test("accepts custom toolDeferralThresholdSec", () => {
+    const result = AssistantConfigSchema.parse({
+      timeouts: { toolDeferralThresholdSec: 5 },
+    });
+    expect(result.timeouts.toolDeferralThresholdSec).toBe(5);
+  });
+
+  test("rejects non-positive toolDeferralThresholdSec", () => {
+    for (const bad of [0, -1, -10]) {
+      const result = AssistantConfigSchema.safeParse({
+        timeouts: { toolDeferralThresholdSec: bad },
+      });
+      expect(result.success).toBe(false);
+    }
+  });
+
+  test("rejects non-finite toolDeferralThresholdSec", () => {
+    for (const bad of [Infinity, -Infinity, NaN]) {
+      const result = AssistantConfigSchema.safeParse({
+        timeouts: { toolDeferralThresholdSec: bad },
+      });
+      expect(result.success).toBe(false);
+    }
+  });
+
+  test("rejects non-number toolDeferralThresholdSec", () => {
+    const result = AssistantConfigSchema.safeParse({
+      timeouts: { toolDeferralThresholdSec: "fast" },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("rejects invalid thinking config", () => {

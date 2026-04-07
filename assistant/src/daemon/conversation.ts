@@ -15,6 +15,7 @@
  * - conversation-usage.ts        — recordUsage
  */
 
+import { backgroundToolManager } from "../agent/background-tool-manager.js";
 import type { ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
@@ -58,6 +59,7 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
+import { getTool } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { runAgentLoopImpl } from "./conversation-agent-loop.js";
@@ -184,6 +186,10 @@ export class Conversation {
   /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
+  /** Handles for outstanding deferred check-in timers, cleared on abort/end. */
+  /** @internal */ readonly checkInTimers = new Set<
+    ReturnType<typeof setTimeout>
+  >();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
@@ -426,6 +432,7 @@ export class Conversation {
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
       resolveSystemPromptCallback,
+      (name: string) => getTool(name),
     );
     this.contextWindowManager = new ContextWindowManager({
       provider,
@@ -564,6 +571,12 @@ export class Conversation {
   }
 
   abort(): void {
+    // Clear deferred check-in timers so they don't fire after abort
+    for (const handle of this.checkInTimers) {
+      clearTimeout(handle);
+    }
+    this.checkInTimers.clear();
+    backgroundToolManager.cleanup(this.conversationId);
     abortConversation(this);
   }
 
@@ -1086,6 +1099,20 @@ export class Conversation {
       currentPage,
       options,
       displayContent,
+    );
+  }
+
+  /**
+   * Inject a synthetic check-in message and trigger a new assistant turn.
+   * Used by the deferred check-in callback when a background tool is still
+   * running after the scheduled interval.
+   */
+  async injectCheckInMessage(content: string): Promise<void> {
+    await processMessageImpl(
+      this as ProcessConversationContext,
+      content,
+      [],
+      (msg) => this.sendToClient(msg),
     );
   }
 

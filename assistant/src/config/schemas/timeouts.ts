@@ -32,6 +32,14 @@ export const TimeoutConfigSchema = z
       .positive("timeouts.toolExecutionTimeoutSec must be a positive number")
       .default(120)
       .describe("Default timeout for tool execution in seconds"),
+    toolDeferralThresholdSec: z
+      .number({ error: "timeouts.toolDeferralThresholdSec must be a number" })
+      .finite("timeouts.toolDeferralThresholdSec must be finite")
+      .positive("timeouts.toolDeferralThresholdSec must be a positive number")
+      .default(10)
+      .describe(
+        "If a tool execution exceeds this threshold (seconds), the agent loop defers it to the background and continues the assistant turn with a placeholder result. Only effective when the tool-deferral feature flag is enabled.",
+      ),
     providerStreamTimeoutSec: z
       .number({ error: "timeouts.providerStreamTimeoutSec must be a number" })
       .finite("timeouts.providerStreamTimeoutSec must be finite")
