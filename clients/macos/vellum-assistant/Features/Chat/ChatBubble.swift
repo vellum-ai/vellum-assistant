@@ -297,88 +297,92 @@ struct ChatBubble: View, Equatable {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         #endif
-        // Frame alignment replaces the former HStack + Spacer pattern,
-        // removing two layout nodes (HStack, Spacer) from the measurement chain.
+        // Outer VStack ensures a single resolved subview for the parent
+        // LazyVStack, avoiding duplicate .id(message.id) from MessageCellView
+        // that caused incorrect width proposals at narrow window sizes (LUM-688).
+        // The avatar sits outside the inner .compositingGroup() scope so
+        // CAShapeLayer animations (breathing, blink, twitch) are unaffected.
         VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                    if !isUser && cachedHasInterleavedContent {
-                        interleavedContent
-                    } else {
-                        if message.isError && hasText {
-                            InlineChatErrorAlert(
-                                message: message.text,
-                                conversationError: message.conversationError,
-                                onRetry: onRetryConversationError
-                            )
-                        } else if shouldShowBubble {
-                            bubbleContent
-                        }
+            // --- Message content (composited) ---
+            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+                if !isUser && cachedHasInterleavedContent {
+                    interleavedContent
+                } else {
+                    if message.isError && hasText {
+                        InlineChatErrorAlert(
+                            message: message.text,
+                            conversationError: message.conversationError,
+                            onRetry: onRetryConversationError
+                        )
+                    } else if shouldShowBubble {
+                        bubbleContent
+                    }
 
-                        // Inline surfaces render below the bubble as full-width cards
-                        // Skip surfaces that are currently shown in the floating overlay
-                        if !visibleInlineSurfaces.isEmpty {
-                            ForEach(visibleInlineSurfaces) { surface in
-                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
-                            }
-                        }
-
-                        // Document widget for document_create tool calls
-                        if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
-                            documentWidget(for: documentToolCall)
+                    // Inline surfaces render below the bubble as full-width cards
+                    // Skip surfaces that are currently shown in the floating overlay
+                    if !visibleInlineSurfaces.isEmpty {
+                        ForEach(visibleInlineSurfaces) { surface in
+                            InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                         }
                     }
 
-                    if !cachedHasInterleavedContent {
-                        attachmentWarningBanners(message.attachmentWarnings)
-                    }
-
-                    // Media embeds rendered below the text, preserving source order
-                    ForEach(mediaEmbedIntents.indices, id: \.self) { idx in
-                        switch mediaEmbedIntents[idx] {
-                        case .image(let url):
-                            InlineImageEmbedView(url: url)
-                        case .video(let provider, let videoID, let embedURL):
-                            InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
-                        }
-                    }
-
-                    // Per-message send failure indicator with inline retry button
-                    if isUser && message.status == .sendFailed {
-                        sendFailedIndicator
-                    }
-
-                    // Single unified status area at the bottom of the message:
-                    // - In-progress: shows "Running a terminal command ..."
-                    // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
-                    if !isUser {
-                        trailingStatus
-                    }
-
-                    ChatBubbleOverflowMenu(
-                        message: message,
-                        hoverState: hoverState,
-                        isTTSEnabled: isTTSEnabled,
-                        showInspectButton: showInspectButton,
-                        onForkFromMessage: onForkFromMessage,
-                        onInspectMessage: onInspectMessage
-                    )
-
-                    // Avatar below the latest assistant message.
-                    // Placed inside the VStack so it participates in the
-                    // VStack's .leading alignment and avoids a multi-root
-                    // body whose children flatten into the parent LazyVStack
-                    // with duplicate .id(message.id) — causing incorrect
-                    // width proposals at narrow window sizes (LUM-688).
-                    if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
-                        inlineAvatar
+                    // Document widget for document_create tool calls
+                    if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
+                        documentWidget(for: documentToolCall)
                     }
                 }
-                // Give this content priority so LazyVStack doesn't compress it,
-                // which caused trailing tool chips to overlap long text content.
-                // Uses layoutPriority instead of fixedSize to avoid forcing
-                // full height measurement during lazy placement.
-                .layoutPriority(1)
-                .compositingGroup()
-                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+
+                if !cachedHasInterleavedContent {
+                    attachmentWarningBanners(message.attachmentWarnings)
+                }
+
+                // Media embeds rendered below the text, preserving source order
+                ForEach(mediaEmbedIntents.indices, id: \.self) { idx in
+                    switch mediaEmbedIntents[idx] {
+                    case .image(let url):
+                        InlineImageEmbedView(url: url)
+                    case .video(let provider, let videoID, let embedURL):
+                        InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
+                    }
+                }
+
+                // Per-message send failure indicator with inline retry button
+                if isUser && message.status == .sendFailed {
+                    sendFailedIndicator
+                }
+
+                // Single unified status area at the bottom of the message:
+                // - In-progress: shows "Running a terminal command ..."
+                // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
+                if !isUser {
+                    trailingStatus
+                }
+
+                ChatBubbleOverflowMenu(
+                    message: message,
+                    hoverState: hoverState,
+                    isTTSEnabled: isTTSEnabled,
+                    showInspectButton: showInspectButton,
+                    onForkFromMessage: onForkFromMessage,
+                    onInspectMessage: onInspectMessage
+                )
+            }
+            // Give this content priority so LazyVStack doesn't compress it,
+            // which caused trailing tool chips to overlap long text content.
+            // Uses layoutPriority instead of fixedSize to avoid forcing
+            // full height measurement during lazy placement.
+            .layoutPriority(1)
+            .compositingGroup()
+
+            // --- Avatar (outside compositing group) ---
+            // Placed after the composited content VStack so CAShapeLayer
+            // animations on the NSView-backed AnimatedAvatarView are not
+            // affected by .compositingGroup() flattening layer effects.
+            if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
+                inlineAvatar
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
