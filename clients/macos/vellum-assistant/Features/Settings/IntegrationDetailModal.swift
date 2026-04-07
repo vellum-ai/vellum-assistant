@@ -168,11 +168,17 @@ struct IntegrationDetailModal: View {
 
     // MARK: - Managed Tab
 
+    private let appearance = AvatarAppearanceManager.shared
+
     @ViewBuilder
     private var managedBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if !isLoggedIn {
                 managedLoginPrompt
+            } else if connections.isEmpty && !isConnecting {
+                integrationEmptyState {
+                    store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                }
             } else {
                 // Connection count + add button row
                 HStack {
@@ -190,21 +196,35 @@ struct IntegrationDetailModal: View {
                                 .foregroundStyle(VColor.contentTertiary)
                         }
                     } else {
-                        VButton(label: connections.isEmpty ? "Connect Account" : "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
+                        VButton(label: "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
                             store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
                         }
                     }
                 }
 
-                if !connections.isEmpty {
-                    managedConnectionsList
-                }
+                managedConnectionsList
             }
 
             if let error = store.managedError(for: providerKey) {
                 VInlineMessage(error, tone: .error)
             }
         }
+    }
+
+    private func integrationEmptyState(onConnect: @escaping () -> Void) -> some View {
+        VStack(spacing: VSpacing.md) {
+            VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
+
+            Text("Connect Account to continue")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentSecondary)
+
+            VButton(label: "Connect Account", leftIcon: VIcon.plus.rawValue, style: .outlined) {
+                onConnect()
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, VSpacing.xl)
     }
 
     @State private var isLoginButtonHovered = false
@@ -335,6 +355,12 @@ struct IntegrationDetailModal: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if store.yourOwnIsLoading(for: providerKey) {
                 yourOwnSkeleton
+            } else if apps.isEmpty && !isShowingAddAppForm {
+                integrationEmptyState {
+                    createAppClientId = ""
+                    createAppClientSecret = ""
+                    isShowingAddAppForm = true
+                }
             } else {
                 // Top row: count + add button
                 HStack {
@@ -346,7 +372,7 @@ struct IntegrationDetailModal: View {
                     Spacer()
 
                     if !isShowingAddAppForm {
-                        VButton(label: apps.isEmpty ? "Add Connection" : "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
+                        VButton(label: "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
                             createAppClientId = ""
                             createAppClientSecret = ""
                             isShowingAddAppForm = true
@@ -355,7 +381,7 @@ struct IntegrationDetailModal: View {
                 }
 
                 // Form at top when adding
-                if shouldShowForm {
+                if isShowingAddAppForm {
                     yourOwnFormStep
                 }
 
