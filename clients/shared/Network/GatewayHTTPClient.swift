@@ -159,7 +159,7 @@ public enum GatewayHTTPClient {
         }
         logOutgoing(request, quiet: false)
 
-        let (result, http) = try await performStreamingPost(request: request, onProgress: onProgress)
+        let (result, _) = try await performStreamingPost(request: request, onProgress: onProgress)
 
         // 401 retry for non-managed (bearer token) connections.
         if result.statusCode == 401, !connection.isManaged {
