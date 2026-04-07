@@ -603,6 +603,7 @@ describe("applyRuntimeInjections — injection mode", () => {
     unifiedTurnContext:
       "<turn_context>\ntimestamp: 2026-03-04 (Tue) 12:00:00 +00:00 (UTC)\ninterface: telegram\n</turn_context>",
     nowScratchpad: "Current focus: shipping PR 3",
+    pkbContext: "essentials content here",
     isNonInteractive: true,
   };
 
@@ -620,6 +621,8 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<turn_context>");
     expect(allText).toContain("<non_interactive_context>");
     expect(allText).toContain("<NOW.md");
+    expect(allText).toContain("<system_reminder>");
+    expect(allText).toContain("<pkb>");
   });
 
   test("explicit mode: 'full' behaves the same as default", () => {
@@ -653,6 +656,8 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).not.toContain("<channel_command_context>");
     expect(allText).not.toContain("<active_workspace>");
     expect(allText).not.toContain("<NOW.md");
+    expect(allText).not.toContain("<system_reminder>");
+    expect(allText).not.toContain("<pkb>");
   });
 
   test("minimal mode preserves safety-critical blocks", () => {
