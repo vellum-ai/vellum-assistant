@@ -49,6 +49,11 @@ import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
+import {
+  createHomeFeedGetHandler,
+  createHomeFeedPatchHandler,
+  createHomeFeedActionHandler,
+} from "./http/routes/home-feed.js";
 import { createPrivacyConfigPatchHandler } from "./http/routes/privacy-config.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
@@ -290,6 +295,9 @@ async function main() {
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleLogExport = createLogExportHandler(config);
+  const handleHomeFeedGet = createHomeFeedGetHandler();
+  const handleHomeFeedPatch = createHomeFeedPatchHandler();
+  const handleHomeFeedAction = createHomeFeedActionHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
@@ -942,6 +950,26 @@ async function main() {
       auth: "edge",
       handler: (req, params, getClientIp) =>
         handleLogExport(req, params, getClientIp),
+    },
+
+    // ── Home feed ──
+    {
+      path: "/v1/home/feed",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => handleHomeFeedGet(req),
+    },
+    {
+      path: /^\/v1\/home\/feed\/([^/]+)$/,
+      method: "PATCH",
+      auth: "edge",
+      handler: (req, params) => handleHomeFeedPatch(req, params[0]),
+    },
+    {
+      path: /^\/v1\/home\/feed\/([^/]+)\/actions\/([^/]+)$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) => handleHomeFeedAction(req, params[0], params[1]),
     },
 
     // ── Trust rules ──
