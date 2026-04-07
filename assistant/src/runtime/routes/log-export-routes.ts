@@ -49,6 +49,7 @@ const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
 interface ExportRequestBody {
   auditLimit?: number;
   conversationId?: string; // scope to a single conversation
+  includeAllConversations?: boolean; // include messages + LLM logs for all conversations
   startTime?: number; // epoch ms — lower bound (inclusive)
   endTime?: number; // epoch ms — upper bound (inclusive)
 }
@@ -67,7 +68,8 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
   const staging = mkdtempSync(join(tmpdir(), "vellum-export-"));
 
   try {
-    const { conversationId, startTime, endTime } = body;
+    const { conversationId, includeAllConversations, startTime, endTime } =
+      body;
 
     // --- Audit data ---
     const limit = body.auditLimit ?? 1000;
@@ -98,14 +100,19 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       "utf-8",
     );
 
-    // --- Conversation-scoped data tables ---
-    if (conversationId) {
+    // --- Conversation data tables ---
+    // Included when scoped to a single conversation OR when all conversations are requested.
+    if (conversationId || includeAllConversations) {
+      const conversationFilter = conversationId
+        ? [eq(messages.conversationId, conversationId)]
+        : [];
+
       const messageRows = db
         .select()
         .from(messages)
         .where(
           and(
-            eq(messages.conversationId, conversationId),
+            ...conversationFilter,
             startTime ? gte(messages.createdAt, startTime) : undefined,
             endTime ? lte(messages.createdAt, endTime) : undefined,
           ),
@@ -118,12 +125,16 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
         "utf-8",
       );
 
+      const llmConversationFilter = conversationId
+        ? [eq(llmRequestLogs.conversationId, conversationId)]
+        : [];
+
       const llmLogRows = db
         .select()
         .from(llmRequestLogs)
         .where(
           and(
-            eq(llmRequestLogs.conversationId, conversationId),
+            ...llmConversationFilter,
             startTime ? gte(llmRequestLogs.createdAt, startTime) : undefined,
             endTime ? lte(llmRequestLogs.createdAt, endTime) : undefined,
           ),
@@ -136,12 +147,16 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
         "utf-8",
       );
 
+      const usageConversationFilter = conversationId
+        ? [eq(llmUsageEvents.conversationId, conversationId)]
+        : [];
+
       const usageRows = db
         .select()
         .from(llmUsageEvents)
         .where(
           and(
-            eq(llmUsageEvents.conversationId, conversationId),
+            ...usageConversationFilter,
             startTime ? gte(llmUsageEvents.createdAt, startTime) : undefined,
             endTime ? lte(llmUsageEvents.createdAt, endTime) : undefined,
           ),
@@ -265,22 +280,21 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     }
 
     // --- Export manifest ---
-    const manifest = conversationId
-      ? {
-          type: "conversation-export" as const,
-          conversationId,
-          assistantVersion: APP_VERSION,
-          commitSha: COMMIT_SHA,
-          ...(startTime !== undefined ? { startTime } : {}),
-          ...(endTime !== undefined ? { endTime } : {}),
-          exportedAt: new Date().toISOString(),
-        }
-      : {
-          type: "global-export" as const,
-          assistantVersion: APP_VERSION,
-          commitSha: COMMIT_SHA,
-          exportedAt: new Date().toISOString(),
-        };
+    const manifestType = conversationId
+      ? ("conversation-export" as const)
+      : includeAllConversations
+        ? ("full-export" as const)
+        : ("global-export" as const);
+    const manifest = {
+      type: manifestType,
+      ...(conversationId ? { conversationId } : {}),
+      ...(includeAllConversations ? { includeAllConversations: true } : {}),
+      assistantVersion: APP_VERSION,
+      commitSha: COMMIT_SHA,
+      ...(startTime !== undefined ? { startTime } : {}),
+      ...(endTime !== undefined ? { endTime } : {}),
+      exportedAt: new Date().toISOString(),
+    };
     writeFileSync(
       join(staging, "export-manifest.json"),
       JSON.stringify(manifest, null, 2),
@@ -294,6 +308,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
         totalBytes,
         hasConfig: configSnapshot !== undefined,
         conversationId: conversationId ?? null,
+        includeAllConversations: includeAllConversations ?? false,
         workspaceEntries: workspaceResult.entries.length,
         workspaceBytes: workspaceResult.totalBytes,
       },
@@ -441,6 +456,12 @@ export function logExportRouteDefinitions(): RouteDefinition[] {
       .string()
       .optional()
       .describe("Scope to a single conversation"),
+    includeAllConversations: z
+      .boolean()
+      .optional()
+      .describe(
+        "Include messages, LLM request logs, and usage events for all conversations",
+      ),
     startTime: z.number().optional().describe("Lower bound epoch ms"),
     endTime: z.number().optional().describe("Upper bound epoch ms"),
   });
