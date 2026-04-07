@@ -56,6 +56,7 @@ struct SidebarConversationItem: View, Equatable {
     private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
+            !conversation.shouldSuppressUnreadIndicator &&
             conversation.conversationId != nil &&
             conversation.latestAssistantMessageAt != nil
     }
