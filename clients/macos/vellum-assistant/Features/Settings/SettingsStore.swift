@@ -754,7 +754,10 @@ public final class SettingsStore: ObservableObject {
         maskedKey = ""
         scheduleRoutingSourceRefresh()
         refreshModelInfo()
-        Task { await APIKeyManager.deleteKey(for: "anthropic") }
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: "anthropic")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "anthropic") }
+        }
     }
 
     func saveBraveKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
@@ -780,7 +783,10 @@ public final class SettingsStore: ObservableObject {
     func clearBraveKey() {
         APIKeyManager.deleteKey(for: "brave")
         scheduleRoutingSourceRefresh()
-        Task { await APIKeyManager.deleteKey(for: "brave") }
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: "brave")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "brave") }
+        }
     }
 
     func savePerplexityKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
@@ -806,7 +812,10 @@ public final class SettingsStore: ObservableObject {
     func clearPerplexityKey() {
         APIKeyManager.deleteKey(for: "perplexity")
         scheduleRoutingSourceRefresh()
-        Task { await APIKeyManager.deleteKey(for: "perplexity") }
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: "perplexity")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "perplexity") }
+        }
     }
 
     func saveImageGenKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
@@ -834,26 +843,30 @@ public final class SettingsStore: ObservableObject {
     func clearImageGenKey() {
         APIKeyManager.deleteKey(for: "gemini")
         scheduleRoutingSourceRefresh()
-        Task { await APIKeyManager.deleteKey(for: "gemini") }
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: "gemini")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "gemini") }
+        }
     }
 
     func saveElevenLabsKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
-        Task { await APIKeyManager.setKey(trimmed, for: "elevenlabs") }
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
-        Task { await APIKeyManager.deleteKey(for: "elevenlabs") }
     }
 
     func clearAPIKeyForProvider(_ provider: String) {
         APIKeyManager.deleteKey(for: provider)
         scheduleRoutingSourceRefresh()
         refreshModelInfo()
-        Task { await APIKeyManager.deleteKey(for: provider) }
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: provider)
+            if !deleted { addDeletionTombstone(type: "api_key", name: provider) }
+        }
     }
 
     func saveInferenceAPIKey(_ raw: String, provider: String, onSuccess: (() -> Void)? = nil, onError: ((String) -> Void)? = nil) {
