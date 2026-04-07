@@ -701,16 +701,18 @@ final class ConversationManager: ConversationRestorerDelegate {
         var newlyArchivedServerIds = Set<String>()
         let idsSet = Set(ids)
 
-        for i in listStore.conversations.indices where idsSet.contains(listStore.conversations[i].id) {
-            if listStore.conversations[i].displayOrder != nil {
+        var draft = listStore.conversations
+        for i in draft.indices where idsSet.contains(draft[i].id) {
+            if draft[i].displayOrder != nil {
                 needsReorder = true
             }
-            listStore.conversations[i].isArchived = true
-            listStore.conversations[i].displayOrder = nil
-            if let cid = listStore.conversations[i].conversationId {
+            draft[i].isArchived = true
+            draft[i].displayOrder = nil
+            if let cid = draft[i].conversationId {
                 newlyArchivedServerIds.insert(cid)
             }
         }
+        listStore.conversations = draft
 
         if !newlyArchivedServerIds.isEmpty {
             var archived = listStore.archivedConversationIds
