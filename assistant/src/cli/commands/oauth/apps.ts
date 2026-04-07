@@ -48,7 +48,10 @@ function formatAppRow(row: {
 }) {
   return {
     id: row.id,
-    provider: row.provider,
+    // Wire key stays `providerKey` for backward compatibility with existing
+    // CLI script consumers of `assistant oauth apps list/get/upsert --json`;
+    // the internal Drizzle TS-side field is `provider`.
+    providerKey: row.provider,
     clientId: row.clientId,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
@@ -110,7 +113,7 @@ Examples:
         let rows = listApps().map(formatAppRow);
 
         if (opts.providerKey) {
-          rows = rows.filter((r) => r.provider === opts.providerKey);
+          rows = rows.filter((r) => r.providerKey === opts.providerKey);
         }
 
         if (!shouldOutputJson(cmd)) {
