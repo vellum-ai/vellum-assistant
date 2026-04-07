@@ -6,17 +6,20 @@ import type {
 } from "../daemon/conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
   injectNowScratchpad,
+  injectSubagentStatus,
   isGroupChatType,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
+import type { SubagentState } from "../subagent/types.js";
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -1498,5 +1501,156 @@ describe("findLastInjectedNowContent", () => {
     ];
 
     expect(findLastInjectedNowContent(messages)).toBe("User focus");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subagent status injection
+// ---------------------------------------------------------------------------
+
+function makeSubagentState(
+  overrides: Partial<SubagentState> & { label: string; id: string },
+): SubagentState {
+  return {
+    config: {
+      id: overrides.id,
+      parentConversationId: "parent-conv",
+      label: overrides.label,
+      objective: "test objective",
+      ...overrides.config,
+    },
+    status: overrides.status ?? "running",
+    conversationId: `conv-${overrides.id}`,
+    createdAt: overrides.createdAt ?? Date.now() - 60_000,
+    startedAt: overrides.startedAt ?? Date.now() - 55_000,
+    completedAt: overrides.completedAt,
+    error: overrides.error,
+    usage: overrides.usage ?? { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+  };
+}
+
+describe("buildSubagentStatusBlock", () => {
+  test("returns null for empty children array", () => {
+    expect(buildSubagentStatusBlock([])).toBeNull();
+  });
+
+  test("formats running subagent with elapsed time", () => {
+    const children = [
+      makeSubagentState({ id: "abc-123", label: "research-auth", status: "running" }),
+    ];
+    const block = buildSubagentStatusBlock(children)!;
+    expect(block).toContain("<active_subagents>");
+    expect(block).toContain("</active_subagents>");
+    expect(block).toContain('[running] "research-auth" (abc-123)');
+    expect(block).toContain("elapsed:");
+    expect(block).toContain("subagent_read");
+  });
+
+  test("formats pending subagent without elapsed time for terminal", () => {
+    const children = [
+      makeSubagentState({
+        id: "def-456",
+        label: "plan-feature",
+        status: "completed",
+        completedAt: Date.now(),
+      }),
+    ];
+    const block = buildSubagentStatusBlock(children)!;
+    expect(block).toContain('[completed] "plan-feature" (def-456)');
+    expect(block).not.toContain("elapsed:");
+  });
+
+  test("includes error for failed subagent", () => {
+    const children = [
+      makeSubagentState({
+        id: "ghi-789",
+        label: "run-tests",
+        status: "failed",
+        error: "Process exited with code 1",
+      }),
+    ];
+    const block = buildSubagentStatusBlock(children)!;
+    expect(block).toContain('[failed] "run-tests" (ghi-789)');
+    expect(block).toContain("error: Process exited with code 1");
+  });
+
+  test("includes both active and terminal subagents", () => {
+    const children = [
+      makeSubagentState({ id: "a", label: "researcher", status: "running" }),
+      makeSubagentState({ id: "b", label: "coder", status: "completed" }),
+      makeSubagentState({ id: "c", label: "planner", status: "failed", error: "timeout" }),
+    ];
+    const block = buildSubagentStatusBlock(children)!;
+    expect(block).toContain('"researcher"');
+    expect(block).toContain('"coder"');
+    expect(block).toContain('"planner"');
+  });
+});
+
+describe("injectSubagentStatus", () => {
+  test("appends status block to user message", () => {
+    const msg: Message = {
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+    };
+    const result = injectSubagentStatus(msg, "<active_subagents>\ntest\n</active_subagents>");
+    expect(result.content).toHaveLength(2);
+    expect((result.content[1] as { type: string; text: string }).text).toContain(
+      "<active_subagents>",
+    );
+  });
+});
+
+describe("applyRuntimeInjections — subagent status", () => {
+  const userMsg: Message = {
+    role: "user",
+    content: [{ type: "text", text: "user message" }],
+  };
+
+  test("includes subagent status in full mode", () => {
+    const result = applyRuntimeInjections([userMsg], {
+      subagentStatusBlock: "<active_subagents>\n- [running] test\n</active_subagents>",
+      mode: "full",
+    });
+    const tail = result[result.length - 1];
+    const texts = tail.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+    expect(texts.some((t) => t.includes("<active_subagents>"))).toBe(true);
+  });
+
+  test("skips subagent status in minimal mode", () => {
+    const result = applyRuntimeInjections([userMsg], {
+      subagentStatusBlock: "<active_subagents>\n- [running] test\n</active_subagents>",
+      mode: "minimal",
+    });
+    const tail = result[result.length - 1];
+    const texts = tail.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+    expect(texts.some((t) => t.includes("<active_subagents>"))).toBe(false);
+  });
+});
+
+describe("stripInjectionsForCompaction — subagent status", () => {
+  test("strips <active_subagents> blocks", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "hello" },
+          {
+            type: "text",
+            text: '<active_subagents>\n- [running] "test" (id)\n</active_subagents>',
+          },
+        ],
+      },
+    ];
+    const result = stripInjectionsForCompaction(messages);
+    const texts = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+    expect(texts.some((t) => t.includes("<active_subagents>"))).toBe(false);
+    expect(texts).toContain("hello");
   });
 });

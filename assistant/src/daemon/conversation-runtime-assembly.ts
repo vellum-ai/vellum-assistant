@@ -13,6 +13,8 @@ import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
+import type { SubagentState } from "../subagent/types.js";
+import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 
@@ -439,6 +441,58 @@ export function injectActiveSurfaceContext(
   return {
     ...message,
     content: [{ type: "text", text: block }, ...message.content],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Subagent status injection
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the `<active_subagents>` injection block from the current child states.
+ * Returns null if there are no children (zero overhead for non-subagent parents).
+ */
+export function buildSubagentStatusBlock(
+  children: SubagentState[],
+): string | null {
+  if (children.length === 0) return null;
+
+  const now = Date.now();
+  const lines: string[] = ["<active_subagents>"];
+  for (const child of children) {
+    const elapsed = child.startedAt
+      ? `${Math.round((now - child.startedAt) / 1000)}s`
+      : "pending";
+    const parts = [
+      `- [${child.status}] "${child.config.label}" (${child.config.id})`,
+    ];
+    if (!TERMINAL_STATUSES.has(child.status)) {
+      parts.push(`elapsed: ${elapsed}`);
+    }
+    if (child.status === "failed" && child.error) {
+      parts.push(`error: ${child.error}`);
+    }
+    lines.push(parts.join(" | "));
+  }
+  lines.push(
+    "",
+    "Use subagent_read to retrieve output from completed/failed subagents.",
+    "</active_subagents>",
+  );
+  return lines.join("\n");
+}
+
+/** Append a subagent status block to the last user message. */
+export function injectSubagentStatus(
+  message: Message,
+  statusBlock: string,
+): Message {
+  return {
+    ...message,
+    content: [
+      ...message.content,
+      { type: "text" as const, text: statusBlock },
+    ],
   };
 }
 
@@ -1077,6 +1131,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   // NOTE: <workspace> is intentionally NOT stripped — workspace context
   // persists in history so the assistant retains workspace grounding.
   "<temporal_context>\nToday:", // backward-compat: strip legacy temporal blocks
+  "<active_subagents>",
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
@@ -1149,6 +1204,7 @@ export function applyRuntimeInjections(
     pkbContext?: string | null;
     pkbActive?: boolean;
     nowScratchpad?: string | null;
+    subagentStatusBlock?: string | null;
     isNonInteractive?: boolean;
     transportHints?: string[] | null;
     mode?: InjectionMode;
@@ -1252,6 +1308,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCommandContext(userTail, options.channelCommandContext),
+      ];
+    }
+  }
+
+  if (mode === "full" && options.subagentStatusBlock) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        injectSubagentStatus(userTail, options.subagentStatusBlock),
       ];
     }
   }
