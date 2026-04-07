@@ -26,10 +26,7 @@ struct IntegrationsPanelContent: View {
         let managedConnections = store.managedOAuthConnections[providerKey] ?? []
         if !managedConnections.isEmpty { return true }
         let yourOwnApps = store.yourOwnApps(for: providerKey)
-        for app in yourOwnApps {
-            let appConns = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
-            if !appConns.isEmpty { return true }
-        }
+        if !yourOwnApps.isEmpty { return true }
         return false
     }
 
@@ -102,7 +99,10 @@ struct IntegrationsPanelContent: View {
                     authManager: authManager,
                     showToast: showToast,
                     providerKey: providerKey,
-                    onClose: { selectedProviderKey = nil }
+                    onClose: {
+                        selectedProviderKey = nil
+                        fetchAllConnections()
+                    }
                 )
             }
         }
