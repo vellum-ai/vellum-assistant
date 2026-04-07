@@ -51,13 +51,32 @@ struct DaemonStartupError {
     let detail: String?
 }
 
+// MARK: - LocalAssistantLauncher
+
+/// A launcher that knows how to start a local assistant instance.
+///
+/// Adopt this protocol to add a new backend (e.g. Apple Containers) without
+/// changing the startup logic in `AppDelegate`. The app reads
+/// `LockfileAssistant.runtimeBackend` and dispatches to the appropriate launcher.
+@MainActor
+protocol LocalAssistantLauncher: AnyObject {
+    /// Start (or re-start) the local assistant.
+    ///
+    /// - Parameters:
+    ///   - name: The assistant ID to hatch. Pass `nil` to let the launcher
+    ///     choose the name (e.g. first-launch scenario).
+    ///   - restart: When `true`, stop any running instance before starting.
+    ///   - configValues: Key-value pairs forwarded as `--config k=v` flags.
+    func launch(name: String?, restart: Bool, configValues: [String: String]) async throws
+}
+
 /// Manages all daemon lifecycle operations through the bundled CLI binary.
 ///
 /// This is the single entry point for hatching, stopping, and retiring the
 /// daemon. It also includes a health monitor that periodically checks whether
 /// the daemon process is still alive and restarts it via the CLI.
 @MainActor
-final class VellumCli {
+final class VellumCli: LocalAssistantLauncher {
 
     /// Structured error emitted by the CLI for upgrade/rollback failures.
     ///
@@ -153,6 +172,12 @@ final class VellumCli {
     }
 
     // MARK: - Public API
+
+    // MARK: LocalAssistantLauncher conformance
+
+    func launch(name: String?, restart: Bool, configValues: [String: String]) async throws {
+        try await hatch(name: name, restart: restart, configValues: configValues)
+    }
 
     /// Hatch a new assistant via the CLI. The CLI spawns the daemon binary,
     /// waits for the socket, and registers the assistant entry.

@@ -105,6 +105,22 @@ extension AppDelegate {
         setupGatewayConnectionManager()
     }
 
+    // MARK: - Backend Dispatch
+
+    /// Return the `LocalAssistantLauncher` appropriate for `assistant`'s `runtimeBackend`.
+    ///
+    /// - `.process` (or absent): delegates to the bundled `VellumCli` hatch path.
+    /// - `.appleContainers`: reserved — falls back to `VellumCli` today so existing
+    ///   behavior is preserved until the Apple Containers runtime is wired.
+    ///   A log warning is emitted so the absence of a dedicated launcher is visible.
+    func localLauncher(for assistant: LockfileAssistant?) -> LocalAssistantLauncher {
+        guard let assistant, assistant.runtimeBackend == .appleContainers else {
+            return vellumCli
+        }
+        log.warning("localLauncher: apple-containers backend not yet implemented — falling back to CLI hatch for '\(assistant.assistantId, privacy: .public)'")
+        return vellumCli
+    }
+
     // MARK: - Gateway Connection Setup
 
     func setupGatewayConnectionManager() {
