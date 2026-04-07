@@ -41,13 +41,21 @@ public enum NativeMessagingInstaller {
     /// the manifest install fails, and the Chrome extension's
     /// self-hosted pairing flow (PR 13) will simply not work until it
     /// is resolved.
-    public enum InstallError: Error, CustomStringConvertible {
+    ///
+    /// Conforms to `LocalizedError` (rather than only
+    /// `CustomStringConvertible`) so that `error.localizedDescription`
+    /// returns the human-readable string below instead of Foundation's
+    /// generic "The operation couldn't be completed (… error 0.)"
+    /// fallback. This matches the convention used by other error types
+    /// in this app (see `RecorderError`, `CaptureError`,
+    /// `ExecutorError`, etc.).
+    public enum InstallError: Error, LocalizedError {
         case helperBinaryMissing(URL)
 
-        public var description: String {
+        public var errorDescription: String? {
             switch self {
             case .helperBinaryMissing(let url):
-                return "helper binary not found at \(url.path)"
+                return "Native messaging helper binary not found at \(url.path)"
             }
         }
     }
