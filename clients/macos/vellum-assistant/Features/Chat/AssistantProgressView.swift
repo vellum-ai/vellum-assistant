@@ -795,9 +795,6 @@ private struct StepDetailRow: View {
     /// Cached colored AttributedString for the tool call result — computed once
     /// on first expand / result change to avoid rebuilding on every render.
     @State private var cachedColoredResult: AttributedString?
-    /// Tracks which result string was used to build the cache so we can
-    /// detect when the result changes (e.g. rehydration).
-    @State private var cachedResultString: String?
     @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
@@ -1014,16 +1011,13 @@ private struct StepDetailRow: View {
             if cachedColoredResult == nil,
                let result = toolCall.result, !result.isEmpty {
                 cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
-                cachedResultString = result
             }
         }
         .onChange(of: toolCall.result) { _, newResult in
             if let result = newResult, !result.isEmpty {
                 cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
-                cachedResultString = result
             } else {
                 cachedColoredResult = nil
-                cachedResultString = nil
             }
         }
     }
