@@ -336,6 +336,17 @@ Examples:
             // BYO PATH
             // =============================================================
 
+            // Manual-token providers (slack_channel, telegram) don't use
+            // OAuth2 browser flows — credentials are configured via
+            // `assistant credentials` or chat setup instead.
+            if (providerRow.authUrl === "urn:manual-token") {
+              writeError(
+                `"${provider}" does not use OAuth. ` +
+                  `Configure it with 'assistant credentials set ${provider}'.`,
+              );
+              return;
+            }
+
             // a. Resolve client credentials from the DB
             const dbApp = opts.clientId
               ? getAppByProviderAndClientId(provider, opts.clientId)

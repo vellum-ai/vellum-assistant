@@ -669,6 +669,31 @@ describe("assistant oauth connect", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Manual-token providers (slack_channel, telegram)
+  // -------------------------------------------------------------------------
+
+  test("manual-token provider returns error directing to credentials command", async () => {
+    mockGetProvider = () => ({
+      providerKey: "slack_channel",
+      authUrl: "urn:manual-token",
+      tokenUrl: "urn:manual-token",
+      managedServiceConfigKey: null,
+    });
+    mockIsManagedMode = () => false;
+
+    const { exitCode, stdout } = await runCommand([
+      "connect",
+      "slack_channel",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("does not use OAuth");
+    expect(parsed.error).toContain("credentials set");
+  });
+
+  // -------------------------------------------------------------------------
   // Orchestrator error propagation
   // -------------------------------------------------------------------------
 
