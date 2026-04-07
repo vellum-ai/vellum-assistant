@@ -192,6 +192,7 @@ enum APIKeyManager {
 
     /// Write a key to the daemon's secret store via the gateway API.
     /// Performs server-side validation and returns the result.
+    @discardableResult
     static func setKey(_ key: String, for provider: String) async -> SetKeyResult {
         do {
             let body: [String: Any] = ["type": "api_key", "name": provider, "value": key]
