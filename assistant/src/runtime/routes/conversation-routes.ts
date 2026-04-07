@@ -36,6 +36,7 @@ import {
 } from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
@@ -892,6 +893,12 @@ function makeHubPublisher(
         conversationId,
         kind: "host_bash",
       });
+    } else if (msg.type === "host_browser_request") {
+      pendingInteractions.register(msg.requestId, {
+        conversation,
+        conversationId,
+        kind: "host_browser",
+      });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
         conversation,
@@ -1153,6 +1160,12 @@ export async function handleSendMessage(
       });
       conversation.setHostBashProxy(proxy);
     }
+    if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
+      const browserProxy = new HostBrowserProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      conversation.setHostBrowserProxy(browserProxy);
+    }
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       const fileProxy = new HostFileProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
@@ -1173,6 +1186,7 @@ export async function handleSendMessage(
     }
   } else if (!conversation.isProcessing()) {
     conversation.setHostBashProxy(undefined);
+    conversation.setHostBrowserProxy(undefined);
     conversation.setHostFileProxy(undefined);
     conversation.setHostCuProxy(undefined);
   }
