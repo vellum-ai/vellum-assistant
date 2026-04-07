@@ -11,7 +11,7 @@ import { buildTransportHints } from "../daemon/transport-hints.js";
 // ---------------------------------------------------------------------------
 
 describe("buildTransportHints", () => {
-  test("produces correct hints for macOS transport", () => {
+  test("returns empty array for macOS transport without client hints", () => {
     const transport: MacosTransportMetadata = {
       channelId: "vellum",
       interfaceId: "macos",
@@ -21,13 +21,10 @@ describe("buildTransportHints", () => {
 
     const hints = buildTransportHints(transport);
 
-    expect(hints).toContain("User is messaging from interface: macos");
-    expect(hints).toContain("Host home directory: /Users/alice");
-    expect(hints).toContain("Host username: alice");
-    expect(hints).toHaveLength(3);
+    expect(hints).toHaveLength(0);
   });
 
-  test("produces correct hints for non-macOS transport", () => {
+  test("returns empty array for non-macOS transport without client hints", () => {
     const transport: NonMacosTransportMetadata = {
       channelId: "vellum",
       interfaceId: "ios",
@@ -35,14 +32,10 @@ describe("buildTransportHints", () => {
 
     const hints = buildTransportHints(transport);
 
-    expect(hints).toContain("User is messaging from interface: ios");
-    expect(hints).toHaveLength(1);
-    // Should not include host environment hints
-    expect(hints.some((h) => h.includes("Host home directory"))).toBe(false);
-    expect(hints.some((h) => h.includes("Host username"))).toBe(false);
+    expect(hints).toHaveLength(0);
   });
 
-  test("includes client-provided hints", () => {
+  test("forwards client-provided hints", () => {
     const transport: MacosTransportMetadata = {
       channelId: "vellum",
       interfaceId: "macos",
@@ -53,14 +46,10 @@ describe("buildTransportHints", () => {
 
     const hints = buildTransportHints(transport);
 
-    expect(hints).toContain("User is messaging from interface: macos");
-    expect(hints).toContain("Host home directory: /Users/bob");
-    expect(hints).toContain("Host username: bob");
-    expect(hints).toContain("custom hint");
-    expect(hints).toHaveLength(4);
+    expect(hints).toEqual(["custom hint"]);
   });
 
-  test("handles missing optional fields on macOS transport", () => {
+  test("returns empty array when no hints field present", () => {
     const transport: MacosTransportMetadata = {
       channelId: "vellum",
       interfaceId: "macos",
@@ -68,10 +57,6 @@ describe("buildTransportHints", () => {
 
     const hints = buildTransportHints(transport);
 
-    expect(hints).toContain("User is messaging from interface: macos");
-    // Without hostHomeDir and hostUsername, only the interface hint is present
-    expect(hints).toHaveLength(1);
-    expect(hints.some((h) => h.includes("Host home directory"))).toBe(false);
-    expect(hints.some((h) => h.includes("Host username"))).toBe(false);
+    expect(hints).toHaveLength(0);
   });
 });
