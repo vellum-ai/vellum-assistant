@@ -98,15 +98,31 @@ final class HomeFeedStore {
         do {
             let (decoded, response): (HomeFeedResponse?, GatewayHTTPClient.Response) =
                 try await GatewayHTTPClient.get(path: "assistants/{assistantId}/home/feed") { decoder in
-                    decoder.dateDecodingStrategy = .iso8601
+                    let isoFractional = ISO8601DateFormatter()
+                    isoFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    let isoPlain = ISO8601DateFormatter()
+                    isoPlain.formatOptions = [.withInternetDateTime]
+                    decoder.dateDecodingStrategy = .custom { decoder in
+                        let container = try decoder.singleValueContainer()
+                        let str = try container.decode(String.self)
+                        if let date = isoFractional.date(from: str) { return date }
+                        if let date = isoPlain.date(from: str) { return date }
+                        throw DecodingError.dataCorruptedError(
+                            in: container,
+                            debugDescription: "Invalid ISO 8601 date: \(str)"
+                        )
+                    }
                     decoder.keyDecodingStrategy = .convertFromSnakeCase
                 }
 
             if response.isSuccess, let decoded {
                 items = decoded.items
                 if let ts = decoded.lastUpdated {
-                    let formatter = ISO8601DateFormatter()
-                    lastUpdated = formatter.date(from: ts) ?? Date()
+                    let frac = ISO8601DateFormatter()
+                    frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    lastUpdated = frac.date(from: ts)
+                        ?? ISO8601DateFormatter().date(from: ts)
+                        ?? Date()
                 } else {
                     lastUpdated = Date()
                 }

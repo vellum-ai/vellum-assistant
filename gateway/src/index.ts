@@ -968,7 +968,7 @@ async function main() {
     {
       path: /^\/v1\/home\/feed\/([^/]+)\/?$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
       handler: (req, params) => {
         let itemId: string;
         try {
@@ -985,7 +985,7 @@ async function main() {
     {
       path: /^\/v1\/assistants\/([^/]+)\/home\/feed\/([^/]+)\/?$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
       handler: (req, params) => {
         let itemId: string;
         try {
@@ -1002,7 +1002,7 @@ async function main() {
     {
       path: /^\/v1\/home\/feed\/([^/]+)\/actions\/([^/]+)\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
       handler: (req, params) => {
         let itemId: string;
         let actionId: string;
@@ -1021,7 +1021,7 @@ async function main() {
     {
       path: /^\/v1\/assistants\/([^/]+)\/home\/feed\/([^/]+)\/actions\/([^/]+)\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
       handler: (req, params) => {
         let itemId: string;
         let actionId: string;

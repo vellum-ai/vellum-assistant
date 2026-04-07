@@ -409,6 +409,15 @@ public final class MainWindowState: ObservableObject {
     func restoreLastActivePanel() {
         guard let savedPanelString = lastActivePanelString,
               let panel = SidePanelType(rawValue: savedPanelString) else { return }
+        // Don't restore the home panel when the feature flag is off — the user
+        // would land on a panel they can't navigate to via the sidebar.
+        if panel == .home {
+            let cached = AssistantFeatureFlagResolver.readCachedFlags()
+            if cached["home-feed"] != true {
+                lastActivePanelString = nil
+                return
+            }
+        }
         navigationHistory.withRecordingSuppressed {
             selection = .panel(panel)
         }
