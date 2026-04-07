@@ -2,36 +2,15 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { getPlatformBaseUrl } from "../../config/env.js";
+import { getAssistantDomain } from "../../config/env.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
 const log = getCliLogger("email");
 
-/**
- * Derive the assistant email domain from the platform base URL.
- *
- * - `dev-platform.vellum.ai`  → `dev.vellum.me`
- * - `platform.vellum.ai`      → `vellum.me`
- * - anything else              → `vellum.me` (safe default)
- */
-function getEmailDomain(): string {
-  try {
-    const url = getPlatformBaseUrl();
-    const host = new URL(url).hostname; // e.g. "dev-platform.vellum.ai"
-    const prefix = host.replace(/[-.]?platform\.vellum\.ai$/, "");
-    if (prefix) {
-      return `${prefix}.vellum.me`;
-    }
-  } catch {
-    // Fall through to default
-  }
-  return "vellum.me";
-}
-
 export function registerEmailCommand(program: Command): void {
-  const domain = getEmailDomain();
+  const domain = getAssistantDomain();
   const email = program
     .command("email")
     .description("Email channel operations")
