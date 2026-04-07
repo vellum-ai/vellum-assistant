@@ -450,8 +450,8 @@ describe("buildSanitizedEnv", () => {
     delete process.env.LC_ALL;
 
     const env = buildSanitizedEnv();
-    expect(env.LANG).toBe("en_US.UTF-8");
-    expect(env.LC_ALL).toBe("en_US.UTF-8");
+    expect(env.LANG).toBe("C.UTF-8");
+    expect(env.LC_ALL).toBe("C.UTF-8");
   });
 
   test("injects INTERNAL_GATEWAY_BASE_URL from gateway config", () => {

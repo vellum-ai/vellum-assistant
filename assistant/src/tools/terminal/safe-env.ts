@@ -74,7 +74,7 @@ export function buildSanitizedEnv(): Record<string, string> {
   env.VELLUM_WORKSPACE_DIR = getWorkspaceDir();
   // Ensure UTF-8 locale so multi-byte characters (em dashes, curly quotes,
   // arrows, etc.) survive piping through tools like pbcopy without corruption.
-  if (!env.LANG) env.LANG = "en_US.UTF-8";
-  if (!env.LC_ALL) env.LC_ALL = "en_US.UTF-8";
+  if (!env.LANG) env.LANG = "C.UTF-8";
+  if (!env.LC_ALL) env.LC_ALL = "C.UTF-8";
   return env;
 }
