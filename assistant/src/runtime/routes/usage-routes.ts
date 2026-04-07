@@ -17,7 +17,7 @@ import {
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
-const VALID_GROUP_BY = new Set(["actor", "provider", "model"]);
+const VALID_GROUP_BY = new Set(["actor", "provider", "model", "conversation"]);
 
 /**
  * Parse and validate the `from` and `to` epoch-millis query parameters.
@@ -137,7 +137,7 @@ export function usageRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       summary: "Get usage breakdown",
       description:
-        "Return grouped usage breakdown (by actor, provider, or model).",
+        "Return grouped usage breakdown (by actor, provider, model, or conversation).",
       tags: ["usage"],
       queryParams: [
         {
@@ -153,7 +153,8 @@ export function usageRouteDefinitions(): RouteDefinition[] {
         {
           name: "groupBy",
           schema: { type: "string" },
-          description: "Group by: actor, provider, or model (required)",
+          description:
+            "Group by: actor, provider, model, or conversation (required)",
         },
       ],
       responseBody: z.object({
@@ -167,21 +168,21 @@ export function usageRouteDefinitions(): RouteDefinition[] {
         if (!groupBy) {
           return httpError(
             "BAD_REQUEST",
-            'Missing required query parameter: "groupBy" (one of: actor, provider, model)',
+            'Missing required query parameter: "groupBy" (one of: actor, provider, model, conversation)',
             400,
           );
         }
         if (!VALID_GROUP_BY.has(groupBy)) {
           return httpError(
             "BAD_REQUEST",
-            `Invalid "groupBy" value: "${groupBy}". Must be one of: actor, provider, model`,
+            `Invalid "groupBy" value: "${groupBy}". Must be one of: actor, provider, model, conversation`,
             400,
           );
         }
 
         const breakdown = getUsageGroupBreakdown(
           range,
-          groupBy as "actor" | "provider" | "model",
+          groupBy as "actor" | "provider" | "model" | "conversation",
         );
         return Response.json({ breakdown });
       },
