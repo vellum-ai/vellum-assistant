@@ -1013,7 +1013,7 @@ private struct StepDetailRow: View {
         copyLabel: String
     ) -> some View {
         let lineCount = copyText.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
-        let isLong = lineCount > 500 || copyText.count > 50_000
+        let isLong = lineCount > 500 || (lineCount == 1 && copyText.count > 50_000)
 
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
