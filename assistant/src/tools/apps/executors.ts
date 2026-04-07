@@ -8,6 +8,9 @@
  * ToolDefinition or ToolContext types.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { compileApp } from "../../bundler/app-compiler.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
 import type { AppDefinition } from "../../memory/app-store.js";
@@ -183,11 +186,19 @@ function App() {
 render(<App />, document.getElementById('app')!);
 `;
 
-    store.writeAppFile(app.id, "src/index.html", indexHtml);
-    store.writeAppFile(app.id, "src/main.tsx", mainTsx);
+    // Only write scaffold files when they don't already exist on disk.
+    // The LLM may have written custom source files via file_write before
+    // calling app_create, and overwriting them would destroy the real app
+    // content, leaving only the scaffold placeholder.
+    const appDir = getAppDirPath(app.id);
+    if (!existsSync(join(appDir, "src", "index.html"))) {
+      store.writeAppFile(app.id, "src/index.html", indexHtml);
+    }
+    if (!existsSync(join(appDir, "src", "main.tsx"))) {
+      store.writeAppFile(app.id, "src/main.tsx", mainTsx);
+    }
 
     // Compile src/ → dist/
-    const appDir = getAppDirPath(app.id);
     const compileResult = await compileApp(appDir);
     if (!compileResult.ok) {
       return {
