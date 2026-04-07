@@ -291,7 +291,7 @@
     },
     {
       "id": "home-feed",
-      "scope": "macos",
+      "scope": "assistant",
       "key": "home-feed",
       "label": "Home Feed",
       "description": "Show the Home feed as the primary navigation destination in the sidebar, with a gateway-served feed API",
