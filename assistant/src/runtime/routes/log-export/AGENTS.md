@@ -81,4 +81,14 @@ most-relevant records first.
 
 ## Allowlisted entries
 
-- _(none yet — first entry will land in a follow-up PR)_
+- **`conversations/`**
+  - **Path**: `<workspace>/conversations/<ISO-with-dashes>_<conversationId>/`
+  - **Honors filters**: time (via the parsed timestamp prefix on each
+    directory name) and `conversationId` (exact match on the suffix — no
+    substring matching).
+  - **Cap**: shares the 10 MB workspace cap defined by
+    `MAX_WORKSPACE_PAYLOAD_BYTES` in `workspace-allowlist.ts`.
+  - **Notes**: Directory names that don't match the canonical
+    `<ISO-with-dashes>_<conversationId>` format are silently skipped
+    (Rule 3 — default deny). Legacy `<id>_<ISO>` directories are
+    intentionally excluded until they migrate to the canonical format.
