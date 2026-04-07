@@ -29,7 +29,7 @@ public struct DictationClient: DictationClientProtocol {
     ]
 
     /// Timeout for the dictation HTTP request. Kept short so the client falls
-    /// back to raw transcription quickly when the daemon is unreachable rather
+    /// back to raw transcription quickly when the assistant is unreachable rather
     /// than leaving the user staring at a "Processing…" spinner.
     static let requestTimeout: TimeInterval = 5
 
