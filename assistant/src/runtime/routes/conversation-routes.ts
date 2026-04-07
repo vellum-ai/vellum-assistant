@@ -799,9 +799,9 @@ function mergeToolResultsIntoAssistantMessages(
  * assistant event hub, maintaining ordered delivery through a serial chain.
  *
  * Also registers pending interactions when confirmation_request,
- * secret_request, host_bash_request, or host_file_request events flow
- * through, so standalone approval/result endpoints can look up the conversation
- * by requestId.
+ * secret_request, host_bash_request, host_browser_request, host_file_request,
+ * or host_cu_request events flow through, so standalone approval/result
+ * endpoints can look up the conversation by requestId.
  */
 function makeHubPublisher(
   deps: SendMessageDeps,
