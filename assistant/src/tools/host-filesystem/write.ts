@@ -8,7 +8,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 class HostFileWriteTool implements Tool {
   name = "host_file_write";
   description =
-    "Write content to a file on the guardian's machine, creating it if it does not exist. For files on the assistant's machine, use file_write instead.";
+    "Write content to a file on your guardian's device, creating it if it does not exist. For files on your own machine, use file_write instead.";
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 

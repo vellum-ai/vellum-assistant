@@ -8,7 +8,8 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class FileWriteTool implements Tool {
   name = "file_write";
-  description = "Write content to a file, creating it if it does not exist";
+  description =
+    "Write content to a file on your own machine, creating it if it does not exist. Use host_file_write for files on your guardian's device instead.";
   category = "filesystem";
   defaultRiskLevel = RiskLevel.Low;
 
