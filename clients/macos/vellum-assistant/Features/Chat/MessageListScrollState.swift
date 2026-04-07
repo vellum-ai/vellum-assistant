@@ -477,8 +477,11 @@ final class MessageListScrollState {
             // transition(), so resetting here would clobber the new count,
             // causing the first endStabilization to prematurely exit.
             if case .stabilizing = newMode {
-                // Staying in stabilizing: preserve the window count.
+                // Staying in stabilizing: preserve the window count
+                // and generation so cancelled tasks from the old reason
+                // can still call endStabilization() to balance the count.
             } else {
+                stabilizationGeneration &+= 1
                 activeStabilizationCount = 0
             }
         default:
@@ -535,7 +538,6 @@ final class MessageListScrollState {
     }
 
     private func cancelStabilizationTasks() {
-        stabilizationGeneration &+= 1
         expansionTimeoutTask?.cancel()
         expansionTimeoutTask = nil
     }
