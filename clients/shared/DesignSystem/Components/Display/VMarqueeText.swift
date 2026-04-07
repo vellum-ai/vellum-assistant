@@ -60,22 +60,6 @@ public struct VMarqueeText: View {
         Double(overflow) / Self.scrollSpeed
     }
 
-    /// Resets the scroll offset to zero and starts the scroll animation
-    /// in the next run-loop cycle. The two-step dispatch is necessary
-    /// because SwiftUI batches state changes within a single update —
-    /// `withAnimation(nil) { offset = 0 }` followed by
-    /// `withAnimation(.linear) { offset = -overflow }` would only apply
-    /// the final value, skipping the reset.
-    private func resetAndScroll() {
-        withAnimation(nil) { animationOffset = 0 }
-        DispatchQueue.main.async {
-            guard isHovered, isTruncated else { return }
-            withAnimation(.linear(duration: scrollDuration)) {
-                animationOffset = -overflow
-            }
-        }
-    }
-
     public var body: some View {
         Text(text)
             .font(font)
@@ -114,11 +98,19 @@ public struct VMarqueeText: View {
                 }
             }
             .onChange(of: text) { _, _ in
-                resetAndScroll()
+                if isHovered && isTruncated {
+                    withAnimation(.linear(duration: scrollDuration)) {
+                        animationOffset = -overflow
+                    }
+                } else {
+                    withAnimation(nil) { animationOffset = 0 }
+                }
             }
             .onChange(of: containerWidth) { _, _ in
                 if isHovered && isTruncated {
-                    resetAndScroll()
+                    withAnimation(.linear(duration: scrollDuration)) {
+                        animationOffset = -overflow
+                    }
                 }
             }
             .accessibilityElement(children: .ignore)
