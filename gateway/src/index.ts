@@ -963,19 +963,37 @@ async function main() {
       path: /^\/v1\/home\/feed\/([^/]+)$/,
       method: "PATCH",
       auth: "edge",
-      handler: (req, params) =>
-        handleHomeFeedPatch(req, decodeURIComponent(params[0])),
+      handler: (req, params) => {
+        let itemId: string;
+        try {
+          itemId = decodeURIComponent(params[0]);
+        } catch {
+          return Response.json(
+            { error: "Invalid item ID encoding" },
+            { status: 400 },
+          );
+        }
+        return handleHomeFeedPatch(req, itemId);
+      },
     },
     {
       path: /^\/v1\/home\/feed\/([^/]+)\/actions\/([^/]+)$/,
       method: "POST",
       auth: "edge",
-      handler: (req, params) =>
-        handleHomeFeedAction(
-          req,
-          decodeURIComponent(params[0]),
-          decodeURIComponent(params[1]),
-        ),
+      handler: (req, params) => {
+        let itemId: string;
+        let actionId: string;
+        try {
+          itemId = decodeURIComponent(params[0]);
+          actionId = decodeURIComponent(params[1]);
+        } catch {
+          return Response.json(
+            { error: "Invalid item or action ID encoding" },
+            { status: 400 },
+          );
+        }
+        return handleHomeFeedAction(req, itemId, actionId);
+      },
     },
 
     // ── Trust rules ──
