@@ -268,9 +268,9 @@ struct MessageListContentView: View, Equatable {
                 compactingIndicatorRow()
             }
 
-            // Dynamic spacer: ensures user message can reach top even with short assistant output
+            // Smart spacer: animates open on send, shrinks as assistant content grows
             Color.clear
-                .frame(height: max(0, viewportHeight - 100))
+                .frame(height: scrollState.spacerHeight)
                 .id("scroll-bottom-spacer")
 
             // Bottom anchor for explicit jumps

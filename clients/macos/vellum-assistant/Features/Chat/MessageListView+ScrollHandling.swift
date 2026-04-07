@@ -16,6 +16,10 @@ extension MessageListView {
         scrollState.viewportHeight = newState.visibleRectHeight
         scrollState.updateNearBottom()
 
+        if scrollState.isInSendCycle {
+            scrollState.updateSpacerForContentGrowth(newContentHeight: newState.contentHeight)
+        }
+
         // Derive sentinel position from content offset (inverted sign to
         // match the old coordinate-space convention where minY is negative
         // when scrolled past the viewport top).
