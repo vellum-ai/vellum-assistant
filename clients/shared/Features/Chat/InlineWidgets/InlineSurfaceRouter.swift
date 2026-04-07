@@ -228,6 +228,7 @@ public struct InlineSurfaceRouter: View {
                     InlineAppCreatedCard(
                         preview: preview,
                         appId: data.appId,
+                        isToolCallComplete: surface.isToolCallComplete,
                         onOpenApp: {
                             if let ref = surface.surfaceRef {
                                 NotificationCenter.default.post(

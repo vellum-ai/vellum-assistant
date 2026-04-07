@@ -367,7 +367,7 @@ extension ChatViewModel {
         #endif
 
         isThinking = false
-        let inlineSurface = InlineSurfaceData(
+        var inlineSurface = InlineSurfaceData(
             id: surface.id,
             surfaceType: surface.type,
             title: surface.title,
@@ -375,17 +375,33 @@ extension ChatViewModel {
             actions: surface.actions,
             surfaceRef: SurfaceRef(from: msg, surface: surface)
         )
+        // Mark dynamic page surfaces as not yet ready — the parent tool call
+        // is still executing.  The flag flips to true in handleToolResult once
+        // the tool call completes.
+        if case .dynamicPage = surface.data {
+            inlineSurface.isToolCallComplete = false
+        }
 
         if let existingId = currentAssistantMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
             let surfIdx = messages[index].inlineSurfaces.count
             messages[index].inlineSurfaces.append(inlineSurface)
             messages[index].contentOrder.append(.surface(surfIdx))
+            // Clear the streaming code preview when a dynamic page surface appears —
+            // the inline card visually replaces the raw HTML code block.
+            if case .dynamicPage = surface.data {
+                messages[index].streamingCodePreview = nil
+                messages[index].streamingCodeToolName = nil
+            }
         } else if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }),
                   let idx = messages[lastUserIndex...].lastIndex(where: { $0.role == .assistant }) {
             let surfIdx = messages[idx].inlineSurfaces.count
             messages[idx].inlineSurfaces.append(inlineSurface)
             messages[idx].contentOrder.append(.surface(surfIdx))
+            if case .dynamicPage = surface.data {
+                messages[idx].streamingCodePreview = nil
+                messages[idx].streamingCodeToolName = nil
+            }
         } else {
             var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
             newMsg.contentOrder = [.surface(0)]
@@ -432,7 +448,7 @@ extension ChatViewModel {
                 let existing = messages[msgIndex].inlineSurfaces[surfaceIndex]
                 let tempSurface = Surface(id: existing.id, conversationId: msg.conversationId, type: existing.surfaceType, title: existing.title, data: existing.data, actions: existing.actions)
                 if let updated = tempSurface.updated(with: msg) {
-                    messages[msgIndex].inlineSurfaces[surfaceIndex] = InlineSurfaceData(
+                    var newSurface = InlineSurfaceData(
                         id: updated.id,
                         surfaceType: updated.type,
                         title: updated.title,
@@ -440,6 +456,9 @@ extension ChatViewModel {
                         actions: updated.actions,
                         surfaceRef: existing.surfaceRef
                     )
+                    newSurface.isToolCallComplete = existing.isToolCallComplete
+                    newSurface.completionState = existing.completionState
+                    messages[msgIndex].inlineSurfaces[surfaceIndex] = newSurface
                     // Update floating overlay for task_progress cards (macOS only)
                     #if os(macOS)
                     if case .card(let cardData) = updated.data,
