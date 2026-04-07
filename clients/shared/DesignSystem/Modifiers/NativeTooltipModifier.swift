@@ -140,6 +140,10 @@ private final class VTooltipTrackerView: NSView {
     private var scrollObserver: NSObjectProtocol?
     private var scrollEndObserver: NSObjectProtocol?
     private var appDeactivationObserver: NSObjectProtocol?
+    private var mouseDownMonitor: Any?
+    private var keyDownMonitor: Any?
+    private var windowMovedObserver: NSObjectProtocol?
+    private var windowResizedObserver: NSObjectProtocol?
 
     /// Suppresses synthetic mouseEntered events during and briefly after scroll.
     /// Static because the re-entry can hit a different VTooltipTrackerView instance
@@ -177,6 +181,8 @@ private final class VTooltipTrackerView: NSView {
         showTimer?.invalidate()
         stopObservingScroll()
         stopObservingAppDeactivation()
+        stopObservingWindowGeometry()
+        removeInteractionMonitors()
         hideTooltip()
         super.removeFromSuperview()
     }
@@ -186,10 +192,13 @@ private final class VTooltipTrackerView: NSView {
         if window != nil {
             startObservingScroll()
             startObservingAppDeactivation()
+            startObservingWindowGeometry()
         } else {
             showTimer?.invalidate()
             stopObservingScroll()
             stopObservingAppDeactivation()
+            stopObservingWindowGeometry()
+            removeInteractionMonitors()
             hideTooltip()
         }
     }
@@ -249,6 +258,78 @@ private final class VTooltipTrackerView: NSView {
         if let observer = appDeactivationObserver {
             NotificationCenter.default.removeObserver(observer)
             appDeactivationObserver = nil
+        }
+    }
+
+    // MARK: - Dismiss on window move/resize
+
+    private func startObservingWindowGeometry() {
+        guard windowMovedObserver == nil, let window else { return }
+        windowMovedObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+        }
+        windowResizedObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+        }
+    }
+
+    private func stopObservingWindowGeometry() {
+        if let observer = windowMovedObserver {
+            NotificationCenter.default.removeObserver(observer)
+            windowMovedObserver = nil
+        }
+        if let observer = windowResizedObserver {
+            NotificationCenter.default.removeObserver(observer)
+            windowResizedObserver = nil
+        }
+    }
+
+    // MARK: - Dismiss on mouse-down / key-down
+
+    /// Installs local event monitors that dismiss the tooltip on any
+    /// mouse-down (fixes tooltip persisting during drag) or key-down.
+    /// Monitors are installed when the tooltip appears and removed when
+    /// it hides, so there is zero overhead when no tooltip is visible.
+    private func installInteractionMonitors() {
+        guard mouseDownMonitor == nil else { return }
+        mouseDownMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+            return event
+        }
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: .keyDown
+        ) { [weak self] event in
+            self?.showTimer?.invalidate()
+            self?.showTimer = nil
+            self?.hideTooltip()
+            return event
+        }
+    }
+
+    private func removeInteractionMonitors() {
+        if let monitor = mouseDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseDownMonitor = nil
+        }
+        if let monitor = keyDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyDownMonitor = nil
         }
     }
 
@@ -399,11 +480,13 @@ private final class VTooltipTrackerView: NSView {
             p.animator().alphaValue = 1
         }
         panel = p
+        installInteractionMonitors()
     }
 
     private func hideTooltip() {
         guard let p = panel else { return }
         panel = nil
+        removeInteractionMonitors()
         // Detach from parent window before hiding.
         if let parentWindow = p.parent {
             parentWindow.removeChildWindow(p)
