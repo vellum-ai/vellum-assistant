@@ -1081,7 +1081,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   "<pkb>",
   "<transport_hints>",
-  "<system_notice>",
+  "<system_notice>One or more tool calls returned an error.",
 ];
 
 /**

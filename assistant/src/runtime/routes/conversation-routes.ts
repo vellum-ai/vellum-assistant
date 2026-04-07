@@ -722,15 +722,12 @@ function mergeToolResultsIntoAssistantMessages(
       }
     }
 
-    // No tool results → pass through unless the message is purely system notices.
+    // No tool results → pass through unchanged. System notices are only
+    // injected alongside tool results in the agent loop, so a pure user
+    // message (no tool_result blocks) should never be filtered — even if
+    // the user's text happens to look like a system_notice tag.
     if (toolResultBlocks.length === 0) {
-      const hasRealContent = blocks.some((block) => {
-        if (typeof block !== "object" || block === null) return true;
-        return !isSystemNoticeText(block as Record<string, unknown>);
-      });
-      if (hasRealContent) {
-        result.push(msg);
-      }
+      result.push(msg);
       continue;
     }
 
