@@ -4,9 +4,10 @@
  * Minimal ambient declarations for the subset of the Chrome Extension API
  * surface used by the Vellum browser-relay extension's typed modules.
  *
- * This is intentionally narrow — it covers what's needed by background/cloud-auth.ts
- * and its tests. The full @types/chrome package is an option for the future if
- * we type-check more of the package.
+ * This is intentionally narrow — it covers what's needed by
+ * background/cloud-auth.ts, background/self-hosted-auth.ts, and their tests.
+ * The full @types/chrome package is an option for the future if we type-check
+ * more of the package.
  */
 
 declare namespace chrome {
@@ -29,5 +30,32 @@ declare namespace chrome {
     }
     function getRedirectURL(path?: string): string;
     function launchWebAuthFlow(details: WebAuthFlowDetails): Promise<string | undefined>;
+  }
+
+  namespace runtime {
+    interface LastError {
+      message?: string;
+    }
+    const lastError: LastError | undefined;
+
+    interface PortMessageEvent {
+      addListener(listener: (message: unknown) => void): void;
+      removeListener(listener: (message: unknown) => void): void;
+    }
+
+    interface PortDisconnectEvent {
+      addListener(listener: (port: Port) => void): void;
+      removeListener(listener: (port: Port) => void): void;
+    }
+
+    interface Port {
+      name: string;
+      onMessage: PortMessageEvent;
+      onDisconnect: PortDisconnectEvent;
+      postMessage(message: unknown): void;
+      disconnect(): void;
+    }
+
+    function connectNative(application: string): Port;
   }
 }

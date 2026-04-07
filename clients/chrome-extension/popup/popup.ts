@@ -14,6 +14,11 @@
  */
 
 import { getStoredToken, type StoredCloudToken } from '../background/cloud-auth.js';
+import {
+  bootstrapLocalToken,
+  getStoredLocalToken,
+  type StoredLocalToken,
+} from '../background/self-hosted-auth.js';
 
 const DEFAULT_RELAY_PORT = 7830;
 
@@ -28,6 +33,8 @@ const manualToggle = document.getElementById('manual-toggle') as HTMLButtonEleme
 const tokenGroup = document.getElementById('token-group') as HTMLDivElement;
 const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
 const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
+const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
+const localStatus = document.getElementById('local-status') as HTMLParagraphElement;
 const cdpProxyToggle = document.getElementById('cdp-proxy-toggle') as HTMLInputElement;
 
 const CDP_PROXY_ENABLED_KEY = 'vellum.cdpProxyEnabled';
@@ -158,6 +165,62 @@ btnDisconnect.addEventListener('click', () => {
     setConnected(false);
   });
 });
+
+// ── Self-hosted native-messaging pairing (new in Phase 2 PR 13) ─────
+//
+// Pairing runs the local native messaging helper (com.vellum.daemon),
+// which POSTs the extension's origin to the assistant's
+// `/v1/browser-extension-pair` endpoint and returns a capability token.
+// The token is persisted in chrome.storage.local under
+// `vellum.localCapabilityToken`. It is NOT yet used on any WebSocket —
+// PR 14 will read it when opening the relay connection in self-hosted
+// mode.
+
+function setLocalStatus(text: string, state: 'neutral' | 'paired' | 'error'): void {
+  localStatus.textContent = text;
+  localStatus.classList.remove('paired', 'error');
+  if (state !== 'neutral') localStatus.classList.add(state);
+}
+
+function formatLocalTokenStatus(token: StoredLocalToken): string {
+  const expiresDate = new Date(token.expiresAt);
+  const expiresStr = Number.isFinite(token.expiresAt)
+    ? expiresDate.toLocaleString()
+    : 'unknown';
+  return `Paired as guardian:${token.guardianId} (expires ${expiresStr})`;
+}
+
+async function refreshLocalStatus(): Promise<void> {
+  try {
+    const existing = await getStoredLocalToken();
+    if (existing) {
+      setLocalStatus(formatLocalTokenStatus(existing), 'paired');
+    } else {
+      setLocalStatus('Not paired', 'neutral');
+    }
+  } catch (err) {
+    setLocalStatus(
+      `Error: ${err instanceof Error ? err.message : String(err)}`,
+      'error',
+    );
+  }
+}
+
+btnPairLocal.addEventListener('click', async () => {
+  btnPairLocal.disabled = true;
+  setLocalStatus('Pairing…', 'neutral');
+  try {
+    const stored = await bootstrapLocalToken();
+    setLocalStatus(formatLocalTokenStatus(stored), 'paired');
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    setLocalStatus(`Pairing failed: ${detail}`, 'error');
+  } finally {
+    btnPairLocal.disabled = false;
+  }
+});
+
+refreshLocalStatus();
 
 // ── Cloud sign-in (new in Phase 2 PR 8) ────────────────────────────
 //

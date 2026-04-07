@@ -118,6 +118,14 @@
     }
     #btn-cloud-signin:hover:not(:disabled) { background: #1f2937; }
 
+    #btn-pair-local {
+      width: 100%;
+      background: #0f766e;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    #btn-pair-local:hover:not(:disabled) { background: #115e59; }
+
     .cloud-status {
       font-size: 12px;
       color: #4b5563;
@@ -125,6 +133,15 @@
       word-break: break-all;
     }
     .cloud-status.signed-in { color: #0f766e; }
+
+    .local-status {
+      font-size: 12px;
+      color: #4b5563;
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+    .local-status.paired { color: #0f766e; }
+    .local-status.error { color: #ef4444; }
 
     .beta-toggle {
       display: flex;
@@ -208,6 +225,12 @@
   </div>
 
   <p class="hint">Token is auto-fetched from the local gateway. Port defaults to 7830.</p>
+
+  <div class="divider"></div>
+
+  <p class="section-label">Local</p>
+  <p class="local-status" id="local-status">Not paired</p>
+  <button id="btn-pair-local" type="button">Pair with local assistant</button>
 
   <div class="divider"></div>
 
