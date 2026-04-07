@@ -487,7 +487,7 @@ public final class SettingsStore: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Load credential state asynchronously via the gateway API.
+        // Load credential state asynchronously via the assistant's gateway API.
         Task { @MainActor [weak self] in
             await self?.refreshAPIKeyState()
         }

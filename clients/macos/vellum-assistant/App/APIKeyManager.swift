@@ -92,7 +92,7 @@ enum APIKeyManager {
 
     // MARK: - Generic provider access (async — gateway API)
 
-    /// Read an API key from the daemon's secret store.
+    /// Read an API key from the assistant's secret store.
     static func getKey(for provider: String) async -> String? {
         do {
             let body: [String: Any] = ["type": "api_key", "name": provider, "reveal": true]
