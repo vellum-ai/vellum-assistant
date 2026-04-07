@@ -70,9 +70,6 @@ public enum SessionTokenManager {
         }
 
         return nil
-        #else
-        return nil
-        #endif
     }
 
     /// XDG-compliant shared path (~/.config/vellum/platform-token).
