@@ -104,6 +104,20 @@ final class MessageListScrollState {
     /// from initial position). Used to gate initial auto-scroll behavior.
     @ObservationIgnored var hasBeenInteracted: Bool = false
 
+    // MARK: - Smart Spacer
+
+    /// The spacer height that the view reads. Observable so the view updates.
+    private(set) var spacerHeight: CGFloat = 0
+
+    /// Whether a send cycle is actively streaming.
+    @ObservationIgnored var isInSendCycle: Bool = false
+
+    /// Target spacer height (viewportHeight - estimated user msg height).
+    @ObservationIgnored var targetSpacerHeight: CGFloat = 0
+
+    /// Content height when send started, for computing growth delta.
+    @ObservationIgnored var contentHeightAtSendStart: CGFloat = 0
+
     // MARK: - Derived State Cache
 
     /// Non-observable cache for memoizing derived state computations.
@@ -219,6 +233,38 @@ final class MessageListScrollState {
         scrollLog.debug("Scroll to latest tapped — resetting near-bottom state")
     }
 
+    // MARK: - Smart Spacer Methods
+
+    /// Begins the spacer animation when a send cycle starts.
+    /// Animates the spacer from 0 to `viewportHeight - 150` (estimated user message height).
+    func startSpacerAnimation() {
+        isInSendCycle = true
+        contentHeightAtSendStart = contentHeight
+        targetSpacerHeight = max(0, viewportHeight - 150)
+        withAnimation(VAnimation.standard) {
+            spacerHeight = targetSpacerHeight
+        }
+    }
+
+    /// Shrinks the spacer proportionally as assistant content grows during streaming.
+    /// Throttled to 10pt changes to avoid excessive re-renders.
+    func updateSpacerForContentGrowth(newContentHeight: CGFloat) {
+        guard isInSendCycle else { return }
+        let growth = max(0, newContentHeight - contentHeightAtSendStart)
+        let newHeight = max(100, targetSpacerHeight - growth)
+        if abs(newHeight - spacerHeight) >= 10 {
+            spacerHeight = newHeight
+        }
+    }
+
+    /// Ends the send cycle and settles the spacer at the 100pt floor.
+    func endSendCycle() {
+        isInSendCycle = false
+        withAnimation(VAnimation.standard) {
+            spacerHeight = 100
+        }
+    }
+
     /// Resets all state for a conversation switch.
     func reset(for conversationId: UUID) {
         currentConversationId = conversationId
@@ -237,6 +283,10 @@ final class MessageListScrollState {
         lastAutoFocusedRequestId = nil
         bottomAnchorAppeared = false
         hasBeenInteracted = false
+        spacerHeight = 0
+        targetSpacerHeight = 0
+        isInSendCycle = false
+        contentHeightAtSendStart = 0
         derivedStateCache.reset()
 
         scrollLog.debug("Reset for conversation: \(conversationId)")

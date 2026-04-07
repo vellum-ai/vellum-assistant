@@ -58,8 +58,11 @@ extension MessageListView {
                 }
                 scrollState.markSendAnchored()
             }
+            scrollState.startSpacerAnimation()
         } else {
-            // true → false transition: track first-message detection.
+            // true → false transition: end spacer send cycle.
+            scrollState.endSendCycle()
+            // Track first-message detection.
             if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                 hasEverSentMessage = true
                 UserDefaults.standard.set(true, forKey: "hasEverSentMessage")
