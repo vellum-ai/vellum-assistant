@@ -174,6 +174,17 @@ public struct PlatformAssistant: Codable, Sendable {
     }
 }
 
+/// Response wrapper for the paginated `GET /v1/assistants/` endpoint.
+public struct PaginatedPlatformAssistantsResponse: Codable, Sendable {
+    public let count: Int?
+    public let results: [PlatformAssistant]
+
+    public init(count: Int? = nil, results: [PlatformAssistant]) {
+        self.count = count
+        self.results = results
+    }
+}
+
 public struct HatchAssistantRequest: Codable, Sendable {
     public let name: String?
     public let description: String?
