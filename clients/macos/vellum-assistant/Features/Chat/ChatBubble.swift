@@ -237,32 +237,57 @@ struct ChatBubble: View, Equatable {
         }
     }
 
+    /// Wraps bubble content with padding, background fill/border, and
+    /// width constraints.  Each message type gets only the modifiers it
+    /// actually needs — modifiers that would evaluate to no-ops (e.g.
+    /// `.padding(EdgeInsets())` or `.frame(maxWidth: nil)`) are omitted
+    /// so SwiftUI doesn't create `_PaddingLayout` / `_FlexFrameLayout`
+    /// wrappers that still recurse during `sizeThatFits`.
+    @ViewBuilder
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
-        // Single padding, inner frame for error full-width expansion,
-        // and background + border combined into one modifier so the
-        // border lives in the background layer outside the content
-        // measurement path.
-        return content()
-            .padding(isPlainAssistant
-                ? EdgeInsets()
-                : EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
-                             bottom: VSpacing.md, trailing: VSpacing.lg))
-            // Error messages expand to fill available width so the
-            // background and border cover the full-width bubble.
-            .frame(maxWidth: message.isError ? .infinity : nil)
-            .background {
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(bubbleFill)
-                // Border rendered in the background layer — always present
-                // but 0 opacity when not an error/failed message. Avoids
-                // an Optional return type which can trigger a SwiftUI AG
-                // bug (swift_retain on read-only metadata / SIGBUS).
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
-                    .opacity((message.isError || (isUser && message.status == .sendFailed)) ? 1 : 0)
-            }
-            .frame(maxWidth: message.isError ? .infinity : bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
+        if message.isError {
+            // Error: chrome padding + full-width inner expansion frame.
+            content()
+                .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
+                                    bottom: VSpacing.md, trailing: VSpacing.lg))
+                .frame(maxWidth: .infinity)
+                .background {
+                    bubbleChromeBackground
+                }
+                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+        } else if isPlainAssistant {
+            // Plain assistant: no chrome padding, no inner frame.
+            content()
+                .background {
+                    bubbleChromeBackground
+                }
+                .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
+        } else {
+            // User messages (non-error): chrome padding, no inner frame.
+            content()
+                .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
+                                    bottom: VSpacing.md, trailing: VSpacing.lg))
+                .background {
+                    bubbleChromeBackground
+                }
+                .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
+        }
+    }
+
+    /// Background fill and optional error border shared across all
+    /// `bubbleChrome` branches.
+    @ViewBuilder
+    private var bubbleChromeBackground: some View {
+        RoundedRectangle(cornerRadius: VRadius.lg)
+            .fill(bubbleFill)
+        // Border rendered in the background layer — always present
+        // but 0 opacity when not an error/failed message. Avoids
+        // an Optional return type which can trigger a SwiftUI AG
+        // bug (swift_retain on read-only metadata / SIGBUS).
+        RoundedRectangle(cornerRadius: VRadius.lg)
+            .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
+            .opacity((message.isError || (isUser && message.status == .sendFailed)) ? 1 : 0)
     }
 
     /// Surfaces not currently shown in the floating overlay, computed once per body evaluation.
