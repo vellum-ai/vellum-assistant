@@ -188,18 +188,15 @@ const MemoryContextLoadInjectionSchema = z
   .object({
     maxNodes: z
       .number({
-        error: "memory.retrieval.injection.contextLoad.maxNodes must be a number",
+        error:
+          "memory.retrieval.injection.contextLoad.maxNodes must be a number",
       })
-      .int(
-        "memory.retrieval.injection.contextLoad.maxNodes must be an integer",
-      )
+      .int("memory.retrieval.injection.contextLoad.maxNodes must be an integer")
       .positive(
         "memory.retrieval.injection.contextLoad.maxNodes must be a positive integer",
       )
       .default(40)
-      .describe(
-        "Maximum number of memory nodes to load at conversation start",
-      ),
+      .describe("Maximum number of memory nodes to load at conversation start"),
     serendipitySlots: z
       .number({
         error:
@@ -212,9 +209,7 @@ const MemoryContextLoadInjectionSchema = z
         "memory.retrieval.injection.contextLoad.serendipitySlots must be non-negative",
       )
       .default(10)
-      .describe(
-        "Number of random wildcard memory picks at conversation start",
-      ),
+      .describe("Number of random wildcard memory picks at conversation start"),
     capabilityReserve: z
       .number({
         error:
@@ -240,16 +235,12 @@ const MemoryPerTurnInjectionSchema = z
         error:
           "memory.retrieval.injection.perTurn.maxInjected must be a number",
       })
-      .int(
-        "memory.retrieval.injection.perTurn.maxInjected must be an integer",
-      )
+      .int("memory.retrieval.injection.perTurn.maxInjected must be an integer")
       .positive(
         "memory.retrieval.injection.perTurn.maxInjected must be a positive integer",
       )
       .default(4)
-      .describe(
-        "Maximum general memories injected mid-conversation per turn",
-      ),
+      .describe("Maximum general memories injected mid-conversation per turn"),
     serendipitySlots: z
       .number({
         error:
@@ -263,21 +254,19 @@ const MemoryPerTurnInjectionSchema = z
       )
       .default(1)
       .describe("Number of random wildcard memory picks per turn"),
-    proceduralReserve: z
+    capabilityReserve: z
       .number({
         error:
-          "memory.retrieval.injection.perTurn.proceduralReserve must be a number",
+          "memory.retrieval.injection.perTurn.capabilityReserve must be a number",
       })
       .int(
-        "memory.retrieval.injection.perTurn.proceduralReserve must be an integer",
+        "memory.retrieval.injection.perTurn.capabilityReserve must be an integer",
       )
       .nonnegative(
-        "memory.retrieval.injection.perTurn.proceduralReserve must be non-negative",
+        "memory.retrieval.injection.perTurn.capabilityReserve must be non-negative",
       )
       .default(3)
-      .describe(
-        "Reserved slots for skill/CLI capability nodes per turn",
-      ),
+      .describe("Reserved slots for skill/CLI capability nodes per turn"),
   })
   .describe("Memory injection limits for mid-conversation turns");
 
