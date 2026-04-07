@@ -372,7 +372,7 @@ public enum GatewayHTTPClient {
     ///   - id: The assistant ID to resolve during `body`.
     ///   - body: The async work that should target the overridden assistant.
     /// - Returns: The result of `body`.
-    static func withAssistant<T>(_ id: String, _ body: () async throws -> T) async rethrows -> T {
+    public static func withAssistant<T>(_ id: String, _ body: () async throws -> T) async rethrows -> T {
         let previous = _assistantOverride
         _assistantOverride = id
         defer { _assistantOverride = previous }
