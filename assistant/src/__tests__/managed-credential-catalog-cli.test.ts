@@ -45,7 +45,10 @@ mock.module("../security/secure-keys.js", () => ({
 
 // Mock global fetch
 const _originalFetch = globalThis.fetch;
-const mockFetch = async (input: string | URL | Request, init?: RequestInit) => {
+const mockFetch = async (
+  input: string | URL | Request,
+  _init?: RequestInit,
+) => {
   const url =
     typeof input === "string"
       ? input
@@ -55,14 +58,6 @@ const mockFetch = async (input: string | URL | Request, init?: RequestInit) => {
   const entry = mockFetchResponses.get(url);
   if (!entry) {
     return new Response("Not Found", { status: 404 });
-  }
-
-  // Verify the Authorization header never leaks secrets into the request path
-  const authHeader = init?.headers
-    ? (init.headers as Record<string, string>)["Authorization"]
-    : undefined;
-  if (authHeader && !authHeader.startsWith("Api-Key ")) {
-    throw new Error("Unexpected auth header format");
   }
 
   return new Response(JSON.stringify(entry.body), {
@@ -266,17 +261,17 @@ describe("fetchManagedCatalog", () => {
     expect(descriptor.handle).toBe("platform_oauth:conn_minimal");
   });
 
-  test("error messages never contain API key values", async () => {
+  test("error messages never contain sensitive details", async () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-super-secret-key-12345";
     mockPlatformAssistantId = "ast-uuid-1234";
 
-    // Simulate a network error
+    // Simulate a network error whose message contains sensitive data
     const savedFetch = globalThis.fetch;
     const errorFetch: typeof fetch = Object.assign(
       async () => {
         throw new Error(
-          "Connect failed to https://platform.example.com/v1/assistants/ast-uuid-1234/oauth/managed/catalog/ with Api-Key sk-super-secret-key-12345",
+          "Connect failed to https://platform.example.com/v1/assistants/ast-uuid-1234/oauth/managed/catalog/ with Bearer sk-super-secret-key-12345",
         );
       },
       { preconnect: savedFetch.preconnect },
@@ -287,9 +282,12 @@ describe("fetchManagedCatalog", () => {
       const result = await fetchManagedCatalog();
       expect(result.ok).toBe(false);
       expect(result.error).toBeDefined();
-      // Ensure the raw API key is not in the error message
+      // Raw error message (with URL, API key, etc.) must not leak
       expect(result.error).not.toContain("sk-super-secret-key-12345");
-      expect(result.error).toContain("[REDACTED]");
+      expect(result.error).not.toContain("platform.example.com");
+      expect(result.error).not.toContain("Connect failed");
+      // Should only contain the error class name
+      expect(result.error).toContain("Error");
     } finally {
       globalThis.fetch = savedFetch;
     }

@@ -27,7 +27,7 @@ function makeMockClient(
     fetch: mock(async (path: string, init?: RequestInit) => {
       const url = `https://platform.example.com${path}`;
       const headers = new Headers(init?.headers);
-      headers.set("Authorization", "Api-Key test-api-key");
+      headers.set("Authorization", "Bearer test-api-key");
       return mockFetchFn(url, { ...init, headers });
     }),
   } as unknown as VellumPlatformClient;
@@ -53,7 +53,7 @@ describe("PlatformOAuthConnection", () => {
         );
         expect(init?.method).toBe("POST");
         const headers = new Headers(init?.headers);
-        expect(headers.get("Authorization")).toBe("Api-Key test-api-key");
+        expect(headers.get("Authorization")).toBe("Bearer test-api-key");
         expect(headers.get("Content-Type")).toBe("application/json");
 
         const parsed = JSON.parse(init?.body as string);
