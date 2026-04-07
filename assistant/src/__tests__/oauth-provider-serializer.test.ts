@@ -18,6 +18,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "{}",
+    scopeSeparator: " ",
     authorizeParams: null,
     pingUrl: null,
     pingMethod: null,

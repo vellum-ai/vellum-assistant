@@ -43,6 +43,7 @@ import {
   registerProvider,
   seedProviders,
   updateConnection,
+  updateProvider,
   upsertApp,
 } from "../oauth/oauth-store.js";
 
@@ -276,6 +277,71 @@ describe("provider operations", () => {
       expect(JSON.parse(row!.authorizeParams!)).toEqual({ prompt: "login" });
       expect(row!.pingUrl).toBe("https://api.github.com/user-v2");
     });
+
+    test("persists custom scopeSeparator when provided", () => {
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          defaultScopes: ["read", "write"],
+          scopePolicy: {},
+          scopeSeparator: ",",
+        },
+      ]);
+
+      const row = getProvider("test-provider");
+      expect(row).toBeDefined();
+      expect(row!.scopeSeparator).toBe(",");
+    });
+
+    test("scopeSeparator defaults to ' ' when omitted", () => {
+      seedProviders([
+        {
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const row = getProvider("github");
+      expect(row).toBeDefined();
+      expect(row!.scopeSeparator).toBe(" ");
+    });
+
+    test("re-seeding with a changed scopeSeparator overwrites the stored value", () => {
+      seedProviders([
+        {
+          provider: "linear",
+          authorizeUrl: "https://linear.app/oauth/authorize",
+          tokenExchangeUrl: "https://api.linear.app/oauth/token",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+          scopeSeparator: " ",
+        },
+      ]);
+
+      const first = getProvider("linear");
+      expect(first!.scopeSeparator).toBe(" ");
+
+      // Re-seed with a different separator — it should be overwritten,
+      // proving scopeSeparator is in the onConflictDoUpdate set clause.
+      seedProviders([
+        {
+          provider: "linear",
+          authorizeUrl: "https://linear.app/oauth/authorize",
+          tokenExchangeUrl: "https://api.linear.app/oauth/token",
+          defaultScopes: ["read"],
+          scopePolicy: {},
+          scopeSeparator: ",",
+        },
+      ]);
+
+      const row = getProvider("linear");
+      expect(row!.scopeSeparator).toBe(",");
+    });
   });
 
   describe("getProvider", () => {
@@ -336,6 +402,59 @@ describe("provider operations", () => {
           scopePolicy: {},
         }),
       ).toThrow(/already exists.*linear/);
+    });
+
+    test("persists scopeSeparator and round-trips via getProvider", () => {
+      registerProvider({
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+        scopeSeparator: ";",
+      });
+
+      const fetched = getProvider("linear");
+      expect(fetched).toBeDefined();
+      expect(fetched!.scopeSeparator).toBe(";");
+    });
+
+    test("scopeSeparator defaults to ' ' when omitted", () => {
+      registerProvider({
+        provider: "linear",
+        authorizeUrl: "https://linear.app/oauth/authorize",
+        tokenExchangeUrl: "https://api.linear.app/oauth/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+      });
+
+      const fetched = getProvider("linear");
+      expect(fetched).toBeDefined();
+      expect(fetched!.scopeSeparator).toBe(" ");
+    });
+  });
+
+  describe("updateProvider", () => {
+    test("updates scopeSeparator on an existing row", () => {
+      seedProviders([
+        {
+          provider: "github",
+          authorizeUrl: "https://github.com/authorize",
+          tokenExchangeUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+        },
+      ]);
+
+      const before = getProvider("github");
+      expect(before!.scopeSeparator).toBe(" ");
+
+      const updated = updateProvider("github", { scopeSeparator: "," });
+      expect(updated).toBeDefined();
+      expect(updated!.scopeSeparator).toBe(",");
+
+      const fetched = getProvider("github");
+      expect(fetched!.scopeSeparator).toBe(",");
     });
   });
 });

@@ -9,7 +9,8 @@ import { seedProviders } from "./oauth-store.js";
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
- * identityResponsePaths, identityFormat, identityOkField, featureFlag)
+ * identityResponsePaths, identityFormat, identityOkField, featureFlag,
+ * scopeSeparator)
  * and display metadata (displayLabel,
  * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
  * are overwritten on subsequent startups — user-customizable
@@ -35,6 +36,7 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: string[];
       forbiddenScopes: string[];
     };
+    scopeSeparator?: string;
     authorizeParams?: Record<string, string>;
     managedServiceConfigKey?: string;
     displayLabel: string;
@@ -293,6 +295,7 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
+    scopeSeparator: ",",
     authorizeParams: { prompt: "consent" },
     loopbackPort: 17324,
     managedServiceConfigKey: "linear-oauth",

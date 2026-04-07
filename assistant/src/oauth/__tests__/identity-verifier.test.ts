@@ -37,6 +37,7 @@ function makeProviderRow(
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "{}",
+    scopeSeparator: " ",
     authorizeParams: null,
     pingUrl: null,
     pingMethod: null,
