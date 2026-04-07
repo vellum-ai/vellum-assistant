@@ -23,6 +23,7 @@ export * from "./message-types/diagnostics.js";
 export * from "./message-types/documents.js";
 export * from "./message-types/guardian-actions.js";
 export * from "./message-types/host-bash.js";
+export * from "./message-types/host-browser.js";
 export * from "./message-types/host-cu.js";
 export * from "./message-types/host-file.js";
 export * from "./message-types/inbox.js";
@@ -77,6 +78,7 @@ import type {
   _GuardianActionsServerMessages,
 } from "./message-types/guardian-actions.js";
 import type { _HostBashServerMessages } from "./message-types/host-bash.js";
+import type { _HostBrowserServerMessages } from "./message-types/host-browser.js";
 import type { _HostCuServerMessages } from "./message-types/host-cu.js";
 import type { _HostFileServerMessages } from "./message-types/host-file.js";
 import type {
@@ -186,6 +188,7 @@ export type ServerMessage =
   | _DocumentsServerMessages
   | _GuardianActionsServerMessages
   | _HostBashServerMessages
+  | _HostBrowserServerMessages
   | _HostCuServerMessages
   | _HostFileServerMessages
   | _MemoryServerMessages
