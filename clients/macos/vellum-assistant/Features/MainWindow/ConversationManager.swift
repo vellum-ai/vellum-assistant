@@ -141,6 +141,13 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.groupedConversations
     }
 
+    var sidebarGroupEntries: [SidebarGroupEntry] { listStore.sidebarGroupEntries }
+
+    var customGroupsEnabled: Bool {
+        get { listStore.customGroupsEnabled }
+        set { listStore.customGroupsEnabled = newValue }
+    }
+
     var visibleConversations: [ConversationModel] { listStore.visibleConversations }
 
     var unseenVisibleConversationCount: Int { listStore.unseenVisibleConversationCount }
