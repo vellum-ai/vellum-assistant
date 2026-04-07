@@ -151,9 +151,7 @@ struct SkillDetailView: View {
     }
 
     /// Build a sorted `[VFileBrowserNode]` tree from a flat list of skill files.
-    /// Mirrors the logic of `FileTreeNode.buildTree`, producing the design-system
-    /// node type directly. Sorting: directories first (alphabetical), then files
-    /// (alphabetical).
+    /// Sorting: directories first (alphabetical), then files (alphabetical).
     private static func buildSkillNodeTree(from files: [SkillFileEntry]) -> [VFileBrowserNode] {
         var childrenByParent: [String: [VFileBrowserNode]] = [:]
         var createdDirs: Set<String> = []

@@ -230,6 +230,10 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
         let forcedExpanded: Set<String>
     }
 
+    /// When search is active, the tree is filtered to matches and their ancestors,
+    /// and ALL ancestor directories are forcibly rendered as expanded regardless of
+    /// `expandedPaths`. This means clicking a directory during search appears to do
+    /// nothing — a deliberate UX choice so users always see the matches.
     private var visibleRowData: VisibleRowData {
         if searchText.isEmpty {
             let rows = Self.flattenTree(rootNodes, depth: 0, expanded: expandedPaths)
@@ -360,7 +364,9 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
                 Text(node.name)
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(
-                        isSelected ? VColor.contentEmphasized : VColor.contentSecondary
+                        node.isDimmed ? VColor.contentTertiary :
+                        isSelected ? VColor.contentEmphasized :
+                        VColor.contentSecondary
                     )
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -391,7 +397,10 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .accessibilityLabel(node.name)
-        .accessibilityHint(isSelected ? "Selected" : (node.isDirectory ? "Tap to expand" : "Tap to select"))
+        .accessibilityHint(
+            isSelected ? "Selected"
+            : (node.isDirectory ? "Tap to \(isExpanded ? "collapse" : "expand")" : "Tap to select")
+        )
         .contextMenu { rowContextMenu(node) }
         .modifier(DropTargetModifier(node: node, isTargeted: $isDropTargeted, onDrop: onDrop))
     }
