@@ -3140,6 +3140,11 @@ paths:
                 conversationId:
                   description: Scope to a single conversation
                   type: string
+                full:
+                  description:
+                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
+                    debugging.
+                  type: boolean
                 startTime:
                   description: Lower bound epoch ms
                   type: number
@@ -4335,6 +4340,11 @@ paths:
                 conversationId:
                   description: Scope to a single conversation
                   type: string
+                full:
+                  description:
+                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
+                    debugging.
+                  type: boolean
                 startTime:
                   description: Lower bound epoch ms
                   type: number
