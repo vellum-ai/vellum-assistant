@@ -145,8 +145,15 @@ struct IntegrationsPanelContent: View {
                         IntegrationItemRow(
                             provider: provider,
                             isConnected: hasActiveConnections(for: provider.provider_key),
-                            connectedCount: connectedCount(for: provider.provider_key),
-                            onSelect: { selectedProviderKey = provider.provider_key }
+                            onEnable: {
+                                store.startManagedOAuthConnect(providerKey: provider.provider_key)
+                            },
+                            onEdit: {
+                                selectedProviderKey = provider.provider_key
+                            },
+                            onDisable: {
+                                selectedProviderKey = provider.provider_key
+                            }
                         )
                     }
                 }
@@ -197,11 +204,14 @@ struct IntegrationsPanelContent: View {
 private struct IntegrationItemRow: View {
     let provider: OAuthProviderMetadata
     let isConnected: Bool
-    let connectedCount: Int
-    let onSelect: () -> Void
+    let onEnable: () -> Void
+    let onEdit: () -> Void
+    let onDisable: () -> Void
+
+    @State private var showManagePopover = false
 
     var body: some View {
-        VCard(action: onSelect) {
+        VCard {
             HStack(alignment: .center, spacing: VSpacing.lg) {
                 IntegrationIcon.image(
                     for: provider.provider_key,
@@ -210,17 +220,11 @@ private struct IntegrationItemRow: View {
                 )
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(alignment: .center, spacing: VSpacing.sm) {
-                        Text(provider.display_name ?? provider.provider_key)
-                            .font(VFont.titleSmall)
-                            .foregroundStyle(VColor.contentEmphasized)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-
-                        statusPill
-
-                        Spacer()
-                    }
+                    Text(provider.display_name ?? provider.provider_key)
+                        .font(VFont.titleSmall)
+                        .foregroundStyle(VColor.contentEmphasized)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
                     if let description = provider.description, !description.isEmpty {
                         Text(description)
@@ -232,29 +236,56 @@ private struct IntegrationItemRow: View {
                 }
 
                 Spacer()
+
+                if isConnected {
+                    VButton(label: "Manage", rightIcon: VIcon.chevronDown.rawValue, style: .outlined, size: .compact) {
+                        showManagePopover = true
+                    }
+                    .popover(isPresented: $showManagePopover, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Button {
+                                showManagePopover = false
+                                onEdit()
+                            } label: {
+                                HStack(spacing: VSpacing.sm) {
+                                    VIconView(.pencil, size: 14)
+                                    Text("Edit connection")
+                                        .font(VFont.bodyMediumDefault)
+                                }
+                                .padding(.horizontal, VSpacing.md)
+                                .padding(.vertical, VSpacing.sm)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                showManagePopover = false
+                                onDisable()
+                            } label: {
+                                HStack(spacing: VSpacing.sm) {
+                                    VIconView(.circleX, size: 14)
+                                    Text("Disable")
+                                        .font(VFont.bodyMediumDefault)
+                                }
+                                .foregroundStyle(VColor.systemNegativeStrong)
+                                .padding(.horizontal, VSpacing.md)
+                                .padding(.vertical, VSpacing.sm)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, VSpacing.xs)
+                        .frame(minWidth: 180)
+                    }
+                } else {
+                    VButton(label: "Enable", style: .primary, size: .compact) {
+                        onEnable()
+                    }
+                }
             }
         }
         .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder
-    private var statusPill: some View {
-        if isConnected {
-            Text("\(connectedCount) connected")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.systemPositiveStrong)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xxs)
-                .background(VColor.systemPositiveStrong.opacity(0.12))
-                .clipShape(Capsule())
-        } else {
-            Text("Not connected")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xxs)
-                .background(VColor.contentTertiary.opacity(0.10))
-                .clipShape(Capsule())
-        }
     }
 }
