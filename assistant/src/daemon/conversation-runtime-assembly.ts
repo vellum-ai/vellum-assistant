@@ -540,13 +540,12 @@ const AUTOINJECT_FILENAME = "_autoinject.md";
 /** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
 const MAX_BUFFER_LINES = 50;
 
-const PKB_NUDGE =
-  "\n\n---\n" +
-  "Your knowledge base has topic files beyond what's loaded here — " +
-  "INDEX.md is your table of contents. At the start of each conversation, " +
-  "read any topic files that might be relevant. " +
-  "Don't wait to be asked — look things up proactively. " +
-  "Use `remember` for every new fact you learn, immediately, no batching.";
+const PKB_SYSTEM_REMINDER =
+  "<system_reminder>" +
+  "\nProactively read any PKB topic files relevant to this conversation — " +
+  "INDEX.md is your table of contents. Don't wait to be asked. " +
+  "Use `remember` for every new fact you learn, immediately, no batching." +
+  "\n</system_reminder>";
 
 /**
  * Read `_autoinject.md` from the PKB directory and return the list of
@@ -610,7 +609,7 @@ export function readPkbContext(): string | null {
     }
   }
 
-  return parts.length > 0 ? parts.join("\n\n") + PKB_NUDGE : null;
+  return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
 /**
@@ -1084,6 +1083,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<NOW.md Always keep this up to date>",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   "<pkb>",
+  "<system_reminder>",
   "<transport_hints>",
   "<system_notice>One or more tool calls returned an error.",
 ];
@@ -1215,6 +1215,24 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectPkbContext(userTail, options.pkbContext),
+      ];
+    }
+  }
+
+  // PKB behavioral nudge — remind the assistant to read topic files and
+  // call `remember` aggressively.
+  if (mode === "full" && options.pkbContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        {
+          ...userTail,
+          content: [
+            ...userTail.content,
+            { type: "text" as const, text: PKB_SYSTEM_REMINDER },
+          ],
+        },
       ];
     }
   }
