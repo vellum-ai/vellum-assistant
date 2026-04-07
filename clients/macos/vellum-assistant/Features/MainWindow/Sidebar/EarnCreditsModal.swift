@@ -15,15 +15,35 @@ struct EarnCreditsModal: View {
     @State private var copyResetTask: Task<Void, Never>?
     @State private var showTerms: Bool = false
 
+    private var subtitleText: String {
+        guard let code = referralCode else {
+            return "Refer friends to earn free credits."
+        }
+        let cap = formatCredits(code.earning_cap)
+        let referrerAmount = formatCredits(code.referrer_credit_amount)
+        let refereeAmount = formatCredits(code.credit_amount)
+        if referrerAmount == refereeAmount {
+            return "Share Vellum with friends — you'll each earn \(referrerAmount) credits when they sign up, up to \(cap) total."
+        } else {
+            return "Share Vellum with friends — you'll earn \(referrerAmount) credits and they'll get \(refereeAmount) when they sign up, up to \(cap) total."
+        }
+    }
+
+    /// Strip trailing `.00` from a decimal-string credit amount so that whole
+    /// numbers render as `5` instead of `5.00`.
+    private func formatCredits(_ amount: String) -> String {
+        amount.replacingOccurrences(of: ".00", with: "")
+    }
+
     var body: some View {
         VModal(
             title: showTerms ? "" : "Earn free credits",
-            subtitle: showTerms ? nil : "Share Vellum with friends and earn credits when they subscribe.",
+            subtitle: showTerms ? nil : subtitleText,
             closeAction: { dismiss() },
             backAction: showTerms ? { withAnimation { showTerms = false } } : nil
         ) {
-            if showTerms {
-                termsContent
+            if showTerms, let referralCode {
+                termsContent(referralCode)
             } else if isLoading {
                 loadingContent
             } else if let error {
@@ -41,10 +61,13 @@ struct EarnCreditsModal: View {
     // MARK: - Main Content
 
     private func mainContent(_ code: ReferralCodeResponse) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             howItWorks(code)
-            referralLinkSection(code)
-            statsSection(code)
+            SettingsDivider()
+            referralLinkRow(code)
+            SettingsDivider()
+            statsRow(code)
+            SettingsDivider()
             termsLink
         }
         .padding(.bottom, VSpacing.lg)
@@ -53,116 +76,76 @@ struct EarnCreditsModal: View {
     // MARK: - How It Works
 
     private func howItWorks(_ code: ReferralCodeResponse) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text("How it works")
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentSecondary)
-
-            howItWorksStep(
-                icon: .share,
-                title: "Share your invite link",
-                subtitle: "Send your personal referral link to friends"
-            )
-
-            howItWorksStep(
-                icon: .users,
-                title: "They sign up",
-                subtitle: "Your friend creates a Vellum account"
-            )
-
-            let capFormatted = code.earning_cap.replacingOccurrences(of: ".00", with: "")
-            howItWorksStep(
-                icon: .gift,
-                title: "You earn credits",
-                subtitle: "Get credits when they subscribe (up to \(capFormatted) total)"
-            )
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            howItWorksStep(icon: .share, title: "Share your invite link")
+            howItWorksStep(icon: .users, title: "They sign up")
+            howItWorksStep(icon: .gift, title: "You earn credits")
         }
     }
 
-    private func howItWorksStep(icon: VIcon, title: String, subtitle: String) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.md) {
+    private func howItWorksStep(icon: VIcon, title: String) -> some View {
+        HStack(spacing: VSpacing.md) {
             VIconView(icon, size: 14)
                 .foregroundStyle(VColor.primaryBase)
                 .frame(width: 28, height: 28)
                 .background(VColor.primaryBase.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                Text(subtitle)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-            }
+            Text(title)
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
         }
     }
 
     // MARK: - Referral Link
 
-    private func referralLinkSection(_ code: ReferralCodeResponse) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            SettingsDivider()
+    private func referralLinkRow(_ code: ReferralCodeResponse) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Text(code.referral_url)
+                .font(.custom("DMMono-Regular", size: 13))
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.sm)
+                .background(VColor.surfaceBase)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.borderBase, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
-            HStack(spacing: VSpacing.sm) {
-                Text(code.referral_url)
-                    .font(.custom("DMMono-Regular", size: 13))
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(VSpacing.sm)
-                    .background(VColor.surfaceBase)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.borderBase, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-
-                VButton(
-                    label: copied ? "Copied" : "Copy referral link",
-                    iconOnly: copied ? VIcon.check.rawValue : VIcon.copy.rawValue,
-                    style: .primary
-                ) {
-                    copyToClipboard(code.referral_url)
-                }
+            VButton(
+                label: copied ? "Copied" : "Copy referral link",
+                iconOnly: copied ? VIcon.check.rawValue : VIcon.copy.rawValue,
+                style: .primary
+            ) {
+                copyToClipboard(code.referral_url)
             }
         }
     }
 
     // MARK: - Stats
 
-    private func statsSection(_ code: ReferralCodeResponse) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            SettingsDivider()
+    private func statsRow(_ code: ReferralCodeResponse) -> some View {
+        let earnedFormatted = code.total_earned.replacingOccurrences(of: ".00", with: "")
+        return HStack(spacing: VSpacing.md) {
+            statItem(icon: .users, value: "\(code.referred_count)", label: "Friends Referred")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            statItem(icon: .creditCard, value: earnedFormatted, label: "Credits Earned")
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 
-            HStack(spacing: VSpacing.xl) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.users, size: 14)
-                            .foregroundStyle(VColor.contentSecondary)
-                        Text("Friends Referred")
-                            .font(VFont.bodySmallDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                    }
-                    Text("\(code.referred_count)")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentEmphasized)
-                }
-
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.creditCard, size: 14)
-                            .foregroundStyle(VColor.contentSecondary)
-                        Text("Credits Earned")
-                            .font(VFont.bodySmallDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                    }
-                    Text("\(code.total_earned.replacingOccurrences(of: ".00", with: "")) credits")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentEmphasized)
-                }
-            }
+    private func statItem(icon: VIcon, value: String, label: String) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            VIconView(icon, size: 12)
+                .foregroundStyle(VColor.contentSecondary)
+            (Text(value)
+                .foregroundStyle(VColor.contentEmphasized)
+            + Text(" \(label)")
+                .foregroundStyle(VColor.contentSecondary))
+            .font(VFont.bodySmallDefault)
         }
     }
 
@@ -182,15 +165,17 @@ struct EarnCreditsModal: View {
 
     // MARK: - Terms Content
 
-    private var termsContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
+    private func termsContent(_ code: ReferralCodeResponse) -> some View {
+        let cap = formatCredits(code.earning_cap)
+        return VStack(alignment: .leading, spacing: VSpacing.lg) {
             Text("Referral Program Terms")
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
 
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 termsBullet("This promotion is available to new users who sign up through your referral link only.")
-                termsBullet("Rewards are earned once your invitee creates a new account and subscribes to a paid plan.")
+                termsBullet("Rewards are earned once your invitee completes the creation of their Vellum account.")
+                termsBullet("You may earn up to \(cap) free credits through the Referral Program. We may change this limit at any time.")
                 termsBullet("We do not grant credits for disposable or high-risk email accounts.")
                 termsBullet("Each new user can generate only one (1) reward. No stacking or loophole hunting.")
                 termsBullet("Please avoid spamming or misusing your referral link. Our systems actively monitor referral engagement.")
@@ -214,20 +199,57 @@ struct EarnCreditsModal: View {
 
     // MARK: - Loading
 
+    /// Skeleton placeholder that mirrors `mainContent` section-for-section so
+    /// the modal layout doesn't jump when the API responds.
     private var loadingContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            VSkeletonBone(width: 120, height: 14)
-            VSkeletonBone(height: 20)
-            VSkeletonBone(height: 20)
-            VSkeletonBone(height: 20)
-            VSkeletonBone(height: 28)
-            HStack(spacing: VSpacing.xl) {
-                VSkeletonBone(width: 80, height: 14)
-                VSkeletonBone(width: 80, height: 14)
+            // How it works steps
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                howItWorksStepSkeleton(textWidth: 140)
+                howItWorksStepSkeleton(textWidth: 100)
+                howItWorksStepSkeleton(textWidth: 130)
             }
+
+            SettingsDivider()
+
+            // Referral link row — full-width URL field + icon-only copy button
+            HStack(spacing: VSpacing.sm) {
+                VSkeletonBone(height: 32, radius: VRadius.md)
+                VSkeletonBone(width: 32, height: 32, radius: VRadius.md)
+            }
+
+            SettingsDivider()
+
+            // Stats row — two equal-width inline stat items
+            HStack(spacing: VSpacing.md) {
+                statItemSkeleton()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                statItemSkeleton()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            SettingsDivider()
+
+            // Terms link — small centered text
+            VSkeletonBone(width: 150, height: 12)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(.bottom, VSpacing.lg)
         .accessibilityHidden(true)
+    }
+
+    private func howItWorksStepSkeleton(textWidth: CGFloat) -> some View {
+        HStack(spacing: VSpacing.md) {
+            VSkeletonBone(width: 28, height: 28, radius: VRadius.sm)
+            VSkeletonBone(width: textWidth, height: 14)
+        }
+    }
+
+    private func statItemSkeleton() -> some View {
+        HStack(spacing: VSpacing.xs) {
+            VSkeletonBone(width: 12, height: 12)
+            VSkeletonBone(width: 100, height: 12)
+        }
     }
 
     // MARK: - Error

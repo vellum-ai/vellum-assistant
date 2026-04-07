@@ -332,4 +332,8 @@ public struct ReferralCodeResponse: Codable, Sendable {
     public let referred_count: Int
     public let total_earned: String
     public let earning_cap: String
+    /// Credits granted to the referee (the friend who signs up).
+    public let credit_amount: String
+    /// Credits granted to the referrer (the user sharing the link).
+    public let referrer_credit_amount: String
 }

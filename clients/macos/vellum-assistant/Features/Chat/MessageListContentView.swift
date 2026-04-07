@@ -254,7 +254,7 @@ struct MessageListContentView: View, Equatable {
                     thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
                 }
                 thinkingAvatarRow
-            } else if state.isStreamingWithoutText {
+            } else if state.isStreamingWithoutText && !state.canInlineProcessing {
                 HStack {
                     TypingIndicatorView()
                     Spacer()

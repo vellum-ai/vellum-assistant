@@ -89,7 +89,6 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   assistantId?: string;
   currentRequestId?: string;
   workingDir: string;
-  sandboxOverride?: boolean;
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
@@ -186,7 +185,6 @@ export function createToolExecutor(
           : undefined,
       onOutput,
       signal: ctx.abortController?.signal,
-      sandboxOverride: ctx.sandboxOverride,
       allowedToolNames: ctx.allowedToolNames,
       memoryScopeId: ctx.memoryPolicy.scopeId,
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
@@ -370,7 +368,6 @@ export function createProxyApprovalCallback(
       riskLevel,
       allowlistOptions,
       scopeOptions,
-      undefined,
       undefined,
       ctx.conversationId,
     );

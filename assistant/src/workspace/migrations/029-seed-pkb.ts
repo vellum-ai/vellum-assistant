@@ -14,6 +14,7 @@ const INDEX_TEMPLATE = `_ Lines starting with _ are comments - they won't appear
 - threads.md — Active commitments, follow-ups, and projects in progress
 - buffer.md — Inbox of recently learned facts (filed periodically)
 
+
 ## Topics
 `;
 

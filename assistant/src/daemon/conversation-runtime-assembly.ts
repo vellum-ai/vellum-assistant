@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
@@ -533,7 +533,9 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
 // PKB (Personal Knowledge Base) injection
 // ---------------------------------------------------------------------------
 
-const PKB_FILES = ["INDEX.md", "essentials.md", "threads.md", "buffer.md"];
+const PKB_DEFAULT_FILES = ["INDEX.md", "essentials.md", "threads.md", "buffer.md"];
+
+const AUTOINJECT_FILENAME = "_autoinject.md";
 
 /** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
 const MAX_BUFFER_LINES = 50;
@@ -547,9 +549,31 @@ const PKB_NUDGE =
   "Use `remember` for every new fact you learn, immediately, no batching.";
 
 /**
- * Read the always-loaded PKB files (INDEX, essentials, threads, buffer)
- * and append a nudge encouraging the assistant to proactively read topic
- * files and use `remember` aggressively.
+ * Read `_autoinject.md` from the PKB directory and return the list of
+ * filenames to inject. Returns `null` when the file is missing, empty,
+ * or unreadable — callers should fall back to the hardcoded defaults.
+ */
+export function readAutoinjectList(pkbDir: string): string[] | null {
+  const filePath = join(pkbDir, AUTOINJECT_FILENAME);
+  if (!existsSync(filePath)) return null;
+  try {
+    const raw = stripCommentLines(readFileSync(filePath, "utf-8"));
+    const files = raw
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    return files.length > 0 ? files : [];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the always-loaded PKB files and append a nudge encouraging the
+ * assistant to proactively read topic files and use `remember` aggressively.
+ *
+ * Which files are loaded is determined by `pkb/_autoinject.md` (one filename
+ * per line). Falls back to the built-in defaults when that file is absent.
  *
  * Returns the concatenated content ready for injection, or `null` if all
  * files are missing or empty.
@@ -558,9 +582,14 @@ export function readPkbContext(): string | null {
   const pkbDir = join(getWorkspaceDir(), "pkb");
   if (!existsSync(pkbDir)) return null;
 
+  const filesToInject = readAutoinjectList(pkbDir) ?? PKB_DEFAULT_FILES;
+
   const parts: string[] = [];
-  for (const file of PKB_FILES) {
-    const filePath = join(pkbDir, file);
+  for (const file of filesToInject) {
+    // Path traversal guard: reject entries that escape the pkb directory
+    const filePath = resolve(pkbDir, file);
+    if (!filePath.startsWith(pkbDir + "/")) continue;
+
     if (!existsSync(filePath)) continue;
     try {
       let content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
@@ -599,7 +628,7 @@ export function injectPkbContext(message: Message, content: string): Message {
     if (
       block.type === "text" &&
       (block.text.startsWith("<memory") ||
-        block.text.startsWith("</memory") ||
+        block.text.startsWith("</memory_image>") ||
         block.text.startsWith("<memory_context"))
     ) {
       insertIdx = i + 1;
@@ -1052,6 +1081,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   "<pkb>",
   "<transport_hints>",
+  "<system_notice>One or more tool calls returned an error.",
 ];
 
 /**
