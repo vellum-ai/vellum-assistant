@@ -107,9 +107,6 @@ describe("AssistantConfigSchema", () => {
       toolExecutionTimeoutSec: 120,
       providerStreamTimeoutSec: 1800,
     });
-    expect(result.sandbox).toEqual({
-      enabled: false,
-    });
     expect(result.rateLimit).toEqual({
       maxRequestsPerMinute: 0,
     });
@@ -397,24 +394,6 @@ describe("AssistantConfigSchema", () => {
             m.includes("redact") && m.includes("warn") && m.includes("block"),
         ),
       ).toBe(true);
-    }
-  });
-
-  test("sandbox with only enabled still parses", () => {
-    const result = AssistantConfigSchema.parse({ sandbox: { enabled: false } });
-    expect(result.sandbox.enabled).toBe(false);
-  });
-
-  test("rejects unknown sandbox fields", () => {
-    const result = AssistantConfigSchema.safeParse({
-      sandbox: { backend: "docker" },
-    });
-    // Unknown keys are stripped by Zod passthrough/strip, so parse should still succeed
-    // but the unknown field should not appear in the output
-    if (result.success) {
-      expect(
-        (result.data.sandbox as Record<string, unknown>)["backend"],
-      ).toBeUndefined();
     }
   });
 
@@ -1082,25 +1061,6 @@ describe("loadConfig with schema validation", () => {
     writeConfig({ secretDetection: { action: "explode" } });
     const config = loadConfig();
     expect(config.secretDetection.action).toBe("redact");
-  });
-
-  test("falls back for invalid sandbox.enabled", () => {
-    writeConfig({ sandbox: { enabled: "yes" } });
-    const config = loadConfig();
-    expect(config.sandbox.enabled).toBe(false);
-  });
-
-  test("loads sandbox with only enabled field", () => {
-    writeConfig({ sandbox: { enabled: false } });
-    const config = loadConfig();
-    expect(config.sandbox.enabled).toBe(false);
-  });
-
-  test("strips unknown sandbox fields", () => {
-    writeConfig({ sandbox: { enabled: true, backend: "docker" } });
-    const config = loadConfig();
-    expect(config.sandbox.enabled).toBe(true);
-    expect("backend" in config.sandbox).toBe(false);
   });
 
   test("falls back for invalid contextWindow relationship", () => {
