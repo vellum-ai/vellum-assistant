@@ -125,7 +125,7 @@ public enum PlatformMigrationClient {
     public static func uploadToSignedUrl(
         _ url: String,
         bundleData: Data,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping @MainActor (Double) -> Void
     ) async throws {
         guard let uploadURL = URL(string: url) else {
             throw PlatformMigrationError.uploadFailed(statusCode: 0)
@@ -284,9 +284,9 @@ public enum PlatformMigrationClient {
 
     /// Tracks upload progress and dispatches progress updates to the main actor.
     private class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
-        private let onProgress: (Double) -> Void
+        private let onProgress: @MainActor (Double) -> Void
 
-        init(onProgress: @escaping (Double) -> Void) {
+        init(onProgress: @escaping @MainActor (Double) -> Void) {
             self.onProgress = onProgress
         }
 
@@ -300,8 +300,8 @@ public enum PlatformMigrationClient {
             guard totalBytesExpectedToSend > 0 else { return }
             let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
             let callback = self.onProgress
-            Task { @MainActor in
-                callback(progress)
+            Task {
+                await callback(progress)
             }
         }
     }
