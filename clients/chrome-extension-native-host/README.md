@@ -6,10 +6,15 @@ exists so the extension can bootstrap a scoped capability token for the
 self-hosted (local-assistant) transport without ever shipping a long-lived
 secret in the extension package itself.
 
-This package is **scaffolding only** in this PR. It is not yet wired into
-the extension or the macOS installer — those land in PR 12 (manifest +
-installer) and PR 13 (extension self-hosted bootstrap flow). The runtime
-HTTP endpoint it talks to (`/v1/browser-extension-pair`) lands in PR 11.
+The macOS installer wiring landed in PR 12: the helper is now bundled
+into the Mac `.app` under `Contents/MacOS/vellum-chrome-native-host`
+via `clients/macos/build.sh` (see the "Bundling into the macOS app"
+section below), and `NativeMessagingInstaller` writes the
+`com.vellum.daemon.json` manifest into Chrome's per-user
+`NativeMessagingHosts` directory at launch time. The extension-side
+bootstrap flow that actually spawns this helper lands in PR 13, and the
+runtime HTTP endpoint it talks to (`/v1/browser-extension-pair`) lands
+in PR 11.
 
 [cnm]: https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging
 
@@ -139,7 +144,59 @@ bun run build       # produces dist/index.js
 
 `bun run build` is a thin wrapper around `tsc -p tsconfig.json`. The
 output is a single ES module file under `dist/` that can be invoked
-directly with `node dist/index.js`.
+directly with `node dist/index.js`. This form is convenient for local
+development and unit tests.
+
+## Bundling into the macOS app
+
+The production macOS `.app` does **not** ship the `dist/index.js` form
+— Chrome's native messaging `path` field must point at a runnable
+executable, and we do not want to assume that the user has `node` on
+their `$PATH`. Instead, `clients/macos/build.sh` uses
+`bun build --compile` (via its shared `build_bun_binary` helper) to
+produce a self-contained single-file binary named
+`vellum-chrome-native-host`, writes it to
+`$SCRIPT_DIR/native-host-bin/`, and then copies it into the app bundle
+at `Contents/MacOS/vellum-chrome-native-host` alongside the other
+compiled Bun binaries (`vellum-daemon`, `vellum-cli`,
+`vellum-gateway`, `vellum-assistant`).
+
+At first launch, the Swift-side `NativeMessagingInstaller` (see
+`clients/macos/vellum-assistant/Features/Installer/NativeMessagingInstaller.swift`)
+resolves the bundled binary via
+`Bundle.main.url(forAuxiliaryExecutable: "vellum-chrome-native-host")`
+and writes `com.vellum.daemon.json` pointing `path` at that absolute
+location. Because the manifest is regenerated on every launch, moving
+or upgrading the `.app` bundle automatically repoints Chrome at the
+new helper location without a manual re-pair step.
+
+### Why Bun single-file compile (not `node dist/index.js`)
+
+The plan initially considered shipping `dist/index.js` plus a wrapper
+shell script. That approach was dropped because:
+
+1. Chrome's native messaging host `path` must be executable — it does
+   not support shell interpretation of script shebangs beyond the OS's
+   own `execve`, which means we would still need a compiled wrapper.
+2. Every other binary the macOS app ships (daemon, CLI, gateway) uses
+   `bun build --compile` into a native single-file binary. Reusing
+   that same pipeline keeps the build/signing steps uniform and avoids
+   depending on the user having `node` installed.
+3. The compiled binary participates in the app's codesign chain and
+   notarization pipeline the same way as the other helpers, which
+   keeps macOS Gatekeeper happy.
+
+### Manifest template
+
+The canonical manifest shape is checked in at
+`clients/chrome-extension-native-host/com.vellum.daemon.json.template`.
+`NativeMessagingInstaller` rebuilds the same structure in-memory via
+`JSONSerialization` and overwrites the on-disk file on every launch
+(idempotent) so that upgrading the app bundle automatically updates the
+`path` and `allowed_origins` entries. The `__HELPER_BINARY_PATH__` and
+`__VELLUM_EXTENSION_ID__` placeholders in the template are for
+humans reading the checked-in file — the actual install never
+performs template substitution.
 
 ## Testing
 

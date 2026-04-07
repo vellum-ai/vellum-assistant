@@ -213,6 +213,7 @@ export SIGN_IDENTITY
 ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
+NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension-native-host"
 
 # Packages that must stay external in compiled Bun binaries.
 # playwright-core has optional requires (electron, chromium-bidi) that cannot
@@ -278,6 +279,9 @@ build_binaries() {
     (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
+        (cd "$NATIVE_HOST_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    fi
 
     # Shared flags for daemon and assistant CLI
     local daemon_flags=("${BUN_EXTERNAL_FLAGS[@]}")
@@ -317,6 +321,12 @@ build_binaries() {
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/gateway-bin" "vellum-gateway" &
     pids+=($!)
+
+    if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
+        SKIP_BUN_INSTALL=1 build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
+            "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host" &
+        pids+=($!)
+    fi
 
     for pid in "${pids[@]}"; do
         wait "$pid" || failures=$((failures + 1))
@@ -388,7 +398,7 @@ case "$CMD" in
     clean)
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
-        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
         rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
         exit 0
@@ -433,7 +443,7 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
         # (e.g. arm64 binaries from a previous build being bundled into an x86_64 release).
         # Skip when SKIP_BUN_REBUILD=1, since pre-built binaries are intentionally provided.
         if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
-            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
         fi
     fi
 fi
@@ -620,6 +630,35 @@ if [ -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
     fi
 fi
 
+# Auto-build Chrome native messaging helper binary if missing or stale
+# and bun is available. This is the binary Chrome spawns via
+# chrome.runtime.connectNative("com.vellum.daemon") — see
+# clients/chrome-extension-native-host/ for the source and
+# clients/macos/vellum-assistant/Features/Installer/NativeMessagingInstaller.swift
+# for the manifest that points at the bundled copy.
+NATIVE_HOST_BIN_NEEDS_BUILD=false
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$NATIVE_HOST_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; then
+        NATIVE_HOST_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$NATIVE_HOST_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" -print -quit 2>/dev/null)" ]; then
+        NATIVE_HOST_BIN_NEEDS_BUILD=true
+    elif [ "$NATIVE_HOST_SRC_DIR/package.json" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ] || \
+         { [ -f "$NATIVE_HOST_SRC_DIR/bun.lock" ] && [ "$NATIVE_HOST_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; }; then
+        NATIVE_HOST_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$NATIVE_HOST_BIN_NEEDS_BUILD" = true ]; then
+    build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host"
+fi
+
+# Also rebuild if native host binary changed or newly added
+if [ -f "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; then
+    if [ ! -f "$MACOS_DIR/vellum-chrome-native-host" ] || [ "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" -nt "$MACOS_DIR/vellum-chrome-native-host" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
 # Ensure .app bundle structure exists
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
@@ -674,6 +713,19 @@ if [ "$NEEDS_REBUILD" = true ]; then
         chmod +x "$MACOS_DIR/vellum-gateway"
     else
         echo "No gateway binary at $GATEWAY_BIN — skipping (dev mode)"
+    fi
+
+    # Copy bundled Chrome native messaging helper binary (if available).
+    # This is an auxiliary executable under Contents/MacOS/ that Chrome
+    # spawns via the com.vellum.daemon.json manifest written by
+    # NativeMessagingInstaller at first launch.
+    NATIVE_HOST_BIN="$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host"
+    if [ -f "$NATIVE_HOST_BIN" ]; then
+        echo "Bundling Chrome native messaging helper binary..."
+        cp "$NATIVE_HOST_BIN" "$MACOS_DIR/vellum-chrome-native-host"
+        chmod +x "$MACOS_DIR/vellum-chrome-native-host"
+    else
+        echo "No Chrome native messaging helper binary at $NATIVE_HOST_BIN — skipping (dev mode)"
     fi
 
 else
@@ -1124,6 +1176,16 @@ if [ -f "$MACOS_DIR/vellum-gateway" ]; then
     echo "Gateway binary signed"
 fi
 
+# Sign Chrome native messaging helper binary
+if [ -f "$MACOS_DIR/vellum-chrome-native-host" ]; then
+    NATIVE_HOST_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        NATIVE_HOST_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${NATIVE_HOST_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-chrome-native-host"
+    echo "Chrome native messaging helper binary signed"
+fi
+
 # Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
 
 # Sign any additional regular files directly under Contents/MacOS.
@@ -1138,6 +1200,7 @@ if [ -d "$MACOS_DIR" ]; then
         ! -name "vellum-daemon" \
         ! -name "vellum-cli" \
         ! -name "vellum-gateway" \
+        ! -name "vellum-chrome-native-host" \
         -exec codesign "${EXTRA_FILE_SIGN_FLAGS[@]}" {} \;
 fi
 
