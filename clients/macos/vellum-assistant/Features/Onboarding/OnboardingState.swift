@@ -61,7 +61,7 @@ final class OnboardingState {
 
         var subtitle: String {
             switch self {
-            case .vellumCloud: return "Ready out of the box. Runs entirely on Vellum's secure infrastructure."
+            case .vellumCloud: return "Always on, 24/7, even when your Mac is asleep. Runs on Vellum's secure infrastructure."
             case .local: return "Your machine, your data. Nothing leaves your Mac."
             case .docker: return "Same privacy as local, but sandboxed using Docker."
             case .oldLocal: return "Legacy local mode without Docker."
