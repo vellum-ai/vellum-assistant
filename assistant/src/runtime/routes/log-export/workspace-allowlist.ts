@@ -14,7 +14,14 @@
  * `<ISO-with-dashes>_<conversationId>` format are silently skipped (Rule 3).
  */
 
-import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { parseConversationDirName } from "../../../memory/conversation-directories.js";
@@ -88,9 +95,15 @@ function dirSizeWithinBudget(
     }
     for (const name of entries) {
       const child = join(current, name);
-      let stat: ReturnType<typeof statSync>;
+      let stat: ReturnType<typeof lstatSync>;
       try {
-        stat = statSync(child);
+        // Use lstat (not stat) so symlinks are NOT dereferenced. Without
+        // this, a symlink cycle inside a conversation directory (e.g.
+        // `loop -> .`) would cause the walker to recurse forever and
+        // hang `collectWorkspaceData`. With lstat, symlinks show up as
+        // symlinks — neither `isDirectory()` nor `isFile()` is true on
+        // the lstat result, so they're naturally skipped below.
+        stat = lstatSync(child);
       } catch (err) {
         log.warn(
           { err, path: child },

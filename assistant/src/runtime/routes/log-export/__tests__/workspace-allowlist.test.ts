@@ -18,6 +18,7 @@ import {
   mkdtempSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -357,5 +358,52 @@ describe("collectWorkspaceData — conversations entry", () => {
       "photo.png",
     );
     expect(existsSync(photoPath)).toBe(true);
+  });
+
+  test("skips symlinked directories to avoid infinite loops", () => {
+    // Symlink creation requires elevated permissions on Windows; skip
+    // there to avoid spurious failures in CI on Windows hosts.
+    if (process.platform === "win32") return;
+
+    // Seed a single canonical conversation directory and stick a
+    // symlink loop inside it (`loop -> .`). The recursive sizing walk
+    // used to follow symlinks via statSync, which would cause it to
+    // descend into the loop forever and hang the export. With lstat we
+    // expect the function to return promptly and still process the
+    // conversation directory.
+    const conversationsDir = getConversationsDir();
+    mkdirSync(conversationsDir, { recursive: true });
+
+    const convDir = join(conversationsDir, CONV_DIRS.jan20);
+    mkdirSync(convDir, { recursive: true });
+    writeFileSync(
+      join(convDir, "meta.json"),
+      JSON.stringify({ name: CONV_DIRS.jan20 }, null, 2),
+      "utf-8",
+    );
+
+    // Create the loop: <conv-dir>/loop -> .
+    symlinkSync(".", join(convDir, "loop"), "dir");
+
+    const startMs = Date.now();
+    const result = collectWorkspaceData({ staging });
+    const elapsedMs = Date.now() - startMs;
+
+    // Sanity check: the call must complete quickly. If lstat were ever
+    // reverted back to stat, this would hang and time out the bun test
+    // runner long before this assertion ever fired.
+    expect(elapsedMs).toBeLessThan(5000);
+
+    expect(result.entries).toHaveLength(1);
+    const [entry] = result.entries;
+    expect(entry.entry).toBe("conversations");
+    // The conversation directory should still be processed and copied;
+    // we don't care whether the symlink itself was reproduced in the
+    // copy — the key invariant is that the function completed.
+    expect(entry.itemCount).toBe(1);
+    expect(entry.skippedDueToCap).toBe(0);
+
+    const copied = readdirSync(join(staging, "workspace", "conversations"));
+    expect(copied).toContain(CONV_DIRS.jan20);
   });
 });
