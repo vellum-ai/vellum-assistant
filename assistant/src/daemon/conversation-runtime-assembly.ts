@@ -1086,6 +1086,28 @@ export function findLastInjectedNowContent(messages: Message[]): string | null {
 }
 
 /**
+ * Extract the most recently injected PKB content from the message history.
+ * Returns null if no PKB injection is found.
+ */
+export function findLastInjectedPkbContent(
+  messages: Message[],
+): string | null {
+  const prefix = "<pkb>\n";
+  const suffix = "\n</pkb>";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "user") continue;
+    for (const block of msg.content) {
+      if (block.type === "text" && block.text.startsWith(prefix)) {
+        const end = block.text.lastIndexOf(suffix);
+        if (end > prefix.length) return block.text.slice(prefix.length, end);
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Controls which runtime injections are applied.
  *
  * - `'full'` (default): all injections are applied.

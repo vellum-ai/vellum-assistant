@@ -102,6 +102,7 @@ import {
   applyRuntimeInjections,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
+  findLastInjectedPkbContent,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   readNowScratchpad,
@@ -786,8 +787,13 @@ export async function runAgentLoopImpl(
     const nowScratchpad =
       currentNowContent !== lastInjectedNow ? currentNowContent : null;
 
-    // Read PKB always-loaded files (INDEX, essentials, threads, buffer)
+    // Only inject PKB if it changed since the last injection in the
+    // conversation.  Keeping the previous injection in place avoids mutating
+    // historical user messages and preserves the cached prefix.
     const currentPkbContent = readPkbContext();
+    const lastInjectedPkb = findLastInjectedPkbContent(ctx.messages);
+    const pkbContext =
+      currentPkbContent !== lastInjectedPkb ? currentPkbContent : null;
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
@@ -798,7 +804,7 @@ export async function runAgentLoopImpl(
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
-      pkbContext: currentPkbContent,
+      pkbContext,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
@@ -924,7 +930,7 @@ export async function runAgentLoopImpl(
         // value from injectionOpts to avoid duplicate injection.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          pkbContext: currentPkbContent,
+          ...(step.compactionResult?.compacted && { pkbContext: currentPkbContent }),
           ...(step.compactionResult?.compacted && { nowScratchpad: currentNowContent }),
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
