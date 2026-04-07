@@ -290,6 +290,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "multi-platform-assistant",
+      "scope": "macos",
+      "key": "multi-platform-assistant",
+      "label": "Multi-Platform Assistant",
+      "description": "Scope per-assistant settings (hotkeys, UI preferences) under the active assistant id in UserDefaults so two assistants on one host carry independent values. Off = legacy unscoped behavior.",
+      "defaultEnabled": false
+    },
+    {
       "id": "apple-container",
       "scope": "macos",
       "key": "apple-container",

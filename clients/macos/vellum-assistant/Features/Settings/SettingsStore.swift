@@ -317,6 +317,81 @@ public final class SettingsStore: ObservableObject {
     private let pairingClient: PairingClientProtocol
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
+    private let featureFlagStore: AssistantFeatureFlagStore?
+
+    /// Factory for a scoped defaults accessor bound to a specific assistant id.
+    /// See ``ScopedDefaults`` for the key-prefixing contract.
+    static func scoped(for assistantId: String) -> ScopedDefaults {
+        ScopedDefaults(assistantId: assistantId)
+    }
+
+    private func isMultiPlatformAssistantEnabled() -> Bool {
+        featureFlagStore?.isEnabled(SettingsStoreScopedMigration.featureFlagKey) ?? false
+    }
+
+    /// Read a per-assistant key. Returns the scoped value when the flag is on
+    /// and a cached assistant id is available; otherwise falls back to the
+    /// legacy unscoped key on `UserDefaults.standard`.
+    private func readPerAssistantObject(_ key: String) -> Any? {
+        if isMultiPlatformAssistantEnabled(), let id = cachedAssistantId {
+            return Self.scoped(for: id).object(forKey: key)
+        }
+        return UserDefaults.standard.object(forKey: key)
+    }
+
+    private func readPerAssistantString(_ key: String) -> String? {
+        if isMultiPlatformAssistantEnabled(), let id = cachedAssistantId {
+            return Self.scoped(for: id).string(forKey: key)
+        }
+        return UserDefaults.standard.string(forKey: key)
+    }
+
+    /// Write a per-assistant key. Writes to scoped storage when the flag is on
+    /// and a cached assistant id is available; otherwise writes to the legacy
+    /// unscoped key. Legacy keys are never touched by the on-path, so flag-off
+    /// behavior is byte-for-byte unchanged.
+    /// Re-reads per-assistant @Published properties from their (possibly
+    /// scoped) backing store. Called on `activeAssistantDidChange` after the
+    /// cached assistant id is updated and the migration helper has copied
+    /// legacy values into the new scope. Assigning to `@Published` properties
+    /// automatically triggers `objectWillChange` so SwiftUI rebinds to the
+    /// freshly-scoped values.
+    private func reloadPerAssistantPublishedValues() {
+        if let stored = readPerAssistantString("selectedImageGenModel"),
+           Self.availableImageGenModels.contains(stored) {
+            selectedImageGenModel = stored
+        }
+        cmdEnterToSend = readPerAssistantObject("cmdEnterToSend") as? Bool ?? false
+
+        globalHotkeyShortcut = readPerAssistantObject("globalHotkeyShortcut") == nil
+            ? "cmd+shift+g"
+            : (readPerAssistantString("globalHotkeyShortcut") ?? "")
+        quickInputHotkeyShortcut = readPerAssistantObject("quickInputHotkeyShortcut") == nil
+            ? "cmd+shift+/"
+            : (readPerAssistantString("quickInputHotkeyShortcut") ?? "")
+        quickInputHotkeyKeyCode =
+            (readPerAssistantObject("quickInputHotkeyKeyCode") as? Int) ?? kVK_ANSI_Slash
+        sidebarToggleShortcut = readPerAssistantObject("sidebarToggleShortcut") == nil
+            ? "cmd+\\"
+            : (readPerAssistantString("sidebarToggleShortcut") ?? "")
+        newChatShortcut = readPerAssistantObject("newChatShortcut") == nil
+            ? "cmd+n"
+            : (readPerAssistantString("newChatShortcut") ?? "")
+        currentConversationShortcut = readPerAssistantObject("currentConversationShortcut") == nil
+            ? "cmd+shift+n"
+            : (readPerAssistantString("currentConversationShortcut") ?? "")
+        popOutShortcut = readPerAssistantObject("popOutShortcut") == nil
+            ? "cmd+p"
+            : (readPerAssistantString("popOutShortcut") ?? "")
+    }
+
+    private func writePerAssistant(_ value: Any?, forKey key: String) {
+        if isMultiPlatformAssistantEnabled(), let id = cachedAssistantId {
+            Self.scoped(for: id).set(value, forKey: key)
+            return
+        }
+        UserDefaults.standard.set(value, forKey: key)
+    }
 
     /// In-memory cache of the active assistant ID to avoid repeated
     /// lockfile I/O on every access. Seeded once in `init` and
@@ -377,6 +452,7 @@ public final class SettingsStore: ObservableObject {
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
         pairingClient: PairingClientProtocol = PairingClient(),
+        featureFlagStore: AssistantFeatureFlagStore? = nil,
         configPath: String? = nil,
         verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
@@ -388,6 +464,7 @@ public final class SettingsStore: ObservableObject {
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient
         self.pairingClient = pairingClient
+        self.featureFlagStore = featureFlagStore
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
@@ -406,44 +483,73 @@ public final class SettingsStore: ObservableObject {
         // user's selection survives restarts even if the daemon is unreachable.
         // loadServiceModes() will override with the daemon's authoritative
         // value once it connects.
-        let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
+        // Run the one-time per-assistant settings migration before reading
+        // per-assistant values so scoped storage is populated on first read.
+        // No-op when the feature flag is off or the sentinel is already set.
+        if let featureFlagStore, let activeAssistantId = self.cachedAssistantId {
+            SettingsStoreScopedMigration.migratePerAssistantKeysIfNeeded(
+                activeAssistantId: activeAssistantId,
+                featureFlagStore: featureFlagStore
+            )
+        }
+
+        // Local read helpers that branch on the multi-platform assistant flag.
+        // Flag off ⇒ legacy unscoped key. Flag on + known assistant id ⇒
+        // scoped key. Flag on + nil assistant id ⇒ fall back to legacy.
+        let isMPAEnabled = featureFlagStore?
+            .isEnabled(SettingsStoreScopedMigration.featureFlagKey) ?? false
+        let activeAssistantIdForInit = self.cachedAssistantId
+        func readObject(_ key: String) -> Any? {
+            if isMPAEnabled, let id = activeAssistantIdForInit {
+                return ScopedDefaults(assistantId: id).object(forKey: key)
+            }
+            return UserDefaults.standard.object(forKey: key)
+        }
+        func readString(_ key: String) -> String? {
+            if isMPAEnabled, let id = activeAssistantIdForInit {
+                return ScopedDefaults(assistantId: id).string(forKey: key)
+            }
+            return UserDefaults.standard.string(forKey: key)
+        }
+
+        let storedImageGenModel = readString("selectedImageGenModel")
         if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
             self.selectedImageGenModel = storedImageGenModel
         }
 
-        self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
+        self.cmdEnterToSend = readObject("cmdEnterToSend") as? Bool ?? false
 
-        if UserDefaults.standard.object(forKey: "globalHotkeyShortcut") == nil {
+        if readObject("globalHotkeyShortcut") == nil {
             self.globalHotkeyShortcut = "cmd+shift+g"
         } else {
-            self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? ""
+            self.globalHotkeyShortcut = readString("globalHotkeyShortcut") ?? ""
         }
-        if UserDefaults.standard.object(forKey: "quickInputHotkeyShortcut") == nil {
+        if readObject("quickInputHotkeyShortcut") == nil {
             self.quickInputHotkeyShortcut = "cmd+shift+/"
         } else {
-            self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? ""
+            self.quickInputHotkeyShortcut = readString("quickInputHotkeyShortcut") ?? ""
         }
-        let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
+        let storedQIKeyCode = readObject("quickInputHotkeyKeyCode") as? Int
         self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
-        if UserDefaults.standard.object(forKey: "sidebarToggleShortcut") == nil {
+        if readObject("sidebarToggleShortcut") == nil {
             self.sidebarToggleShortcut = "cmd+\\"
         } else {
-            self.sidebarToggleShortcut = UserDefaults.standard.string(forKey: "sidebarToggleShortcut") ?? ""
+            self.sidebarToggleShortcut = readString("sidebarToggleShortcut") ?? ""
         }
-        if UserDefaults.standard.object(forKey: "newChatShortcut") == nil {
+        if readObject("newChatShortcut") == nil {
             self.newChatShortcut = "cmd+n"
         } else {
-            self.newChatShortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? ""
+            self.newChatShortcut = readString("newChatShortcut") ?? ""
         }
-        if UserDefaults.standard.object(forKey: "currentConversationShortcut") == nil {
+        if readObject("currentConversationShortcut") == nil {
             self.currentConversationShortcut = "cmd+shift+n"
         } else {
-            self.currentConversationShortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? ""
+            self.currentConversationShortcut = readString("currentConversationShortcut") ?? ""
         }
-        if UserDefaults.standard.object(forKey: "popOutShortcut") == nil {
+        if readObject("popOutShortcut") == nil {
             self.popOutShortcut = "cmd+p"
         } else {
-            self.popOutShortcut = UserDefaults.standard.string(forKey: "popOutShortcut") ?? ""
+            self.popOutShortcut = readString("popOutShortcut") ?? ""
         }
 
         // Use defaults for config-dependent properties; the daemon will
@@ -480,7 +586,7 @@ public final class SettingsStore: ObservableObject {
         $cmdEnterToSend
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .sink { value in UserDefaults.standard.set(value, forKey: "cmdEnterToSend") }
+            .sink { [weak self] value in self?.writePerAssistant(value, forKey: "cmdEnterToSend") }
             .store(in: &cancellables)
 
         $sendDiagnostics
@@ -505,37 +611,37 @@ public final class SettingsStore: ObservableObject {
         // Persist shortcut changes immediately so the hotkey re-registers without delay
         $globalHotkeyShortcut
             .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "globalHotkeyShortcut") }
+            .sink { [weak self] value in self?.writePerAssistant(value, forKey: "globalHotkeyShortcut") }
             .store(in: &cancellables)
 
         $quickInputHotkeyShortcut
             .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyShortcut") }
+            .sink { [weak self] value in self?.writePerAssistant(value, forKey: "quickInputHotkeyShortcut") }
             .store(in: &cancellables)
 
         $quickInputHotkeyKeyCode
             .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyKeyCode") }
+            .sink { [weak self] value in self?.writePerAssistant(value, forKey: "quickInputHotkeyKeyCode") }
             .store(in: &cancellables)
 
         $sidebarToggleShortcut
             .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "sidebarToggleShortcut") }
+            .sink { [weak self] value in self?.writePerAssistant(value, forKey: "sidebarToggleShortcut") }
             .store(in: &cancellables)
 
         $newChatShortcut
             .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "newChatShortcut") }
+            .sink { [weak self] value in self?.writePerAssistant(value, forKey: "newChatShortcut") }
             .store(in: &cancellables)
 
         $currentConversationShortcut
             .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "currentConversationShortcut") }
+            .sink { [weak self] value in self?.writePerAssistant(value, forKey: "currentConversationShortcut") }
             .store(in: &cancellables)
 
         $popOutShortcut
             .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "popOutShortcut") }
+            .sink { [weak self] value in self?.writePerAssistant(value, forKey: "popOutShortcut") }
             .store(in: &cancellables)
 
         // Re-resolve lockfile-derived state whenever the connected assistant changes
@@ -543,8 +649,21 @@ public final class SettingsStore: ObservableObject {
         NotificationCenter.default.publisher(for: LockfileAssistant.activeAssistantDidChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.cachedAssistantId = LockfileAssistant.loadActiveAssistantId()
-                self?.refreshLockfileState()
+                guard let self else { return }
+                self.cachedAssistantId = LockfileAssistant.loadActiveAssistantId()
+                // Run the one-time per-assistant migration for the newly
+                // active assistant (no-op when flag off or sentinel already set),
+                // then rebind per-assistant @Published values from scoped storage
+                // so SwiftUI views pick up the new assistant's settings.
+                if let featureFlagStore = self.featureFlagStore,
+                   let activeId = self.cachedAssistantId {
+                    SettingsStoreScopedMigration.migratePerAssistantKeysIfNeeded(
+                        activeAssistantId: activeId,
+                        featureFlagStore: featureFlagStore
+                    )
+                }
+                self.reloadPerAssistantPublishedValues()
+                self.refreshLockfileState()
                 Task { await IdentityInfo.refreshCache() }
             }
             .store(in: &cancellables)
@@ -899,7 +1018,7 @@ public final class SettingsStore: ObservableObject {
 
     func setImageGenModel(_ model: String) {
         selectedImageGenModel = model
-        UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
+        writePerAssistant(model, forKey: "selectedImageGenModel")
         Task {
             _ = await settingsClient.setImageGenModel(modelId: model)
         }

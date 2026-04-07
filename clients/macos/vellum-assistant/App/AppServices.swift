@@ -12,10 +12,16 @@ public final class AppServices {
     let secretPromptManager = SecretPromptManager()
     let zoomManager = ZoomManager()
 
+    /// Shared feature flag store — caches resolved flags in memory so that
+    /// hot paths (e.g. `SoundManager.play()`) avoid synchronous file I/O on
+    /// the main thread.
+    let featureFlagStore = AssistantFeatureFlagStore()
+
     /// Shared settings state consumed by SettingsPanel and its tab views.
     public lazy var settingsStore: SettingsStore = SettingsStore(
         connectionManager: connectionManager,
-        eventStreamClient: connectionManager.eventStreamClient
+        eventStreamClient: connectionManager.eventStreamClient,
+        featureFlagStore: featureFlagStore
     )
 
     /// Reconfigure the connection for a new assistant.
