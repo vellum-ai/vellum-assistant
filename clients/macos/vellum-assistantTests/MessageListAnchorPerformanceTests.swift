@@ -80,19 +80,20 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
 
     // MARK: - 1. Scroll State Bottom-Detection Rapid-Update Stress Test
 
-    /// Benchmarks setting `isAtBottom` 10,000 times in a tight loop. While
-    /// individually trivial (O(1)), this mirrors the per-scroll-frame hot path.
-    /// This test detects if any future refactoring adds overhead.
+    /// Benchmarks calling `updateNearBottom()` 10,000 times in a tight loop.
+    /// While individually trivial (O(1)), this mirrors the per-scroll-frame
+    /// hot path. This test detects if any future refactoring adds overhead.
     func testBottomDetectionRapidUpdateStress() {
         let scrollState = MessageListScrollState()
+        scrollState.contentHeight = 5000
+        scrollState.viewportHeight = 800
 
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
             for i in 0..<10_000 {
-                // Simulate scroll position changes: alternate between bottom
-                // anchor and other views to stress isAtBottom updates.
-                // Simulate scroll geometry bottom detection: every 10th
-                // iteration is "at bottom", the rest are not.
-                scrollState.isAtBottom = (i % 10 == 0)
+                // Simulate scroll position changes: alternate between near-
+                // bottom and far-from-bottom positions.
+                scrollState.contentOffsetY = (i % 10 == 0) ? 4195 : 3000
+                scrollState.updateNearBottom()
             }
         }
     }

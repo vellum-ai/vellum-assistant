@@ -45,56 +45,6 @@ struct ScrollGeometrySnapshot: Equatable {
     let visibleRectHeight: CGFloat
 }
 
-// MARK: - Scroll Geometry Dispatcher
-
-/// Coalesces `onScrollGeometryChange` callbacks outside SwiftUI-managed state.
-///
-/// macOS 26 faults when an `OnScrollGeometryChange` action updates view state
-/// multiple times in the same frame. The message list still needs to process
-/// the latest geometry snapshot, but the queue bookkeeping itself must not
-/// live on `@State` / `@Observable` storage owned by the view.
-@MainActor
-final class ScrollGeometryUpdateDispatcher {
-    static let shared = ScrollGeometryUpdateDispatcher()
-
-    private var pendingSnapshots: [ObjectIdentifier: ScrollGeometrySnapshot] = [:]
-    private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
-
-    func enqueue(
-        for owner: MessageListScrollState,
-        snapshot: ScrollGeometrySnapshot,
-        handler: @escaping @MainActor (ScrollGeometrySnapshot) -> Void
-    ) {
-        let key = ObjectIdentifier(owner)
-        pendingSnapshots[key] = snapshot
-        guard tasks[key] == nil else { return }
-
-        tasks[key] = Task { @MainActor [weak self, weak owner] in
-            guard let self else { return }
-            defer {
-                self.tasks[key] = nil
-                self.pendingSnapshots[key] = nil
-            }
-
-            while !Task.isCancelled {
-                await Task.yield()
-                guard owner != nil else { return }
-                guard let latest = self.pendingSnapshots[key] else { return }
-                self.pendingSnapshots[key] = nil
-                handler(latest)
-                guard self.pendingSnapshots[key] != nil else { return }
-            }
-        }
-    }
-
-    func cancel(for owner: MessageListScrollState) {
-        let key = ObjectIdentifier(owner)
-        tasks[key]?.cancel()
-        tasks[key] = nil
-        pendingSnapshots[key] = nil
-    }
-}
-
 // MARK: - Cached Message Layout Metadata
 
 /// Structural metadata cached behind a version-counter key on
