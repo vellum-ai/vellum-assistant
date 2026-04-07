@@ -55,6 +55,7 @@ struct SidebarSectionView: View {
     /// Tracks which sub-groups have been toggled to show all conversations
     /// (mirrors showAll at the section level but per sub-group key).
     @State private var showAllInSubGroup: Set<String> = []
+    @State private var hoveredSubGroupKey: String?
 
     enum CountMode {
         case items
@@ -298,12 +299,13 @@ struct SidebarSectionView: View {
                     .animation(VAnimation.fast, value: isSubGroupExpanded)
                     .frame(width: 20, height: 20)
 
-                Text(subGroup.label)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .vTooltip(subGroup.label)
+                VMarqueeText(
+                    text: subGroup.label,
+                    font: VFont.bodySmallDefault,
+                    measuringFont: VFont.nsBodySmallDefault,
+                    foregroundStyle: VColor.contentDefault,
+                    isHovered: hoveredSubGroupKey == subGroup.key
+                )
                 Spacer()
                 if hasUnread {
                     VBadge(style: .dot, color: VColor.systemMidStrong)
@@ -332,6 +334,9 @@ struct SidebarSectionView: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .onHover { hovering in
+            hoveredSubGroupKey = hovering ? subGroup.key : nil
+        }
         .vContextMenu {
             let unread = subGroup.conversations.filter(\.hasUnseenLatestAssistantMessage)
             VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {

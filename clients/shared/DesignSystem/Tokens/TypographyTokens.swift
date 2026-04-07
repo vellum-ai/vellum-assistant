@@ -173,6 +173,9 @@ public enum VFont {
     /// DM Sans 400 at 14pt — NSFont equivalent of `VFont.bodyMediumDefault`.
     public static let nsBodyMediumDefault: NSFont = nsDmSans(weight: 400, size: 14)
 
+    /// DM Sans 400 at 12pt — NSFont equivalent of `VFont.bodySmallDefault`.
+    public static let nsBodySmallDefault: NSFont = nsDmSans(weight: 400, size: 12)
+
     public static let nsMono: NSFont = {
         let base = NSFont(name: "DMMono-Regular", size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -336,6 +339,7 @@ public enum VFont {
         #if os(macOS)
         _ = nsChat
         _ = nsBodyMediumDefault
+        _ = nsBodySmallDefault
         _ = nsMono
         // NOTE: nsMonoBold and nsMonoItalic are intentionally excluded here.
         // They use NSFontManager.shared.convert() which requires the main thread.
