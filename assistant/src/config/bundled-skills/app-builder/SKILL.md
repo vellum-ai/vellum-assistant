@@ -505,15 +505,16 @@ export async function POST(request: Request): Promise<Response> {
 
 **Calling routes from the app frontend:**
 
-Apps call custom routes via `fetch()` using the `/v1/x/` prefix. The assistant's runtime HTTP server requires the `/v1/` namespace for all API requests.
+Apps call custom routes via `window.vellum.fetch()` using the `/v1/x/` prefix. This authenticated wrapper automatically injects the gateway URL and auth headers so requests reach the assistant runtime. **Never use raw `fetch()` for `/v1/x/` routes** — it will fail because the app runs in a sandboxed origin.
 
 ```typescript
 // In a TSX component or HTML script
-const res = await fetch("/v1/x/items");
+const res = await window.vellum.fetch("/v1/x/items");
+if (!res.ok) throw new Error(`HTTP ${res.status}`);
 const items = await res.json();
 
 // Create a new item
-await fetch("/v1/x/items", {
+await window.vellum.fetch("/v1/x/items", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ name: "New item", status: "active" }),
@@ -549,7 +550,8 @@ let allRecords = [];
 
 async function loadRecords() {
   try {
-    const res = await fetch("/v1/x/records");
+    const res = await window.vellum.fetch("/v1/x/records");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     allRecords = await res.json();
     render();
   } catch (err) {
@@ -652,7 +654,7 @@ Slides are a different domain from apps. Skip app-specific patterns (contextual 
 
 ## Error Handling
 
-- All `fetch()` calls to custom routes must be wrapped in `try/catch` with user-friendly feedback.
+- All `window.vellum.fetch()` calls to custom routes must be wrapped in `try/catch` with user-friendly feedback. Always check `res.ok` before parsing the response body.
 - Never let a failed operation silently pass - always show a toast or inline error.
 - If the page loads with no data, show a designed empty state (`.v-empty-state`).
 - For forms, show validation errors inline next to the relevant field.
