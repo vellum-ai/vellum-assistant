@@ -317,7 +317,7 @@ struct ChatBubble: View, Equatable {
                         // Skip surfaces that are currently shown in the floating overlay
                         if !visibleInlineSurfaces.isEmpty {
                             ForEach(visibleInlineSurfaces) { surface in
-                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch, isMessageStreaming: message.isStreaming)
+                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                             }
                         }
 

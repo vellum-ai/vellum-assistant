@@ -1324,6 +1324,7 @@ public struct InlineSurfaceData: Identifiable, Equatable {
     public static func == (lhs: InlineSurfaceData, rhs: InlineSurfaceData) -> Bool {
         lhs.id == rhs.id
             && lhs.completionState == rhs.completionState
+            && lhs.isToolCallComplete == rhs.isToolCallComplete
             && lhs.surfaceType == rhs.surfaceType
             && lhs.title == rhs.title
             && lhs.data == rhs.data
@@ -1332,6 +1333,9 @@ public struct InlineSurfaceData: Identifiable, Equatable {
 
     /// When non-nil, the surface has been completed and should render in collapsed/chip state.
     public var completionState: SurfaceCompletionState?
+    /// Whether the tool call that created this surface has finished.
+    /// Defaults to `true` for history-loaded / already-complete surfaces.
+    public var isToolCallComplete: Bool = true
 
     public init(id: String, surfaceType: SurfaceType, title: String?, data: SurfaceData, actions: [SurfaceActionButton], surfaceRef: SurfaceRef? = nil, completionState: SurfaceCompletionState? = nil) {
         self.id = id

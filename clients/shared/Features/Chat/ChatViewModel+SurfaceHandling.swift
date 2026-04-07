@@ -367,7 +367,7 @@ extension ChatViewModel {
         #endif
 
         isThinking = false
-        let inlineSurface = InlineSurfaceData(
+        var inlineSurface = InlineSurfaceData(
             id: surface.id,
             surfaceType: surface.type,
             title: surface.title,
@@ -375,6 +375,12 @@ extension ChatViewModel {
             actions: surface.actions,
             surfaceRef: SurfaceRef(from: msg, surface: surface)
         )
+        // Mark dynamic page surfaces as not yet ready — the parent tool call
+        // is still executing.  The flag flips to true in handleToolResult once
+        // the tool call completes.
+        if case .dynamicPage = surface.data {
+            inlineSurface.isToolCallComplete = false
+        }
 
         if let existingId = currentAssistantMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -442,7 +448,7 @@ extension ChatViewModel {
                 let existing = messages[msgIndex].inlineSurfaces[surfaceIndex]
                 let tempSurface = Surface(id: existing.id, conversationId: msg.conversationId, type: existing.surfaceType, title: existing.title, data: existing.data, actions: existing.actions)
                 if let updated = tempSurface.updated(with: msg) {
-                    messages[msgIndex].inlineSurfaces[surfaceIndex] = InlineSurfaceData(
+                    var newSurface = InlineSurfaceData(
                         id: updated.id,
                         surfaceType: updated.type,
                         title: updated.title,
@@ -450,6 +456,8 @@ extension ChatViewModel {
                         actions: updated.actions,
                         surfaceRef: existing.surfaceRef
                     )
+                    newSurface.isToolCallComplete = existing.isToolCallComplete
+                    messages[msgIndex].inlineSurfaces[surfaceIndex] = newSurface
                     // Update floating overlay for task_progress cards (macOS only)
                     #if os(macOS)
                     if case .card(let cardData) = updated.data,

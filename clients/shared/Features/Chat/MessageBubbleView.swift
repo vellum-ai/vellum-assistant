@@ -108,8 +108,7 @@ public struct MessageBubbleView: View {
                                 onAction: { surfaceId, actionId, data in
                                     onSurfaceAction?(surfaceId, actionId, data)
                                 },
-                                onRefetch: onSurfaceRefetch,
-                                isMessageStreaming: message.isStreaming
+                                onRefetch: onSurfaceRefetch
                             )
                         }
                     }
@@ -252,8 +251,7 @@ public struct MessageBubbleView: View {
                             onAction: { surfaceId, actionId, data in
                                 onSurfaceAction?(surfaceId, actionId, data)
                             },
-                            onRefetch: onSurfaceRefetch,
-                            isMessageStreaming: message.isStreaming
+                            onRefetch: onSurfaceRefetch
                         )
                     }
                 }

@@ -3,13 +3,12 @@ import SwiftUI
 
 /// Rich card shown inline in chat when a new app is created via `app_create`.
 /// Displays a preview image, icon + title + description, and action buttons.
-/// While the parent message is still streaming (`isBuilding`), the card shows
-/// a redacted placeholder state with disabled interaction.
 struct InlineAppCreatedCard: View {
     let preview: DynamicPagePreview
     let appId: String?
-    /// When true, the assistant is still working — show a building/loading state.
-    let isBuilding: Bool
+    /// Whether the parent tool call has finished. When `false`, the "Open App"
+    /// button is disabled so the user can't navigate to partially-written HTML.
+    let isToolCallComplete: Bool
     let onOpenApp: () -> Void
     var onTogglePin: ((_ isPinned: Bool) -> Void)?
     @State private var previewImage: String?
@@ -27,13 +26,6 @@ struct InlineAppCreatedCard: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 140)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .redacted(reason: isBuilding ? .placeholder : [])
-            } else if isBuilding {
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surfaceActive)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 140)
-                    .redacted(reason: .placeholder)
             }
 
             // Icon + title row
@@ -58,21 +50,17 @@ struct InlineAppCreatedCard: View {
 
             // Action buttons
             HStack(spacing: VSpacing.sm) {
-                if isBuilding {
-                    VButton(label: "Building...", leftIcon: VIcon.refreshCw.rawValue, style: .primary, isDisabled: true) {}
-                } else {
-                    VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary) {
-                        onOpenApp()
-                    }
+                VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary, isDisabled: !isToolCallComplete) {
+                    onOpenApp()
+                }
 
-                    if let onTogglePin = onTogglePin {
-                        VButton(
-                            label: isPinned ? "Unpin" : "Pin to Nav",
-                            leftIcon: isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
-                            style: .outlined
-                        ) {
-                            onTogglePin(isPinned)
-                        }
+                if let onTogglePin = onTogglePin {
+                    VButton(
+                        label: isPinned ? "Unpin" : "Pin to Nav",
+                        leftIcon: isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
+                        style: .outlined
+                    ) {
+                        onTogglePin(isPinned)
                     }
                 }
 
@@ -82,7 +70,6 @@ struct InlineAppCreatedCard: View {
         .padding(16)
         .background(RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .animation(VAnimation.fast, value: isBuilding)
         .onAppear {
             previewImage = preview.previewImage
             // Fallback request: fires for history-loaded surfaces that didn't go

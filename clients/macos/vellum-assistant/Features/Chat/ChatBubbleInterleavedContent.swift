@@ -450,7 +450,7 @@ extension ChatBubble {
             case .surface(let i):
                 if i < message.inlineSurfaces.count,
                    message.inlineSurfaces[i].id != activeSurfaceId {
-                    InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction, onRefetch: onSurfaceRefetch, isMessageStreaming: message.isStreaming)
+                    InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                 }
             case .thinking(let indices):
                 if MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
