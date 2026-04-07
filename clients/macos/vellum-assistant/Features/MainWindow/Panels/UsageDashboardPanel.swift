@@ -325,6 +325,10 @@ struct UsageDashboardPanel: View {
         )
     }
 
+    private var groupColumnWidth: CGFloat {
+        store.selectedGroupBy == .conversation ? 200 : 130
+    }
+
     private let breakdownTableWidth: CGFloat = 500
 
     @ViewBuilder
@@ -335,7 +339,7 @@ struct UsageDashboardPanel: View {
                 Text("Group")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
-                    .frame(width: 130, alignment: .leading)
+                    .frame(width: groupColumnWidth, alignment: .leading)
                 Text("Tokens")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
@@ -362,8 +366,8 @@ struct UsageDashboardPanel: View {
             Text(entry.group)
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentDefault)
-                .frame(width: 130, alignment: .leading)
-                .lineLimit(1)
+                .frame(width: groupColumnWidth, alignment: .leading)
+                .lineLimit(store.selectedGroupBy == .conversation ? 2 : 1)
             Text(UsageFormatting.formatBreakdownSummary(entry))
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
