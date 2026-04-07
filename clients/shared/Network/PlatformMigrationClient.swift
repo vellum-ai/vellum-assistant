@@ -138,7 +138,10 @@ public enum PlatformMigrationClient {
 
         let delegate = UploadProgressDelegate(onProgress: onProgress)
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
+        defer {
+            delegate.reset()
+            session.finishTasksAndInvalidate()
+        }
 
         let urlPath = logPath(from: uploadURL) ?? "signed-url-upload"
 
