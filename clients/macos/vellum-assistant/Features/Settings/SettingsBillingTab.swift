@@ -217,9 +217,14 @@ struct SettingsBillingTab: View {
     /// which honors the `VELLUM_DOCS_BASE_URL` env override.
     var addCreditsSubtitleAttributed: AttributedString? {
         guard let summary else { return nil }
-        let markdown = "Credits cost $1 each, with a maximum balance of \(formattedMaxBalance(summary)). Unused credits expire 12 months after purchase. [Learn more about pricing](\(AppURLs.pricingDocs.absoluteString))"
-        // swiftlint:disable:next force_try
-        var attributed = try! AttributedString(markdown: markdown)
+        let copy = "Credits cost $1 each, with a maximum balance of \(formattedMaxBalance(summary)). Unused credits expire 12 months after purchase."
+        let markdown = "\(copy) [Learn more about pricing](\(AppURLs.pricingDocs.absoluteString))"
+        // Use `try?` with a plain-text fallback so a markdown parse failure
+        // (e.g. unexpected interpolated content) degrades gracefully instead
+        // of crashing the Settings tab.
+        guard var attributed = try? AttributedString(markdown: markdown) else {
+            return AttributedString("\(copy) Learn more about pricing")
+        }
         for run in attributed.runs where run.link != nil {
             attributed[run.range].underlineStyle = .single
         }
