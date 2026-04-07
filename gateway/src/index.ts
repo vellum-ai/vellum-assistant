@@ -49,6 +49,11 @@ import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
+import {
+  createHomeFeedGetHandler,
+  createHomeFeedPatchHandler,
+  createHomeFeedActionHandler,
+} from "./http/routes/home-feed.js";
 import { createPrivacyConfigPatchHandler } from "./http/routes/privacy-config.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
@@ -290,6 +295,9 @@ async function main() {
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleLogExport = createLogExportHandler(config);
+  const handleHomeFeedGet = createHomeFeedGetHandler();
+  const handleHomeFeedPatch = createHomeFeedPatchHandler();
+  const handleHomeFeedAction = createHomeFeedActionHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
@@ -942,6 +950,50 @@ async function main() {
       auth: "edge",
       handler: (req, params, getClientIp) =>
         handleLogExport(req, params, getClientIp),
+    },
+
+    // ── Home feed ──
+    {
+      path: "/v1/home/feed",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => handleHomeFeedGet(req),
+    },
+    {
+      path: /^\/v1\/home\/feed\/([^/]+)$/,
+      method: "PATCH",
+      auth: "edge",
+      handler: (req, params) => {
+        let itemId: string;
+        try {
+          itemId = decodeURIComponent(params[0]);
+        } catch {
+          return Response.json(
+            { error: "Invalid item ID encoding" },
+            { status: 400 },
+          );
+        }
+        return handleHomeFeedPatch(req, itemId);
+      },
+    },
+    {
+      path: /^\/v1\/home\/feed\/([^/]+)\/actions\/([^/]+)$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) => {
+        let itemId: string;
+        let actionId: string;
+        try {
+          itemId = decodeURIComponent(params[0]);
+          actionId = decodeURIComponent(params[1]);
+        } catch {
+          return Response.json(
+            { error: "Invalid item or action ID encoding" },
+            { status: 400 },
+          );
+        }
+        return handleHomeFeedAction(req, itemId, actionId);
+      },
     },
 
     // ── Trust rules ──
