@@ -82,18 +82,10 @@ public final class ManagedAssistantBootstrapService {
             case .notFound:
                 // Clear the stale ID and fall through to idempotent hatch.
                 log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID and falling through to hatch")
-                #if os(macOS)
                 LockfileAssistant.setActiveAssistantId(nil)
-                #else
-                UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
-                #endif
             case .accessDenied:
                 log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
-                #if os(macOS)
                 LockfileAssistant.setActiveAssistantId(nil)
-                #else
-                UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
-                #endif
                 throw ManagedBootstrapError.accessRevoked(connectedId)
             }
         }
