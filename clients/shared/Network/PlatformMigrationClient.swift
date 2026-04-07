@@ -154,7 +154,8 @@ public enum PlatformMigrationClient {
                 let delay = UInt64(pow(2.0, Double(attempt))) * 1_000_000_000
                 log.warning("Transient server error (\(statusCode)) — retrying in \(1 << attempt)s")
                 try await Task.sleep(nanoseconds: delay)
-                onProgress(0)
+                delegate.reset()
+                await onProgress(0)
                 continue
             }
 
@@ -283,9 +284,10 @@ public enum PlatformMigrationClient {
 
     // MARK: - Upload Progress Delegate
 
-    /// Tracks upload progress and dispatches progress updates to the main actor.
+    /// Tracks upload progress and dispatches throttled updates to the main actor.
     private class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
         private let onProgress: @MainActor (Double) -> Void
+        private var lastReportedFraction: Double = 0.0
 
         init(onProgress: @escaping @MainActor (Double) -> Void) {
             self.onProgress = onProgress
@@ -300,10 +302,17 @@ public enum PlatformMigrationClient {
         ) {
             guard totalBytesExpectedToSend > 0 else { return }
             let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
+            guard progress - lastReportedFraction >= 0.01 || progress >= 1.0 else { return }
+            lastReportedFraction = progress
             let callback = self.onProgress
             Task {
                 await callback(progress)
             }
+        }
+
+        /// Resets the throttle so progress reports from 0 again (e.g. on retry).
+        func reset() {
+            lastReportedFraction = 0.0
         }
     }
 
