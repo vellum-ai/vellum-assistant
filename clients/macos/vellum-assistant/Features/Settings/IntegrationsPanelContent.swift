@@ -133,11 +133,16 @@ struct IntegrationsPanelContent: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if filteredProviders.isEmpty {
-            VEmptyState(
-                title: emptyStateTitle,
-                subtitle: emptyStateSubtitle,
-                icon: VIcon.search.rawValue
-            )
+            VStack {
+                Spacer()
+                VEmptyState(
+                    title: emptyStateTitle,
+                    subtitle: emptyStateSubtitle,
+                    icon: VIcon.search.rawValue
+                )
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
                 LazyVStack(spacing: VSpacing.sm) {
@@ -146,7 +151,7 @@ struct IntegrationsPanelContent: View {
                             provider: provider,
                             isConnected: hasActiveConnections(for: provider.provider_key),
                             onEnable: {
-                                store.startManagedOAuthConnect(providerKey: provider.provider_key)
+                                selectedProviderKey = provider.provider_key
                             },
                             onEdit: {
                                 selectedProviderKey = provider.provider_key
@@ -280,7 +285,7 @@ private struct IntegrationItemRow: View {
                         .frame(minWidth: 180)
                     }
                 } else {
-                    VButton(label: "Enable", style: .primary, size: .compact) {
+                    VButton(label: "Enable", style: .outlined, size: .compact) {
                         onEnable()
                     }
                 }
