@@ -71,15 +71,24 @@ struct SidebarSectionHeader: View {
                 .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
 
             if isRenaming {
-                TextField("Group name", text: $renamingName, onCommit: {
-                    onCommitRename?(renamingName)
-                })
+                TextField("Group name", text: $renamingName)
                 .font(VFont.bodyMediumDefault)
                 .textFieldStyle(.plain)
                 .focused($isRenameFocused)
-                .onAppear { isRenameFocused = true }
+                .onSubmit { onCommitRename?(renamingName) }
+                .task {
+                    // Brief delay so the window's focus system settles after
+                    // the context menu panel closes and key status transfers back.
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    guard !Task.isCancelled else { return }
+                    isRenameFocused = true
+                }
+                .onChange(of: isRenameFocused) { _, focused in
+                    if !focused && isRenaming {
+                        onCommitRename?(renamingName)
+                    }
+                }
                 .onExitCommand {
-                    // Cancel rename on Escape — discard edits without API call
                     onCancelRename?()
                 }
             } else {
@@ -129,7 +138,10 @@ struct SidebarSectionHeader: View {
                     .padding(.trailing, VSpacing.xs)
             }
         }
-        .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
+        .onTapGesture {
+            guard !isRenaming else { return }
+            withAnimation(VAnimation.fast) { onToggleExpand() }
+        }
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
         })
