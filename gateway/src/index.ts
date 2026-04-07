@@ -966,7 +966,7 @@ async function main() {
       handler: (req) => handleHomeFeedGet(req),
     },
     {
-      path: /^\/v1\/home\/feed\/([^/]+)$/,
+      path: /^\/v1\/home\/feed\/([^/]+)\/?$/,
       method: "PATCH",
       auth: "edge",
       handler: (req, params) => {
@@ -983,7 +983,7 @@ async function main() {
       },
     },
     {
-      path: /^\/v1\/assistants\/([^/]+)\/home\/feed\/([^/]+)$/,
+      path: /^\/v1\/assistants\/([^/]+)\/home\/feed\/([^/]+)\/?$/,
       method: "PATCH",
       auth: "edge",
       handler: (req, params) => {
@@ -1000,7 +1000,7 @@ async function main() {
       },
     },
     {
-      path: /^\/v1\/home\/feed\/([^/]+)\/actions\/([^/]+)$/,
+      path: /^\/v1\/home\/feed\/([^/]+)\/actions\/([^/]+)\/?$/,
       method: "POST",
       auth: "edge",
       handler: (req, params) => {
@@ -1019,7 +1019,7 @@ async function main() {
       },
     },
     {
-      path: /^\/v1\/assistants\/([^/]+)\/home\/feed\/([^/]+)\/actions\/([^/]+)$/,
+      path: /^\/v1\/assistants\/([^/]+)\/home\/feed\/([^/]+)\/actions\/([^/]+)\/?$/,
       method: "POST",
       auth: "edge",
       handler: (req, params) => {
