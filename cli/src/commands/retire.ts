@@ -200,9 +200,9 @@ async function retireInner(): Promise<void> {
   const source = parseSource();
   const cloud = resolveCloud(entry);
 
-  if (entry.runtimeBackend === "apple-containers") {
+  if (cloud === "apple-container") {
     console.error(
-      `Error: '${name}' uses the apple-containers runtime. Its lifecycle is managed by the macOS app — use the app to retire it.`,
+      `Error: '${name}' uses the Apple Containers runtime. Its lifecycle is managed by the macOS app — use the app to retire it.`,
     );
     process.exit(1);
   }

@@ -49,16 +49,6 @@ export interface LocalInstanceResources {
   [key: string]: unknown;
 }
 
-/**
- * Which local launcher owns this assistant entry.
- *
- * - `"process"` (default) — standard `vellum-cli hatch` / PID-file lifecycle.
- * - `"apple-containers"` — reserved for the Apple Containers path; lifecycle
- *   is managed by the macOS app via `LinuxPod` and must not be touched by the
- *   CLI's PID-based helpers.
- */
-export type LocalRuntimeBackend = "process" | "apple-containers";
-
 /** Docker image metadata for the service group. Enables rollback to known-good digests. */
 export interface ContainerInfo {
   assistantImage: string;
@@ -110,13 +100,6 @@ export interface AssistantEntry {
   previousDbMigrationVersion?: number;
   /** Pre-upgrade workspace migration ID — used by rollback to know how far back to revert. */
   previousWorkspaceMigrationId?: string;
-  /**
-   * Which local launcher owns this assistant.
-   * Defaults to `"process"` when absent (existing entries, normal hatch path).
-   * `"apple-containers"` is reserved for the Apple Containers runtime — the CLI
-   * must not attempt PID-based lifecycle operations on such entries.
-   */
-  runtimeBackend?: LocalRuntimeBackend;
   [key: string]: unknown;
 }
 
@@ -200,7 +183,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
 
   // Apple-containers entries are fully managed by the macOS app.
   // Skip legacy migration to avoid corrupting their fields.
-  if (raw.runtimeBackend === "apple-containers") {
+  if (raw.cloud === "apple-container") {
     return false;
   }
 

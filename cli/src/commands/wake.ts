@@ -59,9 +59,9 @@ export async function wake(): Promise<void> {
     return;
   }
 
-  if (entry.runtimeBackend === "apple-containers") {
+  if (entry.cloud === "apple-container") {
     console.error(
-      `Error: '${entry.assistantId}' uses the apple-containers runtime. Its lifecycle is managed by the macOS app — use the app to start it.`,
+      `Error: '${entry.assistantId}' uses the Apple Containers runtime. Its lifecycle is managed by the macOS app — use the app to start it.`,
     );
     process.exit(1);
   }
