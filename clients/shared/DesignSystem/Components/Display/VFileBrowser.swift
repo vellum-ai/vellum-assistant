@@ -133,16 +133,14 @@ public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPan
                 Spacer()
                 headerActions()
             }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
 
             Divider()
                 .background(VColor.borderBase)
 
             // Search bar BELOW the divider
             VSearchBar(placeholder: searchPlaceholder, text: $searchText)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.xs)
+                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.md))
 
             // Scrollable tree
             treeScrollView
@@ -376,9 +374,12 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
                         .foregroundStyle(VColor.contentTertiary)
                 }
             }
-            .padding(.leading, CGFloat(depth) * VSpacing.lg + VSpacing.sm)
-            .padding(.trailing, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
+            .padding(EdgeInsets(
+                top: VSpacing.xs,
+                leading: CGFloat(depth) * VSpacing.lg + VSpacing.sm,
+                bottom: VSpacing.xs,
+                trailing: VSpacing.sm
+            ))
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.sm)
@@ -414,160 +415,5 @@ private struct DropTargetModifier: ViewModifier {
         }
     }
 }
-
-// MARK: - Previews
-
-#if DEBUG
-private enum VFileBrowserPreviewData {
-    static let smallTree: [VFileBrowserNode] = [
-        VFileBrowserNode(
-            id: "src",
-            name: "src",
-            path: "src",
-            isDirectory: true,
-            children: [
-                VFileBrowserNode(
-                    id: "src/components",
-                    name: "components",
-                    path: "src/components",
-                    isDirectory: true,
-                    children: [
-                        VFileBrowserNode(
-                            id: "src/components/Button.swift",
-                            name: "Button.swift",
-                            path: "src/components/Button.swift",
-                            isDirectory: false,
-                            size: 1234,
-                            icon: .fileCode
-                        ),
-                        VFileBrowserNode(
-                            id: "src/components/Card.swift",
-                            name: "Card.swift",
-                            path: "src/components/Card.swift",
-                            isDirectory: false,
-                            size: 2345,
-                            icon: .fileCode
-                        )
-                    ]
-                ),
-                VFileBrowserNode(
-                    id: "src/main.swift",
-                    name: "main.swift",
-                    path: "src/main.swift",
-                    isDirectory: false,
-                    size: 567,
-                    icon: .fileCode
-                )
-            ]
-        ),
-        VFileBrowserNode(
-            id: "README.md",
-            name: "README.md",
-            path: "README.md",
-            isDirectory: false,
-            size: 890,
-            icon: .fileText
-        )
-    ]
-}
-
-private struct VFileBrowserPreviewWrapper: View {
-    @State private var expanded: Set<String> = ["src", "src/components"]
-    @State private var selected: String? = "README.md"
-
-    let title: String
-    let rootNodes: [VFileBrowserNode]
-    var onExpand: ((VFileBrowserNode) async -> Void)? = nil
-    var headerActions: AnyView? = nil
-
-    var body: some View {
-        VFileBrowser(
-            title: title,
-            rootNodes: rootNodes,
-            expandedPaths: $expanded,
-            selectedPath: $selected,
-            onExpand: onExpand,
-            headerActions: { headerActions ?? AnyView(EmptyView()) },
-            rowContextMenu: { _ in EmptyView() }
-        ) { node in
-            if let node {
-                VStack {
-                    Text(node.path)
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentDefault)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                VEmptyState(title: "Select a file", icon: VIcon.fileText.rawValue)
-            }
-        }
-        .frame(width: 720, height: 480)
-        .padding()
-    }
-}
-
-#Preview("Eager — small tree") {
-    VFileBrowserPreviewWrapper(
-        title: "Files",
-        rootNodes: VFileBrowserPreviewData.smallTree
-    )
-}
-
-#Preview("Lazy — onExpand stub") {
-    VFileBrowserPreviewWrapper(
-        title: "Workspace",
-        rootNodes: VFileBrowserPreviewData.smallTree,
-        onExpand: { node in
-            // Stub: simulate loading children
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            print("Lazy load children for \(node.path)")
-        }
-    )
-}
-
-private struct VFileBrowserSearchPreview: View {
-    @State private var expanded: Set<String> = []
-    @State private var selected: String? = nil
-
-    var body: some View {
-        // Note: this preview demonstrates the search auto-expand behavior.
-        // Type "swift" into the search bar in Xcode to see matching parents
-        // auto-expand even though `expanded` starts empty.
-        VFileBrowser(
-            title: "Files",
-            rootNodes: VFileBrowserPreviewData.smallTree,
-            expandedPaths: $expanded,
-            selectedPath: $selected
-        ) { node in
-            if let node {
-                Text(node.path)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                VEmptyState(title: "No selection", icon: VIcon.fileText.rawValue)
-            }
-        }
-        .frame(width: 720, height: 480)
-        .padding()
-    }
-}
-
-#Preview("Search — auto-expand parents") {
-    VFileBrowserSearchPreview()
-}
-
-#Preview("Header actions slot") {
-    VFileBrowserPreviewWrapper(
-        title: "Workspace",
-        rootNodes: VFileBrowserPreviewData.smallTree,
-        headerActions: AnyView(
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "plus")
-                Image(systemName: "folder.badge.plus")
-            }
-            .foregroundStyle(VColor.contentSecondary)
-        )
-    )
-}
-#endif
 
 #endif
