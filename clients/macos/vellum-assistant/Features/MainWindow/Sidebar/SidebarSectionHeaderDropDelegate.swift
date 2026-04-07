@@ -13,7 +13,13 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     /// Whether this drop is a conversation being dragged (vs a group being dragged).
     private var isConversationDrag: Bool { sidebar.draggingConversationId != nil }
 
+    /// Scheduled conversations are system-managed; the group rejects conversation drops.
+    private var isScheduledGroup: Bool { groupId == ConversationGroup.scheduled.id }
+
     func validateDrop(info: DropInfo) -> Bool {
+        // Scheduled group never accepts conversation drops.
+        if isScheduledGroup && isConversationDrag { return false }
+
         if isConversationDrag {
             // Conversation drag: allow if the conversation isn't already in this group
             guard let sourceId = sidebar.draggingConversationId,
@@ -26,11 +32,19 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        // Show the system "forbidden" cursor when hovering over a Scheduled section
+        // with a conversation drag, signaling that the drop is not allowed.
+        if isScheduledGroup && isConversationDrag {
+            return DropProposal(operation: .forbidden)
+        }
         return DropProposal(operation: .move)
     }
 
     func dropEntered(info: DropInfo) {
         guard let groupId else { return }
+        // Don't highlight Scheduled for conversation drags.
+        if isScheduledGroup && isConversationDrag { return }
+
         if isConversationDrag {
             // Conversation drag: highlight the group background
             sidebar.dropTargetSectionId = groupId

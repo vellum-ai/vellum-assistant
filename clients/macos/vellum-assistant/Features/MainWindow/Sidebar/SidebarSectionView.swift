@@ -435,13 +435,8 @@ struct SectionHeaderDropModifier: ViewModifier {
     let sidebar: SidebarInteractionState?
     let conversationManager: ConversationManager?
 
-    /// Scheduled conversations are managed by the system and should not accept drops.
-    private var acceptsDrops: Bool {
-        group.id != ConversationGroup.scheduled.id
-    }
-
     func body(content: Content) -> some View {
-        if acceptsDrops, let sidebar, let conversationManager {
+        if let sidebar, let conversationManager {
             content.onDrop(of: [.plainText], delegate: SidebarSectionHeaderDropDelegate(
                 groupId: group.id,
                 group: group,
@@ -461,13 +456,8 @@ struct SectionBodyDropModifier: ViewModifier {
     let sidebar: SidebarInteractionState?
     let conversationManager: ConversationManager?
 
-    /// Scheduled conversations are managed by the system and should not accept drops.
-    private var acceptsDrops: Bool {
-        groupId != ConversationGroup.scheduled.id
-    }
-
     func body(content: Content) -> some View {
-        if acceptsDrops, let sidebar, let conversationManager {
+        if let sidebar, let conversationManager {
             content.onDrop(of: [.plainText], delegate: SidebarSectionBodyDropDelegate(
                 groupId: groupId,
                 sidebar: sidebar,
@@ -485,7 +475,11 @@ struct SidebarSectionBodyDropDelegate: DropDelegate {
     let sidebar: SidebarInteractionState
     let conversationManager: ConversationManager
 
+    /// Scheduled conversations are system-managed; the group rejects conversation drops.
+    private var isScheduledGroup: Bool { groupId == ConversationGroup.scheduled.id }
+
     func validateDrop(info: DropInfo) -> Bool {
+        if isScheduledGroup { return false }
         guard let sourceId = sidebar.draggingConversationId,
               let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
               source.groupId != groupId
@@ -494,10 +488,14 @@ struct SidebarSectionBodyDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+        if isScheduledGroup {
+            return DropProposal(operation: .forbidden)
+        }
+        return DropProposal(operation: .move)
     }
 
     func dropEntered(info: DropInfo) {
+        if isScheduledGroup { return }
         sidebar.dropTargetSectionId = groupId
     }
 
@@ -508,6 +506,7 @@ struct SidebarSectionBodyDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        if isScheduledGroup { return false }
         let sourceId = sidebar.draggingConversationId
         sidebar.endConversationDrag()
         guard let sourceId else { return false }
