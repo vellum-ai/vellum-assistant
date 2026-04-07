@@ -17,8 +17,10 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     private var isScheduledGroup: Bool { groupId == ConversationGroup.scheduled.id }
 
     func validateDrop(info: DropInfo) -> Bool {
-        // Scheduled group never accepts conversation drops.
-        if isScheduledGroup && isConversationDrag { return false }
+        // Return true for Scheduled + conversation drag so macOS continues calling
+        // dropUpdated, where we return .forbidden to show the 🚫 cursor.
+        // Returning false here would cause macOS to skip dropUpdated entirely.
+        if isScheduledGroup && isConversationDrag { return true }
 
         if isConversationDrag {
             // Conversation drag: allow if the conversation isn't already in this group
@@ -88,7 +90,8 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
                 guard let payload = SidebarDropPayload.parse(from: string) else { return }
                 switch payload {
                 case .conversation(let uuid):
-                    if let source = self.conversationManager.conversations.first(where: { $0.id == uuid }),
+                    if !self.isScheduledGroup,
+                       let source = self.conversationManager.conversations.first(where: { $0.id == uuid }),
                        source.groupId != self.groupId {
                         self.conversationManager.moveConversationToGroup(uuid, groupId: self.groupId)
                     }

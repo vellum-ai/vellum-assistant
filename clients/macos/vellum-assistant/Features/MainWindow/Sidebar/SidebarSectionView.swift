@@ -479,7 +479,9 @@ struct SidebarSectionBodyDropDelegate: DropDelegate {
     private var isScheduledGroup: Bool { groupId == ConversationGroup.scheduled.id }
 
     func validateDrop(info: DropInfo) -> Bool {
-        if isScheduledGroup { return false }
+        // Return true for Scheduled so macOS continues calling dropUpdated,
+        // where we return .forbidden to show the 🚫 cursor.
+        if isScheduledGroup { return true }
         guard let sourceId = sidebar.draggingConversationId,
               let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
               source.groupId != groupId
