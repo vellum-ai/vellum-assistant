@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { decodeFrames, encodeFrame } from "../protocol.js";
+import { decodeFrames, encodeFrame, FrameDecodeError } from "../protocol.js";
 
 describe("encodeFrame / decodeFrames", () => {
   test("round-trips a simple object through encode/decode", () => {
@@ -77,5 +77,50 @@ describe("encodeFrame / decodeFrames", () => {
     const { frames, remainder } = decodeFrames(Buffer.alloc(0));
     expect(frames).toHaveLength(0);
     expect(remainder.length).toBe(0);
+  });
+
+  test("throws FrameDecodeError when a complete frame body is invalid JSON", () => {
+    // Hand-craft a frame: 4-byte LE length prefix + a body that is not
+    // valid JSON. The decoder should reach the JSON.parse step (because
+    // the buffer has a full frame's worth of bytes) and throw, rather
+    // than crashing the host with an uncaught SyntaxError.
+    const body = Buffer.from("not-json{", "utf8");
+    const len = Buffer.alloc(4);
+    len.writeUInt32LE(body.length, 0);
+    const malformed = Buffer.concat([len, body]);
+
+    expect(() => decodeFrames(malformed)).toThrow(FrameDecodeError);
+    expect(() => decodeFrames(malformed)).toThrow(/malformed_frame_json/);
+  });
+
+  test("FrameDecodeError preserves the underlying SyntaxError as cause", () => {
+    const body = Buffer.from("{not-valid", "utf8");
+    const len = Buffer.alloc(4);
+    len.writeUInt32LE(body.length, 0);
+    const malformed = Buffer.concat([len, body]);
+
+    let caught: unknown;
+    try {
+      decodeFrames(malformed);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FrameDecodeError);
+    expect((caught as FrameDecodeError).cause).toBeInstanceOf(SyntaxError);
+  });
+
+  test("a malformed frame after a valid one still throws (does not silently drop the valid one)", () => {
+    // Buffer layout: [valid frame][malformed frame]. The decoder iterates
+    // in order and throws on the second frame. The current contract is
+    // "fail loud on the first malformed frame" — we don't try to return
+    // any frames decoded before the failure, since the caller should
+    // surface a protocol_error and exit anyway.
+    const valid = encodeFrame({ type: "request_token" });
+    const badBody = Buffer.from("definitely not json", "utf8");
+    const badLen = Buffer.alloc(4);
+    badLen.writeUInt32LE(badBody.length, 0);
+    const combined = Buffer.concat([valid, badLen, badBody]);
+
+    expect(() => decodeFrames(combined)).toThrow(FrameDecodeError);
   });
 });

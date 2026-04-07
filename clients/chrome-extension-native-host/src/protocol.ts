@@ -9,6 +9,21 @@
  */
 
 /**
+ * Thrown by `decodeFrames` when a complete frame body is not valid JSON.
+ *
+ * The caller is expected to translate this into a protocol-level error frame
+ * (e.g. via the helper's `fail()` path) rather than letting it propagate as an
+ * uncaught exception, which would crash the host without surfacing a
+ * structured error response to Chrome.
+ */
+export class FrameDecodeError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "FrameDecodeError";
+  }
+}
+
+/**
  * Encode an arbitrary JSON-serializable payload as a single native-messaging
  * frame: 4-byte little-endian length prefix followed by the UTF-8 JSON body.
  */
@@ -27,6 +42,10 @@ export function encodeFrame(payload: unknown): Buffer {
  * The decoder is intentionally tolerant of partial reads — Chrome may deliver
  * a single message across multiple `data` events, and multiple messages may
  * arrive coalesced in one event.
+ *
+ * If a complete frame body fails to parse as JSON, this function throws a
+ * `FrameDecodeError`. Callers should catch it and translate it into a
+ * protocol-level error frame rather than letting it crash the host.
  */
 export function decodeFrames(buf: Buffer): {
   frames: unknown[];
@@ -38,7 +57,16 @@ export function decodeFrames(buf: Buffer): {
     const len = buf.readUInt32LE(offset);
     if (buf.length - offset - 4 < len) break;
     const body = buf.subarray(offset + 4, offset + 4 + len);
-    frames.push(JSON.parse(body.toString("utf8")));
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new FrameDecodeError(`malformed_frame_json: ${detail}`, {
+        cause: err,
+      });
+    }
+    frames.push(parsed);
     offset += 4 + len;
   }
   return { frames, remainder: buf.subarray(offset) };

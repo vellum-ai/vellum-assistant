@@ -80,9 +80,13 @@ On any failure, the helper writes:
 
 …and exits with a non-zero status code. Possible `message` values
 include `unauthorized_origin`, `unsupported_frame_type`,
-`unexpected_additional_frame`, and any error string surfaced by the
-underlying `fetch` to the daemon (`failed to reach daemon at …`,
-`daemon pair request failed with HTTP 503`, etc.).
+`unexpected_additional_frame`, `protocol_error: malformed_frame_json: …`
+(returned when stdin contains a frame whose body is not valid JSON), and
+any error string surfaced by the underlying `fetch` to the assistant
+(`failed to reach assistant at …`, `assistant pair request failed with
+HTTP 503`, etc.). Per the project-wide terminology rule in `AGENTS.md`,
+all user-visible strings refer to the local process as the "assistant"
+even though the binary is internally talking to the daemon HTTP server.
 
 ## Origin allowlist
 
@@ -97,14 +101,34 @@ Today the allowlist contains a single dev placeholder ID. The production
 ID will be added before release — see the `// TODO: production id before
 release` comment in `src/index.ts`.
 
-## Daemon port resolution
+## Assistant port resolution
 
-The helper looks up the daemon's HTTP port by reading
-`~/.vellum/runtime-port` (a single integer written by the assistant on
-startup). If the file is missing, unreadable, or doesn't contain a valid
-port number, it falls back to the well-known default port `7821`. The
-subsequent HTTP request will surface a clear connection error if the
-daemon isn't actually listening there.
+The helper looks up the assistant daemon's HTTP port using the following
+precedence (highest first):
+
+1. **`--assistant-port <port>`** CLI flag — accepts either
+   `--assistant-port 7822` or `--assistant-port=7822`. This exists so a
+   wrapper script registered in Chrome's `NativeMessagingHosts` manifest
+   can pin the helper to a known port for non-default installs (e.g.
+   named local instances spawned by `cli/src/lib/local.ts` which set
+   `RUNTIME_HTTP_PORT` from `resources.daemonPort`).
+2. **`~/.vellum/runtime-port`** lockfile — a single integer written by
+   the assistant on startup. *Note: this lockfile is not yet written by
+   the daemon — see the TODO below.* Once it is, default installs will
+   not need any manifest-side configuration.
+3. **`7821`** — the well-known default port.
+
+If a step fails (file missing, parse error, etc.), resolution falls
+through to the next step. The subsequent HTTP request will surface a
+clear connection error if the assistant isn't actually listening on the
+resolved port.
+
+> **TODO (follow-up):** Have the assistant daemon write its active HTTP
+> port to `~/.vellum/runtime-port` on startup so the lockfile branch
+> above starts working without requiring `--assistant-port`. This was
+> intentionally left out of the scaffold PR (PR 7) to keep the change
+> surface small. Until then, multi-instance installs should rely on the
+> CLI flag via a wrapper script in the native messaging manifest.
 
 ## Building
 
@@ -147,6 +171,17 @@ node -e "
 
 The helper will write a single `token_response` frame to stdout and
 exit `0`, or an `error` frame and exit `1`.
+
+To target a non-default assistant port (e.g. a named local instance):
+
+```bash
+node -e "
+  const { encodeFrame } = require('./dist/protocol.js');
+  process.stdout.write(encodeFrame({ type: 'request_token' }));
+" | node dist/index.js \
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/" \
+    --assistant-port 7822
+```
 
 ## Related PRs
 

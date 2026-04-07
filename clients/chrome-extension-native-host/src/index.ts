@@ -15,7 +15,8 @@
  *   2. Listen on stdin for `{ type: "request_token" }` frames.
  *   3. POST the calling extension's origin to the running daemon's
  *      `/v1/browser-extension-pair` endpoint (port resolved from
- *      `~/.vellum/runtime-port` or defaulting to 7821).
+ *      `--assistant-port`, then `~/.vellum/runtime-port`, then defaulting to
+ *      7821).
  *   4. Echo the daemon's response back to Chrome as a
  *      `{ type: "token_response", token, expiresAt }` frame.
  *   5. On any unrecoverable error, write a `{ type: "error", message }` frame
@@ -33,7 +34,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { decodeFrames, encodeFrame } from "./protocol.js";
+import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
 
 /**
  * Allowlist of Chrome extension IDs that are permitted to spawn this helper.
@@ -57,13 +58,56 @@ interface TokenResponse {
 }
 
 /**
- * Resolve the daemon's HTTP port. The Mac app writes the active port to
- * `~/.vellum/runtime-port` on startup; if the file is missing or unreadable
- * we fall back to the well-known default. Any parse failure also falls back
- * rather than crashing — the daemon is the ultimate source of truth and the
- * subsequent HTTP call will surface a clear connection error.
+ * Parse a `--assistant-port <number>` (or `--assistant-port=<number>`)
+ * argument out of `process.argv`. Returns the parsed port if present and
+ * valid, otherwise `null`.
+ *
+ * This is intentionally a tiny hand-rolled parser rather than a full CLI
+ * library: the helper is invoked by Chrome's native messaging runtime which
+ * has a fixed argv shape, and pulling in a CLI dependency would bloat the
+ * audited surface for no real gain.
  */
-function resolveDaemonPort(): number {
+function parseAssistantPortArg(argv: readonly string[]): number | null {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    let raw: string | undefined;
+    if (arg === "--assistant-port") {
+      raw = argv[i + 1];
+    } else if (arg.startsWith("--assistant-port=")) {
+      raw = arg.slice("--assistant-port=".length);
+    } else {
+      continue;
+    }
+    if (raw === undefined) return null;
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0 && parsed < 65536) {
+      return parsed;
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Resolve the assistant daemon's HTTP port. Resolution order:
+ *
+ *   1. `--assistant-port <port>` CLI flag (highest precedence). This exists
+ *      so a wrapper script registered in Chrome's NativeMessagingHosts
+ *      manifest can pin the helper to a known port without relying on a
+ *      lockfile.
+ *   2. `~/.vellum/runtime-port` lockfile (a single integer). This file is
+ *      not yet written by the daemon — see the TODO in this package's
+ *      README. Once it is, no manifest changes are needed for default
+ *      installs.
+ *   3. The well-known default port `7821`.
+ *
+ * Any read or parse failure on the lockfile silently falls through to the
+ * default rather than crashing — the daemon is the ultimate source of truth
+ * and the subsequent HTTP call will surface a clear connection error.
+ */
+function resolveDaemonPort(argv: readonly string[]): number {
+  const fromArg = parseAssistantPortArg(argv);
+  if (fromArg !== null) return fromArg;
   try {
     const raw = readFileSync(RUNTIME_PORT_FILE, "utf8").trim();
     const parsed = Number.parseInt(raw, 10);
@@ -117,9 +161,17 @@ function fail(message: string, code = 1): never {
  * POST the extension origin to the daemon's pair endpoint and return the
  * issued capability token. Surfaces a uniform error message on failure so
  * the caller can wrap it in a native-messaging error frame.
+ *
+ * Note: error messages here are user-visible (they get propagated to Chrome
+ * as `{ type: "error", message }` frames and surfaced in the extension UI),
+ * so per AGENTS.md they refer to the local process as the "assistant" rather
+ * than the internal "daemon" name.
  */
-async function requestToken(extensionOrigin: string): Promise<TokenResponse> {
-  const port = resolveDaemonPort();
+async function requestToken(
+  extensionOrigin: string,
+  argv: readonly string[],
+): Promise<TokenResponse> {
+  const port = resolveDaemonPort(argv);
   const url = `http://127.0.0.1:${port}/v1/browser-extension-pair`;
 
   let response: Response;
@@ -131,11 +183,13 @@ async function requestToken(extensionOrigin: string): Promise<TokenResponse> {
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`failed to reach daemon at ${url}: ${detail}`);
+    throw new Error(`failed to reach assistant at ${url}: ${detail}`);
   }
 
   if (!response.ok) {
-    throw new Error(`daemon pair request failed with HTTP ${response.status}`);
+    throw new Error(
+      `assistant pair request failed with HTTP ${response.status}`,
+    );
   }
 
   let body: unknown;
@@ -143,7 +197,7 @@ async function requestToken(extensionOrigin: string): Promise<TokenResponse> {
     body = await response.json();
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`daemon pair response was not valid JSON: ${detail}`);
+    throw new Error(`assistant pair response was not valid JSON: ${detail}`);
   }
 
   if (
@@ -152,7 +206,7 @@ async function requestToken(extensionOrigin: string): Promise<TokenResponse> {
     typeof (body as { token?: unknown }).token !== "string" ||
     typeof (body as { expiresAt?: unknown }).expiresAt !== "string"
   ) {
-    throw new Error("daemon pair response missing token / expiresAt");
+    throw new Error("assistant pair response missing token / expiresAt");
   }
 
   const { token, expiresAt } = body as TokenResponse;
@@ -195,35 +249,60 @@ async function main(): Promise<void> {
   let handling = false;
 
   process.stdin.on("data", async (chunk: Buffer) => {
-    pending = Buffer.concat([pending, chunk]);
-    const { frames, remainder } = decodeFrames(pending);
-    pending = remainder;
+    // The entire handler body is wrapped in a try/catch so that any
+    // unexpected exception (most notably `FrameDecodeError` from a
+    // malformed JSON body, but also any synchronous error before the
+    // request reaches `requestToken`) is translated into a protocol-level
+    // `error` frame instead of bubbling up to Node's unhandled-rejection
+    // path and silently exit-1'ing the process.
+    try {
+      pending = Buffer.concat([pending, chunk]);
+      const { frames, remainder } = decodeFrames(pending);
+      pending = remainder;
 
-    for (const frame of frames) {
-      if (handling) {
-        // We only support a single in-flight request per spawn — Chrome
-        // re-spawns the helper on every `connectNative` call. Anything
-        // beyond the first frame is treated as a protocol error.
-        fail("unexpected_additional_frame");
-      }
-      handling = true;
+      for (const frame of frames) {
+        if (handling) {
+          // We only support a single in-flight request per spawn — Chrome
+          // re-spawns the helper on every `connectNative` call. Anything
+          // beyond the first frame is treated as a protocol error.
+          fail("unexpected_additional_frame");
+        }
+        handling = true;
 
-      if (
-        !frame ||
-        typeof frame !== "object" ||
-        (frame as { type?: unknown }).type !== "request_token"
-      ) {
-        fail("unsupported_frame_type");
-      }
+        if (
+          !frame ||
+          typeof frame !== "object" ||
+          (frame as { type?: unknown }).type !== "request_token"
+        ) {
+          fail("unsupported_frame_type");
+        }
 
-      try {
-        const { token, expiresAt } = await requestToken(extensionOrigin!);
-        writeFrame({ type: "token_response", token, expiresAt });
-        process.exit(0);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        fail(message);
+        try {
+          const { token, expiresAt } = await requestToken(
+            extensionOrigin!,
+            process.argv,
+          );
+          writeFrame({ type: "token_response", token, expiresAt });
+          process.exit(0);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          fail(message);
+        }
       }
+    } catch (err) {
+      // `FrameDecodeError` is the most likely culprit here (malformed JSON
+      // body in a stdin frame), but we deliberately funnel any synchronous
+      // exception thrown out of `decodeFrames` or the dispatch loop above
+      // through this single catch so the helper always gets a chance to
+      // emit a structured `error` frame instead of dying with an
+      // unhandled exception.
+      const detail =
+        err instanceof FrameDecodeError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      fail(`protocol_error: ${detail}`);
     }
   });
 
