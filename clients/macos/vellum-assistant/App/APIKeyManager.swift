@@ -92,8 +92,14 @@ enum APIKeyManager {
 
     // MARK: - Generic provider access (async — gateway API)
 
-    /// Check whether the assistant's secret store has a key for `provider`.
-    static func hasKey(for provider: String) async -> Bool {
+    /// Response from a non-revealing `secrets/read` call.
+    private struct SecretReadResult {
+        let found: Bool
+        let masked: String?
+    }
+
+    /// Calls `secrets/read` (without `reveal`) and returns existence + masked value.
+    private static func readSecret(for provider: String) async -> SecretReadResult {
         do {
             let body: [String: Any] = ["type": "api_key", "name": provider]
             let response = try await GatewayHTTPClient.post(
@@ -102,35 +108,28 @@ enum APIKeyManager {
             guard response.isSuccess,
                   let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                   let found = json["found"] as? Bool else {
-                return false
+                return SecretReadResult(found: false, masked: nil)
             }
-            return found
+            let masked = json["masked"] as? String
+            return SecretReadResult(found: found, masked: masked)
         } catch {
-            apiKeyLog.error("hasKey(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
-            return false
+            apiKeyLog.error("readSecret(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return SecretReadResult(found: false, masked: nil)
         }
+    }
+
+    /// Check whether the assistant's secret store has a key for `provider`.
+    static func hasKey(for provider: String) async -> Bool {
+        await readSecret(for: provider).found
     }
 
     /// Read a masked API key from the assistant's secret store.
     /// Returns a display-safe string like `"sk-ant-api...Ab1x"`, or `nil`
     /// when no key is stored for the given provider.
     static func maskedKey(for provider: String) async -> String? {
-        do {
-            let body: [String: Any] = ["type": "api_key", "name": provider]
-            let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
-            )
-            guard response.isSuccess,
-                  let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-                  let found = json["found"] as? Bool, found,
-                  let masked = json["masked"] as? String, !masked.isEmpty else {
-                return nil
-            }
-            return masked
-        } catch {
-            apiKeyLog.error("maskedKey(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
+        let result = await readSecret(for: provider)
+        guard result.found, let masked = result.masked, !masked.isEmpty else { return nil }
+        return masked
     }
 
     static func setKey(_ key: String, for provider: String) {
