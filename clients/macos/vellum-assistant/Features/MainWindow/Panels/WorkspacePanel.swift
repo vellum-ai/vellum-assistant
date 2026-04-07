@@ -38,6 +38,22 @@ final class WorkspaceBrowserState {
     var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
     var hiddenFilesToggleRequestId: UInt64 = 0
 
+    /// Picks the initial view mode for a freshly-loaded file based on its
+    /// extension and the user's stored preference. Pure function so it can be
+    /// unit tested without spinning up a real workspace client. Called from
+    /// `loadFile(path:using:)`.
+    static func defaultViewMode(forExtension ext: String, prefersSource: Bool) -> FileViewMode {
+        if prefersSource { return .source }
+        switch ext {
+        case "md", "markdown":
+            return .preview
+        case "json", "jsonl", "ndjson":
+            return .tree
+        default:
+            return .source
+        }
+    }
+
     func refreshDirectory(_ dirPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         if let response = await workspaceClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
             directoryCache[dirPath] = response.entries
@@ -48,15 +64,7 @@ final class WorkspaceBrowserState {
         selectedFilePath = targetPath
         let ext = (targetPath as NSString).pathExtension.lowercased()
         let prefersSource = UserDefaults.standard.string(forKey: "fileViewerPreferredMode") == "source"
-        if prefersSource {
-            viewMode = .source
-        } else if ext == "md" || ext == "markdown" {
-            viewMode = .preview
-        } else if ext == "json" || ext == "jsonl" || ext == "ndjson" {
-            viewMode = .tree
-        } else {
-            viewMode = .source
-        }
+        viewMode = Self.defaultViewMode(forExtension: ext, prefersSource: prefersSource)
         isLoadingFile = true
         selectedFileDetail = nil
         isDirty = false
