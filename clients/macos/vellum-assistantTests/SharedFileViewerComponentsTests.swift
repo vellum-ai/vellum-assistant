@@ -120,4 +120,34 @@ final class SharedFileViewerComponentsTests: XCTestCase {
         XCTAssertFalse(isJSONLContent(fileName: "data.json", mimeType: "application/json"))
         XCTAssertTrue(availableViewModes(for: "data.json", mimeType: "application/json").contains(.tree))
     }
+
+    // MARK: - Parameterized MIME types
+
+    func testIsJSONLContentAcceptsMimeTypeWithCharsetParam() {
+        // Servers commonly include `; charset=utf-8` on the MIME type.
+        // isJSONLContent must normalize the mime (strip parameters) before
+        // comparison so these values are still detected as JSONL.
+        XCTAssertTrue(isJSONLContent(fileName: "anything.txt", mimeType: "application/jsonl; charset=utf-8"))
+        XCTAssertTrue(isJSONLContent(fileName: "anything.txt", mimeType: "application/x-ndjson; charset=utf-8"))
+        XCTAssertTrue(isJSONLContent(fileName: "anything.txt", mimeType: "application/x-jsonlines;charset=utf-8"))
+    }
+
+    func testAvailableViewModesAcceptsJsonlMimeTypeWithCharsetParam() {
+        XCTAssertEqual(
+            availableViewModes(for: "anything.txt", mimeType: "application/jsonl; charset=utf-8"),
+            [.tree, .source]
+        )
+    }
+
+    func testFileIconAcceptsJsonlMimeTypeWithCharsetParam() {
+        XCTAssertEqual(fileIcon(for: "application/jsonl; charset=utf-8", fileName: nil), .fileCode)
+    }
+
+    func testNormalizedMimeTypeStripsCharsetParam() {
+        XCTAssertEqual(normalizedMimeType("application/json; charset=utf-8"), "application/json")
+        XCTAssertEqual(normalizedMimeType("application/jsonl;charset=utf-8"), "application/jsonl")
+        XCTAssertEqual(normalizedMimeType("text/plain"), "text/plain")
+        XCTAssertEqual(normalizedMimeType(""), "")
+        XCTAssertEqual(normalizedMimeType("  application/json  "), "application/json")
+    }
 }

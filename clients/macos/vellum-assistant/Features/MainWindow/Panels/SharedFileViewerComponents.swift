@@ -12,9 +12,22 @@ enum FileViewMode: String, Hashable {
     case tree
 }
 
+/// Normalizes a MIME type string for comparison by lowercasing it and stripping
+/// any trailing parameters (e.g. `; charset=utf-8`). Servers commonly include
+/// charset or boundary parameters, and exact-equality checks against the base
+/// type would otherwise miss those values. Returns an empty string for empty
+/// input.
+func normalizedMimeType(_ mimeType: String) -> String {
+    let lowered = mimeType.lowercased()
+    if let semicolon = lowered.firstIndex(of: ";") {
+        return String(lowered[..<semicolon]).trimmingCharacters(in: .whitespaces)
+    }
+    return lowered.trimmingCharacters(in: .whitespaces)
+}
+
 func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode] {
     let ext = (fileName as NSString).pathExtension.lowercased()
-    let mime = mimeType.lowercased()
+    let mime = normalizedMimeType(mimeType)
     if ext == "md" || ext == "markdown" || mime == "text/markdown" {
         return [.preview, .source]
     }
@@ -23,9 +36,9 @@ func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode
         || mime == "application/x-ndjson"
         || mime == "application/x-jsonlines"
         || mime == "application/jsonlines" {
-        // Tree-first ordering matches the JSON branch above. JSONL files default
+        // Tree-first ordering matches the JSON branch below. JSONL files default
         // to the tree view, which uses parseJSONL via FileContentView's isJSONL
-        // wiring (see the .tree case below).
+        // wiring (see the .tree case in FileContentView).
         return [.tree, .source]
     }
     if ext == "json" || mime.hasPrefix("application/json") {
@@ -45,10 +58,12 @@ func viewModeLabel(_ mode: FileViewMode) -> String {
 /// Returns true when the given file should be parsed as JSONL (newline-delimited
 /// JSON), where each line is a standalone JSON value rather than a single JSON
 /// document. Used by `FileContentView` to choose between JSON and JSONL parsers
-/// when rendering the tree view.
+/// when rendering the tree view. MIME type parameters (e.g. `; charset=utf-8`)
+/// are stripped before comparison so servers that include them are still
+/// detected as JSONL.
 func isJSONLContent(fileName: String, mimeType: String) -> Bool {
     let ext = (fileName as NSString).pathExtension.lowercased()
-    let mime = mimeType.lowercased()
+    let mime = normalizedMimeType(mimeType)
     if ext == "jsonl" || ext == "ndjson" { return true }
     if mime == "application/jsonl"
         || mime == "application/x-ndjson"
@@ -62,14 +77,15 @@ func isJSONLContent(fileName: String, mimeType: String) -> Bool {
 // MARK: - File Icon
 
 func fileIcon(for mimeType: String, fileName: String? = nil) -> VIcon {
-    if mimeType.hasPrefix("image/") { return .image }
-    if mimeType.hasPrefix("video/") { return .video }
-    if mimeType.hasPrefix("text/") { return .fileText }
-    if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
-    if mimeType == "application/jsonl"
-        || mimeType == "application/x-ndjson"
-        || mimeType == "application/x-jsonlines"
-        || mimeType == "application/jsonlines" {
+    let mime = normalizedMimeType(mimeType)
+    if mime.hasPrefix("image/") { return .image }
+    if mime.hasPrefix("video/") { return .video }
+    if mime.hasPrefix("text/") { return .fileText }
+    if mime == "application/json" || mime == "application/javascript" || mime == "application/typescript" { return .fileCode }
+    if mime == "application/jsonl"
+        || mime == "application/x-ndjson"
+        || mime == "application/x-jsonlines"
+        || mime == "application/jsonlines" {
         return .fileCode
     }
     if let name = fileName {
