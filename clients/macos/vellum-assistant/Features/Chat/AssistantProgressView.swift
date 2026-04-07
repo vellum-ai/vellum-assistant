@@ -804,6 +804,12 @@ private struct StepDetailRow: View {
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
     @State private var isHovered = false
+    /// Cached colored AttributedString for the tool call result — computed once
+    /// on first expand / result change to avoid rebuilding on every render.
+    @State private var cachedColoredResult: AttributedString?
+    /// Cached line count + isLong flag for resolvedInputFull — avoids O(n)
+    /// byte scan in the view body on every render.
+    @State private var cachedInputIsLong: Bool?
     @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
@@ -930,6 +936,16 @@ private struct StepDetailRow: View {
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
             if newValue {
+                // Eagerly populate caches before the expanded body evaluates
+                // so the first render has colored output and correct input sizing.
+                if cachedColoredResult == nil,
+                   let result = toolCall.result, !result.isEmpty {
+                    cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
+                }
+                if cachedInputIsLong == nil && !resolvedInputFull.isEmpty {
+                    let lines = resolvedInputFull.utf8.reduce(1) { c, b in b == 0x0A ? c + 1 : c }
+                    cachedInputIsLong = lines > 30 || (lines == 1 && resolvedInputFull.utf8.count > 50_000)
+                }
                 Task { @MainActor in
                     onRehydrate?()
                 }
@@ -961,10 +977,22 @@ private struct StepDetailRow: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
                     if !resolvedInputFull.isEmpty {
-                        Text(resolvedInputFull)
-                            .font(VFont.bodySmallDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        let inputIsLong = cachedInputIsLong ?? false
+
+                        if inputIsLong {
+                            ScrollView {
+                                Text(resolvedInputFull)
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(height: 300)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        } else {
+                            Text(resolvedInputFull)
+                                .font(VFont.bodySmallDefault)
+                                .foregroundStyle(VColor.contentSecondary)
+                        }
                     }
                 }
             }
@@ -1000,11 +1028,14 @@ private struct StepDetailRow: View {
                         .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
 
+                    // Cached colored output — populated eagerly in
+                    // .onChange(of: isDetailExpanded) or .onAppear.
                     outputBlock(
-                        text: nil,
-                        attributedText: coloredOutput(result, isError: toolCall.isError),
+                        text: cachedColoredResult == nil ? result : nil,
+                        attributedText: cachedColoredResult,
                         copyText: result,
-                        copyLabel: "Copy output"
+                        copyLabel: "Copy output",
+                        isError: toolCall.isError
                     )
                 }
                 .padding(.horizontal, VSpacing.lg)
@@ -1012,40 +1043,51 @@ private struct StepDetailRow: View {
         }
         .padding(.bottom, VSpacing.sm)
         .textSelection(.enabled)
+        .onAppear {
+            if cachedColoredResult == nil,
+               let result = toolCall.result, !result.isEmpty {
+                cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
+            }
+            if cachedInputIsLong == nil && !resolvedInputFull.isEmpty {
+                let lines = resolvedInputFull.utf8.reduce(1) { c, b in b == 0x0A ? c + 1 : c }
+                cachedInputIsLong = lines > 30 || (lines == 1 && resolvedInputFull.utf8.count > 50_000)
+            }
+        }
+        .onChange(of: toolCall.result) { _, newResult in
+            if let result = newResult, !result.isEmpty {
+                cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
+            } else {
+                cachedColoredResult = nil
+            }
+        }
     }
 
     // MARK: - Output Block
 
-    /// Reusable output block with a height-bounded ScrollView for long outputs.
+    /// Reusable output block with copy button.
+    /// Long content (>30 lines) gets a definite-height ScrollView so LazyVStack
+    /// skips content measurement. Short content renders directly with no ScrollView.
     @ViewBuilder
     private func outputBlock(
         text: String?,
         attributedText: AttributedString?,
         copyText: String,
-        copyLabel: String
+        copyLabel: String,
+        isError: Bool = false
     ) -> some View {
-        let lineCount = copyText.components(separatedBy: "\n").count
+        let lines = copyText.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
+        let isLong = lines > 30 || (lines == 1 && copyText.utf8.count > 50_000)
 
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if lineCount > 500 {
-                    // Content at 500+ lines always exceeds 400pt, so a fixed
-                    // height lets sizeThatFits return without measuring content.
+                if isLong {
+                    // Definite height — LazyVStack never measures content inside.
                     ScrollView {
-                        outputTextView(text: text, attributedText: attributedText)
+                        outputTextView(text: text, attributedText: attributedText, isError: isError)
                     }
                     .frame(height: 400)
-                } else if let attrText = attributedText {
-                    Text(attrText)
-                        .font(VFont.bodySmallDefault)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if let plainText = text {
-                    Text(plainText)
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    outputTextView(text: text, attributedText: attributedText, isError: isError)
                 }
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
@@ -1078,11 +1120,12 @@ private struct StepDetailRow: View {
         }
     }
 
-    /// Text view used inside the ScrollView for long outputs.
+    /// Text view for output content, used by both the ScrollView (long) and direct (short) paths.
     @ViewBuilder
     private func outputTextView(
         text: String?,
-        attributedText: AttributedString?
+        attributedText: AttributedString?,
+        isError: Bool = false
     ) -> some View {
         if let attrText = attributedText {
             Text(attrText)
@@ -1091,7 +1134,7 @@ private struct StepDetailRow: View {
         } else if let plainText = text {
             Text(plainText)
                 .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentSecondary)
+                .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

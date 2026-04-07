@@ -237,7 +237,7 @@ public struct ToolCallChip: View {
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .textSelection(.enabled)
                                     }
-                                    .adaptiveScrollFrame(for: result, maxHeight: 400)
+                                    .adaptiveScrollFrame(for: result, maxHeight: 400, lineCount: lineCount)
                                 }
                             }
                         }
