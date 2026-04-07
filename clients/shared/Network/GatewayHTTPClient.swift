@@ -191,7 +191,10 @@ public enum GatewayHTTPClient {
     ) async throws -> (Response, HTTPURLResponse?) {
         let delegate = DownloadProgressDelegate(onProgress: onProgress)
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
+        defer {
+            delegate.invalidate()
+            session.finishTasksAndInvalidate()
+        }
 
         let (data, response) = try await session.data(for: request, delegate: delegate)
         let http = response as? HTTPURLResponse
@@ -201,12 +204,10 @@ public enum GatewayHTTPClient {
             logResponse(request, http: http, quiet: false)
         }
 
-        // Send final progress if we tracked determinately, then invalidate
-        // to prevent any queued Tasks from dispatching stale callbacks.
+        // Send final progress if we tracked determinately.
         if delegate.totalBytes > 0, delegate.lastReportedFraction < 1.0 {
             await MainActor.run { onProgress(1.0) }
         }
-        delegate.invalidate()
 
         return (Response(data: data, statusCode: statusCode), http)
     }
