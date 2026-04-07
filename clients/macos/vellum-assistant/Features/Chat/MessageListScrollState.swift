@@ -78,6 +78,12 @@ final class MessageListScrollState {
     /// Used as the primary scroll-to-bottom target.
     @ObservationIgnored var lastMessageId: (any Hashable)?
 
+    // MARK: - Confirmation Focus
+
+    /// Tracks the last confirmation request ID that was auto-focused,
+    /// so the same request isn't focused twice.
+    @ObservationIgnored var lastAutoFocusedRequestId: String?
+
     // MARK: - Pagination
 
     /// Tracks whether the pagination sentinel was previously inside the trigger band.
@@ -153,6 +159,14 @@ final class MessageListScrollState {
         return true
     }
 
+    /// Called when the user taps "Scroll to latest". Resets near-bottom
+    /// state and hides the CTA so the caller can perform the actual scroll.
+    func handleScrollToLatestTapped() {
+        isNearBottom = true
+        showScrollToLatest = false
+        scrollLog.debug("Scroll to latest tapped — resetting near-bottom state")
+    }
+
     /// Resets all state for a conversation switch.
     func reset(for conversationId: UUID) {
         currentConversationId = conversationId
@@ -168,6 +182,7 @@ final class MessageListScrollState {
         lastPaginationCompletedAt = .distantPast
         showScrollToLatest = false
         scrollIndicatorsHidden = false
+        lastAutoFocusedRequestId = nil
 
         scrollLog.debug("Reset for conversation: \(conversationId)")
     }

@@ -94,9 +94,10 @@ struct MessageListView: View {
     @State var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
-    /// Native SwiftUI scroll position struct (macOS 15+). Replaces
-    /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
-    @State var scrollPosition = ScrollPosition()
+    /// Captured `ScrollViewProxy` from `ScrollViewReader`. Used by onChange
+    /// handlers and the "Scroll to latest" overlay to perform programmatic
+    /// scrolls via `proxy.scrollTo(_:anchor:)`.
+    @State var scrollProxy: ScrollViewProxy?
 
     // MARK: - Body
 
@@ -104,6 +105,7 @@ struct MessageListView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
         #endif
+        ScrollViewReader { proxy in
             ScrollView {
                 scrollViewContent
             }
@@ -111,34 +113,6 @@ struct MessageListView: View {
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
-            // Apply only to .initialOffset — where the scroll view starts
-            // when first displayed (including .id() recreation on switch).
-            // Deliberately NOT using the all-roles overload (.sizeChanges)
-            // because it fights user scroll-up during streaming: SwiftUI's
-            // definition of "at bottom" for anchor purposes can differ from
-            // our hysteresis-based isAtBottom, causing the viewport to snap
-            // back to bottom on every content-height change even after the
-            // user has entered freeBrowsing. Our explicit content-height
-            // auto-follow handles streaming growth with proper mode checks.
-            // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .scrollPosition($scrollPosition)
-            .environment(\.suppressAutoScroll, { [self] in
-                scrollState.endStabilization()
-                if scrollState.isFollowingBottom {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=expansionPinning")
-                    scrollState.requestPinToBottom()
-                } else {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=offBottomExpansion")
-                    scrollState.beginStabilization(.expansion)
-                }
-            })
-            .onScrollPhaseChange { oldPhase, newPhase in
-                scrollState.scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
-                    scrollState.handleReachedBottom()
-                }
-            }
             .onScrollGeometryChange(for: ScrollGeometrySnapshot.self) { geometry in
                 ScrollGeometrySnapshot(
                     contentOffsetY: geometry.contentOffset.y,
@@ -147,15 +121,28 @@ struct MessageListView: View {
                     visibleRectHeight: geometry.visibleRect.height
                 )
             } action: { _, newState in
-                enqueueScrollGeometryUpdate(newState)
+                scrollState.contentOffsetY = newState.contentOffsetY
+                scrollState.contentHeight = newState.contentHeight
+                scrollState.viewportHeight = newState.visibleRectHeight
+                scrollState.updateNearBottom()
+                if scrollState.canAutoFollow() {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
             }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .overlay(alignment: .bottom) {
-                ScrollToLatestOverlayView(scrollState: scrollState)
+                ScrollToLatestOverlayView(scrollState: scrollState) {
+                    withAnimation(VAnimation.spring) {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
+                }
             }
-            .onAppear { handleAppear() }
+            .onAppear {
+                scrollProxy = proxy
+                handleAppear()
+            }
             .onDisappear {
-                scrollState.cancelAll()
+                scrollProxy = nil
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil
@@ -179,5 +166,6 @@ struct MessageListView: View {
                     scrollState.lastAutoFocusedRequestId = requestId
                 }
             }
+        }
     }
 }
