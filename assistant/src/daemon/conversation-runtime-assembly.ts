@@ -544,7 +544,7 @@ const PKB_SYSTEM_REMINDER =
   "<system_reminder>" +
   "\nProactively read any PKB topic files relevant to this conversation — " +
   "INDEX.md is your table of contents. Don't wait to be asked. " +
-  "Use `remember` for every new fact you learn, immediately, no batching." +
+  "Use `remember` for every new fact you learn immediately, don't wait for the next turn." +
   "\n</system_reminder>";
 
 /**
