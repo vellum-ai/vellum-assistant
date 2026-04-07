@@ -1,5 +1,6 @@
 import SwiftUI
 import VellumAssistantShared
+import Dispatch
 
 // MARK: - Progress Phase
 
@@ -17,9 +18,9 @@ private enum ProgressPhase: Equatable {
 
 // MARK: - Derived Progress State
 
-/// Caches all O(n) derived properties from `toolCalls` in a single pass.
-/// Recomputed only when `toolCalls` or `decidedConfirmations` change,
-/// avoiding redundant filtering/searching/sorting on every body render.
+/// Collects all O(n) derived properties from `toolCalls` in a single pass.
+/// The result is pure value data with no SwiftUI-owned storage so transcript
+/// updates can't feed back into the view tree through `@State`.
 private struct DerivedProgressState: Equatable {
     var allComplete: Bool = true
     var hasTools: Bool = false
@@ -164,7 +165,6 @@ struct AssistantProgressView: View {
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
-    @State private var derived: DerivedProgressState
 
     // MARK: - Init
 
@@ -202,11 +202,10 @@ struct AssistantProgressView: View {
         self.activeConfirmationRequestId = activeConfirmationRequestId
         self._expandedStepIds = expandedStepIds
         self._cardExpansionOverrides = cardExpansionOverrides
-        _derived = State(initialValue: DerivedProgressState.compute(
+        let derived = DerivedProgressState.compute(
             toolCalls: toolCalls,
             decidedConfirmations: decidedConfirmations
-        ))
-        let derived = _derived.wrappedValue
+        )
         let isComplete = derived.hasTools && derived.allComplete
         let isDenied = derived.hasDeniedToolCalls && derived.hasTools && !derived.allComplete
         let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
@@ -231,7 +230,14 @@ struct AssistantProgressView: View {
     /// Stable key for this progress card in `cardExpansionOverrides`.
     private var cardKey: UUID? { toolCalls.first?.id }
 
-    // MARK: - Derived State (reads from cached DerivedProgressState)
+    // MARK: - Derived State
+
+    private var derived: DerivedProgressState {
+        DerivedProgressState.compute(
+            toolCalls: toolCalls,
+            decidedConfirmations: decidedConfirmations
+        )
+    }
 
     private var phase: ProgressPhase {
         let hasIncompleteTools = derived.hasTools && !derived.allComplete
@@ -392,13 +398,17 @@ struct AssistantProgressView: View {
     // MARK: - Change Handlers (extracted to reduce body type-check complexity)
 
     private func handleToolCallsChange(_ newToolCalls: [ToolCallData]) {
-        derived = DerivedProgressState.compute(toolCalls: newToolCalls, decidedConfirmations: decidedConfirmations)
-        syncStartDateFromDerivedIfNeeded()
+        guard !newToolCalls.isEmpty else { return }
+        deferProgressStateMutation {
+            syncStartDateFromDerivedIfNeeded()
+        }
     }
 
     private func handleConfirmationsChange(_ newConfirmations: [ToolConfirmationData]) {
-        derived = DerivedProgressState.compute(toolCalls: toolCalls, decidedConfirmations: newConfirmations)
-        syncStartDateFromDerivedIfNeeded()
+        guard !newConfirmations.isEmpty || derived.earliestStartedAt != nil else { return }
+        deferProgressStateMutation {
+            syncStartDateFromDerivedIfNeeded()
+        }
     }
 
     private func handlePhaseChange(_ newPhase: ProgressPhase) {
@@ -504,8 +514,10 @@ struct AssistantProgressView: View {
     }
 
     private func deferProgressStateMutation(_ update: @escaping @MainActor () -> Void) {
-        Task { @MainActor in
-            update()
+        DispatchQueue.main.async {
+            Task { @MainActor in
+                update()
+            }
         }
     }
 
