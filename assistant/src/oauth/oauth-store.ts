@@ -119,7 +119,10 @@ export function seedProviders(
     const baseUrl = p.baseUrl ?? null;
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
-    const scopeSeparator = p.scopeSeparator ?? " ";
+    // Coerce empty string to the default space separator. An empty separator
+    // would join scopes into a single concatenated token (e.g. "readwrite"),
+    // which is never a valid OAuth authorize URL value.
+    const scopeSeparator = p.scopeSeparator || " ";
     const authorizeParams = p.authorizeParams
       ? JSON.stringify(p.authorizeParams)
       : null;
@@ -301,7 +304,8 @@ export function registerProvider(params: {
     baseUrl: params.baseUrl ?? null,
     defaultScopes: JSON.stringify(params.defaultScopes),
     scopePolicy: JSON.stringify(params.scopePolicy),
-    scopeSeparator: params.scopeSeparator ?? " ",
+    // Coerce empty string to the default space separator (see seedProviders).
+    scopeSeparator: params.scopeSeparator || " ",
     authorizeParams: params.authorizeParams
       ? JSON.stringify(params.authorizeParams)
       : null,
@@ -419,7 +423,8 @@ export function updateProvider(
   if (params.scopePolicy !== undefined)
     set.scopePolicy = JSON.stringify(params.scopePolicy);
   if (params.scopeSeparator !== undefined)
-    set.scopeSeparator = params.scopeSeparator;
+    // Coerce empty string to the default space separator (see seedProviders).
+    set.scopeSeparator = params.scopeSeparator || " ";
   if (params.authorizeParams !== undefined)
     set.authorizeParams = JSON.stringify(params.authorizeParams);
   if (params.displayLabel !== undefined) set.displayLabel = params.displayLabel;
