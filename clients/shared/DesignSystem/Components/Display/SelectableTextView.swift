@@ -157,7 +157,11 @@ public struct VSelectableTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         guard coordinator.lastAttributedString != attributedString
             || coordinator.lastLineSpacing != lineSpacing else { return }
-        coordinator.scheduleAttributedStringApply(attributedString, lineSpacing: lineSpacing, to: textView)
+        if useExternalSizing {
+            coordinator.scheduleAttributedStringApply(attributedString, lineSpacing: lineSpacing, to: textView)
+        } else {
+            coordinator.applyAttributedString(attributedString, lineSpacing: lineSpacing, to: textView)
+        }
     }
 
     /// When `useExternalSizing` is `true`, returns `nil` so SwiftUI uses
