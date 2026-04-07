@@ -174,22 +174,31 @@ struct IntegrationDetailModal: View {
             if !isLoggedIn {
                 managedLoginPrompt
             } else {
+                // Connection count + add button row
+                HStack {
+                    Text("\(connections.count) connected")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    Spacer()
+
+                    if isConnecting {
+                        HStack(spacing: VSpacing.sm) {
+                            VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                            Text("Waiting for authorization...")
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    } else {
+                        VButton(label: connections.isEmpty ? "Connect Account" : "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
+                            store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                        }
+                    }
+                }
+
                 if !connections.isEmpty {
                     managedConnectionsList
                 }
-
-                managedConnectButton
-                    .opacity(isConnecting ? 0 : 1)
-                    .overlay {
-                        if isConnecting {
-                            HStack(spacing: VSpacing.sm) {
-                                VBusyIndicator(size: 8, color: VColor.contentTertiary)
-                                Text("Waiting for authorization...")
-                                    .font(VFont.bodyMediumDefault)
-                                    .foregroundStyle(VColor.contentTertiary)
-                            }
-                        }
-                    }
             }
 
             if let error = store.managedError(for: providerKey) {
@@ -230,39 +239,8 @@ struct IntegrationDetailModal: View {
         .onHover { isLoginButtonHovered = $0 }
     }
 
-    @State private var isConnectButtonHovered = false
-
-    private var managedConnectButton: some View {
-        Button {
-            if !isConnecting {
-                store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
-            }
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.plus, size: 14)
-                Text(connections.isEmpty ? "Connect Account" : "Connect Another Account")
-                    .font(VFont.bodyMediumDefault)
-            }
-            .foregroundStyle(VColor.primaryBase)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surfaceBase.opacity(isConnectButtonHovered ? 1 : 0))
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isConnecting)
-        .onHover { isConnectButtonHovered = $0 }
-    }
-
     private var managedConnectionsList: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Connected Accounts")
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentSecondary)
-
             ForEach(connections, id: \.id) { entry in
                 managedConnectionRow(for: entry)
             }
@@ -353,13 +331,40 @@ struct IntegrationDetailModal: View {
 
     @ViewBuilder
     private var yourOwnBody: some View {
+        let apps = store.yourOwnApps(for: providerKey)
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if store.yourOwnIsLoading(for: providerKey) {
                 yourOwnSkeleton
-            } else if shouldShowForm {
-                yourOwnFormStep
             } else {
-                yourOwnListStep
+                // Top row: count + add button
+                HStack {
+                    let totalConns = apps.reduce(0) { $0 + (store.yourOwnOAuthConnectionsByApp[$1.id] ?? []).count }
+                    Text("\(totalConns) connected")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    Spacer()
+
+                    if !isShowingAddAppForm {
+                        VButton(label: apps.isEmpty ? "Add Connection" : "Add Another App", leftIcon: VIcon.plus.rawValue, style: .outlined) {
+                            createAppClientId = ""
+                            createAppClientSecret = ""
+                            isShowingAddAppForm = true
+                        }
+                    }
+                }
+
+                // Form at top when adding
+                if shouldShowForm {
+                    yourOwnFormStep
+                }
+
+                // App list
+                if !apps.isEmpty {
+                    ForEach(apps) { app in
+                        yourOwnAppCard(for: app)
+                    }
+                }
             }
 
             if let error = store.yourOwnError(for: providerKey) {
@@ -393,36 +398,6 @@ struct IntegrationDetailModal: View {
         }
     }
 
-    /// Step 2: App list with "Add Another App" ghost button
-    private var yourOwnListStep: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            ForEach(store.yourOwnApps(for: providerKey)) { app in
-                yourOwnAppCard(for: app)
-            }
-
-            Button {
-                createAppClientId = ""
-                createAppClientSecret = ""
-                isShowingAddAppForm = true
-            } label: {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.plus, size: 14)
-                    Text("Add Another Connection")
-                        .font(VFont.bodyMediumDefault)
-                }
-                .foregroundStyle(VColor.primaryBase)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, VSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surfaceBase.opacity(isAddAppButtonHovered ? 1 : 0))
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover { isAddAppButtonHovered = $0 }
-        }
-    }
 
     private var yourOwnSkeleton: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -440,13 +415,8 @@ struct IntegrationDetailModal: View {
     @ViewBuilder
     private var yourOwnFooterButton: some View {
         if shouldShowForm {
-            if isShowingAddAppForm && !store.yourOwnApps(for: providerKey).isEmpty {
-                VButton(label: "Back", style: .outlined) {
-                    isShowingAddAppForm = false
-                }
-            }
             VButton(
-                label: createAppIsSubmitting ? "Connecting..." : "Connect",
+                label: createAppIsSubmitting ? "Adding..." : "Add",
                 style: .primary,
                 isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
             ) {
@@ -456,6 +426,13 @@ struct IntegrationDetailModal: View {
                     createAppClientId = ""
                     createAppClientSecret = ""
                     createAppIsSubmitting = false
+                    isShowingAddAppForm = false
+                }
+            }
+            if isShowingAddAppForm {
+                VButton(label: "Cancel", style: .outlined) {
+                    createAppClientId = ""
+                    createAppClientSecret = ""
                     isShowingAddAppForm = false
                 }
             }
