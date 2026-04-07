@@ -880,18 +880,23 @@ export class WorkspaceGitService {
    * users can keep their own git config without the runtime rewriting it.
    */
   private buildSafeCommitArgs(args: string[]): string[] {
-    const { name, email } = getAssistantGitIdentity();
+    const identityArgs = this.buildAssistantIdentityConfigArgs();
     return [
+      ...identityArgs,
       "-c",
       "core.hooksPath=/dev/null",
-      "-c",
-      `user.name=${name}`,
-      "-c",
-      `user.email=${email}`,
       "commit",
       "--no-verify",
       ...args,
     ];
+  }
+
+  /**
+   * Build transient git config args for assistant-managed writes.
+   */
+  private buildAssistantIdentityConfigArgs(): string[] {
+    const { name, email } = getAssistantGitIdentity();
+    return ["-c", `user.name=${name}`, "-c", `user.email=${email}`];
   }
 
   /**
@@ -950,7 +955,16 @@ export class WorkspaceGitService {
   ): Promise<void> {
     await this.mutex.withLock(async () => {
       await this.execGit(
-        ["notes", "--ref=vellum", "add", "-f", "-m", noteContent, commitHash],
+        [
+          ...this.buildAssistantIdentityConfigArgs(),
+          "notes",
+          "--ref=vellum",
+          "add",
+          "-f",
+          "-m",
+          noteContent,
+          commitHash,
+        ],
         { signal },
       );
     });
