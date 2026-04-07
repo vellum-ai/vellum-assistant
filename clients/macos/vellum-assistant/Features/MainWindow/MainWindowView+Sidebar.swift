@@ -394,21 +394,7 @@ extension MainWindowView {
                 onMarkAllSeen: {
                     let markedIds = conversationManager.markAllConversationsSeen()
                     guard !markedIds.isEmpty else { return }
-                    let count = markedIds.count
-                    let toastId = windowState.showToast(
-                        message: "Marked \(count) conversation\(count == 1 ? "" : "s") as read",
-                        style: .success,
-                        primaryAction: VToastAction(label: "Undo") {
-                            conversationManager.restoreUnseen(conversationIds: markedIds)
-                            windowState.dismissToast()
-                        },
-                        onDismiss: {
-                            conversationManager.commitPendingSeenSignals()
-                        }
-                    )
-                    conversationManager.schedulePendingSeenSignals {
-                        windowState.dismissToast(id: toastId)
-                    }
+                    showMarkAllReadToast(count: markedIds.count, markedIds: markedIds)
                 },
                 onNewConversation: { startNewConversation() },
                 onCreateGroup: assistantFeatureFlagStore.isEnabled("conversation-groups-ui") ? {
