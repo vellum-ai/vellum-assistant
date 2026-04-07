@@ -142,6 +142,7 @@ const BASE_OAUTH_CONFIG: OAuth2Config = {
   tokenExchangeUrl: "https://provider.example.com/token",
   scopes: ["read", "write"],
   clientId: "test-client-id",
+  scopeSeparator: " ",
 };
 
 beforeEach(() => {
@@ -651,6 +652,129 @@ describe("OAuth2 gateway transport", () => {
       expect(lastTokenRequestBody).not.toBeNull();
       expect(lastTokenRequestBody!.get("client_id")).toBe("test-client-id");
       expect(lastTokenRequestBody!.has("client_secret")).toBe(false);
+    });
+  });
+
+  describe("scope separator", () => {
+    test("authorize URL joins scopes with space when scopeSeparator is ' '", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+
+      let capturedAuthUrl = "";
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        {
+          openUrl: (url) => {
+            capturedAuthUrl = url;
+          },
+        },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Space-encoded scopes
+      expect(capturedAuthUrl).toContain("scope=read%20write");
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("space-separator-code");
+      await flowPromise;
+    });
+
+    test("authorize URL joins scopes with comma when scopeSeparator is ','", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+
+      const commaConfig: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        scopeSeparator: ",",
+      };
+
+      let capturedAuthUrl = "";
+      const flowPromise = startOAuth2Flow(
+        commaConfig,
+        {
+          openUrl: (url) => {
+            capturedAuthUrl = url;
+          },
+        },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Comma-encoded scopes
+      expect(capturedAuthUrl).toContain("scope=read%2Cwrite");
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("comma-separator-code");
+      await flowPromise;
+    });
+
+    test("token response with comma-separated scope splits into individual scopes when scopeSeparator is ','", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+      mockTokenResponse = {
+        ok: true,
+        status: 200,
+        body: {
+          access_token: "test-access-token",
+          refresh_token: "test-refresh-token",
+          expires_in: 3600,
+          scope: "read,write,issues:create",
+          token_type: "Bearer",
+        },
+      };
+
+      const commaConfig: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        scopeSeparator: ",",
+      };
+
+      const flowPromise = startOAuth2Flow(
+        commaConfig,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("comma-token-code");
+
+      const result = await flowPromise;
+      expect(result.grantedScopes).toEqual(["read", "write", "issues:create"]);
+    });
+
+    test("token response with whitespace around comma separators is trimmed", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+      mockTokenResponse = {
+        ok: true,
+        status: 200,
+        body: {
+          access_token: "test-access-token",
+          refresh_token: "test-refresh-token",
+          expires_in: 3600,
+          scope: " read , write ",
+          token_type: "Bearer",
+        },
+      };
+
+      const commaConfig: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        scopeSeparator: ",",
+      };
+
+      const flowPromise = startOAuth2Flow(
+        commaConfig,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("comma-whitespace-code");
+
+      const result = await flowPromise;
+      expect(result.grantedScopes).toEqual(["read", "write"]);
     });
   });
 });

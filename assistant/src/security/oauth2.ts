@@ -49,6 +49,13 @@ export interface OAuth2Config {
    * Defaults to `client_secret_post`.
    */
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
+  /**
+   * Separator used to join scopes in the authorize URL and split the
+   * granted-scope string returned by the token endpoint. Defaults to
+   * `" "` (space) per the OAuth 2.0 spec, but providers like Linear
+   * use `","` (comma).
+   */
+  scopeSeparator: string;
 }
 
 export interface OAuth2TokenResult {
@@ -189,7 +196,10 @@ async function exchangeCodeForTokens(
 
   const grantedScopes =
     typeof tokens.scope === "string"
-      ? tokens.scope.split(/[ ,]/).filter(Boolean)
+      ? tokens.scope
+          .split(config.scopeSeparator)
+          .map((s) => s.trim())
+          .filter(Boolean)
       : [...config.scopes];
 
   return { tokens, grantedScopes, rawTokenResponse: tokenData };
@@ -232,7 +242,7 @@ async function runGatewayFlow(
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: config.scopes.join(" "),
+    scope: config.scopes.join(config.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
@@ -405,7 +415,7 @@ function startLoopbackServerAndWaitForCode(
         client_id: config.clientId,
         redirect_uri: boundRedirectUri,
         response_type: "code",
-        scope: config.scopes.join(" "),
+        scope: config.scopes.join(config.scopeSeparator),
         state,
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
@@ -497,7 +507,7 @@ export async function prepareOAuth2Flow(
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: config.scopes.join(" "),
+    scope: config.scopes.join(config.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
@@ -537,7 +547,7 @@ async function prepareLoopbackFlow(
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: config.scopes.join(" "),
+    scope: config.scopes.join(config.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
