@@ -127,7 +127,7 @@ Examples:
               (r) =>
                 r &&
                 needles.some((needle) =>
-                  r.provider.toLowerCase().includes(needle),
+                  r.providerKey.toLowerCase().includes(needle),
                 ),
             );
           }
