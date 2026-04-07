@@ -370,6 +370,13 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     return fetch(url, options);
                 };
                 """
+        } else {
+            jsSource += """
+
+                window.vellum.fetch = function() {
+                    return Promise.reject(new Error('vellum.fetch is not available: assistant connection could not be resolved'));
+                };
+                """
         }
 
         jsSource += """
