@@ -136,6 +136,8 @@ export interface ProcessConversationContext {
   clearProxyAvailability(): void;
   /** Restore host proxy availability based on whether a real client is connected. */
   restoreProxyAvailability(): void;
+  /** Restore only the host browser proxy (used by chrome-extension drains). */
+  restoreBrowserProxyAvailability(): void;
   emitActivityState(
     phase:
       | "idle"
@@ -311,6 +313,20 @@ export async function drainQueue(
   // returns false and tool execution falls back to local.
   if (next.isInteractive === false) {
     conversation.clearProxyAvailability();
+    // chrome-extension is non-interactive (no SSE prompter UI) but DOES have
+    // a connected client that can service host_browser_request events. The
+    // unconditional clear above turned its hostBrowserProxy off; restore it
+    // here so the queued turn can still drive the browser via CDP.
+    const drainInterfaceCtx =
+      queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
+    const drainInterface = drainInterfaceCtx?.userMessageInterface;
+    if (
+      drainInterface &&
+      !supportsHostProxy(drainInterface) &&
+      supportsHostProxy(drainInterface, "host_browser")
+    ) {
+      conversation.restoreBrowserProxyAvailability();
+    }
   } else {
     // Restore proxy availability only for desktop-originating turns (macos)
     // in case a prior non-interactive drain disabled it. Non-desktop interactive

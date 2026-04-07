@@ -103,11 +103,17 @@ export type HostProxyCapability =
   | "host_browser";
 
 /**
- * Whether the interface supports a host proxy capability. Omit `capability`
- * to ask "does this interface support any host proxy at all?" — the macOS
- * client historically supports all four capabilities; the chrome-extension
- * interface only supports host_browser, so the no-arg form returns `false`
- * for chrome-extension.
+ * Whether the interface supports a host proxy capability.
+ *
+ * The no-arg form `supportsHostProxy(id)` asks "does this interface support
+ * the full desktop host proxy set?" — it returns `true` only for macOS, which
+ * historically supports all four capabilities. It returns `false` for
+ * chrome-extension because chrome-extension only supports `host_browser`,
+ * and the no-arg form is the gate that legacy desktop-only call sites use
+ * (e.g. preactivating computer-use, restoring all four proxies in the drain
+ * queue). Callers that want to check a single capability — for example, to
+ * decide whether to keep `hostBrowserProxy` available for chrome-extension —
+ * should pass the capability explicitly: `supportsHostProxy(id, "host_browser")`.
  */
 export function supportsHostProxy(
   id: InterfaceId,

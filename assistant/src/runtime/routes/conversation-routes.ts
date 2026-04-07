@@ -1209,7 +1209,16 @@ export async function handleSendMessage(
   const preservingProxies =
     conversation.isProcessing() &&
     !supportsHostProxy(sourceInterface, "host_bash");
-  conversation.updateClient(onEvent, !isInteractive, {
+  // hasNoClient gates whether host proxies treat themselves as connected. The
+  // chrome-extension interface is non-interactive (no SSE prompter UI) but
+  // still has a connected client that can service host_browser_request events,
+  // so deriving hasNoClient purely from !isInteractive would incorrectly mark
+  // the just-constructed hostBrowserProxy unavailable. Treat any interface
+  // that supports host_browser as having a client, so the proxy stays usable.
+  const hasNoClient = !(
+    isInteractive || supportsHostProxy(sourceInterface, "host_browser")
+  );
+  conversation.updateClient(onEvent, hasNoClient, {
     skipProxySenderUpdate: preservingProxies,
   });
 

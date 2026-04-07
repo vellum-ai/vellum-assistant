@@ -214,6 +214,8 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { Conversation } from "../daemon/conversation.js";
+import { HostBashProxy } from "../daemon/host-bash-proxy.js";
+import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -556,5 +558,44 @@ describe("sendToClient receives state signals", () => {
       phase: "thinking",
       reason: "confirmation_resolved",
     });
+  });
+});
+
+describe("restoreBrowserProxyAvailability", () => {
+  test("re-enables only the host browser proxy after clearProxyAvailability", () => {
+    const conversation = makeConversation();
+    const browserProxy = new HostBrowserProxy(() => {});
+    const bashProxy = new HostBashProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+    conversation.setHostBashProxy(bashProxy);
+
+    // Mark as having a connected client (chrome-extension path).
+    conversation.updateClient(() => {}, false);
+    expect(browserProxy.isAvailable()).toBe(true);
+    expect(bashProxy.isAvailable()).toBe(true);
+
+    // The drain queue clears all proxies for non-interactive turns.
+    conversation.clearProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(false);
+    expect(bashProxy.isAvailable()).toBe(false);
+
+    // restoreBrowserProxyAvailability should bring back ONLY the browser proxy.
+    conversation.restoreBrowserProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(true);
+    expect(bashProxy.isAvailable()).toBe(false);
+  });
+
+  test("does not re-enable the browser proxy when hasNoClient is true", () => {
+    const conversation = makeConversation();
+    const browserProxy = new HostBrowserProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+
+    // updateClient with hasNoClient=true means there's no real client connected.
+    conversation.updateClient(() => {}, true);
+    expect(browserProxy.isAvailable()).toBe(false);
+
+    // restoreBrowserProxyAvailability must respect the disconnected gate.
+    conversation.restoreBrowserProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(false);
   });
 });

@@ -545,6 +545,20 @@ export class Conversation {
     }
   }
 
+  /**
+   * Restore host browser proxy availability only. Used for non-desktop
+   * interfaces (e.g. chrome-extension) that support host_browser but not
+   * the full desktop proxy set, so calling restoreProxyAvailability() would
+   * incorrectly re-enable bash/file/CU proxies that should stay disabled.
+   * Mirrors the hasNoClient gate from restoreProxyAvailability so a
+   * disconnected client doesn't get its proxy reactivated.
+   */
+  restoreBrowserProxyAvailability(): void {
+    if (!this.hasNoClient) {
+      this.hostBrowserProxy?.updateSender(this.sendToClient, true);
+    }
+  }
+
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
     this.subagentAllowedTools = tools;
   }
