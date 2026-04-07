@@ -792,6 +792,12 @@ private struct StepDetailRow: View {
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
     @State private var isHovered = false
+    /// Cached colored AttributedString for the tool call result — computed once
+    /// on first expand / result change to avoid rebuilding on every render.
+    @State private var cachedColoredResult: AttributedString?
+    /// Tracks which result string was used to build the cache so we can
+    /// detect when the result changes (e.g. rehydration).
+    @State private var cachedResultString: String?
     @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
@@ -982,21 +988,18 @@ private struct StepDetailRow: View {
 
             // Output with diff coloring + copy button
             if let result = toolCall.result, !result.isEmpty {
-                let resultLineCount = result.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
-                let resultIsLong = resultLineCount > 500 || (resultLineCount == 1 && result.count > 50_000)
-
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Output")
                         .font(VFont.labelSmall)
                         .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
 
-                    // Skip expensive AttributedString construction for long
-                    // content — building 500+ colored fragments on every
-                    // render is the dominant cost for large tool outputs.
+                    // Use cached colored output when available. On the very
+                    // first render before .onAppear fires, fall back to plain
+                    // text for long content to avoid a first-render hang.
                     outputBlock(
-                        text: resultIsLong ? result : nil,
-                        attributedText: resultIsLong ? nil : coloredOutput(result, isError: toolCall.isError),
+                        text: cachedColoredResult == nil ? result : nil,
+                        attributedText: cachedColoredResult,
                         copyText: result,
                         copyLabel: "Copy output",
                         isError: toolCall.isError
@@ -1007,11 +1010,28 @@ private struct StepDetailRow: View {
         }
         .padding(.bottom, VSpacing.sm)
         .textSelection(.enabled)
+        .onAppear {
+            if cachedColoredResult == nil,
+               let result = toolCall.result, !result.isEmpty {
+                cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
+                cachedResultString = result
+            }
+        }
+        .onChange(of: toolCall.result) { _, newResult in
+            if let result = newResult, !result.isEmpty {
+                cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
+                cachedResultString = result
+            } else {
+                cachedColoredResult = nil
+                cachedResultString = nil
+            }
+        }
     }
 
     // MARK: - Output Block
 
-    /// Reusable output block with a height-bounded ScrollView for long outputs.
+    /// Reusable output block with a max-height ScrollView.
+    /// Short content naturally takes its small height; long content caps at 400pt and scrolls.
     @ViewBuilder
     private func outputBlock(
         text: String?,
@@ -1020,30 +1040,12 @@ private struct StepDetailRow: View {
         copyLabel: String,
         isError: Bool = false
     ) -> some View {
-        let lineCount = copyText.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
-        let isLong = lineCount > 500 || (lineCount == 1 && copyText.count > 50_000)
-
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if isLong {
-                    // Content at 500+ lines always exceeds 400pt, so a fixed
-                    // height lets sizeThatFits return without measuring content.
-                    ScrollView {
-                        outputTextView(text: text, attributedText: attributedText, isError: isError)
-                    }
-                    .frame(height: 400)
-                } else if let attrText = attributedText {
-                    Text(attrText)
-                        .font(VFont.bodySmallDefault)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    } else if let plainText = text {
-                        Text(plainText)
-                            .font(VFont.bodySmallDefault)
-                            .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                ScrollView {
+                    outputTextView(text: text, attributedText: attributedText, isError: isError)
+                }
+                .frame(maxHeight: 400)
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
             .frame(maxWidth: .infinity, alignment: .leading)
