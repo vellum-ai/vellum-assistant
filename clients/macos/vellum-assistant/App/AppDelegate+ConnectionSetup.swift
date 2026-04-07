@@ -482,6 +482,43 @@ extension AppDelegate {
         }
     }
 
+    // MARK: - Legacy Migration
+
+    /// One-time migration: copies the legacy `connectedAssistantId` value from
+    /// UserDefaults into the lockfile's `activeAssistant` field, then removes
+    /// the UserDefaults key. This ensures users upgrading from a version that
+    /// stored the active assistant in UserDefaults don't silently switch to a
+    /// different assistant on first launch.
+    ///
+    /// Safe to call multiple times — exits immediately when:
+    /// - The lockfile already has an `activeAssistant` value (migration not needed)
+    /// - UserDefaults has no `connectedAssistantId` (nothing to migrate)
+    static func migrateConnectedAssistantIdToLockfile() {
+        // If the lockfile already has an active assistant, the migration is
+        // either already done or the user set it via CLI — nothing to do.
+        if LockfileAssistant.loadActiveAssistantId() != nil {
+            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+            return
+        }
+
+        // Check for legacy UserDefaults value
+        guard let legacyId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              !legacyId.isEmpty else {
+            return
+        }
+
+        // Verify the assistant exists in the lockfile before writing
+        if LockfileAssistant.loadByName(legacyId) != nil {
+            LockfileAssistant.setActiveAssistantId(legacyId)
+            log.info("Migrated connectedAssistantId '\(legacyId, privacy: .public)' from UserDefaults to lockfile")
+        } else {
+            log.warning("Legacy connectedAssistantId '\(legacyId, privacy: .public)' not found in lockfile — skipping migration")
+        }
+
+        // Always clean up the legacy key
+        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+    }
+
     // MARK: - Privacy
 
     /// Synchronously migrates legacy privacy UserDefaults keys to their
