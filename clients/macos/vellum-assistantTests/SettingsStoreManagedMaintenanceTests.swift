@@ -141,6 +141,7 @@ final class SettingsStoreManagedRecoveryTests: XCTestCase {
 
         // Write a managed entry for our test assistant.
         let lockfileContent: [String: Any] = [
+            "activeAssistant": testAssistantId,
             "assistants": [
                 [
                     "assistantId": testAssistantId,
@@ -184,7 +185,6 @@ final class SettingsStoreManagedRecoveryTests: XCTestCase {
 
         // Unconditionally clean up any test-specific values written to UserDefaults.standard
         // by makeStore() so they don't leak into subsequent tests.
-        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
 
         super.tearDown()
@@ -193,10 +193,8 @@ final class SettingsStoreManagedRecoveryTests: XCTestCase {
     // MARK: - Helpers
 
     private func makeStore() -> SettingsStore {
-        // SettingsStore reads connectedAssistantId / connectedOrganizationId from
-        // UserDefaults.standard. Write them here for the duration of each test;
-        // tearDown unconditionally removes them afterwards.
-        UserDefaults.standard.set(testAssistantId, forKey: "connectedAssistantId")
+        // SettingsStore reads activeAssistant from the lockfile (already set in setUp)
+        // and connectedOrganizationId from UserDefaults.standard.
         UserDefaults.standard.set(testOrgId, forKey: "connectedOrganizationId")
         return SettingsStore(settingsClient: MockSettingsClient())
     }
@@ -305,9 +303,9 @@ final class SettingsStoreManagedRecoveryTests: XCTestCase {
     }
 
     func testRefreshIsNoOpWhenNoConnectedAssistantId() async {
-        // Remove the connected assistant ID to exercise the no-op path.
-        // tearDown will clean up UserDefaults.standard uniformly.
-        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        // Clear the active assistant to exercise the no-op path.
+        // tearDown restores the original lockfile.
+        LockfileAssistant.setActiveAssistantId(nil)
 
         // If refresh were to hit the network, the nil handler would cause an error.
         RecoveryStoreURLProtocol.requestHandler = nil
@@ -549,8 +547,8 @@ final class SettingsStoreManagedRecoveryTests: XCTestCase {
         await fulfillment(of: [requestReceived], timeout: 5)
         waitTask.cancel()
 
-        // Simulate assistant switch mid-flight by changing UserDefaults.
-        UserDefaults.standard.set("different-assistant-id", forKey: "connectedAssistantId")
+        // Simulate assistant switch mid-flight by changing the lockfile.
+        LockfileAssistant.setActiveAssistantId("different-assistant-id")
 
         // Now unblock the response.
         BlockingRecoveryURLProtocol.pendingInstance?.resume()
@@ -655,7 +653,7 @@ final class SettingsStoreManagedRecoveryTests: XCTestCase {
         waitTask.cancel()
 
         // Simulate assistant switch mid-flight.
-        UserDefaults.standard.set("different-assistant-id-enter", forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId("different-assistant-id-enter")
 
         // Unblock the response.
         BlockingRecoveryURLProtocol.pendingInstance?.resume()
@@ -789,7 +787,7 @@ final class SettingsStoreManagedRecoveryTests: XCTestCase {
         waitTask.cancel()
 
         // Simulate assistant switch mid-flight.
-        UserDefaults.standard.set("different-assistant-id-exit", forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId("different-assistant-id-exit")
 
         // Unblock the response.
         BlockingRecoveryURLProtocol.pendingInstance?.resume()

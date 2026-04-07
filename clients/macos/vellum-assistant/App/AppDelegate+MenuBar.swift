@@ -505,7 +505,7 @@ extension AppDelegate {
         // where the Software Update card lives and auto-loads releases.
         // Sparkle is only relevant for local topology.
         let assistants = LockfileAssistant.loadAll()
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedId = LockfileAssistant.loadActiveAssistantId()
         if let id = connectedId,
            let assistant = assistants.first(where: { $0.assistantId == id }),
            assistant.isDocker || assistant.isManaged {

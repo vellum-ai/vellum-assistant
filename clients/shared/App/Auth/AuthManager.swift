@@ -212,7 +212,9 @@ public final class AuthManager {
         }
         await SessionTokenManager.deleteTokenAsync()
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
-        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        #if os(macOS)
+        LockfileAssistant.setActiveAssistantId(nil)
+        #endif
         UserDefaults.standard.removeObject(forKey: "managed_assistant_id")
         UserDefaults.standard.removeObject(forKey: "managed_platform_base_url")
         state = .unauthenticated

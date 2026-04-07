@@ -234,7 +234,7 @@ extension AppDelegate {
         // hatches the CLI calls /v1/guardian/init and saves the result to
         // ~/.config/vellum/assistants/<id>/guardian-token.json. Importing from
         // this file avoids a redundant (and often 403-failing) HTTP bootstrap.
-        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        if let assistantId = LockfileAssistant.loadActiveAssistantId(),
            GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
             log.info("Imported guardian token from CLI file — skipping HTTP bootstrap")
             return

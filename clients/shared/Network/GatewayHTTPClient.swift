@@ -353,9 +353,45 @@ public enum GatewayHTTPClient {
     // MARK: - Internals
 
     #if os(macOS)
+    /// Process-local override for the connected assistant ID. Used by
+    /// `withAssistant(_:_:)` to temporarily route requests to a different
+    /// assistant's gateway without mutating the lockfile or UserDefaults.
+    /// This is concurrency-unsafe (same limitation as the old temp-swap
+    /// pattern) but at least keeps the override in-process.
+    private static var _assistantOverride: String?
+
+    /// Temporarily overrides the connected assistant for the duration of
+    /// `body`, so that `resolveConnectedAssistant()` resolves the given
+    /// assistant instead of reading from the lockfile.
+    ///
+    /// This replaces the old pattern of temporarily swapping
+    /// `connectedAssistantId` in UserDefaults (which was visible to the
+    /// CLI and other processes).
+    ///
+    /// - Parameters:
+    ///   - id: The assistant ID to resolve during `body`.
+    ///   - body: The async work that should target the overridden assistant.
+    /// - Returns: The result of `body`.
+    static func withAssistant<T>(_ id: String, _ body: () async throws -> T) async rethrows -> T {
+        let previous = _assistantOverride
+        _assistantOverride = id
+        defer { _assistantOverride = previous }
+        return try await body()
+    }
+
     /// Resolves the currently connected assistant from the lockfile.
+    ///
+    /// Checks the process-local `_assistantOverride` first (set by
+    /// `withAssistant(_:_:)`), then falls back to the lockfile's
+    /// `activeAssistant` field via `LockfileAssistant.loadActiveAssistantId()`.
     private static func resolveConnectedAssistant() -> LockfileAssistant? {
-        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty else { return nil }
+        let id: String
+        if let override = _assistantOverride, !override.isEmpty {
+            id = override
+        } else {
+            guard let activeId = LockfileAssistant.loadActiveAssistantId(), !activeId.isEmpty else { return nil }
+            id = activeId
+        }
         return LockfileAssistant.loadByName(id)
     }
     #endif

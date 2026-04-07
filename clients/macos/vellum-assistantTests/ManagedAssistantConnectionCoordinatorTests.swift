@@ -53,7 +53,10 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(result.assistant.id, assistant.id)
         XCTAssertFalse(result.reusedExisting)
-        XCTAssertEqual(defaults.string(forKey: "connectedAssistantId"), assistant.id)
+        // Verify activeAssistant was written to the lockfile
+        let lockfileData = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let lockfileJson = try JSONSerialization.jsonObject(with: lockfileData) as? [String: Any]
+        XCTAssertEqual(lockfileJson?["activeAssistant"] as? String, assistant.id)
         XCTAssertTrue(defaults.bool(forKey: "collectUsageData"))
         XCTAssertTrue(defaults.bool(forKey: "sendDiagnostics"))
         XCTAssertTrue(defaults.bool(forKey: "tosAccepted"))
@@ -118,7 +121,10 @@ final class ManagedAssistantConnectionCoordinatorTests: XCTestCase {
         // Verify the org ID was re-populated by the bootstrap (via resolveOrganizationId)
         XCTAssertEqual(defaults.string(forKey: "connectedOrganizationId"), "org-resolved-123")
         // Verify the assistant ID was persisted by the coordinator
-        XCTAssertEqual(defaults.string(forKey: "connectedAssistantId"), "managed-switch")
+        // Verify activeAssistant was written to the lockfile
+        let lockfileData = try Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let lockfileJson = try JSONSerialization.jsonObject(with: lockfileData) as? [String: Any]
+        XCTAssertEqual(lockfileJson?["activeAssistant"] as? String, "managed-switch")
     }
 
     func testActivateManagedAssistantAfterReauthClearsPersistedOrganizationBeforeBootstrap() async throws {

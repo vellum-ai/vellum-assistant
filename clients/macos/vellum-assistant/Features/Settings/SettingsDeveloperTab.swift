@@ -134,7 +134,7 @@ struct SettingsDeveloperTab: View {
         }
         .onAppear {
             // Assistant info setup
-            selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
             Task {
                 let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
                 lockfileAssistants = assistants
@@ -553,7 +553,7 @@ struct SettingsDeveloperTab: View {
             }
             .onChange(of: selectedAssistantId) { oldValue, newValue in
                 resolvePlatformUuid()
-                let currentId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                let currentId = LockfileAssistant.loadActiveAssistantId() ?? ""
                 guard newValue != currentId, newValue != oldValue else { return }
                 guard let assistant = lockfileAssistants.first(where: { $0.assistantId == newValue }) else { return }
                 guard awakeStates[assistant.assistantId] == true else {

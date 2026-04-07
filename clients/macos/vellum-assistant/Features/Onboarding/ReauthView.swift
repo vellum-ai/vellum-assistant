@@ -81,7 +81,7 @@ struct ReauthView: View {
                 if hasNonManagedAssistant {
                     VButton(label: "Skip", style: .ghost) {
                         if let nonManaged = LockfileAssistant.loadAll().first(where: { !$0.isManaged }) {
-                            UserDefaults.standard.set(nonManaged.assistantId, forKey: "connectedAssistantId")
+                            LockfileAssistant.setActiveAssistantId(nonManaged.assistantId)
                         }
                         didComplete = true
                         onComplete()

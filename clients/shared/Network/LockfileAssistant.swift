@@ -228,7 +228,7 @@ public struct LockfileAssistant {
 
     /// Resolve the instance directory for the currently connected assistant.
     public static func connectedInstanceDir() -> String? {
-        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return nil }
+        guard let id = loadActiveAssistantId() else { return nil }
         return loadByName(id)?.instanceDir
     }
 

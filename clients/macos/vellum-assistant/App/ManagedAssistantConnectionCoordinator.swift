@@ -112,7 +112,7 @@ final class ManagedAssistantConnectionCoordinator {
             throw ManagedAssistantConnectionCoordinatorError.persistenceFailed
         }
 
-        userDefaults.set(assistant.id, forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId(assistant.id, lockfilePath: lockfilePath)
         if userDefaults.object(forKey: "collectUsageData") == nil {
             userDefaults.set(true, forKey: "collectUsageData")
         }

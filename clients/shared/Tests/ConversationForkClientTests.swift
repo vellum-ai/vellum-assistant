@@ -37,7 +37,6 @@ private final class MockConversationForkURLProtocol: URLProtocol {
 final class ConversationForkClientTests: XCTestCase {
     private let assistantId = "assistant-fork-test"
     private let gatewayPort = 7831
-    private var originalConnectedAssistantId: Any?
     private var originalPrimaryLockfileData: Data?
     private var primaryLockfileExisted = false
 
@@ -45,8 +44,6 @@ final class ConversationForkClientTests: XCTestCase {
         try super.setUpWithError()
         MockConversationForkURLProtocol.requestHandler = nil
         URLProtocol.registerClass(MockConversationForkURLProtocol.self)
-
-        originalConnectedAssistantId = SharedUserDefaults.standard.object(forKey: "connectedAssistantId")
 
         let primaryLockfileURL = LockfilePaths.primary
         primaryLockfileExisted = FileManager.default.fileExists(atPath: primaryLockfileURL.path)
@@ -65,12 +62,6 @@ final class ConversationForkClientTests: XCTestCase {
             try originalPrimaryLockfileData?.write(to: LockfilePaths.primary, options: .atomic)
         } else {
             try? FileManager.default.removeItem(at: LockfilePaths.primary)
-        }
-
-        if let originalConnectedAssistantId {
-            SharedUserDefaults.standard.set(originalConnectedAssistantId, forKey: "connectedAssistantId")
-        } else {
-            SharedUserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         }
 
         try super.tearDownWithError()
@@ -183,6 +174,7 @@ final class ConversationForkClientTests: XCTestCase {
 
     private func installLockfileFixture() throws {
         let lockfile: [String: Any] = [
+            "activeAssistant": assistantId,
             "assistants": [
                 [
                     "assistantId": assistantId,
@@ -196,7 +188,6 @@ final class ConversationForkClientTests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: lockfile, options: [.sortedKeys])
         try data.write(to: LockfilePaths.primary, options: .atomic)
-        SharedUserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
     }
 
     private func requestJSONBody(from request: URLRequest) throws -> [String: Any] {

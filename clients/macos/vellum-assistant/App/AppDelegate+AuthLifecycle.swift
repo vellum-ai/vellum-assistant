@@ -37,7 +37,7 @@ extension AppDelegate {
                 // of the platform auth session, so the app can open in a logged-out
                 // state and the user can sign in from Settings > General.
                 // Skip managed assistants from a different platform environment.
-                let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                let storedId = LockfileAssistant.loadActiveAssistantId()
                 let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
                     ?? LockfileAssistant.loadLatest()
                 if let assistant, !assistant.isManaged, assistant.isCurrentEnvironment {
@@ -194,8 +194,8 @@ extension AppDelegate {
         managedSwitchTask = nil
 
         Task {
-            // Capture assistant ID before logout clears UserDefaults
-            let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            // Capture assistant ID before logout clears it
+            let connectedAssistantId = LockfileAssistant.loadActiveAssistantId()
 
             // Capture managed status before logout clears UserDefaults
             let wasManaged = isCurrentAssistantManaged
@@ -205,16 +205,16 @@ extension AppDelegate {
                     self?.mainWindow?.windowState.showToast(message: msg, style: style)
                 }
 
-                // Restore connectedAssistantId immediately — authManager.logout()
-                // clears it from UserDefaults, but clearDaemonCredentials() needs
-                // it to resolve the gateway connection via GatewayHTTPClient.
+                // Restore activeAssistant immediately — authManager.logout()
+                // clears it, but clearDaemonCredentials() needs it to resolve
+                // the gateway connection via GatewayHTTPClient.
                 // Without it, all DELETE requests fail with "No connected assistant",
                 // triggering the fallback that disconnects and stops the assistant.
                 // Do NOT restore connectedOrganizationId: the org ID may belong
                 // to a different environment (e.g. dev vs prod). Letting bootstrap
                 // re-resolve it on the next login ensures it matches the session.
                 if let connectedAssistantId {
-                    UserDefaults.standard.set(connectedAssistantId, forKey: "connectedAssistantId")
+                    LockfileAssistant.setActiveAssistantId(connectedAssistantId)
                 }
             } else {
                 // Managed: user is redirected to the reauth screen regardless of
@@ -358,7 +358,7 @@ extension AppDelegate {
             return
         }
 
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId(), !assistantId.isEmpty else {
             log.warning("Skipping local assistant API key provisioning because connectedAssistantId is not set")
             return
         }
@@ -461,7 +461,7 @@ extension AppDelegate {
         mainWindow = nil
 
         // 3. Persist the new assistant selection
-        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId(assistant.assistantId)
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
@@ -511,15 +511,15 @@ extension AppDelegate {
                 // platform returns 404 (deleted) or 403 (revoked). Restore it
                 // so the guard below doesn't confuse this with a concurrent
                 // switch that wrote a different assistant ID.
-                if UserDefaults.standard.string(forKey: "connectedAssistantId") == nil, !Task.isCancelled {
-                    UserDefaults.standard.set(targetId, forKey: "connectedAssistantId")
+                if LockfileAssistant.loadActiveAssistantId() == nil, !Task.isCancelled {
+                    LockfileAssistant.setActiveAssistantId(targetId)
                 }
                 // Guard against a second switch that started while we were
                 // awaiting the bootstrap — only finish if this task hasn't
                 // been cancelled and this assistant is still the selected
                 // target.
                 guard !Task.isCancelled,
-                      UserDefaults.standard.string(forKey: "connectedAssistantId") == targetId else {
+                      LockfileAssistant.loadActiveAssistantId() == targetId else {
                     log.info("Managed switch to \(targetId, privacy: .public) superseded — skipping finishSwitchAssistant")
                     return
                 }
@@ -592,7 +592,7 @@ extension AppDelegate {
     /// Awaitable so callers (e.g. the first-launch bootstrap) can ensure
     /// LLM provider keys are registered before sending the first message.
     func syncApiKeysViaGateway() async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId(),
               !assistantId.isEmpty else {
             log.warning("syncApiKeysViaGateway: no connected assistant, skipping key sync")
             return
@@ -632,7 +632,7 @@ extension AppDelegate {
     /// `false` if the user cancelled after a failure.
     @discardableResult
     func performRetireAsync() async -> Bool {
-        let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistantName = LockfileAssistant.loadActiveAssistantId()
 
         if assistantName == nil {
             log.error("No stored connected assistant ID found — skipping retire")
@@ -675,7 +675,7 @@ extension AppDelegate {
         // subsequent flows (e.g. managed bootstrap) don't attempt a 404 lookup
         // for the now-retired assistant on the platform. If another assistant is
         // found below, performSwitchAssistant will set the new ID.
-        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId(nil)
 
         // Check if other assistants remain in the lockfile.
         // Prefer remote assistants (always reachable), then try waking local ones.
@@ -711,7 +711,7 @@ extension AppDelegate {
         AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
-        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        LockfileAssistant.setActiveAssistantId(nil)
         SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         SentryDeviceInfo.updateOrganizationTag(nil)

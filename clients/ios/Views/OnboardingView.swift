@@ -129,6 +129,8 @@ struct OnboardingView: View {
             // Persist managed assistant config so DaemonConfig.fromUserDefaults() picks it up.
             UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
             UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
+            // TODO: Migrate to LockfileAssistant.setActiveAssistantId() when
+            // LockfileAssistant is available on iOS (currently macOS-only).
             UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
 
             // Rebuild the daemon client with managed transport config.

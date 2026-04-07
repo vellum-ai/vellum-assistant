@@ -258,14 +258,13 @@ struct TeleportSection: View {
             let oldId = original.assistantId
             Task {
                 if original.isManaged {
-                    let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-                    UserDefaults.standard.set(oldId, forKey: "connectedAssistantId")
-                    defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
                     do {
-                        let response = try await GatewayHTTPClient.delete(
-                            path: "assistants/{assistantId}/retire",
-                            timeout: 30
-                        )
+                        let response = try await GatewayHTTPClient.withAssistant(oldId) {
+                            try await GatewayHTTPClient.delete(
+                                path: "assistants/{assistantId}/retire",
+                                timeout: 30
+                            )
+                        }
                         if response.isSuccess {
                             log.info("[teleport] Retired managed assistant \(oldId, privacy: .public)")
                         } else {
@@ -437,15 +436,14 @@ struct TeleportSection: View {
 
         // Step 5 — Import bundle to docker assistant
         phase = .transferring(step: "Importing data to Docker...")
-        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        UserDefaults.standard.set(resolvedDocker.assistantId, forKey: "connectedAssistantId")
-        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
-        let importResponse = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/migrations/import",
-            body: bundleData,
-            contentType: "application/octet-stream",
-            timeout: 120
-        )
+        let importResponse = try await GatewayHTTPClient.withAssistant(resolvedDocker.assistantId) {
+            try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/migrations/import",
+                body: bundleData,
+                contentType: "application/octet-stream",
+                timeout: 120
+            )
+        }
         guard importResponse.isSuccess else {
             throw TeleportError.importFailed(message: "HTTP \(importResponse.statusCode)")
         }
@@ -604,36 +602,34 @@ struct TeleportSection: View {
     }
 
     /// Bootstraps an actor token against a target assistant's gateway `/v1/guardian/init`
-    /// endpoint. Temporarily swaps `connectedAssistantId` to target the assistant's gateway.
-    /// Retries with exponential backoff up to ~30s.
+    /// endpoint. Uses the process-local assistant override to route requests to the
+    /// target assistant's gateway. Retries with exponential backoff up to ~30s.
     private func bootstrapActorToken(targetAssistantId: String) async throws -> String {
-        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        UserDefaults.standard.set(targetAssistantId, forKey: "connectedAssistantId")
-        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
-
         let deviceId = PairingQRCodeSheet.computeHostId()
         let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
 
-        var delay: UInt64 = 2_000_000_000
-        for attempt in 0..<6 {
-            try Task.checkCancellation()
+        return try await GatewayHTTPClient.withAssistant(targetAssistantId) {
+            var delay: UInt64 = 2_000_000_000
+            for attempt in 0..<6 {
+                try Task.checkCancellation()
 
-            if let response = try? await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/guardian/init",
-                json: body,
-                timeout: 15
-            ), response.isSuccess,
-               let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-               let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
-                return token
+                if let response = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/guardian/init",
+                    json: body,
+                    timeout: 15
+                ), response.isSuccess,
+                   let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                   let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
+                    return token
+                }
+
+                if attempt < 5 {
+                    try await Task.sleep(nanoseconds: delay)
+                    delay = min(delay * 2, 10_000_000_000)
+                }
             }
 
-            if attempt < 5 {
-                try await Task.sleep(nanoseconds: delay)
-                delay = min(delay * 2, 10_000_000_000)
-            }
+            throw TeleportError.notSignedIn
         }
-
-        throw TeleportError.notSignedIn
     }
 }

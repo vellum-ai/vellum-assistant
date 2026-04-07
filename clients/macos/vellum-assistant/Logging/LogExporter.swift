@@ -98,7 +98,7 @@ enum LogExporter {
             throw error
         }
 
-        let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedAssistantId = LockfileAssistant.loadActiveAssistantId()
 
         var removedItems: [String] = []
         for attempt in 0...maxUploadRetries {
@@ -284,7 +284,7 @@ enum LogExporter {
     ) async throws {
 
         let home = NSHomeDirectory()
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let connectedId = LockfileAssistant.loadActiveAssistantId()
         let connectedAssistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
         var daemonUnreachable = false
 
@@ -1055,7 +1055,6 @@ enum LogExporter {
         let defaults = UserDefaults.standard
 
         let stringKeys = [
-            "connectedAssistantId",
             "connectedOrganizationId",
             "activationKey",
             "onboarding.step",
