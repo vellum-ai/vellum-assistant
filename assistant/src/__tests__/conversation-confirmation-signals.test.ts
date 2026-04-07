@@ -633,4 +633,83 @@ describe("restoreBrowserProxyAvailability", () => {
     // browser proxy.
     expect(bashProxy.isAvailable()).toBe(false);
   });
+
+  test("uses hostBrowserSenderOverride when set so drain-queue restores preserve the registry-routed sender", () => {
+    // Regression (PR #24129 cycle 2): the queue-drain path calls
+    // `restoreBrowserProxyAvailability()` on dequeue, which used to pass
+    // `this.sendToClient` (the SSE hub emitter) to the proxy, clobbering the
+    // chrome-extension registry-routed sender established by the POST
+    // /messages handler. The override field lets the HTTP handler pin the
+    // registry-routed sender so the drain path preserves it.
+    const sseHub: ServerMessage[] = [];
+    const registry: ServerMessage[] = [];
+    const conversation = makeConversation((msg) => sseHub.push(msg));
+    const browserProxy = new HostBrowserProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+
+    // Simulate updateClient setting sendToClient to the SSE hub and
+    // marking the conversation as client-less (chrome-extension is
+    // non-interactive).
+    conversation.updateClient((msg) => sseHub.push(msg), true);
+    expect(browserProxy.isAvailable()).toBe(false);
+
+    // The HTTP handler stashes the registry-routed sender as the override.
+    const registrySender = (msg: ServerMessage) => registry.push(msg);
+    conversation.hostBrowserSenderOverride = registrySender;
+
+    // Drain-queue path calls restoreBrowserProxyAvailability — it must now
+    // prefer the override over sendToClient.
+    conversation.restoreBrowserProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(true);
+
+    // Send a frame through the proxy and verify it flows through the
+    // registry sender, not the SSE hub.
+    const internalSend = (
+      browserProxy as unknown as {
+        sendToClient: (msg: ServerMessage) => void;
+      }
+    ).sendToClient;
+    const probe: ServerMessage = {
+      type: "host_browser_cancel",
+      requestId: "probe-1",
+    } as ServerMessage;
+    internalSend(probe);
+    expect(registry).toHaveLength(1);
+    expect(sseHub.some((m) => m === probe)).toBe(false);
+  });
+
+  test("falls back to sendToClient when hostBrowserSenderOverride is cleared", () => {
+    // When a non-chrome-extension turn takes over, the HTTP handler clears
+    // the override and restoreBrowserProxyAvailability must fall back to
+    // sendToClient (the SSE hub), otherwise macOS turns would route their
+    // host_browser frames through the stale chrome-extension registry.
+    const sseHub: ServerMessage[] = [];
+    const conversation = makeConversation((msg) => sseHub.push(msg));
+    const browserProxy = new HostBrowserProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+
+    // First the chrome-extension path pins the override.
+    const registry: ServerMessage[] = [];
+    conversation.hostBrowserSenderOverride = (msg) => registry.push(msg);
+    conversation.updateClient((msg) => sseHub.push(msg), true);
+    conversation.restoreBrowserProxyAvailability();
+
+    // Then a macOS handoff clears the override.
+    conversation.hostBrowserSenderOverride = undefined;
+    conversation.updateClient((msg) => sseHub.push(msg), false);
+    conversation.restoreBrowserProxyAvailability();
+
+    const internalSend = (
+      browserProxy as unknown as {
+        sendToClient: (msg: ServerMessage) => void;
+      }
+    ).sendToClient;
+    const probe: ServerMessage = {
+      type: "host_browser_cancel",
+      requestId: "probe-2",
+    } as ServerMessage;
+    internalSend(probe);
+    expect(sseHub).toContain(probe);
+    expect(registry).not.toContain(probe);
+  });
 });

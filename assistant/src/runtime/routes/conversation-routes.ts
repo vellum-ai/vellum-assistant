@@ -1194,6 +1194,16 @@ export async function handleSendMessage(
           }
         }
       : onEvent;
+  // Stash the registry-routed sender on the conversation so queue-drain
+  // restores (which run outside of conversation-routes.ts and only have
+  // access to `sendToClient`) can preserve it when calling
+  // `restoreBrowserProxyAvailability()`. For non-chrome-extension
+  // interfaces the override is cleared so the SSE hub sender is used.
+  if (sourceInterface === "chrome-extension") {
+    conversation.hostBrowserSenderOverride = browserProxySendToClient;
+  } else {
+    conversation.hostBrowserSenderOverride = undefined;
+  }
   if (supportsHostProxy(sourceInterface, "host_browser")) {
     if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
       const browserProxy = new HostBrowserProxy(
@@ -1257,20 +1267,14 @@ export async function handleSendMessage(
   // helper bypasses the `hasNoClient` gate so the single-capability
   // chrome-extension turn can drive the browser via CDP without leaking
   // host_bash/host_file tool availability into tool gating.
+  //
+  // `restoreBrowserProxyAvailability()` reads `hostBrowserSenderOverride`
+  // (set above for chrome-extension) and applies the registry-routed
+  // sender, so the chrome-extension path gets the correct sender here
+  // — including after queue-drain restores run from conversation-process.ts,
+  // which only have access to the conversation instance.
   if (supportsHostProxy(sourceInterface, "host_browser")) {
     conversation.restoreBrowserProxyAvailability?.();
-  }
-  // For chrome-extension, the call chain above (updateClient +
-  // restoreBrowserProxyAvailability) replaces the proxy's sendToClient
-  // with `onEvent`, which would emit host_browser_request frames over
-  // the SSE hub instead of the chrome-extension WebSocket. Re-apply the
-  // registry-routed sender so the just-constructed proxy forwards
-  // host_browser_request frames to the connected extension.
-  if (
-    sourceInterface === "chrome-extension" &&
-    supportsHostProxy(sourceInterface, "host_browser")
-  ) {
-    conversation.hostBrowserProxy?.updateSender(browserProxySendToClient, true);
   }
 
   // ── Canned first-greeting fast path ──

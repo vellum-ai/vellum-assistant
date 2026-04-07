@@ -184,6 +184,19 @@ export class Conversation {
   /** @internal */ hostBrowserProxy?: HostBrowserProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
+  /**
+   * Optional override sender used by `restoreBrowserProxyAvailability` so
+   * non-SSE transports (e.g. chrome-extension, whose host_browser_request
+   * frames flow through the ChromeExtensionRegistry WebSocket rather than
+   * the SSE hub) can preserve their registry-routed sender across drain
+   * queue restores. When set, `restoreBrowserProxyAvailability()` uses this
+   * function instead of `sendToClient` so the drain-queue path doesn't
+   * clobber the chrome-extension sender with the SSE hub emitter.
+   *
+   * Populated by the POST /messages handler for chrome-extension turns and
+   * cleared when an unrelated interface takes over (see `updateClient`).
+   */
+  /** @internal */ hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -559,11 +572,21 @@ export class Conversation {
    * it available would be to flip `hasNoClient` false, which would
    * incorrectly enable host_bash/host_file/host_cu tool gating downstream.
    *
+   * When `hostBrowserSenderOverride` is set, that function is used as the
+   * sender instead of `sendToClient`. This is required for the
+   * chrome-extension interface whose host_browser frames route through the
+   * ChromeExtensionRegistry WebSocket rather than the SSE hub: if the
+   * queue-drain path called this helper with `sendToClient`, the
+   * registry-routed sender established at turn-start would be clobbered by
+   * the SSE hub emitter and host_browser_request frames would stop
+   * reaching the extension.
+   *
    * Callers must only invoke this when they know the current interface
    * supports host_browser (see `supportsHostProxy(id, "host_browser")`).
    */
   restoreBrowserProxyAvailability(): void {
-    this.hostBrowserProxy?.updateSender(this.sendToClient, true);
+    const sender = this.hostBrowserSenderOverride ?? this.sendToClient;
+    this.hostBrowserProxy?.updateSender(sender, true);
   }
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
