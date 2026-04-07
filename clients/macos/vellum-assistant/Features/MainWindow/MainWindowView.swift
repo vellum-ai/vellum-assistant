@@ -12,6 +12,7 @@ struct MainWindowView: View {
     /// itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
+    let homeFeedStore: HomeFeedStore
     @ObservedObject var windowState: MainWindowState
     @StateObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @State var selectedConversationId: UUID?
@@ -81,12 +82,13 @@ struct MainWindowView: View {
     /// Whether the permission mode popover is shown.
     @State private var showPermissionModePopover: Bool = false
 
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, homeFeedStore: HomeFeedStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
         self.usageDashboardStore = usageDashboardStore
+        self.homeFeedStore = homeFeedStore
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.surfaceManager = surfaceManager

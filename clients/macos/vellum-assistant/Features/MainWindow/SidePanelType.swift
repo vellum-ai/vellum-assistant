@@ -1,4 +1,5 @@
 enum SidePanelType: Hashable, CaseIterable {
+    case home
     case generated
     case settings
     case debug
@@ -10,6 +11,7 @@ enum SidePanelType: Hashable, CaseIterable {
 
     init?(rawValue: String) {
         switch rawValue {
+        case "home": self = .home
         case "generated": self = .generated
         case "settings": self = .settings
         case "debug": self = .debug

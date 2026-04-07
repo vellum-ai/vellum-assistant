@@ -350,6 +350,11 @@ extension MainWindowView {
             }
 
             // MARK: Nav Items (fixed)
+            if assistantFeatureFlagStore.isEnabled("home-feed") {
+                SidebarNavRow(icon: VIcon.house.rawValue, label: "Home", isActive: windowState.selection == .panel(.home)) {
+                    windowState.showPanel(.home)
+                }
+            }
             SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence)) {
                 windowState.showPanel(.intelligence)
             }
@@ -480,6 +485,11 @@ extension MainWindowView {
                 sidebarSectionDivider()
             }
 
+            if assistantFeatureFlagStore.isEnabled("home-feed") {
+                SidebarNavRow(icon: VIcon.house.rawValue, label: "Home", isActive: windowState.selection == .panel(.home), isExpanded: false) {
+                    windowState.showPanel(.home)
+                }
+            }
             SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
                 windowState.showPanel(.intelligence)
             }
