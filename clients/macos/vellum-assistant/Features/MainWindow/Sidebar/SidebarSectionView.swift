@@ -335,7 +335,11 @@ struct SidebarSectionView: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .onHover { hovering in
-            hoveredSubGroupKey = hovering ? subGroup.key : nil
+            if hovering {
+                hoveredSubGroupKey = subGroup.key
+            } else if hoveredSubGroupKey == subGroup.key {
+                hoveredSubGroupKey = nil
+            }
         }
         .vContextMenu {
             let unread = subGroup.conversations.filter(\.hasUnseenLatestAssistantMessage)
