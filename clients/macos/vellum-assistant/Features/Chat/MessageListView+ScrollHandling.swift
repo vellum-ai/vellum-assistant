@@ -14,7 +14,6 @@ extension MessageListView {
         scrollState.contentOffsetY = newState.contentOffsetY
         scrollState.contentHeight = newState.contentHeight
         scrollState.viewportHeight = newState.visibleRectHeight
-        scrollState.isSending = isSending
         scrollState.updateNearBottom()
 
         // Derive sentinel position from content offset (inverted sign to
