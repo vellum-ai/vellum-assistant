@@ -67,8 +67,9 @@ final class WorkspaceBrowserState {
             let detail = await workspaceClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             let raw = detail?.content ?? ""
-            let isJSON = ext == "json"
-                || detail?.mimeType.lowercased().hasPrefix("application/json") == true
+            let mime = detail?.mimeType.lowercased() ?? ""
+            let isJSONL = isJSONLContent(fileName: detail?.name ?? targetPath, mimeType: mime)
+            let isJSON = !isJSONL && (ext == "json" || mime.hasPrefix("application/json"))
             let content = isJSON ? Self.prettyPrintJSON(raw) : raw
             if isJSON, !prefersSource, viewMode != .tree {
                 viewMode = .tree
