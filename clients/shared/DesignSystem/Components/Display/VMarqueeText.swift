@@ -108,7 +108,12 @@ public struct VMarqueeText: View {
                 }
             }
             .onChange(of: containerWidth) { _, _ in
-                if isHovered && isTruncated && animationOffset == 0 {
+                if isHovered && isTruncated {
+                    // Reset and retarget: width changed mid-scroll or text
+                    // became truncated after hover started (e.g. sidebar
+                    // layout shift). Snap to start, then animate to the
+                    // new overflow target.
+                    withAnimation(nil) { animationOffset = 0 }
                     withAnimation(.linear(duration: scrollDuration)) {
                         animationOffset = -overflow
                     }
