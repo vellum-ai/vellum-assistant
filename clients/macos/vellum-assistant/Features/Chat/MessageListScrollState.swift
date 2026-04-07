@@ -104,6 +104,10 @@ final class MessageListScrollState {
     /// from initial position). Used to gate initial auto-scroll behavior.
     @ObservationIgnored var hasBeenInteracted: Bool = false
 
+    /// Whether a message is currently being sent/streamed.
+    /// Used to subtract the conditional spacer height from `distanceFromBottom`.
+    @ObservationIgnored var isSending: Bool = false
+
     // MARK: - Derived State Cache
 
     /// Non-observable cache for memoizing derived state computations.
@@ -114,8 +118,15 @@ final class MessageListScrollState {
     // MARK: - Computed Properties
 
     /// Distance from the bottom of the scrollable content.
+    /// When sending, subtracts the conditional spacer height so that
+    /// near-bottom detection is based on actual content, not the spacer.
     var distanceFromBottom: CGFloat {
-        contentHeight - contentOffsetY - viewportHeight
+        let raw = contentHeight - contentOffsetY - viewportHeight
+        if isSending {
+            let spacerHeight = max(0, viewportHeight - 100)
+            return raw - spacerHeight
+        }
+        return raw
     }
 
     /// Whether auto-follow should engage: near bottom and not yet anchored
@@ -237,6 +248,7 @@ final class MessageListScrollState {
         lastAutoFocusedRequestId = nil
         bottomAnchorAppeared = false
         hasBeenInteracted = false
+        isSending = false
         derivedStateCache.reset()
 
         scrollLog.debug("Reset for conversation: \(conversationId)")
