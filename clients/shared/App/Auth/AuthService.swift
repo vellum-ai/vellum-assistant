@@ -279,6 +279,69 @@ public final class AuthService {
         }
     }
 
+    /// Response wrapper for the paginated `GET /v1/assistants/` endpoint.
+    /// Declared inside `AuthService` to keep it close to its sole call site.
+    public struct PaginatedPlatformAssistantsResponse: Codable, Sendable {
+        public let count: Int?
+        public let results: [PlatformAssistant]
+    }
+
+    /// List all managed assistants visible to the caller in the given organization.
+    ///
+    /// Used by the multi-assistant bootstrap flow to discover existing assistants
+    /// when a previously-connected assistant ID is no longer found (404). Results
+    /// are returned in the platform's native order — callers are responsible for
+    /// sorting (e.g. by `created_at` descending) if a specific order is required.
+    public func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
+        let urlString = "\(baseURL)/v1/assistants/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request GET assistants/ -> \(statusCode)")
+
+        if statusCode == 401 {
+            throw PlatformAPIError.authenticationRequired
+        }
+        if statusCode == 403 {
+            throw PlatformAPIError.accessDenied(detail: "Access denied")
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            let paginated = try JSONDecoder().decode(AuthService.PaginatedPlatformAssistantsResponse.self, from: data)
+            return paginated.results
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
     /// Create or retrieve a managed assistant via the idempotent hatch endpoint.
     /// Returns `.reusedExisting` on 200 (assistant already exists) or `.createdNew` on 201.
     public func hatchAssistant(

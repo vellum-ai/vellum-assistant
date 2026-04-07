@@ -39,28 +39,49 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
     }
 }
 
+/// Minimal protocol over `AuthService` used by `ManagedAssistantBootstrapService`.
+/// Exists so tests can inject a mock without constructing a real `AuthService`.
+@MainActor
+public protocol ManagedAssistantBootstrapAuthServicing: AnyObject {
+    func getOrganizations() async throws -> [PlatformOrganization]
+    func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult
+    func listAssistants(organizationId: String) async throws -> [PlatformAssistant]
+    func hatchAssistant(
+        organizationId: String,
+        name: String?,
+        description: String?,
+        anthropicApiKey: String?
+    ) async throws -> HatchAssistantResult
+}
+
+extension AuthService: ManagedAssistantBootstrapAuthServicing {}
+
 /// Orchestrates discovery or creation of a managed assistant on the platform.
 ///
 /// The bootstrap flow:
 /// 1. If a `connectedAssistantId` exists, fetch that specific assistant via GET /assistants/{id}/.
 ///    - 404 (deleted): clear the stale ID and fall through to step 2.
 ///    - 403 (access revoked): surface an `accessRevoked` error so the user knows.
-/// 2. Call POST /assistants/hatch/ (idempotent — returns existing or creates new).
-/// 3. Any other error is surfaced as a typed `ManagedBootstrapError`.
+/// 2. With `multiAssistantEnabled == true` and the stale ID just cleared via a 404,
+///    call GET /assistants/ first and reuse the most recently created assistant when
+///    one exists. Only fall through to hatch when the list is empty (first-run UX).
+/// 3. Call POST /assistants/hatch/ (idempotent — returns existing or creates new).
+/// 4. Any other error is surfaced as a typed `ManagedBootstrapError`.
 @MainActor
 public final class ManagedAssistantBootstrapService {
     public static let shared = ManagedAssistantBootstrapService()
 
-    private let authService: AuthService
+    private let authService: ManagedAssistantBootstrapAuthServicing
 
-    public init(authService: AuthService? = nil) {
+    public init(authService: ManagedAssistantBootstrapAuthServicing? = nil) {
         self.authService = authService ?? AuthService.shared
     }
 
     public func ensureManagedAssistant(
         name: String? = nil,
         description: String? = nil,
-        anthropicApiKey: String? = nil
+        anthropicApiKey: String? = nil,
+        multiAssistantEnabled: Bool = false
     ) async throws -> ManagedBootstrapOutcome {
         let organizationId = try await resolveOrganizationId()
 
@@ -80,9 +101,26 @@ public final class ManagedAssistantBootstrapService {
                 log.info("Retrieved connected assistant: \(assistant.id, privacy: .public)")
                 return .reusedExisting(assistant)
             case .notFound:
-                // Clear the stale ID and fall through to idempotent hatch.
-                log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID and falling through to hatch")
+                // Clear the stale ID. When the multi-assistant flag is on, try to
+                // reuse an existing assistant from the org's list before falling
+                // through to hatch — we don't want to silently create a second
+                // assistant when the user already has one.
+                log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID")
                 LockfileAssistant.setActiveAssistantId(nil)
+                if multiAssistantEnabled {
+                    do {
+                        let existing = try await authService.listAssistants(organizationId: organizationId)
+                        if let mostRecent = Self.mostRecent(existing) {
+                            log.info("multi-assistant flag on: reusing most recent assistant \(mostRecent.id, privacy: .public) from list")
+                            return .reusedExisting(mostRecent)
+                        }
+                        log.info("multi-assistant flag on: list returned empty, falling through to hatch (first-run UX)")
+                    } catch let error as PlatformAPIError {
+                        throw mapPlatformError(error)
+                    }
+                } else {
+                    log.info("multi-assistant flag off: falling through to hatch")
+                }
             case .accessDenied:
                 log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
                 LockfileAssistant.setActiveAssistantId(nil)
@@ -194,6 +232,20 @@ public final class ManagedAssistantBootstrapService {
             }
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)
+        }
+    }
+
+    /// Pick the most recently created assistant from a list. Assistants without a
+    /// `created_at` timestamp sort to the end so any dated entry is preferred.
+    static func mostRecent(_ assistants: [PlatformAssistant]) -> PlatformAssistant? {
+        guard !assistants.isEmpty else { return nil }
+        return assistants.max { lhs, rhs in
+            switch (lhs.created_at, rhs.created_at) {
+            case let (l?, r?): return l < r
+            case (nil, _?):    return true
+            case (_?, nil):    return false
+            case (nil, nil):   return false
+            }
         }
     }
 
