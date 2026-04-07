@@ -328,7 +328,21 @@ private final class VTooltipTrackerView: NSView {
 
         // Find the screen containing the anchor point (fall back to main display)
         let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? NSScreen.main
-        let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: .infinity, height: .infinity)
+        guard let visibleFrame = screen?.visibleFrame else {
+            // No screen found — fall back to unclamped positioning
+            p.setFrameOrigin(NSPoint(
+                x: screenPoint.x - panelWidth / 2,
+                y: tooltipEdge == .bottom ? screenPoint.y - panelHeight - edgeInset : screenPoint.y + edgeInset
+            ))
+            p.alphaValue = 0
+            window.addChildWindow(p, ordered: .above)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.12
+                p.animator().alphaValue = 1
+            }
+            panel = p
+            return
+        }
 
         // Compute initial position centered on the anchor
         var x = screenPoint.x - panelWidth / 2
