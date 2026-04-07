@@ -794,7 +794,11 @@ enum LogExporter {
     /// API is unavailable or the subsystem has no entries.
     private nonisolated static func collectUnifiedLog(to destination: URL, cutoffDate: Date? = nil) {
         do {
-            let lines = try UnifiedLogReader.readFormattedRecentLines(maximumEntryCount: Int.max)
+            let logCutoff = cutoffDate ?? Date().addingTimeInterval(-UnifiedLogReader.defaultLookback)
+            let lines = try UnifiedLogReader.readFormattedRecentLines(
+                since: logCutoff,
+                maximumEntryCount: Int.max
+            )
             guard !lines.isEmpty else { return }
             let content = lines.joined(separator: "\n")
             try content.write(to: destination, atomically: true, encoding: .utf8)
