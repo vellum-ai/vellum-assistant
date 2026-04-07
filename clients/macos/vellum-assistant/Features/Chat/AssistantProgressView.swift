@@ -795,6 +795,9 @@ private struct StepDetailRow: View {
     /// Cached colored AttributedString for the tool call result — computed once
     /// on first expand / result change to avoid rebuilding on every render.
     @State private var cachedColoredResult: AttributedString?
+    /// Cached line count + isLong flag for resolvedInputFull — avoids O(n)
+    /// byte scan in the view body on every render.
+    @State private var cachedInputIsLong: Bool?
     @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
@@ -921,6 +924,16 @@ private struct StepDetailRow: View {
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
             if newValue {
+                // Eagerly populate caches before the expanded body evaluates
+                // so the first render has colored output and correct input sizing.
+                if cachedColoredResult == nil,
+                   let result = toolCall.result, !result.isEmpty {
+                    cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
+                }
+                if cachedInputIsLong == nil && !resolvedInputFull.isEmpty {
+                    let lines = resolvedInputFull.utf8.reduce(1) { c, b in b == 0x0A ? c + 1 : c }
+                    cachedInputIsLong = lines > 30 || (lines == 1 && resolvedInputFull.utf8.count > 50_000)
+                }
                 Task { @MainActor in
                     onRehydrate?()
                 }
@@ -952,8 +965,7 @@ private struct StepDetailRow: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
                     if !resolvedInputFull.isEmpty {
-                        let inputLines = resolvedInputFull.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
-                        let inputIsLong = inputLines > 30 || (inputLines == 1 && resolvedInputFull.count > 50_000)
+                        let inputIsLong = cachedInputIsLong ?? false
 
                         if inputIsLong {
                             ScrollView {
@@ -1004,8 +1016,8 @@ private struct StepDetailRow: View {
                         .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
 
-                    // Pass cached colored output; falls back to plain text
-                    // until the cache is populated by .onAppear.
+                    // Cached colored output — populated eagerly in
+                    // .onChange(of: isDetailExpanded) or .onAppear.
                     outputBlock(
                         text: cachedColoredResult == nil ? result : nil,
                         attributedText: cachedColoredResult,
@@ -1023,6 +1035,10 @@ private struct StepDetailRow: View {
             if cachedColoredResult == nil,
                let result = toolCall.result, !result.isEmpty {
                 cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
+            }
+            if cachedInputIsLong == nil && !resolvedInputFull.isEmpty {
+                let lines = resolvedInputFull.utf8.reduce(1) { c, b in b == 0x0A ? c + 1 : c }
+                cachedInputIsLong = lines > 30 || (lines == 1 && resolvedInputFull.utf8.count > 50_000)
             }
         }
         .onChange(of: toolCall.result) { _, newResult in
@@ -1048,7 +1064,7 @@ private struct StepDetailRow: View {
         isError: Bool = false
     ) -> some View {
         let lines = copyText.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
-        let isLong = lines > 30 || (lines == 1 && copyText.count > 50_000)
+        let isLong = lines > 30 || (lines == 1 && copyText.utf8.count > 50_000)
 
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {

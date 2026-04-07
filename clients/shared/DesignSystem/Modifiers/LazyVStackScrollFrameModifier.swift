@@ -16,7 +16,7 @@ extension View {
     ///   - text: The string whose size determines which constraint is applied.
     ///   - maxHeight: The definite height applied when content is long.
     ///   - lineThreshold: Line count above which the fixed height is used. Default: 30.
-    ///   - charThreshold: Character count above which the fixed height is used. Default: 50 000.
+    ///   - charThreshold: UTF-8 byte count above which the fixed height is used. Default: 50 000.
     ///   - lineCount: Pre-computed line count. When provided, the modifier skips its
     ///     internal `countLines` scan. Use this when the caller caches the line count
     ///     via `@State` to avoid redundant O(n) work on re-render.
@@ -28,7 +28,7 @@ extension View {
         lineCount: Int? = nil
     ) -> some View {
         let lines = lineCount ?? countLines(in: text)
-        let isLong = lines > lineThreshold || (lines == 1 && text.count > charThreshold)
+        let isLong = lines > lineThreshold || (lines == 1 && text.utf8.count > charThreshold)
         return self
             .frame(height: isLong ? maxHeight : nil)
             // Short content: no height constraint — ScrollView collapses to
