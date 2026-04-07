@@ -174,6 +174,12 @@ extension MainWindowView {
                     ids: archivableIds
                 )
             },
+            onArchiveAllInSubGroup: { subGroupLabel, ids in
+                archiveAllPending = ArchiveAllTarget(
+                    displayName: subGroupLabel,
+                    ids: ids
+                )
+            },
             selectedConversationId: conversationManager.activeConversationId,
             onToggleExpand: { sidebar.toggleSection(group.id) },
             onToggleShowAll: { sidebar.toggleShowAll(group.id) },

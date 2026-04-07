@@ -29,6 +29,7 @@ struct SidebarSectionView: View {
     var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
     var onArchiveAll: (() -> Void)? = nil
+    var onArchiveAllInSubGroup: ((String, [UUID]) -> Void)? = nil
 
     /// The currently selected conversation ID. Passed through so that SwiftUI
     /// re-evaluates this view's body (and thus re-calls makeRow) when selection changes.
@@ -322,6 +323,12 @@ struct SidebarSectionView: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .vContextMenu {
+            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
+                onArchiveAllInSubGroup?(subGroup.label, subGroup.conversations.filter { !$0.isChannelConversation }.map(\.id))
+            }
+            .disabled(subGroup.conversations.isEmpty)
+        }
 
         if isSubGroupExpanded {
             let subGroupShowAll = showAllInSubGroup.contains(subGroup.key)
