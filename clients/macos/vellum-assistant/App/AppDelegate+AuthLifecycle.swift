@@ -209,7 +209,7 @@ extension AppDelegate {
                 }
 
                 // Restore activeAssistant immediately — authManager.logout()
-                // clears it, but clearDaemonCredentials() needs it to resolve
+                // clears it, but clearAssistantCredentials() needs it to resolve
                 // the gateway connection via GatewayHTTPClient.
                 // Without it, all DELETE requests fail with "No connected assistant",
                 // triggering the fallback that disconnects and stops the assistant.
@@ -234,7 +234,7 @@ extension AppDelegate {
             // Skip when the assistant was never set up (e.g. logout during onboarding) —
             // there are no credentials to clear and no assistant to stop.
             if !isCurrentAssistantManaged && (!isCurrentAssistantRemote || isCurrentAssistantDocker) && hasSetupDaemon {
-                let cleared = await LocalAssistantBootstrapService.clearDaemonCredentials()
+                let cleared = await LocalAssistantBootstrapService.clearAssistantCredentials()
                 if !cleared {
                     log.warning("Credential cleanup incomplete — stopping assistant to prevent stale managed credential state")
                     connectionManager.disconnect()
@@ -275,7 +275,7 @@ extension AppDelegate {
                 // Self-hosted (local or remote): clear auth state but keep the
                 // app running. The user can sign in again from Settings > General.
                 // connectedAssistantId was already restored above (before
-                // clearDaemonCredentials). Preserve the actor token and gateway
+                // clearAssistantCredentials). Preserve the actor token and gateway
                 // connection — the actor token authenticates to the local gateway
                 // (device-scoped, not user-scoped) and is independent of the
                 // platform auth session.
