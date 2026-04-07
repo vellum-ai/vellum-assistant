@@ -2,15 +2,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
-// MARK: - Sidebar Group Entry
-
-/// Lightweight identifiable wrapper for ForEach over grouped conversations.
-private struct SidebarGroupEntry: Identifiable {
-    let id: String
-    let group: ConversationGroup
-    let conversations: [ConversationModel]
-}
-
 // MARK: - Sidebar Content
 
 extension MainWindowView {
@@ -99,6 +90,12 @@ extension MainWindowView {
             }
         } message: {
             Text("Enter a new name for this conversation")
+        }
+        .onAppear {
+            conversationManager.customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
+        }
+        .onChange(of: assistantFeatureFlagStore.isEnabled("conversation-groups-ui")) { _, newValue in
+            conversationManager.customGroupsEnabled = newValue
         }
     }
 
@@ -275,32 +272,7 @@ extension MainWindowView {
                 DaemonLoadingConversationsSkeleton()
             }
 
-            let customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
-            let groupEntries: [SidebarGroupEntry] = {
-                let raw = conversationManager.groupedConversations
-                var entries: [SidebarGroupEntry] = []
-                // When custom groups are disabled, fold their conversations into system:all
-                var extraForAll: [ConversationModel] = []
-                for entry in raw {
-                    guard let group = entry.group else { continue }
-                    if !group.isSystemGroup && !customGroupsEnabled {
-                        extraForAll.append(contentsOf: entry.conversations)
-                    } else {
-                        entries.append(SidebarGroupEntry(id: group.id, group: group, conversations: entry.conversations))
-                    }
-                }
-                // Merge extra conversations into the system:all entry
-                if !extraForAll.isEmpty {
-                    if let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
-                        let existing = entries[allIndex]
-                        entries[allIndex] = SidebarGroupEntry(id: existing.id, group: existing.group, conversations: existing.conversations + extraForAll)
-                    } else {
-                        // system:all absent from entries — create one so conversations aren't dropped
-                        entries.append(SidebarGroupEntry(id: ConversationGroup.all.id, group: ConversationGroup.all, conversations: extraForAll))
-                    }
-                }
-                return entries
-            }()
+            let groupEntries = conversationManager.sidebarGroupEntries
             ForEach(groupEntries) { entry in
                 makeSectionView(group: entry.group, conversations: entry.conversations)
             }

@@ -250,6 +250,9 @@ struct MarkdownSegmentView: View, Equatable {
     /// Exposed for testing: number of cache insertions into `measuredTextCache`.
     /// NSCache doesn't expose its count, so we maintain a parallel counter.
     @MainActor static var _measuredTextCacheInsertCount: Int = 0
+    /// Exposed for testing: number of times `buildAttributedStringUncached` was
+    /// called (i.e. `attributedStringCache` misses).
+    @MainActor static var _attributedStringBuildCount: Int = 0
     #endif
     #endif
 
@@ -278,6 +281,7 @@ struct MarkdownSegmentView: View, Equatable {
         typographyRetryTimestamps.removeAll()
         #if DEBUG
         _measuredTextCacheInsertCount = 0
+        _attributedStringBuildCount = 0
         #endif
         #endif
     }
@@ -301,9 +305,9 @@ struct MarkdownSegmentView: View, Equatable {
     private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
         os_signpost(.begin, log: PerfSignposts.log, name: "attributedStringBuild")
         defer { os_signpost(.end, log: PerfSignposts.log, name: "attributedStringBuild") }
-        // Build a stable cache key from the segment contents and style
-        // inputs that affect the output (e.g. secondaryTextColor for list
-        // prefix coloring) so different visual contexts don't share entries.
+        // Build a stable cache key from the segment contents, style inputs,
+        // and typography generation so cached heading fonts are invalidated
+        // when DM Sans finishes loading or typography state changes.
         var hasher = Hasher()
         for segment in segments {
             hasher.combine(segment)
@@ -312,6 +316,7 @@ struct MarkdownSegmentView: View, Equatable {
         hasher.combine(textColor.description)
         hasher.combine(codeTextColor.description)
         hasher.combine(codeBackgroundColor.description)
+        hasher.combine(VFont.typographyGeneration)
         let cacheKey = hasher.finalize()
 
         let cacheKeyNS = cacheKey as NSNumber
@@ -320,6 +325,9 @@ struct MarkdownSegmentView: View, Equatable {
         }
 
         let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor)
+        #if DEBUG
+        Self._attributedStringBuildCount += 1
+        #endif
 
         // Skip caching for very long segment groups to avoid a single huge
         // entry evicting many smaller, more frequently accessed entries.

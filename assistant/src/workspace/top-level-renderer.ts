@@ -1,3 +1,5 @@
+import { homedir, userInfo } from "node:os";
+
 import type { TopLevelSnapshot } from "./top-level-scanner.js";
 
 export interface WorkspaceTopLevelRenderOptions {
@@ -24,6 +26,8 @@ export function renderWorkspaceTopLevelContext(
   if (snapshot.truncated) {
     lines.push("(list truncated — more entries exist)");
   }
+  lines.push(`Host home directory: ${homedir()}`);
+  lines.push(`Host username: ${userInfo().username}`);
   lines.push("</workspace>");
   return lines.join("\n");
 }

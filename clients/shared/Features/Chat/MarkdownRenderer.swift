@@ -248,7 +248,7 @@ public struct MarkdownRenderer: View {
         switch block {
         case .heading(let level, let text):
             Text(inlineMarkdown(text))
-                .font(level <= 2 ? VFont.bodySmallEmphasised : VFont.bodyMediumDefault)
+                .font(level == 1 ? VFont.titleSmall : level == 2 ? VFont.bodyLargeEmphasised : VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
 

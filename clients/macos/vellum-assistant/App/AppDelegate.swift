@@ -370,6 +370,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // changes via the LockfileAssistant.activeAssistantDidChange notification.
         Task { @MainActor in await IdentityInfo.warmCache() }
 
+        // Pre-warm the NSSavePanel/NSOpenPanel ViewBridge XPC connection so
+        // that user-initiated save/open actions don't block the main thread
+        // waiting on _NSViewBridgeMakeSecureConnection (LUM-763).
+        SavePanelWarmup.warmUp()
+
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
         _ = ChatDiagnosticsStore.shared
@@ -749,6 +754,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// run loop alive until `reply(toApplicationShouldTerminate:)` is
     /// called.
     ///
+    /// The reply is dispatched via `DispatchQueue.main.async` rather than
+    /// `MainActor.run` because the Swift concurrency MainActor executor
+    /// is not reliably serviced during AppKit's `.terminateLater` shutdown
+    /// phase, which can deadlock the quit sequence (LUM-764).
+    ///
     /// Reference: https://developer.apple.com/documentation/appkit/nsapplicationdelegate/applicationshouldterminate(_:)
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // During a restart, performRestart() already stopped the CLI and
@@ -762,7 +772,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let cli = vellumCli
         Task.detached {
             await cli.stop()
-            await MainActor.run {
+            DispatchQueue.main.async {
                 NSApp.reply(toApplicationShouldTerminate: true)
             }
         }

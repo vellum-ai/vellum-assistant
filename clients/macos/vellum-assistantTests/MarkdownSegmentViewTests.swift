@@ -183,6 +183,37 @@ final class MarkdownSegmentViewTests: XCTestCase {
         XCTAssertGreaterThan(abs(CTFontGetMatrix((try XCTUnwrap(font)) as CTFont).c), 0.0001)
     }
 
+    func testTypographyGenerationBumpInvalidatesAttributedStringCache() {
+        let segments = parseMarkdownSegments("## Heading\n\nBody text")
+        let view = MarkdownSegmentView(segments: segments)
+
+        // First measurement populates both caches.
+        _ = view.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertEqual(
+            MarkdownSegmentView._attributedStringBuildCount, 1,
+            "First call must build the AttributedString (cache miss)"
+        )
+
+        // Same generation — attributedStringCache should hit.
+        _ = view.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertEqual(
+            MarkdownSegmentView._attributedStringBuildCount, 1,
+            "Second call at the same generation must serve from attributedStringCache"
+        )
+
+        // Bump typography generation (simulates scheduleTypographyRetryIfNeeded
+        // firing after DM Sans loads, without clearing attributedStringCache).
+        VFont.bumpTypographyGeneration()
+
+        // After bump, attributedStringCache must miss so heading fonts are
+        // rebuilt with the updated typography state.
+        _ = view.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertEqual(
+            MarkdownSegmentView._attributedStringBuildCount, 2,
+            "A typography generation bump must cause an attributedStringCache miss"
+        )
+    }
+
     private func makeRenderedMarkdown(_ markdown: String) -> (NSAttributedString, Bool) {
         let source = (try? makeAttributedString(from: markdown)) ?? AttributedString(markdown)
         return MarkdownSegmentView.convertToNSAttributedString(

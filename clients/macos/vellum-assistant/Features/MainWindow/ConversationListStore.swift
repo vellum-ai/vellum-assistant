@@ -5,6 +5,13 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationListStore")
 
+/// Lightweight identifiable wrapper for ForEach over grouped conversations.
+struct SidebarGroupEntry: Identifiable {
+    let id: String
+    let group: ConversationGroup
+    let conversations: [ConversationModel]
+}
+
 /// Owns the conversation and group arrays plus all sidebar-derived computed
 /// properties, pagination, grouping, pinning, ordering, and seen/unseen state.
 ///
@@ -24,6 +31,15 @@ final class ConversationListStore {
     }
     var groups: [ConversationGroup] = [] {
         didSet { recomputeDerivedProperties() }
+    }
+
+    /// Whether custom conversation groups UI is enabled. Updated by the view
+    /// layer when the feature flag changes; triggers sidebar entry recomputation.
+    var customGroupsEnabled: Bool = false {
+        didSet {
+            guard oldValue != customGroupsEnabled else { return }
+            recomputeSidebarGroupEntries()
+        }
     }
 
     /// Whether the daemon returned a non-empty groups array, indicating it supports
@@ -140,6 +156,12 @@ final class ConversationListStore {
 
     private(set) var archivedConversations: [ConversationModel] = []
 
+    /// Pre-computed sidebar group entries with feature-flag-aware folding applied.
+    /// When custom groups are disabled, non-system-group conversations are folded
+    /// into the system:all bucket. Recomputed alongside other derived properties
+    /// so the view body reads a ready-made array without inline computation.
+    private(set) var sidebarGroupEntries: [SidebarGroupEntry] = []
+
     /// Recompute all derived sidebar properties from `conversations` and `groups`.
     /// Called from `conversations.didSet` and `groups.didSet`. Skips work when
     /// `conversations` is empty to avoid wasted computation (e.g. when `groups`
@@ -151,6 +173,7 @@ final class ConversationListStore {
             visibleConversations = []
             unseenVisibleConversationCount = 0
             archivedConversations = []
+            sidebarGroupEntries = []
             return
         }
         let currentSortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
@@ -205,6 +228,39 @@ final class ConversationListStore {
             grouped.append((ConversationGroup.all, ungrouped + orphaned))
         }
         groupedConversations = grouped
+        recomputeSidebarGroupEntries()
+    }
+
+    /// Derive sidebar group entries from `groupedConversations` and the current
+    /// `customGroupsEnabled` flag. Called from `recomputeDerivedProperties()` and
+    /// when `customGroupsEnabled` changes.
+    private func recomputeSidebarGroupEntries() {
+        let raw = groupedConversations
+        var entries: [SidebarGroupEntry] = []
+        var extraForAll: [ConversationModel] = []
+        for entry in raw {
+            guard let group = entry.group else { continue }
+            if !group.isSystemGroup && !customGroupsEnabled {
+                extraForAll.append(contentsOf: entry.conversations)
+            } else {
+                entries.append(SidebarGroupEntry(id: group.id, group: group, conversations: entry.conversations))
+            }
+        }
+        if !extraForAll.isEmpty {
+            if let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
+                let existing = entries[allIndex]
+                entries[allIndex] = SidebarGroupEntry(
+                    id: existing.id, group: existing.group,
+                    conversations: existing.conversations + extraForAll
+                )
+            } else {
+                entries.append(SidebarGroupEntry(
+                    id: ConversationGroup.all.id, group: ConversationGroup.all,
+                    conversations: extraForAll
+                ))
+            }
+        }
+        sidebarGroupEntries = entries
     }
 
     // MARK: - Sort Helpers
