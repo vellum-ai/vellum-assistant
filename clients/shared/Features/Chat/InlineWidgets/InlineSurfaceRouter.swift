@@ -12,6 +12,9 @@ public struct InlineSurfaceRouter: View {
     public let onAction: (String, String, [String: AnyCodable]?) -> Void
     /// Called when a `.stripped` surface appears and needs its data re-fetched.
     public let onRefetch: ((String, String) -> Void)?
+    /// When true, the parent message is still streaming — dynamic page cards
+    /// show a building state with disabled interaction.
+    public let isMessageStreaming: Bool
 
     @State private var selectionPayload: [String: AnyCodable]?
     @State private var clickedActionLabel: String?
@@ -20,11 +23,13 @@ public struct InlineSurfaceRouter: View {
     public init(
         surface: InlineSurfaceData,
         onAction: @escaping (String, String, [String: AnyCodable]?) -> Void,
-        onRefetch: ((String, String) -> Void)? = nil
+        onRefetch: ((String, String) -> Void)? = nil,
+        isMessageStreaming: Bool = false
     ) {
         self.surface = surface
         self.onAction = onAction
         self.onRefetch = onRefetch
+        self.isMessageStreaming = isMessageStreaming
     }
 
     /// Whether the surface content handles its own header/chrome.
@@ -228,6 +233,7 @@ public struct InlineSurfaceRouter: View {
                     InlineAppCreatedCard(
                         preview: preview,
                         appId: data.appId,
+                        isBuilding: isMessageStreaming,
                         onOpenApp: {
                             if let ref = surface.surfaceRef {
                                 NotificationCenter.default.post(
@@ -252,7 +258,7 @@ public struct InlineSurfaceRouter: View {
                         }
                     )
                 } else {
-                    InlineDynamicPagePreview(preview: preview) {
+                    InlineDynamicPagePreview(preview: preview, isBuilding: isMessageStreaming) {
                         if let ref = surface.surfaceRef {
                             NotificationCenter.default.post(
                                 name: Notification.Name("MainWindow.openDynamicWorkspace"),
@@ -263,7 +269,7 @@ public struct InlineSurfaceRouter: View {
                     }
                 }
                 #else
-                InlineDynamicPagePreview(preview: preview) {
+                InlineDynamicPagePreview(preview: preview, isBuilding: isMessageStreaming) {
                     // Post notification to open (or re-open) the workspace
                     if let ref = surface.surfaceRef {
                         NotificationCenter.default.post(

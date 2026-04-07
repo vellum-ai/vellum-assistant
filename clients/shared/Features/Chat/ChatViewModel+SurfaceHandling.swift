@@ -381,11 +381,21 @@ extension ChatViewModel {
             let surfIdx = messages[index].inlineSurfaces.count
             messages[index].inlineSurfaces.append(inlineSurface)
             messages[index].contentOrder.append(.surface(surfIdx))
+            // Clear the streaming code preview when a dynamic page surface appears —
+            // the inline card visually replaces the raw HTML code block.
+            if case .dynamicPage = surface.data {
+                messages[index].streamingCodePreview = nil
+                messages[index].streamingCodeToolName = nil
+            }
         } else if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }),
                   let idx = messages[lastUserIndex...].lastIndex(where: { $0.role == .assistant }) {
             let surfIdx = messages[idx].inlineSurfaces.count
             messages[idx].inlineSurfaces.append(inlineSurface)
             messages[idx].contentOrder.append(.surface(surfIdx))
+            if case .dynamicPage = surface.data {
+                messages[idx].streamingCodePreview = nil
+                messages[idx].streamingCodeToolName = nil
+            }
         } else {
             var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
             newMsg.contentOrder = [.surface(0)]
