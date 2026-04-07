@@ -89,7 +89,7 @@ private final class VTooltipCoordinator {
 /// ```
 public extension View {
     /// Attaches a floating tooltip that appears on hover after `delay` seconds.
-    func vTooltip(_ text: String, edge: Edge = .top, delay: TimeInterval = 0.2) -> some View {
+    func vTooltip(_ text: String, edge: Edge = .top, delay: TimeInterval = 1.0) -> some View {
         self.overlay(
                 VTooltipTracker(text: text, edge: edge, delay: delay)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -551,7 +551,7 @@ public extension View {
     }
 
     /// On non-macOS platforms, falls back to the standard `.help()` modifier.
-    func vTooltip(_ text: String, edge: Edge = .top, delay: TimeInterval = 0.2) -> some View {
+    func vTooltip(_ text: String, edge: Edge = .top, delay: TimeInterval = 1.0) -> some View {
         self.help(text)
     }
 }
