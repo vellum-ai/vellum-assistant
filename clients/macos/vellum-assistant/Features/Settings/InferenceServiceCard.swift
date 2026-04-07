@@ -47,10 +47,6 @@ struct InferenceServiceCard: View {
 
     // MARK: - Computed State
 
-    private var isConnected: Bool {
-        providerHasKey
-    }
-
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
     }
@@ -166,7 +162,8 @@ struct InferenceServiceCard: View {
             // nil) are left alone since the user intentionally set up a local
             // provider.
             let providerRequiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-            if isLoggedIn && draftMode == "your-own" && providerRequiresKey && !providerHasKey {
+            let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
+            if isLoggedIn && draftMode == "your-own" && providerRequiresKey && !hasLocalKey {
                 draftMode = "managed"
                 store.setInferenceMode("managed")
             }
@@ -197,7 +194,8 @@ struct InferenceServiceCard: View {
                 // provider, default to managed. Keyless providers (e.g. Ollama)
                 // are left in your-own mode.
                 let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-                if requiresKey && !providerHasKey {
+                let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
+                if requiresKey && !hasLocalKey {
                     draftMode = "managed"
                     store.setInferenceMode("managed")
                 }
@@ -333,7 +331,7 @@ struct InferenceServiceCard: View {
 
     private var apiKeyField: some View {
         let placeholder: String = {
-            if isConnected {
+            if providerHasKey {
                 return "••••••••••••••••"
             }
             if let providerPlaceholder = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !providerPlaceholder.isEmpty {

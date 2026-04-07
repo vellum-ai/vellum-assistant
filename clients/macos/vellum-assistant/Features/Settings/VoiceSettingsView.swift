@@ -46,8 +46,10 @@ struct VoiceSettingsView: View {
         .onDisappear {
             stopRecordingCustomKey()
         }
-        .task {
-            elevenLabsHasKey = await APIKeyManager.hasKey(for: "elevenlabs")
+        .onAppear {
+            // ElevenLabs key is still saved locally (not yet synced to daemon),
+            // so use the sync check until 22a-3 migrates saveElevenLabsKey.
+            elevenLabsHasKey = APIKeyManager.getKey(for: "elevenlabs") != nil
         }
         .onChange(of: conversationTimeoutSeconds) {
             VoiceModeManager.conversationTimeoutOverride = conversationTimeoutSeconds

@@ -244,13 +244,15 @@ struct WebSearchServiceCard: View {
             }
 
             if isPerplexity && !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                store.savePerplexityKey(perplexityKeyText)
-                perplexityHasKey = true
+                store.savePerplexityKey(perplexityKeyText, onSuccess: { [self] in
+                    perplexityHasKey = true
+                })
                 perplexityKeyText = ""
             }
             if isBrave && !braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                store.saveBraveKey(braveKeyText)
-                braveHasKey = true
+                store.saveBraveKey(braveKeyText, onSuccess: { [self] in
+                    braveHasKey = true
+                })
                 braveKeyText = ""
             }
         }

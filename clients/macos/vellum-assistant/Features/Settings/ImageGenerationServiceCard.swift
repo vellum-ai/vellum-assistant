@@ -23,10 +23,6 @@ struct ImageGenerationServiceCard: View {
     /// Whether the image generation provider has a stored API key (fetched per-component).
     @State private var imageGenHasKey = false
 
-    private var isConnected: Bool {
-        imageGenHasKey
-    }
-
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
     }
@@ -79,7 +75,7 @@ struct ImageGenerationServiceCard: View {
                             imageGenHasKey = false
                             apiKeyText = ""
                         },
-                        showReset: isConnected
+                        showReset: imageGenHasKey
                     )
                 }
             }
@@ -130,7 +126,7 @@ struct ImageGenerationServiceCard: View {
 
     private var apiKeyField: some View {
         let placeholder: String = {
-            if isConnected {
+            if imageGenHasKey {
                 return "••••••••••••••••"
             }
             return "Enter your Gemini API key"

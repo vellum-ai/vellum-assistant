@@ -773,7 +773,7 @@ public final class SettingsStore: ObservableObject {
         refreshModelInfo()
     }
 
-    func saveBraveKey(_ raw: String) {
+    func saveBraveKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         braveKeySaveError = nil
@@ -785,6 +785,7 @@ public final class SettingsStore: ObservableObject {
             let result = await syncKeyToDaemonWithValidation(provider: "brave", value: trimmed)
             if result.success {
                 scheduleRoutingSourceRefresh()
+                onSuccess?()
             } else if let error = result.error {
                 braveKeySaveError = error
                 if !result.isTransient {
@@ -806,7 +807,7 @@ public final class SettingsStore: ObservableObject {
         scheduleRoutingSourceRefresh()
     }
 
-    func savePerplexityKey(_ raw: String) {
+    func savePerplexityKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         perplexityKeySaveError = nil
@@ -818,6 +819,7 @@ public final class SettingsStore: ObservableObject {
             let result = await syncKeyToDaemonWithValidation(provider: "perplexity", value: trimmed)
             if result.success {
                 scheduleRoutingSourceRefresh()
+                onSuccess?()
             } else if let error = result.error {
                 perplexityKeySaveError = error
                 if !result.isTransient {
@@ -1079,11 +1081,12 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func saveEmbeddingAPIKey(_ raw: String, provider: String) {
+    func saveEmbeddingAPIKey(_ raw: String, provider: String, onKeySuccess: (() -> Void)? = nil) {
         embeddingKeySaveError = nil
         // Delegate to saveInferenceAPIKey — same credential store, same daemon validation
         saveInferenceAPIKey(raw, provider: provider, onSuccess: {
             self.refreshEmbeddingConfig()
+            onKeySuccess?()
         }, onError: { error in
             self.embeddingKeySaveError = error
         })

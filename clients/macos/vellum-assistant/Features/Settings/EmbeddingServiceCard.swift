@@ -248,8 +248,9 @@ struct EmbeddingServiceCard: View {
         // Persist API key if entered and provider needs one
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if providerNeedsKey && !trimmedKey.isEmpty {
-            store.saveEmbeddingAPIKey(trimmedKey, provider: draftProvider)
-            providerHasKey = true
+            store.saveEmbeddingAPIKey(trimmedKey, provider: draftProvider, onKeySuccess: { [self] in
+                providerHasKey = true
+            })
             apiKeyText = ""
         }
 
