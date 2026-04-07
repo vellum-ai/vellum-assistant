@@ -122,14 +122,25 @@ public struct InlineChatErrorAlert: View {
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.top, VSpacing.xs)
 
-                        ScrollView {
-                            Text(details)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(VColor.contentSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
+                        let detailLineCount = details.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+                        Group {
+                            if detailLineCount > 10 {
+                                ScrollView {
+                                    Text(details)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(VColor.contentSecondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .textSelection(.enabled)
+                                }
+                                .frame(height: 160)
+                            } else {
+                                Text(details)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
                         }
-                        .frame(maxHeight: 160)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.bottom, VSpacing.sm)
                     }

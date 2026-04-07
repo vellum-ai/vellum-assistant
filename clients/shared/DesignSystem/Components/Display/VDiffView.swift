@@ -46,7 +46,7 @@ public struct VDiffView: View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         if let maxHeight {
             diffScrollView(lines: lines, axes: [.horizontal, .vertical])
-                .frame(maxHeight: maxHeight)
+                .frame(height: maxHeight)
         } else {
             diffScrollView(lines: lines, axes: .horizontal)
                 .fixedSize(horizontal: false, vertical: true)

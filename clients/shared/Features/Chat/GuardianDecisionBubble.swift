@@ -126,14 +126,25 @@ public struct GuardianDecisionBubble: View {
 
             // Command preview code block
             if let preview = decision.commandPreview, !preview.isEmpty {
-                ScrollView {
-                    Text(preview)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(VColor.contentSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+                let previewLineCount = preview.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+                Group {
+                    if previewLineCount > 7 {
+                        ScrollView {
+                            Text(preview)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(VColor.contentSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .frame(height: 120)
+                    } else {
+                        Text(preview)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(VColor.contentSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
                 }
-                .frame(maxHeight: 120)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
