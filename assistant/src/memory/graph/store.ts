@@ -6,6 +6,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db.js";
+import { enqueueMemoryJob } from "../jobs-store.js";
 import {
   memoryGraphEdges,
   memoryGraphNodeEdits,
@@ -270,7 +271,14 @@ export function updateNode(
 
 export function deleteNode(id: string): void {
   const db = getDb();
-  db.delete(memoryGraphNodes).where(eq(memoryGraphNodes.id, id)).run();
+  db.update(memoryGraphNodes)
+    .set({ fidelity: "gone", lastAccessed: Date.now() })
+    .where(eq(memoryGraphNodes.id, id))
+    .run();
+  enqueueMemoryJob("delete_qdrant_vectors", {
+    targetType: "graph_node",
+    targetId: id,
+  });
 }
 
 // ---------------------------------------------------------------------------

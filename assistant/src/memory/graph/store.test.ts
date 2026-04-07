@@ -179,10 +179,12 @@ describe("node CRUD", () => {
     expect(updated!.eventDate).toBeNull();
   });
 
-  test("deleteNode removes the node", () => {
+  test("deleteNode soft-deletes the node by setting fidelity to gone", () => {
     const node = createNode(makeNewNode());
     deleteNode(node.id);
-    expect(getNode(node.id)).toBeNull();
+    const deleted = getNode(node.id);
+    expect(deleted).not.toBeNull();
+    expect(deleted!.fidelity).toBe("gone");
   });
 });
 
