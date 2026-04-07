@@ -601,10 +601,7 @@ struct AssistantProgressView: View {
                     .foregroundStyle(VColor.systemNegativeStrong)
             }
         default:
-            Circle()
-                .fill(VColor.primaryBase)
-                .frame(width: 8, height: 8)
-                .modifier(AssistantProgressPulsingModifier())
+            VBusyIndicator(size: 8)
         }
     }
 
@@ -862,10 +859,7 @@ private struct StepDetailRow: View {
                             .foregroundStyle(VColor.contentTertiary)
                             .frame(width: 16)
                     } else {
-                        Circle()
-                            .fill(VColor.primaryBase)
-                            .frame(width: 6, height: 6)
-                            .modifier(AssistantProgressPulsingModifier())
+                        VBusyIndicator(size: 6)
                             .frame(width: 16)
                     }
 
@@ -1171,25 +1165,6 @@ private struct CompactPermissionChip: View {
         .overlay(
             Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
         )
-    }
-}
-
-// MARK: - Pulsing Modifier
-
-private struct AssistantProgressPulsingModifier: ViewModifier {
-    @State private var isPulsing = false
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(isPulsing ? 0.6 : 1.0)
-            .animation(
-                Animation.easeInOut(duration: 1.8).repeatForever(autoreverses: true),
-                value: isPulsing
-            )
-            .task {
-                guard !isPulsing else { return }
-                isPulsing = true
-            }
     }
 }
 
