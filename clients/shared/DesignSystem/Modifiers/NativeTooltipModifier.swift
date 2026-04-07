@@ -403,13 +403,19 @@ private final class VTooltipTrackerView: NSView {
         // because fittingSize has no way to pass a width proposal, causing
         // text to wrap at zero width and return an incorrect height.
         let maxTooltipWidth: CGFloat = 280
+        let tooltipHorizontalPadding: CGFloat = 16 // VSpacing.sm (8) × 2
         let measureHost = NSHostingView(rootView: VTooltipContent(text: tooltipText))
         let idealSize = measureHost.fittingSize
 
         let panelSize: NSSize
         if idealSize.width > maxTooltipWidth {
+            // Subtract horizontal padding so the total panel width
+            // (text + padding) respects maxTooltipWidth.
             let wrappedHost = NSHostingView(
-                rootView: VTooltipContent(text: tooltipText, wrapWidth: maxTooltipWidth)
+                rootView: VTooltipContent(
+                    text: tooltipText,
+                    wrapWidth: maxTooltipWidth - tooltipHorizontalPadding
+                )
             )
             panelSize = wrappedHost.fittingSize
             wrappedHost.frame.size = panelSize
@@ -451,6 +457,7 @@ private final class VTooltipTrackerView: NSView {
                 p.animator().alphaValue = 1
             }
             panel = p
+            installInteractionMonitors()
             return
         }
 
