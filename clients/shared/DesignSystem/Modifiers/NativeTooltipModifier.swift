@@ -307,9 +307,14 @@ private final class VTooltipTrackerView: NSView {
         mouseDownMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { [weak self] event in
-            self?.showTimer?.invalidate()
-            self?.showTimer = nil
-            self?.hideTooltip()
+            // Defer dismissal to the next run-loop cycle so the mouse-down
+            // event finishes processing first. Synchronous removeChildWindow
+            // during mouse-down interferes with drag gesture recognition.
+            DispatchQueue.main.async {
+                self?.showTimer?.invalidate()
+                self?.showTimer = nil
+                self?.hideTooltip()
+            }
             return event
         }
         keyDownMonitor = NSEvent.addLocalMonitorForEvents(
