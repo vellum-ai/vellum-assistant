@@ -368,6 +368,7 @@ extension MessageListView {
             isLoadingMoreMessages: isLoadingMoreMessages,
             isCompacting: isCompacting,
             isInteractionEnabled: isInteractionEnabled,
+            viewportHeight: scrollState.viewportHeight,
             containerWidth: containerWidth,
             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
             activeSurfaceId: taskProgressManager.activeSurfaceId,

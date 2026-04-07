@@ -185,6 +185,9 @@ final class MessageListScrollState {
     /// Whether the user is within the bottom dead-zone of the conversation.
     @ObservationIgnored var isAtBottom: Bool = true
 
+    /// Whether the bottom anchor is currently visible (near the bottom of the scroll view).
+    @ObservationIgnored var isNearBottom: Bool = true
+
     /// The most recent scroll viewport height.
     @ObservationIgnored var viewportHeight: CGFloat = .infinity
 
@@ -772,6 +775,7 @@ final class MessageListScrollState {
         activeStabilizationCount = 0
         // False: scroll geometry hasn't updated for the new content yet.
         isAtBottom = false
+        isNearBottom = false
         lastContentOffsetY = 0
         scrollContentHeight = 0
         scrollContainerHeight = 0
@@ -836,6 +840,7 @@ final class MessageListScrollState {
         lastUserInitiatedPinTime = nil
         lastMessageId = nil
         isAtBottom = false
+        isNearBottom = false
         lastContentOffsetY = 0
         scrollContentHeight = 0
         scrollContainerHeight = 0
