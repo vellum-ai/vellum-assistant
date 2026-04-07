@@ -790,10 +790,13 @@ export async function runAgentLoopImpl(
     // Only inject PKB if it changed since the last injection in the
     // conversation.  Keeping the previous injection in place avoids mutating
     // historical user messages and preserves the cached prefix.
+    // Note: injectPkbContext escapes </pkb> sequences before writing to history,
+    // so we must apply the same escaping before comparing to avoid false mismatches.
     const currentPkbContent = readPkbContext();
     const lastInjectedPkb = findLastInjectedPkbContent(ctx.messages);
+    const escapedCurrentPkb = currentPkbContent?.replace(/<\/pkb\s*>/gi, "&lt;/pkb&gt;") ?? null;
     const pkbContext =
-      currentPkbContent !== lastInjectedPkb ? currentPkbContent : null;
+      escapedCurrentPkb !== lastInjectedPkb ? currentPkbContent : null;
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
