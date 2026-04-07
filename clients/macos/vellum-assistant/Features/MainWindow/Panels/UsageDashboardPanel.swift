@@ -352,7 +352,7 @@ struct UsageDashboardPanel: View {
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
 
-            ForEach(Array(entries.enumerated()), id: \.element.group) { index, entry in
+            ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
                 Divider().background(VColor.borderBase)
                 breakdownRow(entry)
             }

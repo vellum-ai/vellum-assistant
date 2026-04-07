@@ -146,7 +146,7 @@ struct UsageDashboardView: View {
                     Text("No data for selected range")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(breakdown.breakdown, id: \.group) { entry in
+                    ForEach(Array(breakdown.breakdown.enumerated()), id: \.offset) { _, entry in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(entry.group)
                                 .font(.subheadline.weight(.medium))
