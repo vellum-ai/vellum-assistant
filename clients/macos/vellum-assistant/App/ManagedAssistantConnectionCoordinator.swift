@@ -37,7 +37,7 @@ final class ManagedAssistantConnectionCoordinator {
     private let updateAssistantTag: (String?) -> Void
     private let lockfilePath: String?
     private let dateProvider: () -> Date
-    private let multiAssistantEnabledProvider: () -> Bool
+    private let multiAssistantEnabledProvider: @MainActor () -> Bool
 
     init(
         bootstrapService: ManagedAssistantBootstrapProviding,
@@ -48,7 +48,7 @@ final class ManagedAssistantConnectionCoordinator {
         },
         lockfilePath: String? = nil,
         dateProvider: @escaping () -> Date = Date.init,
-        multiAssistantEnabledProvider: @escaping () -> Bool = {
+        multiAssistantEnabledProvider: @escaping @MainActor () -> Bool = {
             // Read the feature flag directly at the call site, per the
             // codebase convention (see SettingsPanel.swift, MainWindowView.swift,
             // PanelCoordinator.swift). Constructing a fresh store is cheap —
