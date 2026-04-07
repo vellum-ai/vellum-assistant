@@ -4,10 +4,15 @@ import SwiftUI
 enum OnboardingHostingModeResolver {
     static func availableHostingModes(
         userHostedEnabled: Bool,
-        localDockerEnabled: Bool
+        localDockerEnabled: Bool,
+        appleContainerEnabled: Bool
     ) -> [OnboardingState.HostingMode] {
         var modes: [OnboardingState.HostingMode] = [.vellumCloud, .local]
-        if localDockerEnabled {
+        if appleContainerEnabled {
+            // Apple Container is the new "Local" default; expose Docker
+            // and bare-host local as separate fallback options.
+            modes.append(contentsOf: [.docker, .oldLocal])
+        } else if localDockerEnabled {
             // Keep "Local" as the default choice and expose the legacy
             // non-Docker hatch explicitly as an escape hatch.
             modes.append(.oldLocal)
@@ -18,10 +23,26 @@ enum OnboardingHostingModeResolver {
         return modes
     }
 
+    static func displayName(
+        for mode: OnboardingState.HostingMode,
+        appleContainerEnabled: Bool
+    ) -> String {
+        guard appleContainerEnabled else { return mode.displayName }
+        switch mode {
+        case .docker: return "Docker Local"
+        case .oldLocal: return "Host Local"
+        default: return mode.displayName
+        }
+    }
+
     static func subtitle(
         for mode: OnboardingState.HostingMode,
-        localDockerEnabled: Bool
+        localDockerEnabled: Bool,
+        appleContainerEnabled: Bool
     ) -> String {
+        if appleContainerEnabled && mode == .local {
+            return "Native macOS sandbox. Your machine, your data, fully isolated."
+        }
         if localDockerEnabled && mode == .local {
             return OnboardingState.HostingMode.docker.subtitle
         }
@@ -30,11 +51,14 @@ enum OnboardingHostingModeResolver {
 
     static func cloudProvider(
         for mode: OnboardingState.HostingMode,
-        localDockerEnabled: Bool
+        localDockerEnabled: Bool,
+        appleContainerEnabled: Bool
     ) -> String {
         switch mode {
         case .oldLocal:
             return OnboardingState.HostingMode.local.rawValue
+        case .local where appleContainerEnabled:
+            return "apple-container"
         case .local where localDockerEnabled:
             return OnboardingState.HostingMode.docker.rawValue
         default:
@@ -58,6 +82,10 @@ struct APIKeyStepView: View {
 
     private var localDockerEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("local-docker-enabled")
+    }
+
+    private var appleContainerEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("apple-container")
     }
 
     var body: some View {
@@ -113,7 +141,8 @@ struct APIKeyStepView: View {
     private var availableHostingModes: [OnboardingState.HostingMode] {
         OnboardingHostingModeResolver.availableHostingModes(
             userHostedEnabled: userHostedEnabled,
-            localDockerEnabled: localDockerEnabled
+            localDockerEnabled: localDockerEnabled,
+            appleContainerEnabled: appleContainerEnabled
         )
     }
 
@@ -132,11 +161,16 @@ struct APIKeyStepView: View {
             ForEach(availableHostingModes, id: \.rawValue) { mode in
                 let subtitle = OnboardingHostingModeResolver.subtitle(
                     for: mode,
-                    localDockerEnabled: localDockerEnabled
+                    localDockerEnabled: localDockerEnabled,
+                    appleContainerEnabled: appleContainerEnabled
+                )
+                let title = OnboardingHostingModeResolver.displayName(
+                    for: mode,
+                    appleContainerEnabled: appleContainerEnabled
                 )
                 hostingCard(
                     icon: iconForMode(mode),
-                    title: mode.displayName,
+                    title: title,
                     subtitle: subtitle,
                     mode: mode,
                     chipLabel: chipLabel(for: mode)
@@ -254,7 +288,8 @@ struct APIKeyStepView: View {
 
         state.cloudProvider = OnboardingHostingModeResolver.cloudProvider(
             for: state.selectedHostingMode,
-            localDockerEnabled: localDockerEnabled
+            localDockerEnabled: localDockerEnabled,
+            appleContainerEnabled: appleContainerEnabled
         )
 
         if isAuthenticated {
