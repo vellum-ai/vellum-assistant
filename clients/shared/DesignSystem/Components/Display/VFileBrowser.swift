@@ -211,6 +211,7 @@ public struct VFileBrowser<
                             depth: row.depth,
                             isSelected: selectedPath == row.node.path,
                             isExpanded: expandedPaths.contains(row.node.path) || data.forcedExpanded.contains(row.node.path),
+                            isSearchActive: !searchText.isEmpty,
                             onTap: { handleTap(row.node) },
                             rowContextMenu: rowContextMenu,
                             onDrop: onDrop
@@ -478,12 +479,24 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
     let depth: Int
     let isSelected: Bool
     let isExpanded: Bool
+    let isSearchActive: Bool
     let onTap: () -> Void
     let rowContextMenu: (VFileBrowserNode) -> RowContextMenu
     let onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)?
 
     @State private var isDropTargeted = false
     @State private var isHovered = false
+
+    /// VoiceOver hint that reflects what tapping the row will actually do.
+    /// During an active search, directory taps are no-ops (see `handleTap`),
+    /// so the hint omits the collapse/expand action verb to avoid misleading
+    /// VoiceOver users.
+    private var directoryAccessibilityHint: String {
+        if isSelected { return "Selected" }
+        guard node.isDirectory else { return "Tap to select" }
+        if isSearchActive { return isExpanded ? "Expanded" : "Collapsed" }
+        return "Tap to \(isExpanded ? "collapse" : "expand")"
+    }
 
     /// Selected state always wins over hovered state, and drop-targeted state
     /// wins over hover so the user gets the strongest feedback for the action
@@ -556,10 +569,7 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
         .onHover { isHovered = $0 }
         .animation(VAnimation.fast, value: isHovered)
         .accessibilityLabel(node.name)
-        .accessibilityHint(
-            isSelected ? "Selected"
-            : (node.isDirectory ? "Tap to \(isExpanded ? "collapse" : "expand")" : "Tap to select")
-        )
+        .accessibilityHint(directoryAccessibilityHint)
         .contextMenu { rowContextMenu(node) }
         .modifier(DropTargetModifier(node: node, isTargeted: $isDropTargeted, onDrop: onDrop))
     }
