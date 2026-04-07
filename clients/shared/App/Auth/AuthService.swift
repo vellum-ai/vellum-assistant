@@ -279,14 +279,25 @@ public final class AuthService {
         }
     }
 
-    /// List all managed assistants visible to the caller in the given organization.
+    /// List managed assistants visible to the caller in the given organization,
+    /// sorted newest-first by `created_at`.
     ///
     /// Used by the multi-assistant bootstrap flow to discover existing assistants
-    /// when a previously-connected assistant ID is no longer found (404). Results
-    /// are returned in the platform's native order — callers are responsible for
-    /// sorting (e.g. by `created_at` descending) if a specific order is required.
+    /// when a previously-connected assistant ID is no longer found (404). We only
+    /// read the first page — `?ordering=-created_at` is a Django REST framework
+    /// convention; if the platform endpoint honors it, the first result is the
+    /// globally newest assistant. If the platform ignores the parameter, callers
+    /// should apply their own sort (see `ManagedAssistantBootstrapService.mostRecent`)
+    /// as a defensive fallback, which handles page-1-only orderings that happen
+    /// to place the newest assistant somewhere other than position 0.
+    ///
+    /// Orgs with more assistants than fit in a single page may still miss the
+    /// globally-newest entry if the platform neither honors the ordering hint
+    /// nor returns newest-first by default. That is an acceptable limitation
+    /// for the flag-gated rollout where orgs are expected to have at most a
+    /// handful of managed assistants; walk `next` here if that ever changes.
     public func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
-        let urlString = "\(baseURL)/v1/assistants/"
+        let urlString = "\(baseURL)/v1/assistants/?ordering=-created_at"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }

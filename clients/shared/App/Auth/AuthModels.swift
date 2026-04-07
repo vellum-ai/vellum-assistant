@@ -175,12 +175,15 @@ public struct PlatformAssistant: Codable, Sendable {
 }
 
 /// Response wrapper for the paginated `GET /v1/assistants/` endpoint.
+///
+/// Only `results` is decoded — the bootstrap flow requests server-side ordering
+/// by `created_at desc` so the first page contains the newest assistant, which
+/// is all the caller needs. `count`/`next` are intentionally omitted; if a
+/// future caller needs full pagination, add the fields and walk `next` here.
 public struct PaginatedPlatformAssistantsResponse: Codable, Sendable {
-    public let count: Int?
     public let results: [PlatformAssistant]
 
-    public init(count: Int? = nil, results: [PlatformAssistant]) {
-        self.count = count
+    public init(results: [PlatformAssistant]) {
         self.results = results
     }
 }
