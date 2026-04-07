@@ -932,10 +932,25 @@ export async function dispatchAgentEvent(
           "assistant_turn",
           deps.reqId,
         );
+
+        // Format web search results into a human-readable string for the client.
+        let resultText = "";
+        if (Array.isArray(event.content) && event.content.length > 0) {
+          resultText = (event.content as unknown[])
+            .filter(
+              (r): r is { type: string; title: string; url: string } =>
+                typeof r === "object" &&
+                r != null &&
+                (r as { type?: string }).type === "web_search_result",
+            )
+            .map((r) => `${r.title}\n${r.url}`)
+            .join("\n\n");
+        }
+
         deps.onEvent({
           type: "tool_result",
-          toolName: "",
-          result: "",
+          toolName: "web_search",
+          result: resultText,
           isError: event.isError,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
