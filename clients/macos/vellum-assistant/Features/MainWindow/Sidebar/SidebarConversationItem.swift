@@ -181,6 +181,7 @@ struct SidebarConversationItem: View, Equatable {
                 .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .vTooltip(conversation.title)
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -243,7 +244,6 @@ struct SidebarConversationItem: View, Equatable {
         .vContextMenu(width: 200) {
             contextMenuContent
         }
-        .vTooltip(conversation.title)
         .pointerCursor { hovering in
             isMouseInside = hovering
         }
