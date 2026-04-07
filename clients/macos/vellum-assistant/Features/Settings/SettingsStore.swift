@@ -1196,7 +1196,7 @@ public final class SettingsStore: ObservableObject {
 
             for provider in APIKeyManager.allSyncableProviders {
                 if let key = APIKeyManager.getKey(for: provider) {
-                    await APIKeyManager.setKey(key, for: provider)
+                    _ = await APIKeyManager.setKey(key, for: provider)
                 }
             }
 

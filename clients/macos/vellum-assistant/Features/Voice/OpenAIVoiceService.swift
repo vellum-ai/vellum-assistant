@@ -98,7 +98,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
     // MARK: - API Keys
 
-    func elevenLabsKey() async -> String? { await APIKeyManager.getKey(for: "elevenlabs") }
+    func elevenLabsKey() async -> String? { APIKeyManager.getKey(for: "elevenlabs") }
     func hasElevenLabsKey() async -> Bool { await elevenLabsKey() != nil }
 
     // MARK: - Speech Recognition Authorization
