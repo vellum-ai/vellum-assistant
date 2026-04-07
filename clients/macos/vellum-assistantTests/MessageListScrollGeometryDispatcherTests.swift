@@ -79,4 +79,30 @@ final class MessageListScrollGeometryDispatcherTests: XCTestCase {
         await fulfillment(of: [markerReached, secondDelivery], timeout: 1.0)
         XCTAssertEqual(trace, ["first-start", "first-end", "marker", "second"])
     }
+
+    func testCancelInvalidatesPendingDrain() async {
+        let dispatcher = ScrollGeometryUpdateDispatcher()
+        let owner = MessageListScrollState()
+
+        let snapshot = ScrollGeometrySnapshot(
+            contentOffsetY: 5,
+            contentHeight: 200,
+            containerHeight: 100,
+            visibleRectHeight: 100
+        )
+
+        var handlerCalled = false
+        dispatcher.enqueue(for: owner, snapshot: snapshot) { _ in
+            handlerCalled = true
+        }
+        dispatcher.cancel(for: owner)
+
+        // Allow the run loop to drain so the scheduled DispatchQueue.main.async
+        // block executes (it should see a mismatched generation and bail out).
+        let drained = expectation(description: "run loop drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        await fulfillment(of: [drained], timeout: 1.0)
+
+        XCTAssertFalse(handlerCalled, "Handler must not be invoked after cancel(for:) invalidates the pending drain")
+    }
 }
