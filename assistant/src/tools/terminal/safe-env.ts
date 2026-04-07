@@ -71,5 +71,9 @@ export function buildSanitizedEnv(): Record<string, string> {
   // Expose the workspace directory so skills and child processes can read/write
   // workspace-scoped files (e.g. avatar traits, user data).
   env.VELLUM_WORKSPACE_DIR = getWorkspaceDir();
+  // Ensure UTF-8 locale so multi-byte characters (em dashes, curly quotes,
+  // arrows, etc.) survive piping through tools like pbcopy without corruption.
+  if (!env.LANG) env.LANG = "en_US.UTF-8";
+  if (!env.LC_ALL) env.LC_ALL = "en_US.UTF-8";
   return env;
 }

@@ -445,6 +445,15 @@ describe("buildSanitizedEnv", () => {
     expect(env.LC_CTYPE).toBe("UTF-8");
   });
 
+  test("defaults LANG and LC_ALL to UTF-8 when unset", () => {
+    delete process.env.LANG;
+    delete process.env.LC_ALL;
+
+    const env = buildSanitizedEnv();
+    expect(env.LANG).toBe("en_US.UTF-8");
+    expect(env.LC_ALL).toBe("en_US.UTF-8");
+  });
+
   test("injects INTERNAL_GATEWAY_BASE_URL from gateway config", () => {
     process.env.GATEWAY_PORT = "9000";
     const env = buildSanitizedEnv();
