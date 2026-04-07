@@ -757,7 +757,9 @@ describe("applyDiff", () => {
       reinforceNodeIds: [],
     });
     expect(result.nodesDeleted).toBe(1);
-    expect(getNode(node.id)).toBeNull();
+    const deleted = getNode(node.id);
+    expect(deleted).not.toBeNull();
+    expect(deleted!.fidelity).toBe("gone");
   });
 
   test("updates nodes", () => {

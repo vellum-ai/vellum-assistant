@@ -712,14 +712,8 @@ export async function handleDeleteMemoryItem(
     return httpError("NOT_FOUND", "Memory item not found", 404);
   }
 
-  // Hard-delete the node (cascades to edges and triggers via FK)
+  // Soft-delete the node (deleteNode sets fidelity='gone' and enqueues Qdrant cleanup)
   deleteNode(id);
-
-  // Clean up Qdrant vectors asynchronously
-  enqueueMemoryJob("delete_qdrant_vectors", {
-    targetType: "graph_node",
-    targetId: id,
-  });
 
   return new Response(null, { status: 204 });
 }
