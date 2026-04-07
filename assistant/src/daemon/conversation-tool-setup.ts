@@ -106,6 +106,8 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   callSessionId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client. */
   hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
+  /** Optional proxy for delegating CDP commands to a connected client (managed/cloud-hosted mode). */
+  hostBrowserProxy?: import("./host-browser-proxy.js").HostBrowserProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
   hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
   /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
@@ -190,6 +192,7 @@ export function createToolExecutor(
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
+      hostBrowserProxy: ctx.hostBrowserProxy,
       hostFileProxy: ctx.hostFileProxy,
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,

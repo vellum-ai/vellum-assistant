@@ -52,6 +52,15 @@ Host CU allows the assistant to proxy computer-use actions (screenshots, mouse/k
   - `POST /v1/host-cu-result` — `{ requestId, axTree?, axDiff?, screenshot?, screenshotWidthPx?, screenshotHeightPx?, screenWidthPt?, screenHeightPt?, executionResult?, executionError?, secondaryWindows?, userGuidance? }`
 - **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_cu"`. Registration happens in `conversation-routes.ts` and the route handler is in `host-cu-routes.ts`.
 
+### Host browser (desktop proxy CDP execution)
+
+Host browser allows the assistant to proxy CDP (Chrome DevTools Protocol) JSON-RPC commands to a browser attached on the desktop host via the client, following the same pattern as host bash, host file, and host CU.
+
+- **Discovery**: Clients discover pending host browser requests via SSE events (`host_browser_request`) which include a `requestId`, `cdpMethod`, optional `cdpParams`, and optional `cdpSessionId`.
+- **Resolution**: Clients execute the CDP command against the attached browser and respond via:
+  - `POST /v1/host-browser-result` — `{ requestId, content, isError }`
+- **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_browser"`. Registration happens in `conversation-routes.ts` and the route handler is in `host-browser-routes.ts`.
+
 ### Channel approvals (Telegram, Slack)
 
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:

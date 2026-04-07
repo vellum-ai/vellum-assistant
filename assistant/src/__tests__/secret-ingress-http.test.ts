@@ -175,6 +175,7 @@ function makeSendMessageDeps() {
     trustContext: undefined,
     hasPendingConfirmation: () => false,
     setHostBashProxy: () => {},
+    setHostBrowserProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
     addPreactivatedSkillId: () => {},
