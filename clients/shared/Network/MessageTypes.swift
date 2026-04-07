@@ -53,6 +53,8 @@ import Foundation
 // │                                 │ decoded from flat fields               │
 // │ SkillsshOriginMeta             │ Payload struct for skillssh origin;    │
 // │                                 │ decoded from flat fields               │
+// │ HomeFeedUpdatedMessage          │ New SSE event; not yet in generated    │
+// │                                 │ contract                               │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -2284,6 +2286,7 @@ public enum ServerMessage: Decodable, Sendable {
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
     case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
+    case homeFeedUpdated(HomeFeedUpdatedMessage)
     case conversationIdResolved(localId: String, serverId: String)
     case pong
     case unknown(String)
@@ -2748,6 +2751,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "service_group_update_complete":
             let message = try ServiceGroupUpdateCompleteMessage(from: decoder)
             self = .serviceGroupUpdateComplete(message)
+        case "home_feed_updated":
+            let message = try HomeFeedUpdatedMessage(from: decoder)
+            self = .homeFeedUpdated(message)
         case "pong":
             self = .pong
         default:
@@ -2756,6 +2762,13 @@ public enum ServerMessage: Decodable, Sendable {
     }
 }
 
+
+// MARK: - Home Feed
+
+/// Sent by the daemon when the home feed has new or updated items.
+public struct HomeFeedUpdatedMessage: Codable, Sendable {
+    public let conversationId: String?
+}
 
 // MARK: - Permission Mode
 
