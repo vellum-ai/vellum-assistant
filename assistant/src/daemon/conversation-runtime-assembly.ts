@@ -550,8 +550,12 @@ const PKB_NUDGE =
 
 /**
  * Read `_autoinject.md` from the PKB directory and return the list of
- * filenames to inject. Returns `null` when the file is missing, empty,
- * or unreadable — callers should fall back to the hardcoded defaults.
+ * filenames to inject.
+ *
+ * - Returns `null` when the file is missing or unreadable — callers
+ *   should fall back to the hardcoded defaults.
+ * - Returns `[]` when the file exists but has no entries (empty or
+ *   comments only) — an explicit opt-out meaning "inject nothing."
  */
 export function readAutoinjectList(pkbDir: string): string[] | null {
   const filePath = join(pkbDir, AUTOINJECT_FILENAME);
