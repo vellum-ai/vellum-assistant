@@ -42,6 +42,10 @@ import Foundation
 // │                                 │ code generator cannot express it        │
 // │ HostCuResultPayload             │ Posted back to daemon; hand-maintained  │
 // │                                 │ alongside HostCuRequest                 │
+// │ HostBrowserRequest              │ Uses AnyCodable for `cdpParams`; client │
+// │                                 │ decodes only to keep SSE healthy        │
+// │ HostBrowserCancelRequest        │ Hand-maintained alongside               │
+// │                                 │ HostBrowserRequest                      │
 // │ SkillSearchResult               │ Client-only result wrapper for search;  │
 // │                                 │ not a wire type                         │
 // │ SkillOperationResult            │ Client-only result wrapper for skill    │
@@ -1602,6 +1606,42 @@ public struct HostCuCancelRequest: Decodable, Sendable {
     public let requestId: String
 }
 
+// MARK: - Host Browser Proxy
+
+/// Request from the daemon to execute a Chrome DevTools Protocol (CDP) command on
+/// the host browser. The desktop client decodes this so the SSE stream does not
+/// fail-closed; the actual CDP execution lives in the Chrome extension and is not
+/// handled directly by the macOS client.
+public struct HostBrowserRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let conversationId: String
+    public let cdpMethod: String
+    public let cdpParams: [String: AnyCodable]?
+    public let cdpSessionId: String?
+    public let timeoutSeconds: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case requestId
+        case conversationId
+        case cdpMethod
+        case cdpParams
+        case cdpSessionId
+        // The daemon wire format for this field is snake_case while the
+        // sibling fields above are camelCase, so map it explicitly.
+        case timeoutSeconds = "timeout_seconds"
+    }
+}
+
+/// Cancellation signal from the daemon telling the host browser to abort an
+/// in-flight CDP command identified by `requestId`. As with `HostBrowserRequest`
+/// the macOS client only decodes this to keep the SSE stream healthy.
+public struct HostBrowserCancelRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+}
+
 /// Payload posted back to the daemon with the result of a host CU action execution.
 public struct HostCuResultPayload: Codable, Sendable {
     public let requestId: String
@@ -2279,6 +2319,8 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileCancel(HostFileCancelRequest)
     case hostCuRequest(HostCuRequest)
     case hostCuCancel(HostCuCancelRequest)
+    case hostBrowserRequest(HostBrowserRequest)
+    case hostBrowserCancel(HostBrowserCancelRequest)
     case permissionModeUpdate(PermissionModeUpdateMessage)
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
@@ -2733,6 +2775,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_cancel":
             let message = try HostCuCancelRequest(from: decoder)
             self = .hostCuCancel(message)
+        case "host_browser_request":
+            let message = try HostBrowserRequest(from: decoder)
+            self = .hostBrowserRequest(message)
+        case "host_browser_cancel":
+            let message = try HostBrowserCancelRequest(from: decoder)
+            self = .hostBrowserCancel(message)
         case "permission_mode_update":
             let message = try PermissionModeUpdateMessage(from: decoder)
             self = .permissionModeUpdate(message)
