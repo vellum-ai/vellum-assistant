@@ -465,15 +465,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Record this launch so the next session can identify new crashes.
         CrashReporter.recordLaunch()
 
-        // Migration: remove legacy ios-pairing-enabled flag file.
-        // The old "Enable iOS Pairing" toggle created this file to expose
-        // the daemon on 0.0.0.0. With QR-first pairing via gateway, the
-        // flag is no longer needed and leaving it active is a security concern.
-        let legacyFlagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
-        if FileManager.default.fileExists(atPath: legacyFlagPath) {
-            try? FileManager.default.removeItem(atPath: legacyFlagPath)
-        }
-
         // Remove stale SwiftUI Settings window frame to prevent a ghost
         // window from being restored on launch (the Settings scene now
         // renders EmptyView — we handle settings in the main window panel).
