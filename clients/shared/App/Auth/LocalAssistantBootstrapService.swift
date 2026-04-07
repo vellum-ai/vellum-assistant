@@ -197,6 +197,9 @@ public final class LocalAssistantBootstrapService {
         if let uid = try? await resolveUserId() {
             try? await injectPlatformUserIdIntoDaemon(id: uid)
         }
+        if let secret = registration.webhookSecret, !secret.isEmpty {
+            try? await injectWebhookSecretIntoDaemon(secret: secret)
+        }
 
         return platformAssistantId
     }
@@ -279,6 +282,18 @@ public final class LocalAssistantBootstrapService {
         }
     }
 
+    /// Inject the webhook secret into the daemon's secret store via the gateway.
+    private func injectWebhookSecretIntoDaemon(secret: String) async throws {
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:webhook_secret", "value": secret],
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            throw LocalBootstrapError.daemonInjectionFailed
+        }
+    }
+
     /// Clears platform identity credentials and the assistant API key from
     /// the daemon's secret store by issuing `DELETE /v1/secrets` for each
     /// vellum-namespaced credential.
@@ -292,6 +307,7 @@ public final class LocalAssistantBootstrapService {
             "vellum:platform_base_url",
             "vellum:platform_organization_id",
             "vellum:platform_user_id",
+            "vellum:webhook_secret",
         ]
         var allCleared = true
         for name in credentialNames {
