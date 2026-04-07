@@ -371,8 +371,9 @@ export async function loadContextMemory(
   opts: ContextLoadOpts,
 ): Promise<ContextLoadResult> {
   const start = Date.now();
-  const maxNodes = opts.maxNodes ?? 40;
-  const serendipitySlots = opts.serendipitySlots ?? 10;
+  const ctxLoadCfg = opts.config.memory.retrieval.injection.contextLoad;
+  const maxNodes = opts.maxNodes ?? ctxLoadCfg.maxNodes;
+  const serendipitySlots = opts.serendipitySlots ?? ctxLoadCfg.serendipitySlots;
   const now = new Date();
   const nowMs = now.getTime();
 
@@ -547,12 +548,12 @@ export async function loadContextMemory(
   // 5b. Reserve slots for skill/CLI capabilities. Queried directly from
   // SQLite — no Qdrant vectors needed — so capabilities surface even on
   // fresh assistants whose embedding jobs haven't completed yet.
-  const CAPABILITY_RESERVE = 5;
+  const capabilityReserve = ctxLoadCfg.capabilityReserve;
   const rawCapabilityNodes = queryNodes({
     scopeId: opts.scopeId,
     types: ["procedural"],
     fidelityNot: ["gone"],
-    limit: CAPABILITY_RESERVE * 4,
+    limit: capabilityReserve * 4,
   });
 
   // Dedup: both seeding systems may create nodes for the same capability.
@@ -574,14 +575,14 @@ export async function loadContextMemory(
 
   // Rank by semantic similarity when a query vector exists
   let selectedCapabilities: MemoryNode[];
-  if (queryVector && capabilityNodes.length > CAPABILITY_RESERVE) {
+  if (queryVector && capabilityNodes.length > capabilityReserve) {
     selectedCapabilities = capabilityNodes
       .map((node) => ({ node, sim: semanticCandidateIds.get(node.id) ?? 0 }))
       .sort((a, b) => b.sim - a.sim)
-      .slice(0, CAPABILITY_RESERVE)
+      .slice(0, capabilityReserve)
       .map((e) => e.node);
   } else {
-    selectedCapabilities = capabilityNodes.slice(0, CAPABILITY_RESERVE);
+    selectedCapabilities = capabilityNodes.slice(0, capabilityReserve);
   }
 
   const reservedCapabilities: ScoredNode[] = selectedCapabilities.map(
@@ -987,7 +988,8 @@ export async function retrieveForTurn(
   // 5b. Reserve slots for capability nodes (skills/CLI).
   // Sourced from vector search candidates — only semantically relevant
   // capabilities compete for reserved slots.
-  const PROCEDURAL_RESERVE = 3;
+  const perTurnCfg = opts.config.memory.retrieval.injection.perTurn;
+  const proceduralReserve = perTurnCfg.proceduralReserve;
 
   const proceduralCandidates = capabilityCandidates
     .filter(({ node }) => !opts.tracker.isInContext(node.id))
@@ -1006,7 +1008,7 @@ export async function retrieveForTurn(
       }
       return true;
     })
-    .slice(0, PROCEDURAL_RESERVE);
+    .slice(0, proceduralReserve);
 
   const proceduralScored: ScoredNode[] = rankedProcedural.map(({ node, sim }) =>
     scoreCandidate(
@@ -1034,7 +1036,7 @@ export async function retrieveForTurn(
   scored.sort((a, b) => b.score - a.score);
   const INJECTION_THRESHOLD = 0.3;
   const PRE_DEDUP_POOL = 20;
-  const MAX_INJECTED = 4;
+  const maxInjected = perTurnCfg.maxInjected;
   const pool = scored
     .filter((s) => s.score >= INJECTION_THRESHOLD)
     .slice(0, PRE_DEDUP_POOL);
@@ -1042,8 +1044,8 @@ export async function retrieveForTurn(
   // Dedup + rerank with a fast model when the pool is large enough to warrant it
   let injected: ScoredNode[];
   let llmDedupApplied = false;
-  if (pool.length > MAX_INJECTED) {
-    const result = await dedupForTurn(pool, MAX_INJECTED, opts.userLastMessage);
+  if (pool.length > maxInjected) {
+    const result = await dedupForTurn(pool, maxInjected, opts.userLastMessage);
     injected = result.nodes;
     llmDedupApplied = result.llmApplied;
   } else {
@@ -1054,17 +1056,17 @@ export async function retrieveForTurn(
   const generalInjected = injected.filter((s) => !proceduralIds.has(s.node.id));
 
   // Backfill vacated general slots from the remaining pool so we always
-  // return up to MAX_INJECTED general memories when eligible candidates exist.
+  // return up to the configured max general memories when eligible candidates exist.
   // Only skip backfill when LLM dedup genuinely ran — it intentionally rejected
   // items as duplicates/irrelevant. When dedupForTurn fell back to a plain
   // top-N slice (no provider, tool call failure), backfill is still appropriate.
-  if (generalInjected.length < MAX_INJECTED && !llmDedupApplied) {
+  if (generalInjected.length < maxInjected && !llmDedupApplied) {
     const usedIds = new Set([
       ...generalInjected.map((s) => s.node.id),
       ...proceduralIds,
     ]);
     const backfillCandidates = pool.filter((s) => !usedIds.has(s.node.id));
-    const needed = MAX_INJECTED - generalInjected.length;
+    const needed = maxInjected - generalInjected.length;
     for (let i = 0; i < Math.min(needed, backfillCandidates.length); i++) {
       generalInjected.push(backfillCandidates[i]);
     }
@@ -1073,11 +1075,14 @@ export async function retrieveForTurn(
   const allDeterministic = [...generalInjected, ...proceduralInjected];
   const deterministicIds = new Set(allDeterministic.map((n) => n.node.id));
 
-  // Reserve 1 serendipity slot from scored candidates not in the deterministic set
+  // Reserve serendipity slots from scored candidates not in the deterministic set
   const serendipityPool = scored.filter(
     (s) => s.score >= INJECTION_THRESHOLD && !deterministicIds.has(s.node.id),
   );
-  const serendipityPicks = sampleSerendipity(serendipityPool, 1);
+  const serendipityPicks = sampleSerendipity(
+    serendipityPool,
+    perTurnCfg.serendipitySlots,
+  );
   const allInjected = [...allDeterministic, ...serendipityPicks];
 
   const TOP_N = 20;

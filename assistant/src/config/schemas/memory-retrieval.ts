@@ -184,6 +184,116 @@ const MemoryFreshnessConfigSchema = z
     "Freshness-based ranking for memory retrieval — down-ranks old items unless recently reinforced",
   );
 
+const MemoryContextLoadInjectionSchema = z
+  .object({
+    maxNodes: z
+      .number({
+        error: "memory.retrieval.injection.contextLoad.maxNodes must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.contextLoad.maxNodes must be an integer",
+      )
+      .positive(
+        "memory.retrieval.injection.contextLoad.maxNodes must be a positive integer",
+      )
+      .default(40)
+      .describe(
+        "Maximum number of memory nodes to load at conversation start",
+      ),
+    serendipitySlots: z
+      .number({
+        error:
+          "memory.retrieval.injection.contextLoad.serendipitySlots must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.contextLoad.serendipitySlots must be an integer",
+      )
+      .nonnegative(
+        "memory.retrieval.injection.contextLoad.serendipitySlots must be non-negative",
+      )
+      .default(10)
+      .describe(
+        "Number of random wildcard memory picks at conversation start",
+      ),
+    capabilityReserve: z
+      .number({
+        error:
+          "memory.retrieval.injection.contextLoad.capabilityReserve must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.contextLoad.capabilityReserve must be an integer",
+      )
+      .nonnegative(
+        "memory.retrieval.injection.contextLoad.capabilityReserve must be non-negative",
+      )
+      .default(5)
+      .describe(
+        "Reserved slots for skill/CLI capability nodes at conversation start",
+      ),
+  })
+  .describe("Memory injection limits at conversation start");
+
+const MemoryPerTurnInjectionSchema = z
+  .object({
+    maxInjected: z
+      .number({
+        error:
+          "memory.retrieval.injection.perTurn.maxInjected must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.perTurn.maxInjected must be an integer",
+      )
+      .positive(
+        "memory.retrieval.injection.perTurn.maxInjected must be a positive integer",
+      )
+      .default(4)
+      .describe(
+        "Maximum general memories injected mid-conversation per turn",
+      ),
+    serendipitySlots: z
+      .number({
+        error:
+          "memory.retrieval.injection.perTurn.serendipitySlots must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.perTurn.serendipitySlots must be an integer",
+      )
+      .nonnegative(
+        "memory.retrieval.injection.perTurn.serendipitySlots must be non-negative",
+      )
+      .default(1)
+      .describe("Number of random wildcard memory picks per turn"),
+    proceduralReserve: z
+      .number({
+        error:
+          "memory.retrieval.injection.perTurn.proceduralReserve must be a number",
+      })
+      .int(
+        "memory.retrieval.injection.perTurn.proceduralReserve must be an integer",
+      )
+      .nonnegative(
+        "memory.retrieval.injection.perTurn.proceduralReserve must be non-negative",
+      )
+      .default(3)
+      .describe(
+        "Reserved slots for skill/CLI capability nodes per turn",
+      ),
+  })
+  .describe("Memory injection limits for mid-conversation turns");
+
+export const MemoryInjectionConfigSchema = z
+  .object({
+    contextLoad: MemoryContextLoadInjectionSchema.default(
+      MemoryContextLoadInjectionSchema.parse({}),
+    ),
+    perTurn: MemoryPerTurnInjectionSchema.default(
+      MemoryPerTurnInjectionSchema.parse({}),
+    ),
+  })
+  .describe(
+    "Controls how many memory items are injected at conversation start and per turn",
+  );
+
 export const MemoryRetrievalConfigSchema = z
   .object({
     maxInjectTokens: z
@@ -208,6 +318,9 @@ export const MemoryRetrievalConfigSchema = z
       ),
     dynamicBudget: MemoryDynamicBudgetConfigSchema.default(
       MemoryDynamicBudgetConfigSchema.parse({}),
+    ),
+    injection: MemoryInjectionConfigSchema.default(
+      MemoryInjectionConfigSchema.parse({}),
     ),
   })
   .describe(

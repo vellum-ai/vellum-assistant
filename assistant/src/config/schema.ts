@@ -115,6 +115,7 @@ export {
 export type { MemoryRetrievalConfig } from "./schemas/memory-retrieval.js";
 export {
   MemoryDynamicBudgetConfigSchema,
+  MemoryInjectionConfigSchema,
   MemoryRetrievalConfigSchema,
 } from "./schemas/memory-retrieval.js";
 export type {
@@ -367,6 +368,18 @@ export const AssistantConfigSchema = z
         path: ["memory", "retrieval", "dynamicBudget"],
         message:
           "memory.retrieval.dynamicBudget.minInjectTokens must be <= memory.retrieval.dynamicBudget.maxInjectTokens",
+      });
+    }
+    const ctxLoad = config.memory?.retrieval?.injection?.contextLoad;
+    if (
+      ctxLoad &&
+      ctxLoad.capabilityReserve + ctxLoad.serendipitySlots >= ctxLoad.maxNodes
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["memory", "retrieval", "injection", "contextLoad"],
+        message:
+          "memory.retrieval.injection.contextLoad.capabilityReserve + serendipitySlots must be less than maxNodes",
       });
     }
   });
