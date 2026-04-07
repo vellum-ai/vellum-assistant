@@ -45,6 +45,9 @@ public enum SessionTokenManager {
     private static func connectedAssistantPlatformTokenPath() -> String? {
         #if os(macOS)
         guard let connectedAssistantId = LockfileAssistant.loadActiveAssistantId(),
+        #else
+        guard let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+        #endif
               let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]],
               let assistant = assistants.first(where: { ($0["assistantId"] as? String) == connectedAssistantId }) else {
