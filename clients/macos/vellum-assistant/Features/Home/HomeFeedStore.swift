@@ -38,6 +38,11 @@ final class HomeFeedStore {
 
     // MARK: - Init
 
+    /// Creates a new store and starts listening for SSE and foreground events.
+    ///
+    /// The store does **not** perform an initial fetch — the caller is expected to
+    /// call ``fetch()`` when the view appears (e.g. in `onAppear`), matching the
+    /// pattern used by `DirectoryStore` and the home feed spec's `onAppear` trigger.
     init(eventStreamClient: EventStreamClient) {
         self.eventStreamClient = eventStreamClient
         startSSESubscription()
@@ -61,7 +66,7 @@ final class HomeFeedStore {
 
         do {
             let (decoded, response): ([FeedItem]?, GatewayHTTPClient.Response) =
-                try await GatewayHTTPClient.get(path: "home/feed") { decoder in
+                try await GatewayHTTPClient.get(path: "assistants/{assistantId}/home/feed") { decoder in
                     decoder.dateDecodingStrategy = .iso8601
                     decoder.keyDecodingStrategy = .convertFromSnakeCase
                 }
@@ -85,7 +90,7 @@ final class HomeFeedStore {
     func markSeen(_ id: String) async {
         do {
             let response = try await GatewayHTTPClient.patch(
-                path: "home/feed/\(id)",
+                path: "assistants/{assistantId}/home/feed/\(id)",
                 json: ["status": "seen"]
             )
             if response.isSuccess {
@@ -104,7 +109,7 @@ final class HomeFeedStore {
     func dismiss(_ id: String) async {
         do {
             let response = try await GatewayHTTPClient.patch(
-                path: "home/feed/\(id)",
+                path: "assistants/{assistantId}/home/feed/\(id)",
                 json: ["status": "acted_on"]
             )
             if response.isSuccess {
@@ -123,7 +128,7 @@ final class HomeFeedStore {
     func triggerAction(itemId: String, actionId: String) async {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "home/feed/\(itemId)/actions/\(actionId)",
+                path: "assistants/{assistantId}/home/feed/\(itemId)/actions/\(actionId)",
                 json: [:]
             )
             if response.isSuccess {
@@ -141,10 +146,10 @@ final class HomeFeedStore {
 
     private func startSSESubscription() {
         sseTask = Task { [weak self] in
-            guard let self else { return }
-            let stream = self.eventStreamClient.subscribe()
+            guard let eventStreamClient = self?.eventStreamClient else { return }
+            let stream = eventStreamClient.subscribe()
             for await message in stream {
-                guard !Task.isCancelled else { break }
+                guard let self, !Task.isCancelled else { break }
                 if case .homeFeedUpdated = message {
                     await self.fetch()
                 }
