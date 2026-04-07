@@ -9,6 +9,10 @@
 import type { ExtensionCommand, ExtensionResponse, ExtensionHeartbeat } from '../../../assistant/src/browser-extension-relay/protocol.js';
 import { signInCloud, type CloudAuthConfig, type StoredCloudToken } from './cloud-auth.js';
 import {
+  bootstrapLocalToken,
+  type StoredLocalToken,
+} from './self-hosted-auth.js';
+import {
   createHostBrowserDispatcher,
   type HostBrowserDispatcher,
   type HostBrowserRequestEnvelope,
@@ -448,6 +452,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     };
     signInCloud(config)
       .then((stored: StoredCloudToken) => sendResponse({ ok: true, token: stored }))
+      .catch((err) => sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+    return true; // async
+  }
+  if (message.type === 'self-hosted-pair') {
+    // Mirror the cloud-auth-sign-in pattern: run the native-messaging
+    // bootstrap in the service worker so the popup closing mid-pair
+    // can't tear down the awaited promise before the token is persisted.
+    // chrome.runtime.connectNative also requires the "nativeMessaging"
+    // permission, which is declared in manifest.json.
+    bootstrapLocalToken()
+      .then((stored: StoredLocalToken) => sendResponse({ ok: true, token: stored }))
       .catch((err) => sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     return true; // async
   }

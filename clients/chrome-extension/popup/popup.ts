@@ -15,7 +15,6 @@
 
 import { getStoredToken, type StoredCloudToken } from '../background/cloud-auth.js';
 import {
-  bootstrapLocalToken,
   getStoredLocalToken,
   type StoredLocalToken,
 } from '../background/self-hosted-auth.js';
@@ -206,18 +205,37 @@ async function refreshLocalStatus(): Promise<void> {
   }
 }
 
+interface LocalPairResponse {
+  ok: boolean;
+  token?: StoredLocalToken;
+  error?: string;
+}
+
+function requestLocalPair(): Promise<LocalPairResponse> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: 'self-hosted-pair' }, (response: LocalPairResponse) => {
+      if (chrome.runtime.lastError) {
+        resolve({ ok: false, error: chrome.runtime.lastError.message ?? 'Unknown error' });
+        return;
+      }
+      resolve(response ?? { ok: false, error: 'No response from service worker' });
+    });
+  });
+}
+
 btnPairLocal.addEventListener('click', async () => {
   btnPairLocal.disabled = true;
   setLocalStatus('Pairing…', 'neutral');
-  try {
-    const stored = await bootstrapLocalToken();
-    setLocalStatus(formatLocalTokenStatus(stored), 'paired');
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    setLocalStatus(`Pairing failed: ${detail}`, 'error');
-  } finally {
-    btnPairLocal.disabled = false;
+  // Delegate to the service worker so the native-messaging bootstrap
+  // survives the popup teardown race — see the `self-hosted-pair`
+  // handler in worker.ts, and the matching cloud-auth-sign-in pattern.
+  const response = await requestLocalPair();
+  if (response.ok && response.token) {
+    setLocalStatus(formatLocalTokenStatus(response.token), 'paired');
+  } else {
+    setLocalStatus(`Pairing failed: ${response.error ?? 'Unknown error'}`, 'error');
   }
+  btnPairLocal.disabled = false;
 });
 
 refreshLocalStatus();

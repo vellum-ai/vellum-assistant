@@ -108,18 +108,33 @@ export async function bootstrapLocalToken(
 ): Promise<StoredLocalToken> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS;
   return new Promise<StoredLocalToken>((resolve, reject) => {
+    // `settled` is flipped synchronously the moment we observe a decisive
+    // frame (token_response / error / timeout / disconnect) so that a
+    // racing onDisconnect — Chrome sometimes closes the native port the
+    // instant the helper exits, even if we've already received a valid
+    // token frame — can't win the race and reject a successful pairing.
+    //
+    // Critically, for the token_response happy path we mark `settled`
+    // BEFORE awaiting `persistLocalToken`. If we waited until the storage
+    // write resolved, an onDisconnect firing during that microtask would
+    // still see `settled === false` and reject the promise despite having
+    // a valid in-memory token.
     let settled = false;
     const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
 
-    const finish = (fn: () => void): void => {
-      if (settled) return;
-      settled = true;
+    const cleanup = (): void => {
       clearTimeout(timer);
       try {
         port.disconnect();
       } catch {
         // Chrome may have already torn the port down — ignore.
       }
+    };
+
+    const finish = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       fn();
     };
 
@@ -155,14 +170,28 @@ export async function bootstrapLocalToken(
           expiresAt,
           guardianId: frame.guardianId,
         };
-        // Persist asynchronously but settle the promise with the stored
-        // record either way — a storage failure shouldn't block the caller
-        // from getting the token, but it should be surfaced as a rejection.
+
+        // Mark settled + tear down the port SYNCHRONOUSLY so a racing
+        // onDisconnect listener can't reject the promise after we've
+        // already received a valid token. The persistence write below
+        // is awaited afterwards, but it no longer gates `settled`.
+        settled = true;
+        cleanup();
+
+        // Persist asynchronously. If the storage write fails, we log
+        // the error and resolve with the in-memory token anyway — the
+        // caller can still use it for the current session even if we
+        // couldn't durably save it. This also matches the comment
+        // above: a storage failure shouldn't block the caller from
+        // getting a token they just successfully negotiated.
         persistLocalToken(stored).then(
-          () => finish(() => resolve(stored)),
+          () => resolve(stored),
           (err: unknown) => {
             const detail = err instanceof Error ? err.message : String(err);
-            finish(() => reject(new Error(`failed to persist token: ${detail}`)));
+            console.warn(
+              `[vellum-relay] failed to persist local capability token: ${detail}`,
+            );
+            resolve(stored);
           },
         );
         return;

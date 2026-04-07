@@ -9,6 +9,7 @@
     "cookies",
     "debugger",
     "identity",
+    "nativeMessaging",
     "scripting",
     "storage",
     "tabs"

@@ -20,6 +20,11 @@ const STORAGE_KEY = 'vellum.localCapabilityToken';
 
 interface FakeStorage {
   data: Record<string, unknown>;
+  /**
+   * When set, the next `set()` call rejects with this error (then the
+   * override is cleared). Used to exercise the storage-failure path.
+   */
+  nextSetError?: Error;
   get(key: string | string[]): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;
   remove(key: string | string[]): Promise<void>;
@@ -27,7 +32,7 @@ interface FakeStorage {
 
 function createFakeStorage(): FakeStorage {
   const data: Record<string, unknown> = {};
-  return {
+  const storage: FakeStorage = {
     data,
     async get(key) {
       const keys = Array.isArray(key) ? key : [key];
@@ -38,6 +43,11 @@ function createFakeStorage(): FakeStorage {
       return result;
     },
     async set(items) {
+      if (storage.nextSetError) {
+        const err = storage.nextSetError;
+        storage.nextSetError = undefined;
+        throw err;
+      }
       Object.assign(data, items);
     },
     async remove(key) {
@@ -45,6 +55,7 @@ function createFakeStorage(): FakeStorage {
       for (const k of keys) delete data[k];
     },
   };
+  return storage;
 }
 
 interface FakePort {
@@ -282,6 +293,72 @@ describe('bootstrapLocalToken', () => {
     await expect(bootstrapLocalToken()).rejects.toThrow(
       'native messaging disconnected before response',
     );
+  });
+
+  test('resolves with the in-memory token when chrome.storage.local.set fails', async () => {
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+    fakeStorage.nextSetError = new Error('QuotaExceededError');
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'persist-fail',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-persist',
+        });
+      });
+    };
+
+    // The caller should still receive a usable token even though we
+    // failed to save it to chrome.storage.local. Persistence is
+    // best-effort from the pair flow's perspective — the in-memory
+    // token is still valid for the current session and the popup
+    // surfaces the same record to the user.
+    const result = await bootstrapLocalToken();
+    expect(result.token).toBe('persist-fail');
+    expect(result.guardianId).toBe('g-persist');
+    expect(result.expiresAt).toBe(Date.parse(expiresAtIso));
+
+    // But nothing was actually written to storage.
+    expect(fakeStorage.data[STORAGE_KEY]).toBeUndefined();
+
+    // And the port was torn down as part of marking the promise settled.
+    expect(fakeRuntime.currentPort?.disconnected).toBe(true);
+  });
+
+  test('ignores onDisconnect after a valid token_response (race)', async () => {
+    // Simulates the real-world race where the native helper writes its
+    // token_response frame and then immediately exits, causing Chrome
+    // to fire onDisconnect on the same turn as onMessage. Before the
+    // fix, `settled` was only flipped after the async storage write
+    // resolved, so a fast disconnect could win the race and reject a
+    // valid pairing. Now `settled` is set synchronously the moment the
+    // token frame is validated, so the subsequent disconnect is a no-op.
+    fakeRuntime.lastError = { message: 'port closed' };
+
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'race-winner',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-race',
+        });
+        // Emitted on the same microtask turn as the token frame, before
+        // the persistLocalToken promise has a chance to resolve. If the
+        // disconnect handler rejects here, the test fails.
+        port.emitDisconnect();
+      });
+    };
+
+    const result = await bootstrapLocalToken();
+    expect(result.token).toBe('race-winner');
+    expect(result.guardianId).toBe('g-race');
+    // Token was still persisted despite the racing disconnect.
+    expect(fakeStorage.data[STORAGE_KEY]).toEqual(result);
   });
 
   test('ignores unknown frame types until a recognised frame arrives', async () => {
