@@ -64,6 +64,8 @@ Fields:
   hasInternalApiKey   Whether PLATFORM_INTERNAL_API_KEY is set (boolean,
                       value not disclosed)
   hasAssistantApiKey  Whether a stored assistant API key is available
+  hasWebhookSecret    Whether a stored webhook secret is available (needed
+                      for email and other inbound webhook channels)
   available           Whether callback registration prerequisites are satisfied
   connected           Whether platform credentials are stored (boolean)
   organizationId      The platform organization ID (from stored credentials)
@@ -109,6 +111,10 @@ Examples:
             )
           )?.trim() ?? "";
 
+        const hasWebhookSecret = !!(await getSecureKeyViaDaemon(
+          credentialKey("vellum", "webhook_secret"),
+        ));
+
         const connected = !!storedBaseUrl && hasStoredApiKey;
 
         const result = {
@@ -117,6 +123,7 @@ Examples:
           assistantId: context.assistantId,
           hasInternalApiKey: context.hasInternalApiKey,
           hasAssistantApiKey: context.hasAssistantApiKey,
+          hasWebhookSecret,
           available: context.enabled,
           connected,
           organizationId: organizationId || null,
@@ -134,6 +141,9 @@ Examples:
           );
           log.info(
             `Assistant API key: ${result.hasAssistantApiKey ? "set" : "not set"}`,
+          );
+          log.info(
+            `Webhook secret: ${result.hasWebhookSecret ? "set" : "not set (run ensure-registration to provision)"}`,
           );
           log.info(
             `Callback registration available: ${result.available ? "yes" : "no"}`,
