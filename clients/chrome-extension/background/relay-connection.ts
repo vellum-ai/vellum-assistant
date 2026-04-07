@@ -152,18 +152,28 @@ export class RelayConnection {
     }
 
     const url = this.buildUrl();
-    this.ws = new WebSocket(url);
+    // Capture a local reference to the socket so that every listener
+    // can verify it is still the active one before mutating shared
+    // state. Without this, a `setMode()` that closes socket A and
+    // immediately opens socket B can get A's asynchronous close event
+    // delivered afterward — that stale event would otherwise clear the
+    // reference to B and schedule a spurious reconnect.
+    const ws = new WebSocket(url);
+    this.ws = ws;
 
-    this.ws.addEventListener('open', () => {
+    ws.addEventListener('open', () => {
+      if (this.ws !== ws) return; // stale event from a superseded socket
       this.reconnectDelay = RECONNECT_BASE_MS;
       this.deps.onOpen();
     });
 
-    this.ws.addEventListener('message', (event: MessageEvent) => {
+    ws.addEventListener('message', (event: MessageEvent) => {
+      if (this.ws !== ws) return; // stale event from a superseded socket
       this.deps.onMessage(String(event.data));
     });
 
-    this.ws.addEventListener('close', (event: CloseEvent) => {
+    ws.addEventListener('close', (event: CloseEvent) => {
+      if (this.ws !== ws) return; // stale event from a superseded socket
       const code = event.code;
       const reason = event.reason;
       this.ws = null;
@@ -177,7 +187,8 @@ export class RelayConnection {
       }
     });
 
-    this.ws.addEventListener('error', () => {
+    ws.addEventListener('error', () => {
+      if (this.ws !== ws) return; // stale event from a superseded socket
       // A close event will follow — nothing to do here beyond letting
       // the socket transition into CLOSING/CLOSED so we can reconnect.
     });

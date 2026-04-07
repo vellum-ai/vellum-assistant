@@ -481,6 +481,59 @@ describe('RelayConnection', () => {
 
       conn.close();
     });
+
+    test('stale close event from a superseded socket does not clear the new ws or schedule reconnect', async () => {
+      const cbs = makeCallbacks();
+      const conn = makeConn(
+        { kind: 'self-hosted', baseUrl: 'http://127.0.0.1:7830', token: 't' },
+        cbs,
+      );
+
+      conn.start();
+      openSocket(instances[0]);
+      expect(instances.length).toBe(1);
+      const oldSocket = instances[0];
+
+      // Switch modes mid-flight: the helper closes socket A (oldSocket)
+      // and constructs socket B (newSocket) for the cloud gateway. We
+      // keep newSocket in CONNECTING so we can observe the state that
+      // would be disturbed by a stale close event.
+      conn.setMode({
+        kind: 'cloud',
+        baseUrl: 'https://api.vellum.ai',
+        token: 'cloud-jwt',
+      });
+      expect(instances.length).toBe(2);
+      const newSocket = instances[1];
+      expect(newSocket.url).toBe(
+        'wss://api.vellum.ai/v1/browser-relay?token=cloud-jwt',
+      );
+      expect(conn.mode.kind).toBe('cloud');
+
+      // Now simulate the asynchronous close event that socket A fires
+      // after setMode already re-pointed this.ws at socket B. The
+      // helper should ignore it entirely: this.ws stays pinned to
+      // newSocket, no reconnect is queued, and onClose is NOT invoked
+      // (we already told the caller we switched modes).
+      closeSocket(oldSocket, 1006, 'stale');
+
+      // No onClose call — the close event came from a superseded socket.
+      expect(cbs.closeCalls.length).toBe(0);
+
+      // Open the new socket to confirm the helper still holds a valid
+      // reference to it. If the stale close had nulled out this.ws we'd
+      // see isOpen() stay false here.
+      openSocket(newSocket);
+      expect(conn.isOpen()).toBe(true);
+
+      // Wait long enough that any reconnect timer would have fired.
+      await new Promise((r) => setTimeout(r, 1100));
+
+      // Still only the original two sockets — no spurious reconnect.
+      expect(instances.length).toBe(2);
+
+      conn.close();
+    });
   });
 
   describe('send', () => {

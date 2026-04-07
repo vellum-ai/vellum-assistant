@@ -213,14 +213,34 @@ function createRelayConnection(mode: RelayMode): RelayConnection {
   });
 }
 
+/**
+ * Thrown by `connect()` when the selected relay mode has no usable
+ * token yet. Callers (e.g. the popup connect handler) surface the
+ * message verbatim to the user so they can take action — signing in
+ * to cloud or re-pairing the local daemon — instead of seeing a
+ * silent no-op after pressing "Connect".
+ */
+class MissingTokenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MissingTokenError';
+  }
+}
+
+function missingTokenMessage(kind: RelayModeKind): string {
+  if (kind === 'cloud') {
+    return 'Sign in with Vellum (cloud) before connecting';
+  }
+  return 'Pair the Vellum daemon (self-hosted) before connecting';
+}
+
 async function connect(): Promise<void> {
   if (relayConnection && relayConnection.isOpen()) return;
   const mode = await buildRelayModeConfig(relayMode);
   if (!mode.token) {
-    console.warn(
-      `[vellum-relay] No token available for ${mode.kind} mode; waiting for pairing/sign-in.`,
-    );
-    return;
+    const msg = missingTokenMessage(mode.kind);
+    console.warn(`[vellum-relay] ${msg}`);
+    throw new MissingTokenError(msg);
   }
   // Tear down any stale instance before constructing a new one. This
   // keeps the close/reconnect lifecycle simple — one RelayConnection
@@ -250,7 +270,21 @@ async function applyModeChange(newKind: RelayModeKind): Promise<void> {
   relayMode = newKind;
   if (!shouldConnect) return;
   disconnect();
-  await connect();
+  try {
+    await connect();
+  } catch (err) {
+    // The user switched modes before signing in / pairing. Leave the
+    // extension disconnected and let the next user-initiated connect
+    // bubble the error up through the popup message handler.
+    if (err instanceof MissingTokenError) {
+      shouldConnect = false;
+      console.warn(
+        `[vellum-relay] Mode switch to ${newKind} left disconnected: ${err.message}`,
+      );
+      return;
+    }
+    throw err;
+  }
 }
 
 function startHeartbeat(): void {
@@ -495,7 +529,16 @@ async function handleScreenshot(cmd: ExtensionCommand): Promise<DispatchResult> 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   if (message.type === 'connect') {
     shouldConnect = true;
-    connect().then(() => sendResponseFn({ ok: true })).catch((err) => sendResponseFn({ ok: false, error: String(err) }));
+    connect()
+      .then(() => sendResponseFn({ ok: true }))
+      .catch((err) => {
+        // Reset shouldConnect so a subsequent storage change or
+        // bootstrap doesn't silently retry a doomed connect. The user
+        // will press Connect again after signing in / pairing.
+        shouldConnect = false;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        sendResponseFn({ ok: false, error: errorMessage });
+      });
     return true; // async
   }
   if (message.type === 'disconnect') {
@@ -540,7 +583,19 @@ async function bootstrap(): Promise<void> {
   if (relayMode === 'self-hosted') {
     await refreshToken();
   }
-  await connect();
+  try {
+    await connect();
+  } catch (err) {
+    // A missing token at auto-connect time is not a hard failure —
+    // the user will see the disconnected state in the popup and can
+    // sign in / pair to try again. Log and move on.
+    if (err instanceof MissingTokenError) {
+      shouldConnect = false;
+      console.warn(`[vellum-relay] Skipping auto-connect: ${err.message}`);
+      return;
+    }
+    throw err;
+  }
 }
 
 bootstrap();
