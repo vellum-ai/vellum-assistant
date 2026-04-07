@@ -88,6 +88,11 @@ final class OnboardingState {
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = "claude-opus-4-6"
     var selectedProvider: String = "anthropic"
+
+    /// The plaintext API key entered by the user during onboarding.
+    /// Held in memory so HatchingStepView can pass it to the CLI without
+    /// reading back from credential storage.
+    var enteredApiKey: String = ""
     /// When true, the onboarding flow was launched from the developer tab's
     /// "Hatch New Assistant" button. This prevents auto-completing when the user
     /// already has a managed assistant, forcing the hosting selector to appear so
@@ -210,10 +215,7 @@ final class OnboardingState {
 
         // Clear API key for whichever provider was selected during onboarding
         let providerToDelete = selectedProvider
-        if selectedProvider != "anthropic" {
-            APIKeyManager.deleteKey(for: selectedProvider)
-        }
-        APIKeyManager.deleteKey(for: "anthropic")
+        enteredApiKey = ""
         Task {
             if providerToDelete != "anthropic" {
                 await APIKeyManager.deleteKey(for: providerToDelete)

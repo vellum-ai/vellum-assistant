@@ -7,6 +7,7 @@ struct APIKeyEntryStepView: View {
 
     @State private var apiKey: String = ""
     @State private var hasExistingKey = false
+    @State private var maskedKeyDisplay: String = ""
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
@@ -105,7 +106,7 @@ struct APIKeyEntryStepView: View {
                     apiKeyField
                 }
 
-                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && !hasExistingKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     saveAndHatch()
                 }
 
@@ -125,10 +126,6 @@ struct APIKeyEntryStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            if let existingKey = APIKeyManager.getKey(for: state.selectedProvider) {
-                apiKey = existingKey
-                hasExistingKey = true
-            }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
             }
@@ -136,6 +133,10 @@ struct APIKeyEntryStepView: View {
                 showContent = true
             }
             Task { @MainActor in
+                if let masked = await APIKeyManager.maskedKey(for: state.selectedProvider) {
+                    maskedKeyDisplay = masked
+                    hasExistingKey = true
+                }
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 guard !Task.isCancelled else { return }
                 keyFieldFocused = true
@@ -145,14 +146,17 @@ struct APIKeyEntryStepView: View {
             if let entry = providerCatalog.first(where: { $0.id == newProvider }) {
                 state.selectedModel = entry.defaultModel
             }
-            if let existingKey = APIKeyManager.getKey(for: newProvider) {
-                apiKey = existingKey
-                hasExistingKey = true
-                isEditing = false
-            } else {
-                apiKey = ""
-                hasExistingKey = false
-                isEditing = false
+            Task {
+                if let masked = await APIKeyManager.maskedKey(for: newProvider) {
+                    maskedKeyDisplay = masked
+                    hasExistingKey = true
+                    isEditing = false
+                } else {
+                    apiKey = ""
+                    maskedKeyDisplay = ""
+                    hasExistingKey = false
+                    isEditing = false
+                }
             }
         }
     }
@@ -183,7 +187,7 @@ struct APIKeyEntryStepView: View {
                     Text("\(providerDisplayName) API Key")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text(maskedKey)
+                    Text(maskedKeyDisplay)
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentDefault)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -219,14 +223,6 @@ struct APIKeyEntryStepView: View {
 
     // MARK: - Helpers
 
-    private var maskedKey: String {
-        guard apiKey.count > 7 else { return String(repeating: "\u{2022}", count: apiKey.count) }
-        let prefix = String(apiKey.prefix(4))
-        let suffix = String(apiKey.suffix(3))
-        let dots = String(repeating: "\u{2022}", count: min(apiKey.count - 7, 20))
-        return prefix + dots + suffix
-    }
-
     private func goBack() {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
             state.currentStep -= 1
@@ -235,9 +231,9 @@ struct APIKeyEntryStepView: View {
 
     private func saveAndHatch() {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !providerRequiresKey || !trimmed.isEmpty else { return }
-        if providerRequiresKey {
-            APIKeyManager.setKey(trimmed, for: state.selectedProvider)
+        guard !providerRequiresKey || !trimmed.isEmpty || hasExistingKey else { return }
+        if providerRequiresKey && !trimmed.isEmpty {
+            state.enteredApiKey = trimmed
             let provider = state.selectedProvider
             Task { await APIKeyManager.setKey(trimmed, for: provider) }
         }

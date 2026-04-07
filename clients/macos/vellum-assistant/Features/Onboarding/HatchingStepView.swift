@@ -384,9 +384,8 @@ struct HatchingStepView: View {
     private func startRemoteHatch() {
         var providerApiKeys: [String: String] = [:]
         if let envVar = VellumCli.providerEnvVars[state.selectedProvider],
-           let key = APIKeyManager.getKey(for: state.selectedProvider),
-           !key.isEmpty {
-            providerApiKeys[envVar] = key
+           !state.enteredApiKey.isEmpty {
+            providerApiKeys[envVar] = state.enteredApiKey
         }
 
         let config = VellumCli.RemoteHatchConfig(
