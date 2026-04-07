@@ -40,6 +40,10 @@ struct SidebarSectionHeader: View {
 
     @FocusState private var isRenameFocused: Bool
     @State private var isHeaderHovered: Bool = false
+    /// Guards against double-firing onCommitRename. Set to `true` by both
+    /// `.onSubmit` (Return) and `.onExitCommand` (Escape) so that the
+    /// subsequent focus-loss `.onChange` handler is suppressed.
+    @State private var didCommitOrCancel: Bool = false
 
     private var isGroupPinned: Bool {
         group.id == ConversationGroup.pinned.id
@@ -75,7 +79,10 @@ struct SidebarSectionHeader: View {
                 .font(VFont.bodyMediumDefault)
                 .textFieldStyle(.plain)
                 .focused($isRenameFocused)
-                .onSubmit { onCommitRename?(renamingName) }
+                .onSubmit {
+                    didCommitOrCancel = true
+                    onCommitRename?(renamingName)
+                }
                 .task {
                     // Brief delay so the window's focus system settles after
                     // the context menu panel closes and key status transfers back.
@@ -84,11 +91,12 @@ struct SidebarSectionHeader: View {
                     isRenameFocused = true
                 }
                 .onChange(of: isRenameFocused) { _, focused in
-                    if !focused && isRenaming {
+                    if !focused && isRenaming && !didCommitOrCancel {
                         onCommitRename?(renamingName)
                     }
                 }
                 .onExitCommand {
+                    didCommitOrCancel = true
                     onCancelRename?()
                 }
             } else {
