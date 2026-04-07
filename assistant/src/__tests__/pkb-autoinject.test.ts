@@ -36,18 +36,18 @@ describe("readAutoinjectList", () => {
     expect(readAutoinjectList(pkbDir)).toBeNull();
   });
 
-  test("returns null when _autoinject.md is empty", () => {
+  test("returns empty array when _autoinject.md is empty", () => {
     writeFileSync(join(pkbDir, "_autoinject.md"), "", "utf-8");
-    expect(readAutoinjectList(pkbDir)).toBeNull();
+    expect(readAutoinjectList(pkbDir)).toEqual([]);
   });
 
-  test("returns null when _autoinject.md contains only comments", () => {
+  test("returns empty array when _autoinject.md contains only comments", () => {
     writeFileSync(
       join(pkbDir, "_autoinject.md"),
       "_ This is a comment\n_ Another comment\n",
       "utf-8",
     );
-    expect(readAutoinjectList(pkbDir)).toBeNull();
+    expect(readAutoinjectList(pkbDir)).toEqual([]);
   });
 
   test("parses standard default content", () => {

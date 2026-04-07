@@ -562,7 +562,7 @@ export function readAutoinjectList(pkbDir: string): string[] | null {
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
-    return files.length > 0 ? files : null;
+    return files.length > 0 ? files : [];
   } catch {
     return null;
   }
