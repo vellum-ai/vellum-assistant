@@ -331,26 +331,21 @@ describe("HostBrowserProxy", () => {
     function spySignal(source: AbortSignal): Spied {
       const addCalls: string[] = [];
       const removeCalls: string[] = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const s = source as any;
       const origAdd = source.addEventListener.bind(source);
       const origRemove = source.removeEventListener.bind(source);
       s.addEventListener = (
         type: string,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ...rest: any[]
       ) => {
         addCalls.push(type);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (origAdd as any)(type, ...rest);
       };
       s.removeEventListener = (
         type: string,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ...rest: any[]
       ) => {
         removeCalls.push(type);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (origRemove as any)(type, ...rest);
       };
       return { signal: source, addCalls, removeCalls };

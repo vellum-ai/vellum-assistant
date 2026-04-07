@@ -19,8 +19,8 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { SubagentState } from "../subagent/types.js";
 import type { Message } from "../providers/types.js";
+import type { SubagentState } from "../subagent/types.js";
 
 // ---------------------------------------------------------------------------
 // resolveChannelCapabilities
