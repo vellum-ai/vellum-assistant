@@ -123,6 +123,150 @@ public enum GatewayHTTPClient {
         }
     }
 
+    /// Performs an authenticated POST request that streams the response and
+    /// reports download progress via an `onProgress` callback.
+    ///
+    /// Uses a custom `URLSessionDataDelegate` to receive the response body in
+    /// network-sized chunks and track progress. When the server provides a
+    /// `Content-Length` header, `onProgress` is called on the main actor with
+    /// a value between 0.0 and 1.0 representing `bytesReceived / totalBytes`.
+    /// When `Content-Length` is absent (e.g. chunked transfer encoding),
+    /// `onProgress` is called once with `-1` to signal indeterminate progress.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - body: Optional HTTP body data.
+    ///   - params: Optional query parameters.
+    ///   - contentType: Optional Content-Type header value.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    ///   - onProgress: Closure called on the main actor with the current
+    ///     download fraction (0.0–1.0), or `-1` for indeterminate.
+    /// - Returns: A `Response` with the raw data and HTTP status code.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    public static func post(
+        path: String,
+        body: Data? = nil,
+        params: [String: String]? = nil,
+        contentType: String? = nil,
+        timeout: TimeInterval = 30,
+        onProgress: @escaping @MainActor (Double) -> Void
+    ) async throws -> Response {
+        let connection = try resolveConnection()
+        var request = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: connection)
+        request.httpBody = body
+        if let contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+        logOutgoing(request, quiet: false)
+
+        let (result, http) = try await performStreamingPost(request: request, onProgress: onProgress)
+
+        // 401 retry for non-managed (bearer token) connections.
+        if result.statusCode == 401, !connection.isManaged {
+            if await refreshBearerCredentials(connection: connection) {
+                let freshConnection = try resolveConnection()
+                var retryRequest = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: freshConnection)
+                retryRequest.httpBody = body
+                if let contentType {
+                    retryRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
+                }
+                logOutgoing(retryRequest, quiet: false)
+
+                let (retryResult, _) = try await performStreamingPost(request: retryRequest, onProgress: onProgress)
+                return retryResult
+            }
+
+            // Refresh failed — return the original 401 response.
+            return result
+        }
+
+        return result
+    }
+
+    /// Performs a POST request with progress tracking using a delegate-based data task
+    /// that receives data in chunks (not byte-by-byte).
+    private static func performStreamingPost(
+        request: URLRequest,
+        onProgress: @escaping @MainActor (Double) -> Void
+    ) async throws -> (Response, HTTPURLResponse?) {
+        let delegate = DownloadProgressDelegate(onProgress: onProgress)
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        defer {
+            delegate.invalidate()
+            session.finishTasksAndInvalidate()
+        }
+
+        let (data, response) = try await session.data(for: request, delegate: delegate)
+        let http = response as? HTTPURLResponse
+        let statusCode = http?.statusCode ?? -1
+
+        if let http {
+            logResponse(request, http: http, quiet: false)
+        }
+
+        // Send final progress if we tracked determinately.
+        if delegate.totalBytes > 0, delegate.lastReportedFraction < 1.0 {
+            await MainActor.run { onProgress(1.0) }
+        }
+
+        return (Response(data: data, statusCode: statusCode), http)
+    }
+
+    /// URLSessionDataDelegate that tracks download progress via `didReceive data:` chunks.
+    /// Uses a generation counter to prevent stale callbacks from firing after invalidation.
+    private class DownloadProgressDelegate: NSObject, URLSessionDataDelegate {
+        let onProgress: @MainActor (Double) -> Void
+        var totalBytes: Int64 = -1
+        var receivedBytes: Int64 = 0
+        var lastReportedFraction: Double = 0.0
+        private var reportedIndeterminate = false
+        private var generation: Int = 0
+        private var invalidated = false
+
+        init(onProgress: @escaping @MainActor (Double) -> Void) {
+            self.onProgress = onProgress
+        }
+
+        /// Prevents any further progress callbacks from being dispatched.
+        func invalidate() {
+            invalidated = true
+            generation += 1
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            totalBytes = response.expectedContentLength // -1 when unknown
+            if totalBytes <= 0, !reportedIndeterminate, !invalidated {
+                reportedIndeterminate = true
+                let callback = self.onProgress
+                let gen = self.generation
+                Task { [weak self] in
+                    guard self?.generation == gen else { return }
+                    await callback(-1)
+                }
+            }
+            completionHandler(.allow)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            receivedBytes += Int64(data.count)
+            guard totalBytes > 0, !invalidated else { return }
+            let fraction = Double(receivedBytes) / Double(totalBytes)
+            guard fraction - lastReportedFraction >= 0.01 || receivedBytes >= totalBytes else { return }
+            lastReportedFraction = fraction
+            let callback = self.onProgress
+            let gen = self.generation
+            Task { [weak self] in
+                guard self?.generation == gen else { return }
+                await callback(min(fraction, 1.0))
+            }
+        }
+    }
+
     /// Performs an authenticated PATCH request against the gateway.
     ///
     /// - Parameters:
