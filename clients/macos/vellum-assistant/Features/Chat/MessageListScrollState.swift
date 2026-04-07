@@ -436,6 +436,14 @@ final class MessageListScrollState {
     /// the increment (matching the resize/pagination cleanup pattern).
     @ObservationIgnored private var activeStabilizationCount = 0
 
+    /// Monotonically increasing counter, bumped each time
+    /// `cancelStabilizationTasks()` is called. Expansion timeout tasks
+    /// capture the current generation before sleeping. After waking,
+    /// cancelled tasks only call `endStabilization()` if the generation
+    /// is unchanged — preventing stale tasks from acting on a new
+    /// stabilization cycle that started after the cancellation.
+    @ObservationIgnored private var stabilizationGeneration: UInt64 = 0
+
     // MARK: - Deep-Link Anchor Tracking
 
     @ObservationIgnored var anchorSetTime: Date?
@@ -527,15 +535,25 @@ final class MessageListScrollState {
     }
 
     private func cancelStabilizationTasks() {
+        stabilizationGeneration &+= 1
         expansionTimeoutTask?.cancel()
         expansionTimeoutTask = nil
     }
 
     private func scheduleExpansionTimeout() {
         expansionTimeoutTask?.cancel()
+        let capturedGeneration = stabilizationGeneration
         expansionTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard let self else { return }
+            if Task.isCancelled {
+                // Cancelled within the same stabilization cycle (e.g. cross-reason
+                // transition from .expansion to .resize): balance the count so the
+                // superseding reason's endStabilization() can reach zero.
+                // If a new cycle started (generation changed), a stale task must NOT
+                // call endStabilization — it would act on the new cycle's state.
+                guard capturedGeneration == self.stabilizationGeneration else { return }
+            }
             self.endStabilization()
         }
     }
