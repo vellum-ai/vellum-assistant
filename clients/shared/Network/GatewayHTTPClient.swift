@@ -184,12 +184,21 @@ public enum GatewayHTTPClient {
             collected.reserveCapacity(Int(totalBytes))
         }
 
+        var lastReportedFraction = 0.0
         for try await byte in bytes {
             collected.append(byte)
             if totalBytes > 0 {
                 let fraction = Double(collected.count) / Double(totalBytes)
-                await MainActor.run { onProgress(min(fraction, 1.0)) }
+                if fraction - lastReportedFraction >= 0.01 || collected.count == Int(totalBytes) {
+                    lastReportedFraction = fraction
+                    await MainActor.run { onProgress(min(fraction, 1.0)) }
+                }
             }
+        }
+
+        // Ensure we always report completion when content length was known.
+        if totalBytes > 0, lastReportedFraction < 1.0 {
+            await MainActor.run { onProgress(1.0) }
         }
 
         return Response(data: collected, statusCode: http.statusCode)
