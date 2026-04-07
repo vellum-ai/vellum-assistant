@@ -49,6 +49,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.isCompacting == rhs.isCompacting
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
             && lhs.containerWidth == rhs.containerWidth
+            && round(lhs.viewportHeight / 10) == round(rhs.viewportHeight / 10)
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.highlightedMessageId == rhs.highlightedMessageId
@@ -80,6 +81,7 @@ struct MessageListContentView: View, Equatable {
     let isTTSEnabled: Bool
     let selectedModel: String
     let configuredProviders: Set<String>
+    let viewportHeight: CGFloat
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
 
@@ -266,13 +268,21 @@ struct MessageListContentView: View, Equatable {
                 compactingIndicatorRow()
             }
 
-            Color.clear.frame(height: 1)
+            // Dynamic spacer: ensures user message can reach top even with short assistant output
+            Color.clear
+                .frame(height: max(0, viewportHeight - 100))
+                .id("scroll-bottom-spacer")
+
+            // Bottom anchor for explicit jumps
+            Color.clear
+                .frame(height: 1)
                 .id("scroll-bottom-anchor")
                 .onAppear {
                     // Signal that the bottom anchor has materialized —
                     // isAtBottom is now reliable (based on actual content
                     // height, not LazyVStack estimates).
                     scrollState.bottomAnchorAppeared = true
+                    scrollState.isNearBottom = true
                     if !scrollState.hasBeenInteracted {
                         scrollState.handleReachedBottom()
                     }

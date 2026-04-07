@@ -378,6 +378,7 @@ extension MessageListView {
             isTTSEnabled: isTTSEnabled,
             selectedModel: selectedModel,
             configuredProviders: configuredProviders,
+            viewportHeight: scrollState.viewportHeight,
             subagentDetailStore: subagentDetailStore,
             assistantStatusText: assistantStatusText,
             scrollState: scrollState,
