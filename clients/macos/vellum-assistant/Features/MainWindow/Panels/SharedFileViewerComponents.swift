@@ -23,7 +23,12 @@ func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode
         || mime == "application/x-ndjson"
         || mime == "application/x-jsonlines"
         || mime == "application/jsonlines" {
-        return [.tree, .source]
+        // Source is intentionally first until the follow-up PR wires the JSONL
+        // parser into FileContentView. Once the parser is wired, this returns
+        // [.tree, .source] so JSONL files default to the tree view (matching
+        // the JSON behavior above). Until then, defaulting to source avoids a
+        // broken tree-mode parse for jsonl files.
+        return [.source, .tree]
     }
     if ext == "json" || mime.hasPrefix("application/json") {
         return [.tree, .source]

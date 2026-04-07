@@ -6,11 +6,11 @@ final class SharedFileViewerComponentsTests: XCTestCase {
     // MARK: availableViewModes
 
     func testJsonlReturnsTreeAndSource() {
-        XCTAssertEqual(availableViewModes(for: "messages.jsonl", mimeType: ""), [.tree, .source])
+        XCTAssertEqual(availableViewModes(for: "messages.jsonl", mimeType: ""), [.source, .tree])
     }
 
     func testNdjsonReturnsTreeAndSource() {
-        XCTAssertEqual(availableViewModes(for: "events.ndjson", mimeType: ""), [.tree, .source])
+        XCTAssertEqual(availableViewModes(for: "events.ndjson", mimeType: ""), [.source, .tree])
     }
 
     func testJsonStillReturnsTreeAndSource() {
@@ -22,18 +22,21 @@ final class SharedFileViewerComponentsTests: XCTestCase {
     }
 
     func testApplicationJsonlMimeReturnsTreeAndSource() {
-        XCTAssertEqual(availableViewModes(for: "weird.txt", mimeType: "application/jsonl"), [.tree, .source])
+        XCTAssertEqual(availableViewModes(for: "weird.txt", mimeType: "application/jsonl"), [.source, .tree])
     }
 
     func testApplicationXNdjsonMimeReturnsTreeAndSource() {
-        XCTAssertEqual(availableViewModes(for: "weird.txt", mimeType: "application/x-ndjson"), [.tree, .source])
+        XCTAssertEqual(availableViewModes(for: "weird.txt", mimeType: "application/x-ndjson"), [.source, .tree])
     }
 
-    func testTreeIsFirstSoSkillDetailDefaultsToTree() {
+    func testSourceIsFirstUntilJsonlParserIsWired() {
         // SkillDetailView uses `autoModes.first` to pick the default mode for
-        // newly opened files. JSONL files must default to .tree, not .source.
+        // newly opened files. JSONL files default to .source until the
+        // follow-up PR wires the JSONL parser into FileContentView, at which
+        // point the order will flip so JSONL files default to .tree.
         let modes = availableViewModes(for: "messages.jsonl", mimeType: "")
-        XCTAssertEqual(modes.first, .tree)
+        XCTAssertEqual(modes.first, .source)
+        XCTAssertTrue(modes.contains(.tree), "Tree mode must still be reachable so users can toggle to it")
     }
 
     func testUnknownExtensionFallsBackToSourceOnly() {
