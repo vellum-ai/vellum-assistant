@@ -254,7 +254,7 @@ describe("HostBrowserProxy", () => {
   });
 
   describe("dispose", () => {
-    test("rejects all pending requests, emits cancels, invokes onInternalResolve", () => {
+    test("rejects all pending requests, emits cancels, invokes onInternalResolve", async () => {
       const resolvedIds: string[] = [];
       setup((id) => resolvedIds.push(id));
 
@@ -266,8 +266,10 @@ describe("HostBrowserProxy", () => {
         { cdpMethod: "Page.navigate", cdpParams: { url: "https://b.test" } },
         "session-1",
       );
-      p1.catch(() => {}); // Expected rejection on dispose.
-      p2.catch(() => {}); // Expected rejection on dispose.
+      // Attach rejection handlers immediately so Bun doesn't flag the
+      // promises as unhandled before the awaited assertions run.
+      const p1Swallowed = p1.catch(() => {});
+      const p2Swallowed = p2.catch(() => {});
 
       const requestIds = (sentMessages as Array<Record<string, unknown>>).map(
         (m) => m.requestId as string,
@@ -283,8 +285,11 @@ describe("HostBrowserProxy", () => {
       expect(proxy.hasPendingRequest(requestIds[1]!)).toBe(false);
 
       // Both promises should reject with AssistantError message.
-      expect(p1).rejects.toThrow("Host browser proxy disposed");
-      expect(p2).rejects.toThrow("Host browser proxy disposed");
+      await expect(p1).rejects.toThrow("Host browser proxy disposed");
+      await expect(p2).rejects.toThrow("Host browser proxy disposed");
+      // Drain the swallowed copies so the unhandled-rejection guard clears.
+      await p1Swallowed;
+      await p2Swallowed;
 
       // After the 2 request messages, dispose should have sent 2 cancel messages.
       const cancelMessages = sentMessages
