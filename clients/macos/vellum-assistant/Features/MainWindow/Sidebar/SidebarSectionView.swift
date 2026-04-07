@@ -303,7 +303,7 @@ struct SidebarSectionView: View {
                     text: subGroup.label,
                     font: VFont.bodySmallDefault,
                     measuringFont: VFont.nsBodySmallDefault,
-                    foregroundStyle: VColor.contentDefault,
+                    foregroundStyle: VColor.contentTertiary,
                     isHovered: hoveredSubGroupKey == subGroup.key
                 )
                 Spacer()
