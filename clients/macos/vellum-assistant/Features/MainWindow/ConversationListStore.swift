@@ -35,7 +35,7 @@ final class ConversationListStore {
 
     /// Whether custom conversation groups UI is enabled. Updated by the view
     /// layer when the feature flag changes; triggers sidebar entry recomputation.
-    var customGroupsEnabled: Bool = true {
+    var customGroupsEnabled: Bool = false {
         didSet {
             guard oldValue != customGroupsEnabled else { return }
             recomputeSidebarGroupEntries()
