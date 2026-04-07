@@ -18,6 +18,13 @@ func availableViewModes(for fileName: String, mimeType: String) -> [FileViewMode
     if ext == "md" || ext == "markdown" || mime == "text/markdown" {
         return [.preview, .source]
     }
+    if ext == "jsonl" || ext == "ndjson"
+        || mime == "application/jsonl"
+        || mime == "application/x-ndjson"
+        || mime == "application/x-jsonlines"
+        || mime == "application/jsonlines" {
+        return [.tree, .source]
+    }
     if ext == "json" || mime.hasPrefix("application/json") {
         return [.tree, .source]
     }
@@ -32,6 +39,23 @@ func viewModeLabel(_ mode: FileViewMode) -> String {
     }
 }
 
+/// Returns true when the given file should be parsed as JSONL (newline-delimited
+/// JSON), where each line is a standalone JSON value rather than a single JSON
+/// document. Used by `FileContentView` to choose between JSON and JSONL parsers
+/// when rendering the tree view.
+func isJSONLContent(fileName: String, mimeType: String) -> Bool {
+    let ext = (fileName as NSString).pathExtension.lowercased()
+    let mime = mimeType.lowercased()
+    if ext == "jsonl" || ext == "ndjson" { return true }
+    if mime == "application/jsonl"
+        || mime == "application/x-ndjson"
+        || mime == "application/x-jsonlines"
+        || mime == "application/jsonlines" {
+        return true
+    }
+    return false
+}
+
 // MARK: - File Icon
 
 func fileIcon(for mimeType: String, fileName: String? = nil) -> VIcon {
@@ -39,6 +63,18 @@ func fileIcon(for mimeType: String, fileName: String? = nil) -> VIcon {
     if mimeType.hasPrefix("video/") { return .video }
     if mimeType.hasPrefix("text/") { return .fileText }
     if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
+    if mimeType == "application/jsonl"
+        || mimeType == "application/x-ndjson"
+        || mimeType == "application/x-jsonlines"
+        || mimeType == "application/jsonlines" {
+        return .fileCode
+    }
+    if let name = fileName {
+        let ext = (name as NSString).pathExtension.lowercased()
+        if ext == "jsonl" || ext == "ndjson" {
+            return .fileCode
+        }
+    }
     if let name = fileName, FileExtensions.isCode(name) { return .fileCode }
     return .file
 }
