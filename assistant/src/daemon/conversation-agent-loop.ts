@@ -1213,12 +1213,12 @@ export async function runAgentLoopImpl(
     // limit), incorporate those new messages into ctx.messages so the
     // convergence loop operates on the full (larger) history.
     if (state.contextTooLargeDetected) {
-      // Track whether ctx.messages was actually stripped so we know if
-      // NOW.md (and other injections) need to be re-injected.  When the
-      // provider rejects before adding any messages, the strip is skipped
-      // and ctx.messages still contains the previous injection — blindly
-      // re-injecting would duplicate the NOW.md block.
-      let convergenceStripped = false;
+      // Detect whether ctx.messages currently lacks NOW.md so we know if
+      // it needs to be re-injected.  Mid-loop compaction (line ~1067) may
+      // have already stripped injections before escalating here, so we
+      // check actual message state rather than tracking mutation sites.
+      let convergenceStripped =
+        findLastInjectedNowContent(ctx.messages) === null;
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
