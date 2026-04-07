@@ -96,10 +96,16 @@ internal func parseJSON(_ text: String) -> JSONParseResult {
 /// included as string nodes annotated with the parse error so the tree view
 /// shows them rather than dropping them silently.
 internal func parseJSONL(_ text: String) -> JSONParseResult {
-    // Split on \n. Trailing \r is stripped per-line so we tolerate CRLF
-    // files. Empty / whitespace-only lines are skipped — they're explicitly
+    // Normalize CRLF → LF before splitting. Swift's String treats "\r\n" as a
+    // single grapheme cluster (Character), so a per-Character split on "\n"
+    // would never match CRLF line endings. Replacing CRLF with LF up front
+    // ensures the split sees real newline boundaries on Windows-authored
+    // files. The per-line trailing "\r" strip below is kept as a safety net
+    // for legacy CR-only line endings.
+    let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+    // Empty / whitespace-only lines are skipped — they're explicitly
     // permitted by the de-facto JSONL spec and are common at end-of-file.
-    let rawLines = text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" })
+    let rawLines = normalized.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" })
     var elements: [JSONNode] = []
     elements.reserveCapacity(rawLines.count)
 
