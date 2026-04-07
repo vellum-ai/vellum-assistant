@@ -159,7 +159,7 @@ Do not use tools during analysis. If you identify insights worth remembering for
         // l. Fire-and-forget the agent loop
         analysisConversation
           .runAgentLoop(prompt, messageId, onEvent, {
-            isInteractive: hasLiveSubscriber,
+            isInteractive: false,
             isUserMessage: true,
           })
           .catch((err) => {
