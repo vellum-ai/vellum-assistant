@@ -311,13 +311,13 @@ private final class VTooltipTrackerView: NSView {
         p.ignoresMouseEvents = true
 
         let host = NSHostingView(rootView: VTooltipContent(text: tooltipText))
-        // Pre-set the frame to the max tooltip width so the SwiftUI layout
-        // receives a reasonable width proposal. Without this, the initial
-        // frame is zero, causing .fixedSize(horizontal: false) to wrap
-        // text at zero width and return a very tall fittingSize.
-        let maxTooltipWidth: CGFloat = 280
-        host.frame.size = NSSize(width: maxTooltipWidth, height: 10000)
-        let panelSize = host.fittingSize
+        // Use sizeThatFits(in:) — Apple's recommended API for measuring
+        // NSHostingView with a proposed size. fittingSize doesn't pass a
+        // width proposal, so .fixedSize(horizontal: false) would wrap text
+        // at zero width and return an incorrect (very tall) size.
+        let panelSize = host.sizeThatFits(
+            NSSize(width: 280, height: CGFloat.greatestFiniteMagnitude)
+        )
         host.frame.size = panelSize
         p.contentView = host
         p.setContentSize(panelSize)
