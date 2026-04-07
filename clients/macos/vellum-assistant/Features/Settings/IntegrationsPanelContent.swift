@@ -213,7 +213,9 @@ private struct IntegrationItemRow: View {
     let onEdit: () -> Void
     let onDisable: () -> Void
 
-    @State private var showManagePopover = false
+    @State private var isMenuOpen = false
+    @State private var activePanel: VMenuPanel?
+    @State private var triggerFrame: CGRect = .zero
 
     var body: some View {
         VCard {
@@ -243,46 +245,23 @@ private struct IntegrationItemRow: View {
                 Spacer()
 
                 if isConnected {
-                    VButton(label: "Manage", rightIcon: VIcon.chevronDown.rawValue, style: .outlined, size: .compact) {
-                        showManagePopover = true
-                    }
-                    .popover(isPresented: $showManagePopover, arrowEdge: .bottom) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Button {
-                                showManagePopover = false
-                                onEdit()
-                            } label: {
-                                HStack(spacing: VSpacing.sm) {
-                                    VIconView(.pencil, size: 14)
-                                    Text("Edit connection")
-                                        .font(VFont.bodyMediumDefault)
-                                }
-                                .padding(.horizontal, VSpacing.md)
-                                .padding(.vertical, VSpacing.sm)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                showManagePopover = false
-                                onDisable()
-                            } label: {
-                                HStack(spacing: VSpacing.sm) {
-                                    VIconView(.circleX, size: 14)
-                                    Text("Disable")
-                                        .font(VFont.bodyMediumDefault)
-                                }
-                                .foregroundStyle(VColor.systemNegativeStrong)
-                                .padding(.horizontal, VSpacing.md)
-                                .padding(.vertical, VSpacing.sm)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                    VButton(label: "Manage", rightIcon: VIcon.chevronDown.rawValue, style: .outlined) {
+                        if isMenuOpen {
+                            activePanel?.close()
+                            activePanel = nil
+                            isMenuOpen = false
+                        } else {
+                            showMenu()
                         }
-                        .padding(.vertical, VSpacing.xs)
-                        .frame(minWidth: 180)
+                    }
+                    .overlay {
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear { triggerFrame = geo.frame(in: .global) }
+                                .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                                    triggerFrame = newFrame
+                                }
+                        }
                     }
                 } else {
                     VButton(label: "Enable", style: .primary) {
@@ -292,5 +271,47 @@ private struct IntegrationItemRow: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func showMenu() {
+        guard !isMenuOpen else { return }
+        isMenuOpen = true
+
+        NSApp.keyWindow?.makeFirstResponder(nil)
+
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else {
+            isMenuOpen = false
+            return
+        }
+
+        let triggerInWindow = CGPoint(x: triggerFrame.minX, y: triggerFrame.maxY)
+        let screenPoint = window.convertPoint(toScreen: NSPoint(
+            x: triggerInWindow.x,
+            y: window.frame.height - triggerInWindow.y
+        ))
+
+        let triggerScreenOrigin = window.convertPoint(toScreen: NSPoint(
+            x: triggerFrame.minX,
+            y: window.frame.height - triggerFrame.maxY
+        ))
+        let triggerScreenRect = CGRect(
+            origin: triggerScreenOrigin,
+            size: CGSize(width: triggerFrame.width, height: triggerFrame.height)
+        )
+
+        let appearance = window.effectiveAppearance
+        activePanel = VMenuPanel.show(at: screenPoint, sourceAppearance: appearance, excludeRect: triggerScreenRect) {
+            VMenu(width: 200) {
+                VMenuItem(icon: VIcon.pencil.rawValue, label: "Edit connection") {
+                    onEdit()
+                }
+                VMenuItem(icon: VIcon.circleX.rawValue, label: "Disable", variant: .destructive) {
+                    onDisable()
+                }
+            }
+        } onDismiss: {
+            isMenuOpen = false
+            activePanel = nil
+        }
     }
 }
