@@ -1,5 +1,6 @@
 import type { ToolExecutionResult } from "../tools/types.js";
 
+/** Tracks tool executions that have been deferred to the background. */
 export interface BackgroundExecution {
   executionId: string;
   toolName: string;
