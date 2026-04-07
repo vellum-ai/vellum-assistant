@@ -146,6 +146,7 @@ import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
+import { homeFeedRouteDefinitions } from "./routes/home-feed-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
@@ -960,6 +961,7 @@ export class RuntimeHttpServer {
       ...scheduleRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
+      ...homeFeedRouteDefinitions(),
       ...heartbeatRouteDefinitions({
         getHeartbeatService: this.getHeartbeatService,
       }),
