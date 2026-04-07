@@ -23,6 +23,10 @@ struct WebSearchServiceCard: View {
     @State private var draftProvider: String = "inference-provider-native"
     /// Snapshot of the provider at card appear — used to detect provider changes.
     @State private var initialProvider: String = ""
+    /// Whether the Perplexity provider has a stored API key (fetched per-component).
+    @State private var perplexityHasKey = false
+    /// Whether the Brave provider has a stored API key (fetched per-component).
+    @State private var braveHasKey = false
 
     private var isPerplexity: Bool {
         draftProvider == "perplexity"
@@ -108,13 +112,15 @@ struct WebSearchServiceCard: View {
                             onReset: {
                                 if isPerplexity {
                                     store.clearPerplexityKey()
+                                    perplexityHasKey = false
                                     perplexityKeyText = ""
                                 } else if isBrave {
                                     store.clearBraveKey()
+                                    braveHasKey = false
                                     braveKeyText = ""
                                 }
                             },
-                            showReset: isPerplexity ? store.hasPerplexityKey : store.hasBraveKey
+                            showReset: isPerplexity ? perplexityHasKey : braveHasKey
                         )
                     } else {
                         PickerWithInlineSave(
@@ -131,6 +137,10 @@ struct WebSearchServiceCard: View {
             draftMode = store.webSearchMode
             draftProvider = store.webSearchProvider
             initialProvider = store.webSearchProvider
+        }
+        .task {
+            perplexityHasKey = await APIKeyManager.hasKey(for: "perplexity")
+            braveHasKey = await APIKeyManager.hasKey(for: "brave")
         }
         .onChange(of: store.webSearchMode) { _, newValue in
             draftMode = newValue
@@ -235,10 +245,12 @@ struct WebSearchServiceCard: View {
 
             if isPerplexity && !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 store.savePerplexityKey(perplexityKeyText)
+                perplexityHasKey = true
                 perplexityKeyText = ""
             }
             if isBrave && !braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 store.saveBraveKey(braveKeyText)
+                braveHasKey = true
                 braveKeyText = ""
             }
         }

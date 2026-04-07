@@ -32,6 +32,8 @@ struct InferenceServiceCard: View {
     /// so `onChange(of: draftProvider)` can distinguish daemon-driven updates
     /// from user-initiated picks and skip the model/key reset.
     @State private var isSyncingProviderFromStore = false
+    /// Whether the current provider has a stored API key (fetched per-component).
+    @State private var providerHasKey = false
 
     // MARK: - Provider Helpers
 
@@ -46,7 +48,7 @@ struct InferenceServiceCard: View {
     // MARK: - Computed State
 
     private var isConnected: Bool {
-        store.hasKeyForProvider(effectiveProvider)
+        providerHasKey
     }
 
     private var isLoggedIn: Bool {
@@ -127,6 +129,7 @@ struct InferenceServiceCard: View {
                         savingLabel: "Validating...",
                         onReset: {
                             store.clearAPIKeyForProvider(effectiveProvider)
+                            providerHasKey = false
                             apiKeyText = ""
                         },
                         showReset: isConnected
@@ -163,7 +166,7 @@ struct InferenceServiceCard: View {
             // nil) are left alone since the user intentionally set up a local
             // provider.
             let providerRequiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-            if isLoggedIn && draftMode == "your-own" && providerRequiresKey && !store.hasKeyForProvider(draftProvider) {
+            if isLoggedIn && draftMode == "your-own" && providerRequiresKey && !providerHasKey {
                 draftMode = "managed"
                 store.setInferenceMode("managed")
             }
@@ -194,7 +197,7 @@ struct InferenceServiceCard: View {
                 // provider, default to managed. Keyless providers (e.g. Ollama)
                 // are left in your-own mode.
                 let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
-                if requiresKey && !store.hasKeyForProvider(draftProvider) {
+                if requiresKey && !providerHasKey {
                     draftMode = "managed"
                     store.setInferenceMode("managed")
                 }
@@ -271,6 +274,9 @@ struct InferenceServiceCard: View {
                         : defaultModel
                 }
             }
+        }
+        .task(id: effectiveProvider) {
+            providerHasKey = await APIKeyManager.hasKey(for: effectiveProvider)
         }
         .alert("Heads up", isPresented: $showWebSearchAlert) {
             Button("Go Back", role: .cancel) {}
@@ -411,7 +417,8 @@ struct InferenceServiceCard: View {
         if draftMode == "your-own" && !trimmedKey.isEmpty {
             let keyTextBinding = $apiKeyText
             let displayName = providerDisplayName
-            store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: {
+            store.saveInferenceAPIKey(trimmedKey, provider: effectiveProvider, onSuccess: { [self] in
+                providerHasKey = true
                 keyTextBinding.wrappedValue = ""
                 showToast("\(displayName) API key saved", .success)
             })

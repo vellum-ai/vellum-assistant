@@ -16,6 +16,10 @@ struct EmbeddingServiceCard: View {
     @State private var draftModel: String = ""
     @State private var initialProvider: String = ""
     @State private var initialModel: String = ""
+    /// Whether the current provider has a stored API key (fetched per-component).
+    @State private var providerHasKey = false
+    /// Server-masked display string for the current provider's key.
+    @State private var providerMaskedKey: String = ""
 
     // MARK: - Fallback Provider List
 
@@ -123,6 +127,10 @@ struct EmbeddingServiceCard: View {
             initialModel = store.embeddingModel ?? ""
             store.refreshEmbeddingConfig()
         }
+        .task(id: draftProvider) {
+            providerHasKey = await APIKeyManager.hasKey(for: draftProvider)
+            providerMaskedKey = await APIKeyManager.maskedKey(for: draftProvider) ?? ""
+        }
         .onChange(of: store.embeddingProvider) { _, newValue in
             draftProvider = newValue
             initialProvider = newValue
@@ -173,7 +181,7 @@ struct EmbeddingServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        let currentMask = store.maskedKeyForProvider(draftProvider)
+        let currentMask = providerMaskedKey
         let placeholder: String = {
             if !currentMask.isEmpty {
                 return currentMask
@@ -223,9 +231,11 @@ struct EmbeddingServiceCard: View {
                 save()
             }
 
-            if providerNeedsKey && store.hasKeyForProvider(draftProvider) {
+            if providerNeedsKey && providerHasKey {
                 VButton(label: "Reset", style: .danger) {
                     store.clearAPIKeyForProvider(draftProvider)
+                    providerHasKey = false
+                    providerMaskedKey = ""
                     apiKeyText = ""
                 }
             }
@@ -239,6 +249,7 @@ struct EmbeddingServiceCard: View {
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if providerNeedsKey && !trimmedKey.isEmpty {
             store.saveEmbeddingAPIKey(trimmedKey, provider: draftProvider)
+            providerHasKey = true
             apiKeyText = ""
         }
 
