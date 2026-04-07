@@ -419,15 +419,20 @@ export class AgentLoop {
 
           if (!hasTextBlock && lastWasToolResult && !nudgedForEmptyResponse) {
             nudgedForEmptyResponse = true;
-            history.push({
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "<system_notice>You executed tools but didn't tell the user what happened. Provide a brief, conversational summary of the results.</system_notice>",
-                },
-              ],
-            });
+            // Remove the empty assistant response we just pushed — it carries
+            // no content and would force the provider to inject a placeholder
+            // to maintain role alternation.
+            history.pop();
+            // Append the nudge to the existing tool_result user message
+            // (same pattern as the error nudge below) so neither a separate
+            // system_notice message nor a PLACEHOLDER appears in the API request.
+            const toolResultMsg = history[history.length - 1];
+            if (toolResultMsg?.role === "user") {
+              toolResultMsg.content.push({
+                type: "text",
+                text: "<system_notice>You executed tools but didn't tell the user what happened. Provide a brief, conversational summary of the results.</system_notice>",
+              });
+            }
             continue;
           }
 
