@@ -457,6 +457,7 @@ extension ChatViewModel {
                         surfaceRef: existing.surfaceRef
                     )
                     newSurface.isToolCallComplete = existing.isToolCallComplete
+                    newSurface.completionState = existing.completionState
                     messages[msgIndex].inlineSurfaces[surfaceIndex] = newSurface
                     // Update floating overlay for task_progress cards (macOS only)
                     #if os(macOS)
