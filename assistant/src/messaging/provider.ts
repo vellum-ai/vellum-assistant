@@ -25,7 +25,7 @@ export interface MessagingProvider {
   id: string;
   /** Human-readable name (e.g. 'Slack', 'Gmail'). */
   displayName: string;
-  /** Credential service name for token-manager (e.g. 'integration:slack'). */
+  /** Credential service name for token-manager (e.g. 'slack'). */
   credentialService: string;
 
   // ── Universal operations (every platform must implement) ──────────
