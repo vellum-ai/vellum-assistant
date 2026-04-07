@@ -314,13 +314,16 @@ private final class VTooltipTrackerView: NSView {
         p.contentView = host
         p.setContentSize(host.fittingSize)
 
-        // Use AppKit's native coordinate conversion — works on any display
+        // Use AppKit's native coordinate conversion — works on any display.
+        // Pre-compute both edge anchors so the flip logic can use the opposite edge.
         let viewFrameInWindow = convert(bounds, to: nil)
-        let anchorY = tooltipEdge == .bottom ? viewFrameInWindow.minY : viewFrameInWindow.maxY
-        let screenPoint = window.convertPoint(toScreen: NSPoint(
-            x: viewFrameInWindow.midX,
-            y: anchorY
+        let topScreenPoint = window.convertPoint(toScreen: NSPoint(
+            x: viewFrameInWindow.midX, y: viewFrameInWindow.maxY
         ))
+        let bottomScreenPoint = window.convertPoint(toScreen: NSPoint(
+            x: viewFrameInWindow.midX, y: viewFrameInWindow.minY
+        ))
+        let screenPoint = tooltipEdge == .bottom ? bottomScreenPoint : topScreenPoint
 
         let panelWidth = host.fittingSize.width
         let panelHeight = host.fittingSize.height
@@ -350,11 +353,11 @@ private final class VTooltipTrackerView: NSView {
             ? screenPoint.y - panelHeight - edgeInset
             : screenPoint.y + edgeInset
 
-        // If the tooltip would be clipped on the preferred edge, flip to the opposite edge
+        // If the tooltip would be clipped on the preferred edge, flip using the opposite anchor
         if tooltipEdge == .bottom, y < visibleFrame.minY + edgeInset {
-            y = screenPoint.y + edgeInset
+            y = topScreenPoint.y + edgeInset
         } else if tooltipEdge != .bottom, y + panelHeight > visibleFrame.maxY - edgeInset {
-            y = screenPoint.y - panelHeight - edgeInset
+            y = bottomScreenPoint.y - panelHeight - edgeInset
         }
 
         // Clamp horizontally within the visible screen bounds
