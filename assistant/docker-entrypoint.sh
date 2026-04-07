@@ -6,6 +6,17 @@ if [ "$(id -u)" = "0" ] && [ "${VELLUM_WORKSPACE_DIR:-}" = "/workspace" ] && [ -
   git config --global --add safe.directory '/workspace/*' >/dev/null 2>&1 || true
 fi
 
+DEFAULT_GIT_NAME="${ASSISTANT_GIT_USER_NAME:-Vellum Assistant}"
+DEFAULT_GIT_EMAIL="${ASSISTANT_GIT_USER_EMAIL:-assistant@vellum.ai}"
+
+if ! git config --global --get user.name >/dev/null 2>&1; then
+  git config --global user.name "${DEFAULT_GIT_NAME}" >/dev/null 2>&1 || true
+fi
+
+if ! git config --global --get user.email >/dev/null 2>&1; then
+  git config --global user.email "${DEFAULT_GIT_EMAIL}" >/dev/null 2>&1 || true
+fi
+
 # ── Bun profiler bootstrap ──────────────────────────────────────────────
 # When VELLUM_PROFILER_RUN_ID and VELLUM_PROFILER_MODE are set, prepare the
 # run directory on the workspace volume and append the appropriate Bun

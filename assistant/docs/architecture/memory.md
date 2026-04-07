@@ -303,16 +303,16 @@ stateDiagram-v2
 
 **Item extraction** uses LLM-powered extraction (with pattern-based fallback) to identify memorable information from conversation messages. Each extracted item belongs to one of eight kinds:
 
-| Kind         | Description                                                        | Base Lifetime |
-| ------------ | ------------------------------------------------------------------ | ------------- |
-| `identity`   | Personal info, facts, relationships                                | 6 months      |
-| `preference` | Likes, dislikes, preferred approaches/tools                        | 3 months      |
+| Kind         | Description                                                          | Base Lifetime |
+| ------------ | -------------------------------------------------------------------- | ------------- |
+| `identity`   | Personal info, facts, relationships                                  | 6 months      |
+| `preference` | Likes, dislikes, preferred approaches/tools                          | 3 months      |
 | `journal`    | Experiential reflections, journal-style notes, forward-looking items | 3 months      |
-| `constraint` | Rules, requirements, directives                                    | 1 month       |
-| `project`    | Project details, repos, tech stacks, action items                  | 2 weeks       |
-| `decision`   | Choices made, approaches selected                                  | 2 weeks       |
-| `event`      | Deadlines, milestones, meetings, dates                             | 3 days        |
-| `capability` | Skill catalog entries (system-generated, not LLM-extracted)        | never expires |
+| `constraint` | Rules, requirements, directives                                      | 1 month       |
+| `project`    | Project details, repos, tech stacks, action items                    | 2 weeks       |
+| `decision`   | Choices made, approaches selected                                    | 2 weeks       |
+| `event`      | Deadlines, milestones, meetings, dates                               | 3 days        |
+| `capability` | Skill catalog entries (system-generated, not LLM-extracted)          | never expires |
 
 **Supersession chains** replace the old conflict resolution system. When the LLM extracts a new item that updates an existing one, it sets `supersedes` to the old item's ID and `overrideConfidence` to one of three levels:
 
@@ -552,13 +552,13 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 
 ### Key files
 
-| File                                                    | Role                                                                                                                                       |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `assistant/src/workspace/top-level-scanner.ts`          | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap                                                                             |
-| `assistant/src/workspace/top-level-renderer.ts`         | Renders `TopLevelSnapshot` to `<workspace>` XML block                                                                                      |
-| `assistant/src/daemon/conversation-runtime-assembly.ts` | Runtime injections and legacy-block strip helpers (`<workspace>`, `<turn_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`)  |
-| `assistant/src/onboarding/onboarding-orchestrator.ts`   | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata                                              |
-| `assistant/src/daemon/conversation-agent-loop.ts`       | Agent loop orchestration, runtime injection wiring, legacy-block strip chain                                                               |
+| File                                                    | Role                                                                                                                                      |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/workspace/top-level-scanner.ts`          | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap                                                                            |
+| `assistant/src/workspace/top-level-renderer.ts`         | Renders `TopLevelSnapshot` to `<workspace>` XML block                                                                                     |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | Runtime injections and legacy-block strip helpers (`<workspace>`, `<turn_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/onboarding/onboarding-orchestrator.ts`   | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata                                             |
+| `assistant/src/daemon/conversation-agent-loop.ts`       | Agent loop orchestration, runtime injection wiring, legacy-block strip chain                                                              |
 
 ---
 
@@ -593,11 +593,11 @@ graph TB
 
 ### Key files
 
-| File                                                    | Role                                                                                                          |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/daemon/date-context.ts`                  | `formatTurnTimestamp()` — generates the timestamp string used in `<turn_context>`                             |
-| `assistant/src/daemon/conversation-runtime-assembly.ts` | `buildUnifiedTurnContextBlock()` — constructs the unified `<turn_context>` block; legacy block strip helpers  |
-| `assistant/src/daemon/conversation-agent-loop.ts`       | Wiring: builds turn context, passes to `applyRuntimeInjections`                                               |
+| File                                                    | Role                                                                                                         |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `assistant/src/daemon/date-context.ts`                  | `formatTurnTimestamp()` — generates the timestamp string used in `<turn_context>`                            |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | `buildUnifiedTurnContextBlock()` — constructs the unified `<turn_context>` block; legacy block strip helpers |
+| `assistant/src/daemon/conversation-agent-loop.ts`       | Wiring: builds turn context, passes to `applyRuntimeInjections`                                              |
 
 ---
 
@@ -646,7 +646,7 @@ graph TB
 
 ### How it works
 
-1. **Lazy initialization**: The git repository is created on first use, not at workspace creation. When `ensureInitialized()` is called, it checks for a `.git` directory. If absent, it runs `git init`, creates a `.gitignore` (excluding `data/`, `logs/`, `*.log`, `*.sock`, `*.pid`, `session-token`), sets the git identity to "Vellum Assistant", and creates an initial baseline commit capturing any pre-existing files. The baseline commit is intentional — it makes `git log`, `git diff`, and `git revert` work cleanly from the start. Both new and existing workspaces get the same treatment. For existing repos (e.g. created by older versions or external tools), `.gitignore` rules and git identity are set idempotently on each init, ensuring proper configuration regardless of how the repo was originally created.
+1. **Lazy initialization**: The git repository is created on first use, not at workspace creation. When `ensureInitialized()` is called, it checks for a `.git` directory. If absent, it runs `git init`, creates a `.gitignore` (excluding `data/`, `logs/`, `*.log`, `*.sock`, `*.pid`, `session-token`), and creates an initial baseline commit capturing any pre-existing files. Assistant-managed commits pass the assistant identity explicitly at commit time instead of rewriting repo-local git config, so user-configured identities remain intact for interactive shell usage. The container entrypoint also seeds a global fallback identity only when `user.name` or `user.email` is missing, preventing Git from falling back to `root@<hostname>`. The baseline commit is intentional — it makes `git log`, `git diff`, and `git revert` work cleanly from the start. For existing repos (e.g. created by older versions or external tools), `.gitignore` rules are still normalized idempotently on each init.
 
 2. **Turn-boundary commits**: After each conversation turn (user message + assistant response cycle), `conversation.ts` commits workspace changes via `commitTurnChanges(workspaceDir, sessionId, turnNumber)`. The commit runs in the `finally` block of `runAgentLoop`, guarded by a `turnStarted` flag that is set once the agent loop begins executing. This guarantees a commit attempt even when post-processing (e.g. `resolveAssistantAttachments`) throws, or when the user cancels mid-turn. The commit is raced against a configurable timeout (`workspaceGit.turnCommitMaxWaitMs`, default 4s) via `Promise.race`. If the commit exceeds the timeout, the turn proceeds immediately while the commit continues in the background. Note: the background commit is NOT awaited before the next turn starts, so brief cross-turn file attribution windows are possible but accepted as a tradeoff for responsiveness. Commit outcomes are logged with structured fields (`sessionId`, `turnNumber`, `filesChanged`, `durationMs`) for observability.
 

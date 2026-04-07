@@ -1,10 +1,5 @@
 import { execFile, spawnSync } from "node:child_process";
-import {
-  existsSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -74,6 +69,16 @@ const WORKSPACE_GITIGNORE_RULES = [
   "vellum.pid",
   "session-token",
 ];
+
+const DEFAULT_ASSISTANT_GIT_NAME = "Vellum Assistant";
+const DEFAULT_ASSISTANT_GIT_EMAIL = "assistant@vellum.ai";
+
+function getAssistantGitIdentity(): { name: string; email: string } {
+  return {
+    name: process.env.ASSISTANT_GIT_USER_NAME || DEFAULT_ASSISTANT_GIT_NAME,
+    email: process.env.ASSISTANT_GIT_USER_EMAIL || DEFAULT_ASSISTANT_GIT_EMAIL,
+  };
+}
 
 /** Properties added by Node's child_process errors. */
 interface ExecError extends Error {
@@ -303,8 +308,7 @@ export class WorkspaceGitService {
    * If .git doesn't exist:
    * 1. Run git init -b main
    * 2. Create .gitignore
-   * 3. Set git identity
-   * 4. Stage all files and create initial commit
+   * 3. Stage all files and create initial commit
    *
    * The initial commit is created synchronously within the mutex lock
    * to prevent races with the first commitChanges() call.
@@ -431,7 +435,6 @@ export class WorkspaceGitService {
                 // These calls are OUTSIDE the rev-parse try/catch so that
                 // normalization errors are not misclassified as "no commits".
                 this.ensureGitignoreRulesLocked();
-                await this.ensureCommitIdentityLocked();
                 await this.ensureOnMainLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
@@ -444,12 +447,11 @@ export class WorkspaceGitService {
           // Initialize new git repository
           await this.execGit(["init", "-b", "main"]);
 
-          // Run normalization (gitignore + identity + branch enforcement).
+          // Run normalization (gitignore + branch enforcement).
           // For fresh `git init -b main` the branch is already main, but
           // in the corruption-recovery path we fall through here after
           // removing .git, so branch enforcement is still useful.
           this.ensureGitignoreRulesLocked();
-          await this.ensureCommitIdentityLocked();
           await this.ensureOnMainLocked();
 
           // Create initial commit synchronously within the lock to prevent
@@ -759,19 +761,6 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Ensure local git identity is configured for automated commits.
-   * Idempotent: git config set is a no-op if the value is already correct.
-   * Must be called with the mutex lock held.
-   */
-  private async ensureCommitIdentityLocked(): Promise<void> {
-    const gitName = process.env.ASSISTANT_GIT_USER_NAME || "Vellum Assistant";
-    const gitEmail =
-      process.env.ASSISTANT_GIT_USER_EMAIL || "assistant@vellum.ai";
-    await this.execGit(["config", "user.name", gitName]);
-    await this.execGit(["config", "user.email", gitEmail]);
-  }
-
-  /**
    * Ensure the workspace repo is on the `main` branch.
    * If on a different branch or in detached HEAD state, switches to main
    * (creating it if it doesn't exist).
@@ -882,13 +871,27 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Build commit args that disable all git hook execution.
+   * Build commit args that disable hooks and use the assistant identity
+   * without mutating repo-local git config.
    *
    * Workspace contents are model-writable, so hooks in `.git/hooks` (or via
    * `core.hooksPath`) are untrusted. Auto-commit paths must not execute them.
+   * We pass the assistant identity via transient `-c` overrides so manual
+   * users can keep their own git config without the runtime rewriting it.
    */
   private buildSafeCommitArgs(args: string[]): string[] {
-    return ["-c", "core.hooksPath=/dev/null", "commit", "--no-verify", ...args];
+    const { name, email } = getAssistantGitIdentity();
+    return [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      `user.name=${name}`,
+      "-c",
+      `user.email=${email}`,
+      "commit",
+      "--no-verify",
+      ...args,
+    ];
   }
 
   /**
