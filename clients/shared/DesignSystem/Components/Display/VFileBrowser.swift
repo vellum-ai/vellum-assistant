@@ -67,6 +67,7 @@ public struct VFileBrowser<
     @Binding var selectedPath: String?
     let searchPlaceholder: String
     let sidebarWidth: CGFloat
+    let isLoading: Bool
     let onExpand: ((VFileBrowserNode) async -> Void)?
     let onSelect: ((VFileBrowserNode) -> Void)?
     let onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)?
@@ -78,6 +79,7 @@ public struct VFileBrowser<
 
     @State private var searchText: String = ""
     @State private var isDropTargeted: Bool = false
+    @State private var cachedVisibleRowData: VisibleRowData = VisibleRowData(rows: [], forcedExpanded: [])
 
     public init(
         title: String = "Files",
@@ -86,6 +88,7 @@ public struct VFileBrowser<
         selectedPath: Binding<String?>,
         searchPlaceholder: String = "Search files",
         sidebarWidth: CGFloat = 280,
+        isLoading: Bool = false,
         onExpand: ((VFileBrowserNode) async -> Void)? = nil,
         onSelect: ((VFileBrowserNode) -> Void)? = nil,
         onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)? = nil,
@@ -101,6 +104,7 @@ public struct VFileBrowser<
         self._selectedPath = selectedPath
         self.searchPlaceholder = searchPlaceholder
         self.sidebarWidth = sidebarWidth
+        self.isLoading = isLoading
         self.onExpand = onExpand
         self.onSelect = onSelect
         self.onDrop = onDrop
@@ -186,26 +190,41 @@ public struct VFileBrowser<
         }
     }
 
+    @ViewBuilder
     private var treeScrollView: some View {
-        let data = visibleRowData
-        return ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(data.rows, id: \.node.path) { row in
-                    VFileBrowserTreeRow(
-                        node: row.node,
-                        depth: row.depth,
-                        isSelected: selectedPath == row.node.path,
-                        isExpanded: expandedPaths.contains(row.node.path) || data.forcedExpanded.contains(row.node.path),
-                        onTap: { handleTap(row.node) },
-                        rowContextMenu: rowContextMenu,
-                        onDrop: onDrop
-                    )
-                }
+        if isLoading && rootNodes.isEmpty {
+            VStack {
+                Spacer()
+                ProgressView()
+                    .controlSize(.small)
+                Spacer()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, VSpacing.xs)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(rootDropTarget)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(cachedVisibleRowData.rows, id: \.id) { row in
+                        VFileBrowserTreeRow(
+                            node: row.node,
+                            depth: row.depth,
+                            isSelected: selectedPath == row.node.path,
+                            isExpanded: expandedPaths.contains(row.node.path) || cachedVisibleRowData.forcedExpanded.contains(row.node.path),
+                            onTap: { handleTap(row.node) },
+                            rowContextMenu: rowContextMenu,
+                            onDrop: onDrop
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, VSpacing.xs)
+            }
+            .background(rootDropTarget)
+            .onAppear { recomputeVisibleRowData() }
+            .onChange(of: searchText) { recomputeVisibleRowData() }
+            .onChange(of: expandedPaths) { recomputeVisibleRowData() }
+            .onChange(of: rootNodes) { recomputeVisibleRowData() }
         }
-        .background(rootDropTarget)
     }
 
     @ViewBuilder
@@ -238,6 +257,13 @@ public struct VFileBrowser<
 
     private func handleTap(_ node: VFileBrowserNode) {
         if node.isDirectory {
+            // When search is active the tree is force-expanded to show matches
+            // and their ancestors. Directory taps must be no-ops in that mode
+            // so they don't silently mutate the persistent expansion state —
+            // without this guard, tapping a directory during search removes it
+            // from `expandedPaths` with no visible feedback, and the collapse
+            // is only revealed after the user clears the search bar.
+            guard searchText.isEmpty else { return }
             let wasExpanded = expandedPaths.contains(node.path)
             withAnimation(VAnimation.fast) {
                 if wasExpanded {
@@ -271,33 +297,51 @@ public struct VFileBrowser<
 
     // MARK: - Tree flattening / search
 
-    private struct VisibleRowData {
-        let rows: [(node: VFileBrowserNode, depth: Int)]
+    private struct VisibleRow: Identifiable, Equatable {
+        let node: VFileBrowserNode
+        let depth: Int
+        var id: String { node.path }
+    }
+
+    private struct VisibleRowData: Equatable {
+        let rows: [VisibleRow]
         let forcedExpanded: Set<String>
     }
 
-    /// When search is active, the tree is filtered to matches and their ancestors,
-    /// and ALL ancestor directories are forcibly rendered as expanded regardless of
-    /// `expandedPaths`. This means clicking a directory during search appears to do
-    /// nothing — a deliberate UX choice so users always see the matches.
-    private var visibleRowData: VisibleRowData {
+    /// Recomputes the cached visible row set from the current `rootNodes`,
+    /// `expandedPaths`, and `searchText`. Called from `.onAppear` and from
+    /// `.onChange` handlers on the three inputs instead of being evaluated
+    /// inside the view body — per `clients/AGENTS.md` § "View Bodies and
+    /// Rendering", tree flattening and filtering is too heavy for body eval.
+    ///
+    /// When search is active, the tree is filtered to matches and their
+    /// ancestors, and ALL ancestor directories are forcibly rendered as
+    /// expanded regardless of `expandedPaths`. Directory taps are ignored
+    /// during search (see `handleTap`) so the persistent expansion state is
+    /// preserved.
+    private func recomputeVisibleRowData() {
+        let newData: VisibleRowData
         if searchText.isEmpty {
             let rows = Self.flattenTree(rootNodes, depth: 0, expanded: expandedPaths)
-            return VisibleRowData(rows: rows, forcedExpanded: [])
+            newData = VisibleRowData(rows: rows, forcedExpanded: [])
+        } else {
+            let result = Self.filterTreeForSearch(rootNodes, query: searchText)
+            let rows = Self.flattenTree(result.nodes, depth: 0, expanded: result.forcedExpanded)
+            newData = VisibleRowData(rows: rows, forcedExpanded: result.forcedExpanded)
         }
-        let result = Self.filterTreeForSearch(rootNodes, query: searchText)
-        let rows = Self.flattenTree(result.nodes, depth: 0, expanded: result.forcedExpanded)
-        return VisibleRowData(rows: rows, forcedExpanded: result.forcedExpanded)
+        if newData != cachedVisibleRowData {
+            cachedVisibleRowData = newData
+        }
     }
 
     private static func flattenTree(
         _ nodes: [VFileBrowserNode],
         depth: Int,
         expanded: Set<String>
-    ) -> [(node: VFileBrowserNode, depth: Int)] {
-        var result: [(VFileBrowserNode, Int)] = []
+    ) -> [VisibleRow] {
+        var result: [VisibleRow] = []
         for node in nodes {
-            result.append((node, depth))
+            result.append(VisibleRow(node: node, depth: depth))
             if node.isDirectory && expanded.contains(node.path) {
                 result.append(contentsOf: flattenTree(node.children, depth: depth + 1, expanded: expanded))
             }
@@ -365,6 +409,7 @@ where
         selectedPath: Binding<String?>,
         searchPlaceholder: String = "Search files",
         sidebarWidth: CGFloat = 280,
+        isLoading: Bool = false,
         onExpand: ((VFileBrowserNode) async -> Void)? = nil,
         onSelect: ((VFileBrowserNode) -> Void)? = nil,
         onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)? = nil,
@@ -377,6 +422,7 @@ where
             selectedPath: selectedPath,
             searchPlaceholder: searchPlaceholder,
             sidebarWidth: sidebarWidth,
+            isLoading: isLoading,
             onExpand: onExpand,
             onSelect: onSelect,
             onDrop: onDrop,
@@ -409,6 +455,23 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
     let onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)?
 
     @State private var isDropTargeted = false
+    @State private var isHovered = false
+
+    /// Selected state always wins over hovered state, and drop-targeted state
+    /// wins over hover so the user gets the strongest feedback for the action
+    /// they're performing.
+    private var rowBackground: Color {
+        if isSelected {
+            return VColor.surfaceActive
+        }
+        if isDropTargeted {
+            return VColor.surfaceBase
+        }
+        if isHovered {
+            return VColor.surfaceBase
+        }
+        return Color.clear
+    }
 
     var body: some View {
         Button(action: onTap) {
@@ -455,13 +518,15 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(isSelected ? VColor.surfaceActive : (isDropTargeted ? VColor.surfaceBase : Color.clear))
+                    .fill(rowBackground)
             )
             .opacity(node.isDimmed ? 0.6 : 1.0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .onHover { isHovered = $0 }
+        .animation(VAnimation.fast, value: isHovered)
         .accessibilityLabel(node.name)
         .accessibilityHint(
             isSelected ? "Selected"

@@ -48,10 +48,12 @@ struct SkillDetailView: View {
         .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
             // 1. Rebuild the browser node tree from the latest file list (moved out of
             //    view body per clients/AGENTS.md: no heavy transformation in body).
+            let textFiles: [SkillFileEntry]
             if let files = skillsManager.selectedSkillFiles?.files {
-                let textFiles = files.filter { !$0.isBinary && $0.content != nil }
+                textFiles = files.filter { !$0.isBinary && $0.content != nil }
                 browserNodes = Self.buildSkillNodeTree(from: textFiles)
             } else {
+                textFiles = []
                 browserNodes = []
             }
 
@@ -66,12 +68,18 @@ struct SkillDetailView: View {
                 }
             }
 
-            // 3. Expand every directory in the tree so nested files are visible by
-            //    default. This preserves the previous flat-list behavior where all
-            //    files were immediately visible. Also union the selected file's
-            //    ancestors as a defensive no-op (already a subset of the above).
-            if let files = skillsManager.selectedSkillFiles?.files {
-                var newExpanded = Self.allDirectoryPaths(in: files)
+            // 3. On first load only, expand every directory in the tree so nested
+            //    files are visible by default — this preserves the pre-tree flat-list
+            //    behavior where all files were immediately visible. On subsequent
+            //    refetches (e.g. files re-fetched after an edit), keep the user's
+            //    existing expansion state so manual collapses aren't clobbered.
+            //    `expandedPaths` is reset to `[]` in `.onDisappear`, so navigating
+            //    to a different skill re-triggers the initial seeding.
+            //    Compute `allDirectoryPaths` from the filtered text files (not the
+            //    raw file list) so directories that only contain binaries — which
+            //    don't appear in the tree — don't leak into `expandedPaths`.
+            if expandedPaths.isEmpty && !textFiles.isEmpty {
+                var newExpanded = Self.allDirectoryPaths(in: textFiles)
                 if let selectedPath = expandedFilePath {
                     newExpanded.formUnion(Self.ancestorPaths(of: selectedPath))
                 }

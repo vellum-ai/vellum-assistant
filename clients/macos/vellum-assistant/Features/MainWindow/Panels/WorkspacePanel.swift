@@ -138,6 +138,7 @@ struct WorkspacePanel: View {
             expandedPaths: $state.expandedDirs,
             selectedPath: $state.selectedFilePath,
             sidebarWidth: sidebarWidth,
+            isLoading: state.isLoadingTree,
             onExpand: { node in
                 if state.directoryCache[node.path] == nil {
                     await state.refreshDirectory(node.path, using: workspaceClient)
@@ -286,7 +287,17 @@ struct WorkspacePanel: View {
             TextField("Name", text: $state.renamingText)
             Button("Cancel", role: .cancel) {}
             Button("Rename") {
-                Task { await renameItem() }
+                // Capture state synchronously BEFORE creating the Task.
+                // SwiftUI dismisses the alert on button tap, which fires the
+                // binding setter above that clears `state.renamingPath`. The
+                // setter runs before the Task body executes, so if we read
+                // `state.renamingPath` from inside the Task it's already nil
+                // and the rename silently no-ops. Capturing synchronously here
+                // guarantees the rename still has the values the user entered.
+                guard let oldPath = state.renamingPath else { return }
+                let newName = state.renamingText
+                state.renamingPath = nil
+                Task { await renameItem(oldPath: oldPath, newName: newName) }
             }
         }
     }
@@ -522,12 +533,12 @@ struct WorkspacePanel: View {
 
     // MARK: - Rename
 
-    /// Renames the item currently referenced by `state.renamingPath` to the
-    /// name in `state.renamingText`. Preserves all expandedDirs/directoryCache
-    /// migration semantics from the former inline rename implementation.
-    private func renameItem() async {
-        guard let oldPath = state.renamingPath else { return }
-        let newName = state.renamingText
+    /// Renames `oldPath` to a sibling with `newName`. `oldPath` and `newName`
+    /// are captured synchronously by the alert button so this function doesn't
+    /// read them from `state` — if it did, the alert's binding setter would
+    /// have already cleared `state.renamingPath` by the time the Task body
+    /// runs, causing a silent no-op.
+    private func renameItem(oldPath: String, newName: String) async {
         let parentPath = parentDirectory(of: oldPath)
         let newPath = parentPath.isEmpty ? newName : "\(parentPath)/\(newName)"
 
@@ -592,7 +603,6 @@ struct WorkspacePanel: View {
                 }
             }
         }
-        state.renamingPath = nil
     }
 
     private func parentDirectory(of path: String) -> String {
@@ -655,17 +665,11 @@ private struct WorkspaceFileViewer: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let detail = state.selectedFileDetail {
+                // VFileBrowser.rightPane provides the outer card (bordered
+                // RoundedRectangle with surfaceLift background). Render the
+                // file content edge-to-edge so it doesn't duplicate that
+                // chrome with an inner card.
                 fileContent(detail)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(VColor.surfaceBase)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .strokeBorder(VColor.borderBase, lineWidth: 1)
-                    )
-                    .padding(.horizontal, VSpacing.md)
             } else {
                 emptyState
             }
