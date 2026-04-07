@@ -442,13 +442,13 @@ struct IntegrationDetailModal: View {
 
     private func yourOwnAppCard(for app: YourOwnOAuthApp) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Header: client ID, date, trash
             HStack(spacing: VSpacing.sm) {
-                VIconView(.keyRound, size: 14)
-                    .foregroundStyle(VColor.contentTertiary)
-
                 Text(maskedClientId(app.client_id))
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
                 Spacer()
 
@@ -470,29 +470,21 @@ struct IntegrationDetailModal: View {
                 }
             }
 
-            Divider()
-                .foregroundStyle(VColor.borderBase)
-
+            // Connections or empty state
             let appConnections = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
             if appConnections.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.circleUser, size: 14)
-                        .foregroundStyle(VColor.contentTertiary)
-                    Text("No connected accounts")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-                .padding(.vertical, VSpacing.xxs)
+                Text("No connected accounts")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    ForEach(appConnections) { conn in
-                        yourOwnConnectionRow(for: conn, appId: app.id)
-                    }
+                ForEach(appConnections) { conn in
+                    yourOwnConnectionRow(for: conn, appId: app.id)
                 }
             }
 
-            HStack(spacing: VSpacing.sm) {
-                if store.yourOwnOAuthConnectingAppId == app.id {
+            // Connect button
+            if store.yourOwnOAuthConnectingAppId == app.id {
+                HStack(spacing: VSpacing.sm) {
                     VButton(label: "Cancel", leftIcon: "lucide-x", style: .outlined) {
                         store.cancelYourOwnOAuthConnect()
                     }
@@ -500,15 +492,15 @@ struct IntegrationDetailModal: View {
                     Text("Waiting for authorization...")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
-                } else {
-                    VButton(
-                        label: "Connect Account",
-                        leftIcon: "lucide-external-link",
-                        style: .outlined,
-                        isDisabled: store.yourOwnOAuthConnectingAppId != nil
-                    ) {
-                        store.startYourOwnOAuthConnect(appId: app.id)
-                    }
+                }
+            } else {
+                VButton(
+                    label: "Connect Account",
+                    leftIcon: "lucide-external-link",
+                    style: .outlined,
+                    isDisabled: store.yourOwnOAuthConnectingAppId != nil
+                ) {
+                    store.startYourOwnOAuthConnect(appId: app.id)
                 }
             }
         }
