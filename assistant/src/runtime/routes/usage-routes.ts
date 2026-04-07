@@ -3,7 +3,7 @@
  *
  * GET /v1/usage/totals?from=&to=              — aggregate totals for a time range
  * GET /v1/usage/daily?from=&to=               — per-day buckets for a time range
- * GET /v1/usage/breakdown?from=&to=&groupBy=  — grouped breakdown (actor, provider, model)
+ * GET /v1/usage/breakdown?from=&to=&groupBy=  — grouped breakdown (actor, provider, model, or conversation)
  */
 
 import { z } from "zod";

@@ -267,24 +267,25 @@ Examples:
 
   usage
     .command("breakdown")
-    .description("Grouped breakdown by actor, provider, or model")
+    .description("Grouped breakdown by actor, provider, model, or conversation")
     .option(...rangeOption)
     .option(...fromOption)
     .option(...toOption)
     .option(...jsonOption)
     .option(
       "-g, --group-by <dimension>",
-      "Grouping dimension: actor, provider, model",
+      "Grouping dimension: actor, provider, model, conversation",
       "model",
     )
     .addHelpText(
       "after",
       `
 Grouping dimensions:
-  actor     Groups by the subsystem that made the call (main_agent,
-            title_generator, etc.)
-  provider  Groups by LLM provider (anthropic, openai, etc.)
-  model     Groups by model name (claude-sonnet-4-20250514, etc.)
+  actor          Groups by the subsystem that made the call (main_agent,
+                 title_generator, etc.)
+  provider       Groups by LLM provider (anthropic, openai, etc.)
+  model          Groups by model name (claude-sonnet-4-20250514, etc.)
+  conversation   Groups by conversation ID
 
 Shows one row per group with input/output tokens, estimated cost, and
 call count. Rows are sorted by cost descending.
@@ -302,10 +303,10 @@ Examples:
         json?: boolean;
         groupBy: string;
       }) => {
-        const validDimensions = new Set(["actor", "provider", "model"]);
+        const validDimensions = new Set(["actor", "provider", "model", "conversation"]);
         if (!validDimensions.has(opts.groupBy)) {
           log.error(
-            `Invalid --group-by value: '${opts.groupBy}'. Must be one of: actor, provider, model`,
+            `Invalid --group-by value: '${opts.groupBy}'. Must be one of: actor, provider, model, conversation`,
           );
           process.exit(1);
         }
@@ -313,7 +314,7 @@ Examples:
         const { from, to } = resolveRange(opts);
         const breakdown = getUsageGroupBreakdown(
           { from, to },
-          opts.groupBy as "actor" | "provider" | "model",
+          opts.groupBy as "actor" | "provider" | "model" | "conversation",
         );
         if (opts.json) {
           log.info(JSON.stringify({ breakdown }, null, 2));
