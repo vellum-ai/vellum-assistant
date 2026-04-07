@@ -33,6 +33,9 @@ struct MarkdownSegmentView: View, Equatable {
     var codeTextColor: Color = VColor.systemNegativeStrong
     var codeBackgroundColor: Color = VColor.surfaceActive
     var hrColor: Color = VColor.borderBase
+    #if os(macOS)
+    @ObservedObject private var typographyObserver = VFont.typographyObserver
+    #endif
 
     static func == (lhs: MarkdownSegmentView, rhs: MarkdownSegmentView) -> Bool {
         lhs.segments == rhs.segments
@@ -51,20 +54,19 @@ struct MarkdownSegmentView: View, Equatable {
         let groups = groupedSegments
         let chatFont = VFont.chat
         let scaledCodeLabelSize: CGFloat = 11
+        #if os(macOS)
+        let typographyGeneration = typographyObserver.generation
+        #endif
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
                 case .selectableRun(let runSegments):
                     #if os(macOS)
-                    let (nsAttributed, measuredSize) = resolveSelectableRunMeasurement(runSegments)
-                    VSelectableTextView(
-                        attributedString: nsAttributed,
-                        maxWidth: maxContentWidth,
-                        lineSpacing: 4,
-                        tintColor: NSColor(tintColor),
-                        useExternalSizing: true
+                    SelectableRunView(
+                        markdownView: self,
+                        runSegments: runSegments,
+                        typographyGeneration: typographyGeneration
                     )
-                    .frame(width: measuredSize.width, height: measuredSize.height, alignment: .leading)
                     #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
@@ -119,6 +121,34 @@ struct MarkdownSegmentView: View, Equatable {
         case image(alt: String, url: String)
         case horizontalRule
     }
+
+    #if os(macOS)
+    private struct SelectableRunView: View {
+        let markdownView: MarkdownSegmentView
+        let runSegments: [MarkdownSegment]
+        let typographyGeneration: Int
+
+        var body: some View {
+            let measurement = markdownView.resolveSelectableRunMeasurementResult(
+                runSegments,
+                typographyGeneration: typographyGeneration
+            )
+
+            VSelectableTextView(
+                attributedString: measurement.nsAttributedString,
+                maxWidth: markdownView.maxContentWidth,
+                lineSpacing: 4,
+                tintColor: NSColor(markdownView.tintColor),
+                useExternalSizing: true
+            )
+            .frame(
+                width: measurement.size.width,
+                height: measurement.size.height,
+                alignment: .leading
+            )
+        }
+    }
+    #endif
 
     /// Cache for `computeGroupedSegments` results, keyed by the hash of the
     /// input segments array. Avoids recomputing the grouping on every body
@@ -212,6 +242,10 @@ struct MarkdownSegmentView: View, Equatable {
         return cache
     }()
 
+    @MainActor private static var typographyRetryScheduled = false
+    @MainActor private static var typographyRetryToken: Int = 0
+    @MainActor private static var typographyRetryTimestamps: [TimeInterval] = []
+
     #if DEBUG
     /// Exposed for testing: number of cache insertions into `measuredTextCache`.
     /// NSCache doesn't expose its count, so we maintain a parallel counter.
@@ -222,6 +256,11 @@ struct MarkdownSegmentView: View, Equatable {
     // MARK: - Cache Guardrails
 
     private static let maxCacheableTextLength = 10_000
+    #if os(macOS)
+    private static let typographyRetryDelayNanoseconds: UInt64 = 75_000_000
+    private static let typographyRetryWindowSeconds: TimeInterval = 1.0
+    private static let maxTypographyRetriesPerWindow = 2
+    #endif
     /// Cache for prefix width measurements to avoid repeated Core Text layout calls.
     @MainActor private static var prefixWidthCache: [String: CGFloat] = [:]
 
@@ -234,6 +273,9 @@ struct MarkdownSegmentView: View, Equatable {
         MarkdownTableView.clearCellAttributedStringCache()
         #if os(macOS)
         measuredTextCache.removeAllObjects()
+        typographyRetryScheduled = false
+        typographyRetryToken &+= 1
+        typographyRetryTimestamps.removeAll()
         #if DEBUG
         _measuredTextCacheInsertCount = 0
         #endif
@@ -291,6 +333,12 @@ struct MarkdownSegmentView: View, Equatable {
     }
 
     #if os(macOS)
+    struct SelectableRunMeasurementResult {
+        let nsAttributedString: NSAttributedString
+        let size: CGSize
+        let hasUnresolvedEmphasis: Bool
+    }
+
     /// Computes or retrieves from cache the `(NSAttributedString, CGSize)` pair
     /// for a selectable text run.  `internal` so `@testable import` tests can
     /// exercise the cache directly (SwiftUI `body` evaluation does not force
@@ -298,6 +346,14 @@ struct MarkdownSegmentView: View, Equatable {
     @MainActor func resolveSelectableRunMeasurement(
         _ runSegments: [MarkdownSegment]
     ) -> (NSAttributedString, CGSize) {
+        let result = resolveSelectableRunMeasurementResult(runSegments)
+        return (result.nsAttributedString, result.size)
+    }
+
+    @MainActor func resolveSelectableRunMeasurementResult(
+        _ runSegments: [MarkdownSegment],
+        typographyGeneration: Int? = nil
+    ) -> SelectableRunMeasurementResult {
         let chatFonts = VFont.resolvedChatMarkdownFontSet()
         var hasher = Hasher()
         for segment in runSegments { hasher.combine(segment) }
@@ -307,7 +363,7 @@ struct MarkdownSegmentView: View, Equatable {
         hasher.combine(codeBackgroundColor.description)
         let effectiveMaxWidth = maxContentWidth ?? VSpacing.chatBubbleMaxWidth
         hasher.combine(effectiveMaxWidth)
-        hasher.combine(VFont.typographyGeneration)
+        hasher.combine(typographyGeneration ?? VFont.typographyGeneration)
         for entry in chatFonts.diagnosticPostScriptNames.sorted(by: { $0.key < $1.key }) {
             hasher.combine(entry.key)
             hasher.combine(entry.value)
@@ -316,7 +372,11 @@ struct MarkdownSegmentView: View, Equatable {
 
         let keyNS = key as NSNumber
         if let cached = Self.measuredTextCache.object(forKey: keyNS) {
-            return (cached.nsAttributedString, cached.size)
+            return SelectableRunMeasurementResult(
+                nsAttributedString: cached.nsAttributedString,
+                size: cached.size,
+                hasUnresolvedEmphasis: false
+            )
         }
 
         os_signpost(.begin, log: PerfSignposts.log, name: "selectableRunMeasure")
@@ -345,8 +405,36 @@ struct MarkdownSegmentView: View, Equatable {
             #if DEBUG
             Self._measuredTextCacheInsertCount += 1
             #endif
+        } else if hasUnresolvedEmphasis {
+            Self.scheduleTypographyRetryIfNeeded()
         }
-        return (nsAttributed, size)
+        return SelectableRunMeasurementResult(
+            nsAttributedString: nsAttributed,
+            size: size,
+            hasUnresolvedEmphasis: hasUnresolvedEmphasis
+        )
+    }
+
+    @MainActor
+    private static func scheduleTypographyRetryIfNeeded() {
+        let now = ProcessInfo.processInfo.systemUptime
+        typographyRetryTimestamps.removeAll {
+            now - $0 > typographyRetryWindowSeconds
+        }
+        guard !typographyRetryScheduled,
+              typographyRetryTimestamps.count < maxTypographyRetriesPerWindow else { return }
+
+        typographyRetryScheduled = true
+        typographyRetryToken &+= 1
+        typographyRetryTimestamps.append(now)
+        let retryToken = typographyRetryToken
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: typographyRetryDelayNanoseconds)
+            guard retryToken == typographyRetryToken else { return }
+            typographyRetryScheduled = false
+            VFont.bumpTypographyGeneration()
+        }
     }
     #endif
 

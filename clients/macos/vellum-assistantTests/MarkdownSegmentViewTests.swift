@@ -143,6 +143,46 @@ final class MarkdownSegmentViewTests: XCTestCase {
         )
     }
 
+    func testUnresolvedEmphasisSchedulesTypographyRetryAndRecovers() async {
+        #if DEBUG
+        var resolutionAttempt = 0
+        VFont._chatMarkdownFontSetOverride = { size in
+            resolutionAttempt += 1
+            if resolutionAttempt == 1 {
+                return self.invalidFontSet(size: size)
+            }
+            return self.validFontSet(size: size)
+        }
+        #endif
+
+        let segments = parseMarkdownSegments("*collar jingles*")
+        let view = MarkdownSegmentView(segments: segments)
+        let generationBefore = VFont.typographyGeneration
+
+        let firstResult = view.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertTrue(firstResult.hasUnresolvedEmphasis)
+        XCTAssertEqual(MarkdownSegmentView._measuredTextCacheInsertCount, 0)
+
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertGreaterThanOrEqual(
+            VFont.typographyGeneration,
+            generationBefore + 1,
+            "Unresolved emphasis should schedule at least one typography refresh retry"
+        )
+
+        let secondResult = view.resolveSelectableRunMeasurementResult(
+            segments,
+            typographyGeneration: VFont.typographyGeneration
+        )
+        let font = try? renderedFont(from: secondResult.nsAttributedString)
+
+        XCTAssertFalse(secondResult.hasUnresolvedEmphasis)
+        XCTAssertEqual(MarkdownSegmentView._measuredTextCacheInsertCount, 1)
+        XCTAssertEqual(font.map(familyName(for:)), "DM Sans")
+        XCTAssertGreaterThan(abs(CTFontGetMatrix((try XCTUnwrap(font)) as CTFont).c), 0.0001)
+    }
+
     private func makeRenderedMarkdown(_ markdown: String) -> (NSAttributedString, Bool) {
         let source = (try? makeAttributedString(from: markdown)) ?? AttributedString(markdown)
         return MarkdownSegmentView.convertToNSAttributedString(
@@ -171,6 +211,54 @@ final class MarkdownSegmentViewTests: XCTestCase {
             return nil
         }
         return CGFloat(truncating: value)
+    }
+
+    private func validFontSet(size: CGFloat) -> VFont.ChatMarkdownFontSet {
+        let regular = VFont.resolvedDMSansFont(weight: 400, size: size)
+        let bold = VFont.resolvedDMSansFont(weight: 700, size: size)
+        let italic = VFont.resolvedDMSansFont(weight: 400, size: size, obliqueDegrees: 12)
+        let boldItalic = VFont.resolvedDMSansFont(weight: 700, size: size, obliqueDegrees: 12)
+        return VFont.ChatMarkdownFontSet(
+            regular: regular,
+            bold: bold,
+            italic: italic,
+            boldItalic: boldItalic,
+            regularIsResolved: true,
+            boldIsResolved: true,
+            italicIsResolved: true,
+            boldItalicIsResolved: true,
+            isResolved: true,
+            diagnosticPostScriptNames: [
+                "regular": regular.fontName,
+                "bold": bold.fontName,
+                "italic": italic.fontName,
+                "boldItalic": boldItalic.fontName,
+            ]
+        )
+    }
+
+    private func invalidFontSet(size: CGFloat) -> VFont.ChatMarkdownFontSet {
+        let regular = NSFont.systemFont(ofSize: size)
+        let bold = NSFont.boldSystemFont(ofSize: size)
+        let italic = NSFontManager.shared.convert(regular, toHaveTrait: .italicFontMask)
+        let boldItalic = NSFontManager.shared.convert(bold, toHaveTrait: .italicFontMask)
+        return VFont.ChatMarkdownFontSet(
+            regular: regular,
+            bold: bold,
+            italic: italic,
+            boldItalic: boldItalic,
+            regularIsResolved: false,
+            boldIsResolved: false,
+            italicIsResolved: false,
+            boldItalicIsResolved: false,
+            isResolved: false,
+            diagnosticPostScriptNames: [
+                "regular": regular.fontName,
+                "bold": bold.fontName,
+                "italic": italic.fontName,
+                "boldItalic": boldItalic.fontName,
+            ]
+        )
     }
 
     private static func registerTestFonts() {

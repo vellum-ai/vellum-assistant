@@ -148,8 +148,14 @@ public enum VFont {
         package let diagnosticPostScriptNames: [String: String]
     }
 
+    @MainActor
+    package final class TypographyRefreshObserver: ObservableObject {
+        @Published package fileprivate(set) var generation: Int = 0
+    }
+
     private static let dmSansFamilyName = "DM Sans"
     @MainActor package static var typographyGeneration: Int = 0
+    @MainActor package static let typographyObserver = TypographyRefreshObserver()
 
     #if DEBUG
     package static var _chatMarkdownFontSetOverride: ((CGFloat) -> ChatMarkdownFontSet)?
@@ -190,6 +196,7 @@ public enum VFont {
     @MainActor
     package static func bumpTypographyGeneration() {
         typographyGeneration &+= 1
+        typographyObserver.generation = typographyGeneration
     }
 
     package static func resolvedChatMarkdownFontSet(size: CGFloat = 16) -> ChatMarkdownFontSet {
