@@ -16,7 +16,7 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
     case authenticationRequired
     case registrationFailed(String)
     case provisioningFailed(String)
-    case daemonInjectionFailed
+    case assistantInjectionFailed
     case multipleOrganizations
 
     public var errorDescription: String? {
@@ -27,7 +27,7 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
             return "Registration failed: \(message)"
         case .provisioningFailed(let message):
             return "API key provisioning failed: \(message)"
-        case .daemonInjectionFailed:
+        case .assistantInjectionFailed:
             return "Failed to inject API key into the assistant"
         case .multipleOrganizations:
             return "Multiple organizations found. Multi-org support is not yet available — please contact support."
@@ -40,7 +40,7 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
 /// 1. Calls ensure-registration — on first call returns a fresh API key;
 ///    on subsequent calls returns `assistant_api_key: null` (the raw key
 ///    is hashed server-side and can't be recovered).
-/// 2. If a new key was returned, persists it locally and injects into the daemon.
+/// 2. If a new key was returned, persists it locally and injects into the assistant.
 /// 3. If no key was returned, uses the locally persisted key.
 /// 4. If the persisted key is missing, calls reprovision-api-key to rotate
 ///    and get a fresh one.
@@ -184,18 +184,21 @@ public final class LocalAssistantBootstrapService {
             log.info("Provisioned and cached new API key via reprovision")
         }
 
-        // Step 3: Inject credentials into daemon
-        try await injectKeyIntoDaemon(key: apiKey)
-        try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)
+        // Step 3: Inject credentials into assistant
+        try await injectKeyIntoAssistant(key: apiKey)
+        try? await injectPlatformAssistantIdIntoAssistant(id: platformAssistantId)
         do {
-            try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
+            try await injectPlatformBaseUrlIntoAssistant(url: authService.baseURL)
         } catch {
-            log.error("Failed to inject platform base URL into daemon: \(error.localizedDescription)")
-            throw LocalBootstrapError.daemonInjectionFailed
+            log.error("Failed to inject platform base URL into assistant: \(error.localizedDescription)")
+            throw LocalBootstrapError.assistantInjectionFailed
         }
-        try? await injectPlatformOrganizationIdIntoDaemon(id: organizationId)
+        try? await injectPlatformOrganizationIdIntoAssistant(id: organizationId)
         if let uid = try? await resolveUserId() {
-            try? await injectPlatformUserIdIntoDaemon(id: uid)
+            try? await injectPlatformUserIdIntoAssistant(id: uid)
+        }
+        if let secret = registration.webhookSecret, !secret.isEmpty {
+            try? await injectWebhookSecretIntoAssistant(secret: secret)
         }
 
         return platformAssistantId
@@ -218,80 +221,93 @@ public final class LocalAssistantBootstrapService {
         )
     }
 
-    /// Inject the assistant API key into the daemon's secret store via the gateway.
-    private func injectKeyIntoDaemon(key: String) async throws {
+    /// Inject the assistant API key into the assistant's secret store via the gateway.
+    private func injectKeyIntoAssistant(key: String) async throws {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:assistant_api_key", "value": key],
             timeout: 10
         )
         guard response.isSuccess else {
-            log.error("Failed to inject API key into daemon: status=\(response.statusCode, privacy: .public) body=\(String(data: response.data, encoding: .utf8) ?? "<non-utf8>", privacy: .public)")
-            throw LocalBootstrapError.daemonInjectionFailed
+            log.error("Failed to inject API key into assistant: status=\(response.statusCode, privacy: .public) body=\(String(data: response.data, encoding: .utf8) ?? "<non-utf8>", privacy: .public)")
+            throw LocalBootstrapError.assistantInjectionFailed
         }
     }
 
-    /// Inject the platform base URL into the daemon's secret store via the gateway.
-    private func injectPlatformBaseUrlIntoDaemon(url: String) async throws {
+    /// Inject the platform base URL into the assistant's secret store via the gateway.
+    private func injectPlatformBaseUrlIntoAssistant(url: String) async throws {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:platform_base_url", "value": url],
             timeout: 10
         )
         guard response.isSuccess else {
-            throw LocalBootstrapError.daemonInjectionFailed
+            throw LocalBootstrapError.assistantInjectionFailed
         }
     }
 
-    /// Inject the platform assistant ID into the daemon's secret store via the gateway.
-    private func injectPlatformAssistantIdIntoDaemon(id: String) async throws {
+    /// Inject the platform assistant ID into the assistant's secret store via the gateway.
+    private func injectPlatformAssistantIdIntoAssistant(id: String) async throws {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:platform_assistant_id", "value": id],
             timeout: 10
         )
         guard response.isSuccess else {
-            throw LocalBootstrapError.daemonInjectionFailed
+            throw LocalBootstrapError.assistantInjectionFailed
         }
     }
 
-    /// Inject the platform organization ID into the daemon's secret store via the gateway.
-    private func injectPlatformOrganizationIdIntoDaemon(id: String) async throws {
+    /// Inject the platform organization ID into the assistant's secret store via the gateway.
+    private func injectPlatformOrganizationIdIntoAssistant(id: String) async throws {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:platform_organization_id", "value": id],
             timeout: 10
         )
         guard response.isSuccess else {
-            throw LocalBootstrapError.daemonInjectionFailed
+            throw LocalBootstrapError.assistantInjectionFailed
         }
     }
 
-    /// Inject the platform user ID into the daemon's secret store via the gateway.
-    private func injectPlatformUserIdIntoDaemon(id: String) async throws {
+    /// Inject the platform user ID into the assistant's secret store via the gateway.
+    private func injectPlatformUserIdIntoAssistant(id: String) async throws {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:platform_user_id", "value": id],
             timeout: 10
         )
         guard response.isSuccess else {
-            throw LocalBootstrapError.daemonInjectionFailed
+            throw LocalBootstrapError.assistantInjectionFailed
+        }
+    }
+
+    /// Inject the webhook secret into the assistant's secret store via the gateway.
+    private func injectWebhookSecretIntoAssistant(secret: String) async throws {
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:webhook_secret", "value": secret],
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            throw LocalBootstrapError.assistantInjectionFailed
         }
     }
 
     /// Clears platform identity credentials and the assistant API key from
-    /// the daemon's secret store by issuing `DELETE /v1/secrets` for each
+    /// the assistant's secret store by issuing `DELETE /v1/secrets` for each
     /// vellum-namespaced credential.
     ///
     /// Returns `true` if all credentials were successfully cleared (or didn't exist).
     @discardableResult
-    public static func clearDaemonCredentials() async -> Bool {
+    public static func clearAssistantCredentials() async -> Bool {
         let credentialNames = [
             "vellum:assistant_api_key",
             "vellum:platform_assistant_id",
             "vellum:platform_base_url",
             "vellum:platform_organization_id",
             "vellum:platform_user_id",
+            "vellum:webhook_secret",
         ]
         var allCleared = true
         for name in credentialNames {
@@ -301,20 +317,20 @@ public final class LocalAssistantBootstrapService {
                     path: "assistants/{assistantId}/secrets", json: body, timeout: 5
                 )
                 if response.isSuccess || response.statusCode == 404 {
-                    log.info("Cleared daemon credential: \(name, privacy: .public) (status \(response.statusCode))")
+                    log.info("Cleared assistant credential: \(name, privacy: .public) (status \(response.statusCode))")
                 } else {
-                    log.warning("Failed to clear daemon credential: \(name, privacy: .public) (status \(response.statusCode))")
+                    log.warning("Failed to clear assistant credential: \(name, privacy: .public) (status \(response.statusCode))")
                     allCleared = false
                 }
             } catch {
-                log.warning("Failed to clear daemon credential: \(name, privacy: .public) — \(error.localizedDescription)")
+                log.warning("Failed to clear assistant credential: \(name, privacy: .public) — \(error.localizedDescription)")
                 allCleared = false
             }
         }
         if allCleared {
-            log.info("All managed credentials cleared from daemon")
+            log.info("All managed credentials cleared from assistant")
         } else {
-            log.warning("Some managed credentials could not be cleared from daemon")
+            log.warning("Some managed credentials could not be cleared from assistant")
         }
         return allCleared
     }

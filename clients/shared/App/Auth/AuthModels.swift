@@ -249,11 +249,13 @@ public struct EnsureSelfHostedLocalRegistrationResponse: Codable, Sendable {
     public let assistant: SelfHostedAssistantInfo
     public let registration: SelfHostedRegistrationInfo
     public let assistantApiKey: String?
+    public let webhookSecret: String?
 
     enum CodingKeys: String, CodingKey {
         case assistant
         case registration
         case assistantApiKey = "assistant_api_key"
+        case webhookSecret = "webhook_secret"
     }
 }
 

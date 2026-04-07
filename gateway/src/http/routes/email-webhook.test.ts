@@ -107,7 +107,7 @@ function postRequest(body: string, secret?: string): Request {
 function makeCaches(secret?: string) {
   const credentials = {
     get: async (key: string) => {
-      if (key === credentialKey("email", "webhook_secret"))
+      if (key === credentialKey("vellum", "webhook_secret"))
         return secret ?? TEST_WEBHOOK_SECRET;
       return undefined;
     },

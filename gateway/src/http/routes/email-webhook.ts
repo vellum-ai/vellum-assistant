@@ -61,7 +61,7 @@ export function createEmailWebhookHandler(
 
     // Resolve webhook secret from credential cache
     const webhookSecret = caches?.credentials
-      ? await caches.credentials.get(credentialKey("email", "webhook_secret"))
+      ? await caches.credentials.get(credentialKey("vellum", "webhook_secret"))
       : undefined;
 
     // If the initial cache read returned undefined but a credential cache is available,
@@ -70,7 +70,7 @@ export function createEmailWebhookHandler(
     let effectiveSecret = webhookSecret;
     if (!effectiveSecret && caches?.credentials) {
       effectiveSecret = await caches.credentials.get(
-        credentialKey("email", "webhook_secret"),
+        credentialKey("vellum", "webhook_secret"),
         { force: true },
       );
       if (effectiveSecret) {
@@ -100,7 +100,7 @@ export function createEmailWebhookHandler(
     // force-refresh the webhook secret and retry once.
     if (!signatureValid && caches?.credentials) {
       const freshSecret = await caches.credentials.get(
-        credentialKey("email", "webhook_secret"),
+        credentialKey("vellum", "webhook_secret"),
         { force: true },
       );
       if (freshSecret) {
