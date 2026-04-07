@@ -123,8 +123,9 @@ public struct InlineChatErrorAlert: View {
                         .padding(.top, VSpacing.xs)
 
                         let detailLineCount = details.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+                        let detailIsLong = detailLineCount > 10 || (detailLineCount == 1 && details.utf8.count > 50_000)
                         Group {
-                            if detailLineCount > 10 {
+                            if detailIsLong {
                                 ScrollView {
                                     Text(details)
                                         .font(.system(size: 11, design: .monospaced))

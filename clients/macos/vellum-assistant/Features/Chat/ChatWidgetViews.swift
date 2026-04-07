@@ -104,8 +104,9 @@ struct CodePreviewView: View {
 
     var body: some View {
         let lineCount = displayCode.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+        let isLong = lineCount > 7 || (lineCount == 1 && displayCode.utf8.count > 50_000)
         Group {
-            if lineCount > 7 {
+            if isLong {
                 ScrollView {
                     Text(displayCode)
                         .font(VFont.bodySmallDefault)

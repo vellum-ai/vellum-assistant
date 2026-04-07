@@ -127,8 +127,9 @@ public struct GuardianDecisionBubble: View {
             // Command preview code block
             if let preview = decision.commandPreview, !preview.isEmpty {
                 let previewLineCount = preview.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+                let previewIsLong = previewLineCount > 7 || (previewLineCount == 1 && preview.utf8.count > 50_000)
                 Group {
-                    if previewLineCount > 7 {
+                    if previewIsLong {
                         ScrollView {
                             Text(preview)
                                 .font(.system(size: 12, design: .monospaced))
