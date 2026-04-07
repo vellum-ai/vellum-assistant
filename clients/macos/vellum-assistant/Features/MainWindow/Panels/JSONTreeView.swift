@@ -228,7 +228,7 @@ struct JSONTreeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .task(id: content) {
+        .task(id: "jsonl=\(isJSONL)|\(content)") {
             let result: JSONParseResult
             if content.isEmpty {
                 result = isJSONL
