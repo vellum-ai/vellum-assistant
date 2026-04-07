@@ -106,10 +106,14 @@ struct MessageListView: View {
         #endif
             ScrollView {
                 scrollViewContent
+                    .background(
+                        MessageListScrollObserver { newState in
+                            enqueueScrollGeometryUpdate(newState)
+                        }
+                    )
             }
             .id(conversationId)
             .scrollContentBackground(.hidden)
-            .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             // Apply only to .initialOffset — where the scroll view starts
             // when first displayed (including .id() recreation on switch).
@@ -138,16 +142,6 @@ struct MessageListView: View {
                 if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
                     scrollState.handleReachedBottom()
                 }
-            }
-            .onScrollGeometryChange(for: ScrollGeometrySnapshot.self) { geometry in
-                ScrollGeometrySnapshot(
-                    contentOffsetY: geometry.contentOffset.y,
-                    contentHeight: geometry.contentSize.height,
-                    containerHeight: geometry.containerSize.height,
-                    visibleRectHeight: geometry.visibleRect.height
-                )
-            } action: { _, newState in
-                enqueueScrollGeometryUpdate(newState)
             }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .overlay(alignment: .bottom) {
