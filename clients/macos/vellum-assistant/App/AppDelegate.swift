@@ -387,6 +387,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // synchronously so the Sentry gate below sees the correct value.
         Self.migratePrivacyDefaults()
 
+        // Migrate legacy connectedAssistantId from UserDefaults to the
+        // lockfile's activeAssistant field. Must run before any
+        // loadAssistantFromLockfile() calls.
+        Self.migrateConnectedAssistantIdToLockfile()
+
         // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
         // Sentry is never initialized. Otherwise, initialize eagerly so crashes
         // before the daemon connects are captured.

@@ -44,7 +44,11 @@ public enum SessionTokenManager {
     /// current lockfile entry exposes assistant-specific storage paths.
     private static func connectedAssistantPlatformTokenPath() -> String? {
         #if os(macOS)
-        guard let connectedAssistantId = LockfileAssistant.loadActiveAssistantId(),
+        let storedAssistantId: String? = LockfileAssistant.loadActiveAssistantId()
+        #else
+        let storedAssistantId: String? = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        #endif
+        guard let connectedAssistantId = storedAssistantId,
               let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]],
               let assistant = assistants.first(where: { ($0["assistantId"] as? String) == connectedAssistantId }) else {
@@ -67,9 +71,6 @@ public enum SessionTokenManager {
         }
 
         return nil
-        #else
-        return nil
-        #endif
     }
 
     /// XDG-compliant shared path (~/.config/vellum/platform-token).
