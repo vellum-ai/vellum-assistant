@@ -165,6 +165,10 @@ struct AssistantTransferSection: View {
             AppDelegate.shared?.performSwitchAssistant(to: newAssistant)
             transferTask = nil
             onClose()
+
+            // The CLI does not retire the source for cross-environment transfers
+            // (local→platform). Fire-and-forget retirement via CLI.
+            retireSourceAssistant(name: sourceName)
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
@@ -210,12 +214,32 @@ struct AssistantTransferSection: View {
             AppDelegate.shared?.performSwitchAssistant(to: newAssistant)
             transferTask = nil
             onClose()
+
+            // The CLI does not retire the source for cross-environment transfers
+            // (managed→local). Fire-and-forget retirement via CLI.
+            retireSourceAssistant(name: sourceName)
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
     }
 
     // MARK: - Helpers
+
+    /// Retires the source assistant after a successful transfer (fire-and-forget).
+    ///
+    /// The CLI's `teleport` command only retires the source when both source and
+    /// target are local/docker. For cross-environment transfers (local→platform,
+    /// managed→local), the desktop must explicitly retire the source.
+    private func retireSourceAssistant(name: String) {
+        Task {
+            do {
+                try await AppDelegate.shared?.vellumCli.retire(name: name)
+                log.info("[transfer] Retired source assistant \(name, privacy: .public)")
+            } catch {
+                log.error("[transfer] Failed to retire source assistant \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
 
     /// Discovers the new assistant that the CLI created by diffing the lockfile
     /// against a pre-teleport snapshot.
