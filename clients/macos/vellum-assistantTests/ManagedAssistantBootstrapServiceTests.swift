@@ -11,6 +11,7 @@ import XCTest
 final class ManagedAssistantBootstrapServiceTests: XCTestCase {
     private var tempDir: URL!
     private var lockfilePath: String!
+    private var savedConnectedOrgId: String?
 
     override func setUp() {
         super.setUp()
@@ -18,15 +19,24 @@ final class ManagedAssistantBootstrapServiceTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         lockfilePath = tempDir.appendingPathComponent(".vellum.lock.json").path
+        // `ManagedAssistantBootstrapService.resolveOrganizationId()` reads this
+        // key from `UserDefaults.standard` directly, so save + restore around
+        // the test rather than mutating global state destructively.
+        savedConnectedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
         UserDefaults.standard.set("org-test", forKey: "connectedOrganizationId")
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        LockfileAssistant.setActiveAssistantId(nil, lockfilePath: lockfilePath)
+        if let savedConnectedOrgId {
+            UserDefaults.standard.set(savedConnectedOrgId, forKey: "connectedOrganizationId")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        }
+        savedConnectedOrgId = nil
         try? FileManager.default.removeItem(at: tempDir)
         tempDir = nil
         lockfilePath = nil
-        LockfileAssistant.setActiveAssistantId(nil, lockfilePath: nil)
         super.tearDown()
     }
 

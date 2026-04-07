@@ -279,13 +279,6 @@ public final class AuthService {
         }
     }
 
-    /// Response wrapper for the paginated `GET /v1/assistants/` endpoint.
-    /// Declared inside `AuthService` to keep it close to its sole call site.
-    public struct PaginatedPlatformAssistantsResponse: Codable, Sendable {
-        public let count: Int?
-        public let results: [PlatformAssistant]
-    }
-
     /// List all managed assistants visible to the caller in the given organization.
     ///
     /// Used by the multi-assistant bootstrap flow to discover existing assistants
@@ -335,7 +328,7 @@ public final class AuthService {
         }
 
         do {
-            let paginated = try JSONDecoder().decode(AuthService.PaginatedPlatformAssistantsResponse.self, from: data)
+            let paginated = try JSONDecoder().decode(PaginatedPlatformAssistantsResponse.self, from: data)
             return paginated.results
         } catch {
             throw PlatformAPIError.decodingError(error.localizedDescription)
