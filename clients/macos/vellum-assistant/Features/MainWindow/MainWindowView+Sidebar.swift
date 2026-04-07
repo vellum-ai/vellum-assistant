@@ -168,9 +168,10 @@ extension MainWindowView {
                 }
             },
             onArchiveAll: {
+                let archivableIds = conversations.filter { !$0.isChannelConversation }.map(\.id)
                 archiveAllPending = ArchiveAllTarget(
                     displayName: group.name,
-                    ids: conversations.map(\.id)
+                    ids: archivableIds
                 )
             },
             selectedConversationId: conversationManager.activeConversationId,
