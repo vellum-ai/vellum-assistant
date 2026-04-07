@@ -189,23 +189,41 @@ struct SettingsBillingTab: View {
     // MARK: - Add Credits Card
 
     private var addFundsCard: some View {
-        SettingsCard(title: "Add Credits", subtitle: addCreditsSubtitle) {
+        SettingsCard(
+            title: "Add Credits",
+            subtitleAttributed: addCreditsSubtitleAttributed
+        ) {
             topUpContent
         }
     }
 
-    private var addCreditsSubtitle: String? {
+    /// Formats the maximum balance from a billing summary as a thousands-grouped
+    /// integer string (e.g. `"1,000"`), falling back to the raw server value if
+    /// it can't be parsed as a positive number. Shared by `addCreditsSubtitleAttributed`
+    /// and `handleTopUp()` so the formatting stays consistent.
+    func formattedMaxBalance(_ summary: BillingSummaryResponse) -> String {
+        let value = Int(Double(summary.maximum_balance) ?? 0)
+        if value > 0 {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
+        }
+        return summary.maximum_balance
+    }
+
+    /// Subtitle for the Add Credits card, rendered as an attributed string so the
+    /// trailing "Learn more about pricing" link is tappable. Returns nil while the
+    /// billing summary is still loading. The link target is `AppURLs.pricingDocs`,
+    /// which honors the `VELLUM_DOCS_BASE_URL` env override.
+    var addCreditsSubtitleAttributed: AttributedString? {
         guard let summary else { return nil }
-        let maxFormatted: String = {
-            let value = Int(Double(summary.maximum_balance) ?? 0)
-            if value > 0 {
-                let formatter = NumberFormatter()
-                formatter.numberStyle = .decimal
-                return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
-            }
-            return summary.maximum_balance
-        }()
-        return "Credits cost $1 each, with a maximum balance of \(maxFormatted). Unused credits expire 12 months after purchase."
+        let markdown = "Credits cost $1 each, with a maximum balance of \(formattedMaxBalance(summary)). Unused credits expire 12 months after purchase. [Learn more about pricing](\(AppURLs.pricingDocs.absoluteString))"
+        // swiftlint:disable:next force_try
+        var attributed = try! AttributedString(markdown: markdown)
+        for run in attributed.runs where run.link != nil {
+            attributed[run.range].underlineStyle = .single
+        }
+        return attributed
     }
 
     @ViewBuilder
@@ -311,15 +329,7 @@ struct SettingsBillingTab: View {
            let maxBalance = Double(summary.maximum_balance),
            let currentBalance = Double(summary.effective_balance),
            currentBalance + amount > maxBalance {
-            let maxFormatted: String = {
-                let value = Int(maxBalance)
-                if value > 0 {
-                    let formatter = NumberFormatter()
-                    formatter.numberStyle = .decimal
-                    return formatter.string(from: NSNumber(value: value)) ?? summary.maximum_balance
-                }
-                return summary.maximum_balance
-            }()
+            let maxFormatted = formattedMaxBalance(summary)
             topUpError = "This top-up would exceed the maximum credit balance of \(maxFormatted)."
             return
         }
@@ -336,5 +346,18 @@ struct SettingsBillingTab: View {
         } catch {
             self.topUpError = "Failed to create checkout session. Please try again."
         }
+    }
+}
+
+// MARK: - Test Support
+
+extension SettingsBillingTab {
+    /// Test-only convenience initializer that pre-populates the `summary` `@State`
+    /// without going through the `loadSummary()` async path. Used by
+    /// `SettingsBillingTabSubtitleTests` to exercise `addCreditsSubtitleAttributed`
+    /// against a known billing summary fixture.
+    init(authManager: AuthManager, initialSummary: BillingSummaryResponse?) {
+        self.authManager = authManager
+        self._summary = State(initialValue: initialSummary)
     }
 }
