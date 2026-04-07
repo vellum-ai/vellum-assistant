@@ -59,14 +59,12 @@ extension ChatBubble {
             inlineToolCallImages(from: message.toolCalls)
         } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chips.
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
-                        compactPermissionChip(confirmation)
-                    }
-                    Spacer()
+            HStack(alignment: .center, spacing: VSpacing.sm) {
+                ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
+                    compactPermissionChip(confirmation)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, VSpacing.xxs)
         }
     }
@@ -86,20 +84,18 @@ extension ChatBubble {
         let chipColor: Color = isApproved ? VColor.primaryBase : isDenied ? VColor.systemNegativeStrong : VColor.contentTertiary
 
         return HStack(spacing: VSpacing.xs) {
-            Group {
-                switch confirmation.state {
-                case .approved:
-                    VIconView(.circleCheck, size: 12)
-                        .foregroundStyle(chipColor)
-                case .denied:
-                    VIconView(.circleAlert, size: 12)
-                        .foregroundStyle(chipColor)
-                case .timedOut:
-                    VIconView(.clock, size: 12)
-                        .foregroundStyle(chipColor)
-                default:
-                    EmptyView()
-                }
+            switch confirmation.state {
+            case .approved:
+                VIconView(.circleCheck, size: 12)
+                    .foregroundStyle(chipColor)
+            case .denied:
+                VIconView(.circleAlert, size: 12)
+                    .foregroundStyle(chipColor)
+            case .timedOut:
+                VIconView(.clock, size: 12)
+                    .foregroundStyle(chipColor)
+            default:
+                EmptyView()
             }
 
             Text(isApproved || isDenied ? "\(confirmation.toolCategory)" :
