@@ -17,17 +17,9 @@ extension View {
         maxHeight: CGFloat,
         lineThreshold: Int = 500
     ) -> some View {
-        let isLong = countLines(in: text) > lineThreshold
+        let isLong = StringUtils.countLines(in: text) > lineThreshold
         return self
             .frame(height: isLong ? maxHeight : nil)
             .frame(maxHeight: isLong ? nil : maxHeight)
     }
-}
-
-/// Counts newlines without allocating N substrings.
-/// Equivalent to `text.components(separatedBy: "\n").count` but O(1) memory.
-private func countLines(in text: String) -> Int {
-    var count = 1
-    for byte in text.utf8 where byte == 0x0A { count += 1 }
-    return count
 }

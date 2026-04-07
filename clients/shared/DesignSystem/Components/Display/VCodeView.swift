@@ -72,7 +72,7 @@ public struct VCodeView: View {
             return .handled
         }
         .onChange(of: text) { _, _ in
-            cachedLineCount = Self.countLines(in: text)
+            cachedLineCount = StringUtils.countLines(in: text)
             let count = searchMatchCount
             if count == 0 {
                 currentMatchIndex = 0
@@ -81,7 +81,7 @@ public struct VCodeView: View {
             }
         }
         .onAppear {
-            cachedLineCount = Self.countLines(in: text)
+            cachedLineCount = StringUtils.countLines(in: text)
         }
     }
 
@@ -194,13 +194,6 @@ public struct VCodeView: View {
         return CGFloat(digitCount) * Self.gutterDigitWidth + Self.gutterPadding
     }
 
-    /// Counts newlines without allocating N substrings.
-    /// Equivalent to `text.components(separatedBy: "\n").count` but O(1) memory.
-    public static func countLines(in text: String) -> Int {
-        var count = 1
-        for byte in text.utf8 where byte == 0x0A { count += 1 }
-        return count
-    }
 }
 
 // MARK: - VCodeTextView (NSViewRepresentable)

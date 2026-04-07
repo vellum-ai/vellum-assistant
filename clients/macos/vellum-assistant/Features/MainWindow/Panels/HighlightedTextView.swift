@@ -59,13 +59,13 @@ struct HighlightedTextView: View {
             }
         }
         .task {
-            cachedLineCount = VCodeView.countLines(in: text)
+            cachedLineCount = StringUtils.countLines(in: text)
             contentReady = true
         }
         .onChange(of: isActivelyEditing) { _, editing in
             if !editing {
                 highlightVersion &+= 1
-                cachedLineCount = VCodeView.countLines(in: text)
+                cachedLineCount = StringUtils.countLines(in: text)
             }
         }
         .onChange(of: language) { _, _ in
@@ -124,7 +124,7 @@ struct HighlightedTextView: View {
             return .handled
         }
         .onChange(of: text) { _, _ in
-            cachedLineCount = VCodeView.countLines(in: text)
+            cachedLineCount = StringUtils.countLines(in: text)
             let count = searchMatchCount
             if count == 0 {
                 currentMatchIndex = 0
@@ -161,7 +161,7 @@ struct HighlightedTextView: View {
         )
         .onChange(of: text) { _, _ in
             highlightVersion &+= 1
-            cachedLineCount = VCodeView.countLines(in: text)
+            cachedLineCount = StringUtils.countLines(in: text)
         }
     }
 
