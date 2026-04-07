@@ -96,6 +96,14 @@ To point managed sign-in at a specific platform host for a local run:
 VELLUM_PLATFORM_URL=https://platform.vellum.ai ./build.sh run
 ```
 
+To point in-app docs links at a staging or local docs server for a local run:
+
+```bash
+VELLUM_DOCS_BASE_URL=https://staging.vellum.ai/docs ./build.sh run
+```
+
+Defaults to `https://www.vellum.ai/docs`. The override must be a parseable absolute http(s) URL with no query or fragment, otherwise it's ignored and the default is used.
+
 This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 
 ---
