@@ -9,8 +9,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getSqlite, initializeDb } from "../memory/db.js";
 import { maybeEnqueueConversationStartersJob } from "../memory/conversation-starters-cadence.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
 
 initializeDb();
 
