@@ -298,12 +298,12 @@ export async function drainQueue(
   }
 
   // Apply transport hints from the queued message so each turn uses the
-  // transport metadata that arrived with its message, not whatever the
-  // conversation happened to have from a previous turn.
+  // transport metadata that arrived with its message. Messages without
+  // transport (subagent notifications, surface actions, etc.) inherit the
+  // conversation's existing hints — clearing them would erase the user's
+  // environment context for internal turns.
   if (next.transport) {
     conversation.setTransportHints(buildTransportHints(next.transport));
-  } else {
-    conversation.setTransportHints(undefined);
   }
 
   // Non-interactive queued messages (channel requests) must not execute tools
