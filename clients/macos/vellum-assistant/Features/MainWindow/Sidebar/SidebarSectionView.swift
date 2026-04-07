@@ -287,7 +287,7 @@ struct SidebarSectionView: View {
                     .frame(width: 20, height: 20)
 
                 Text(subGroup.label)
-                    .font(VFont.bodyMediumDefault)
+                    .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -435,8 +435,13 @@ struct SectionHeaderDropModifier: ViewModifier {
     let sidebar: SidebarInteractionState?
     let conversationManager: ConversationManager?
 
+    /// Scheduled conversations are managed by the system and should not accept drops.
+    private var acceptsDrops: Bool {
+        group.id != ConversationGroup.scheduled.id
+    }
+
     func body(content: Content) -> some View {
-        if let sidebar, let conversationManager {
+        if acceptsDrops, let sidebar, let conversationManager {
             content.onDrop(of: [.plainText], delegate: SidebarSectionHeaderDropDelegate(
                 groupId: group.id,
                 group: group,
@@ -456,8 +461,13 @@ struct SectionBodyDropModifier: ViewModifier {
     let sidebar: SidebarInteractionState?
     let conversationManager: ConversationManager?
 
+    /// Scheduled conversations are managed by the system and should not accept drops.
+    private var acceptsDrops: Bool {
+        groupId != ConversationGroup.scheduled.id
+    }
+
     func body(content: Content) -> some View {
-        if let sidebar, let conversationManager {
+        if acceptsDrops, let sidebar, let conversationManager {
             content.onDrop(of: [.plainText], delegate: SidebarSectionBodyDropDelegate(
                 groupId: groupId,
                 sidebar: sidebar,

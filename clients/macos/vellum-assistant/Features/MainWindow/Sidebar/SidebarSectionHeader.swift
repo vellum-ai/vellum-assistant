@@ -80,7 +80,7 @@ struct SidebarSectionHeader: View {
                 }
             } else {
                 Text(group.name)
-                    .font(VFont.menuCompact)
+                    .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
 
