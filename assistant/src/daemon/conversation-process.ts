@@ -314,7 +314,10 @@ export async function drainQueue(
   } else {
     // Restore proxy availability only for desktop-originating turns (macos)
     // in case a prior non-interactive drain disabled it. Non-desktop interactive
-    // interfaces (CLI, Vellum) should not re-enable desktop host proxies.
+    // interfaces (CLI, Vellum) should not re-enable desktop host proxies. The
+    // chrome-extension interface only supports host_browser, not the desktop
+    // proxies or computer-use, so it is excluded by the no-arg form of
+    // supportsHostProxy (which returns false for chrome-extension).
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;

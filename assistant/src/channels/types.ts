@@ -48,6 +48,7 @@ export const INTERFACE_IDS = [
   "whatsapp",
   "slack",
   "email",
+  "chrome-extension",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
@@ -90,9 +91,31 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
   return INTERACTIVE_INTERFACES.has(id);
 }
 
-/** Whether the interface supports host proxies (bash, file, computer-use). */
-export function supportsHostProxy(id: InterfaceId): boolean {
-  return id === "macos";
+/**
+ * Host proxy capabilities that an interface can support. The macOS client
+ * historically supports all four; the chrome-extension interface only
+ * supports host_browser (via the Chrome DevTools Protocol proxy).
+ */
+export type HostProxyCapability =
+  | "host_bash"
+  | "host_file"
+  | "host_cu"
+  | "host_browser";
+
+/**
+ * Whether the interface supports a host proxy capability. Omit `capability`
+ * to ask "does this interface support any host proxy at all?" — the macOS
+ * client historically supports all four capabilities; the chrome-extension
+ * interface only supports host_browser, so the no-arg form returns `false`
+ * for chrome-extension.
+ */
+export function supportsHostProxy(
+  id: InterfaceId,
+  capability?: HostProxyCapability,
+): boolean {
+  if (id === "macos") return true;
+  if (id === "chrome-extension" && capability === "host_browser") return true;
+  return false;
 }
 
 export interface TurnInterfaceContext {
