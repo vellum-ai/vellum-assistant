@@ -39,6 +39,7 @@ import { APP_VERSION, COMMIT_SHA } from "../../version.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { createTarGz } from "./archive-utils.js";
+import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
 
 const log = getLogger("log-export-routes");
 
@@ -241,6 +242,17 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       }
     }
 
+    // --- Workspace allowlist ---
+    // Includes specific subpaths from <workspace>/ governed by the rules in
+    // ./log-export/AGENTS.md. Honors the same time + conversation filters as
+    // the rest of the export.
+    const workspaceResult = collectWorkspaceData({
+      staging,
+      conversationId,
+      startTime,
+      endTime,
+    });
+
     // --- Sanitized config snapshot ---
     const configSnapshot = readSanitizedConfig();
     if (configSnapshot) {
@@ -281,6 +293,8 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
         totalBytes,
         hasConfig: configSnapshot !== undefined,
         conversationId: conversationId ?? null,
+        workspaceEntries: workspaceResult.entries.length,
+        workspaceBytes: workspaceResult.totalBytes,
       },
       "Export collected, creating tar.gz archive",
     );

@@ -93,6 +93,35 @@ writeFileSync(
   JSON.stringify({ provider: "anthropic" }),
 );
 
+// Conversation directories — used for workspace allowlist tests
+const conversationsDir = join(testWorkspaceDir, "conversations");
+mkdirSync(conversationsDir, { recursive: true });
+
+function seedConversation(name: string, body: string) {
+  const dir = join(conversationsDir, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "meta.json"), "{}\n");
+  writeFileSync(join(dir, "messages.jsonl"), body);
+}
+
+seedConversation(
+  "2025-01-10T00-00-00.000Z_conv-jan10",
+  '{"role":"user","content":"jan 10"}\n',
+);
+seedConversation(
+  "2025-01-15T00-00-00.000Z_conv-jan15",
+  '{"role":"user","content":"jan 15"}\n',
+);
+seedConversation(
+  "2025-01-20T00-00-00.000Z_conv-jan20",
+  '{"role":"user","content":"jan 20"}\n',
+);
+seedConversation(
+  "2025-01-25T00-00-00.000Z_conv-jan25",
+  '{"role":"user","content":"jan 25"}\n',
+);
+seedConversation("malformed-name", '{"role":"user","content":"x"}\n');
+
 // Daemon log files — used for date filtering tests
 const logsDir = join(testWorkspaceDir, "data", "logs");
 mkdirSync(logsDir, { recursive: true });
@@ -236,6 +265,133 @@ describe("POST /v1/export — daemon log date filtering", () => {
       expect(logFiles).toContain("assistant-2025-01-20.log");
       expect(logFiles).toContain("assistant-2025-01-25.log");
       expect(logFiles).toContain("vellum.log");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("POST /v1/export — workspace allowlist", () => {
+  test("includes all valid conversation dirs by default", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const convs = readdirSync(join(dir, "workspace", "conversations"));
+      expect(convs).toContain("2025-01-10T00-00-00.000Z_conv-jan10");
+      expect(convs).toContain("2025-01-15T00-00-00.000Z_conv-jan15");
+      expect(convs).toContain("2025-01-20T00-00-00.000Z_conv-jan20");
+      expect(convs).toContain("2025-01-25T00-00-00.000Z_conv-jan25");
+      expect(convs).not.toContain("malformed-name");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("skips malformed conversation dir names", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const convs = readdirSync(join(dir, "workspace", "conversations"));
+      expect(convs).not.toContain("malformed-name");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("filters conversation dirs by startTime", async () => {
+    const startTime = Date.parse("2025-01-14T00:00:00Z");
+    const res = await callExport({ startTime });
+    const dir = await extractArchive(res);
+    try {
+      const convs = readdirSync(join(dir, "workspace", "conversations"));
+      expect(convs).not.toContain("2025-01-10T00-00-00.000Z_conv-jan10");
+      expect(convs).toContain("2025-01-15T00-00-00.000Z_conv-jan15");
+      expect(convs).toContain("2025-01-20T00-00-00.000Z_conv-jan20");
+      expect(convs).toContain("2025-01-25T00-00-00.000Z_conv-jan25");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("filters conversation dirs by endTime", async () => {
+    const endTime = Date.parse("2025-01-22T00:00:00Z");
+    const res = await callExport({ endTime });
+    const dir = await extractArchive(res);
+    try {
+      const convs = readdirSync(join(dir, "workspace", "conversations"));
+      expect(convs).toContain("2025-01-10T00-00-00.000Z_conv-jan10");
+      expect(convs).toContain("2025-01-15T00-00-00.000Z_conv-jan15");
+      expect(convs).toContain("2025-01-20T00-00-00.000Z_conv-jan20");
+      expect(convs).not.toContain("2025-01-25T00-00-00.000Z_conv-jan25");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("filters conversation dirs by both startTime and endTime", async () => {
+    const startTime = Date.parse("2025-01-14T00:00:00Z");
+    const endTime = Date.parse("2025-01-22T00:00:00Z");
+    const res = await callExport({ startTime, endTime });
+    const dir = await extractArchive(res);
+    try {
+      const convs = readdirSync(join(dir, "workspace", "conversations"));
+      expect(convs).not.toContain("2025-01-10T00-00-00.000Z_conv-jan10");
+      expect(convs).toContain("2025-01-15T00-00-00.000Z_conv-jan15");
+      expect(convs).toContain("2025-01-20T00-00-00.000Z_conv-jan20");
+      expect(convs).not.toContain("2025-01-25T00-00-00.000Z_conv-jan25");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("filters conversation dirs by conversationId", async () => {
+    const res = await callExport({ conversationId: "conv-jan15" });
+    const dir = await extractArchive(res);
+    try {
+      const convs = readdirSync(join(dir, "workspace", "conversations"));
+      expect(convs).toContain("2025-01-15T00-00-00.000Z_conv-jan15");
+      expect(convs).not.toContain("2025-01-10T00-00-00.000Z_conv-jan10");
+      expect(convs).not.toContain("2025-01-20T00-00-00.000Z_conv-jan20");
+      expect(convs).not.toContain("2025-01-25T00-00-00.000Z_conv-jan25");
+      expect(convs).not.toContain("malformed-name");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("conversationId + time filter intersect", async () => {
+    const res = await callExport({
+      conversationId: "conv-jan15",
+      startTime: Date.parse("2025-02-01T00:00:00Z"),
+    });
+    const dir = await extractArchive(res);
+    try {
+      const conversationsPath = join(dir, "workspace", "conversations");
+      let convs: string[] = [];
+      try {
+        convs = readdirSync(conversationsPath);
+      } catch {
+        // Directory does not exist — acceptable per the test contract.
+      }
+      expect(convs).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("conversation dir contents survive the round trip", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const messagesPath = join(
+        dir,
+        "workspace",
+        "conversations",
+        "2025-01-15T00-00-00.000Z_conv-jan15",
+        "messages.jsonl",
+      );
+      const content = readFileSync(messagesPath, "utf-8");
+      expect(content).toBe('{"role":"user","content":"jan 15"}\n');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
