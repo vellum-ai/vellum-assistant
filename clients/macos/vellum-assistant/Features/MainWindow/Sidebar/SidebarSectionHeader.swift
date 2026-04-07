@@ -33,6 +33,7 @@ struct SidebarSectionHeader: View {
     var onCommitRename: ((String) -> Void)?
     var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onMarkAllRead: (() -> Void)? = nil
     var onArchiveAll: (() -> Void)? = nil
     var sidebar: SidebarInteractionState?
 
@@ -147,6 +148,7 @@ struct SidebarSectionHeader: View {
         .modifier(ConditionalGroupContextMenu(
             onRename: onRename.map { rename in { rename(group.name) } },
             onDelete: onDelete,
+            onMarkAllRead: onMarkAllRead,
             onArchiveAll: onArchiveAll,
             hasConversations: conversationCount > 0
         ))
@@ -165,19 +167,30 @@ struct SidebarSectionHeader: View {
 private struct ConditionalGroupContextMenu: ViewModifier {
     let onRename: (() -> Void)?
     let onDelete: (() -> Void)?
+    let onMarkAllRead: (() -> Void)?
     let onArchiveAll: (() -> Void)?
     let hasConversations: Bool
 
+    private var hasAnyAction: Bool {
+        onRename != nil || onDelete != nil || onMarkAllRead != nil || onArchiveAll != nil
+    }
+
     func body(content: Content) -> some View {
-        if onRename != nil || onDelete != nil || onArchiveAll != nil {
+        if hasAnyAction {
             content.vContextMenu {
+                if let onMarkAllRead {
+                    VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
+                        onMarkAllRead()
+                    }
+                    .disabled(!hasConversations)
+                }
                 if let onArchiveAll {
                     VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
                         onArchiveAll()
                     }
                     .disabled(!hasConversations)
                 }
-                if onArchiveAll != nil && (onRename != nil || onDelete != nil) {
+                if (onMarkAllRead != nil || onArchiveAll != nil) && (onRename != nil || onDelete != nil) {
                     VMenuDivider()
                 }
                 if let onRename {

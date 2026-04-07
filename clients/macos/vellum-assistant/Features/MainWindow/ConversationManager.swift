@@ -1111,6 +1111,11 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.markAllConversationsSeen()
     }
 
+    @discardableResult
+    func markConversationsSeen(in localIds: Set<UUID>) -> [UUID] {
+        listStore.markConversationsSeen(in: localIds)
+    }
+
     func commitPendingSeenSignals() {
         listStore.commitPendingSeenSignals()
     }

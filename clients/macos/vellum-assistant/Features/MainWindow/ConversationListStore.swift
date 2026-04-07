@@ -731,6 +731,22 @@ final class ConversationListStore {
     /// user clicks Undo. Returns the IDs of conversations that were actually marked.
     @discardableResult
     func markAllConversationsSeen() -> [UUID] {
+        markConversationsSeenImpl { _ in true }
+    }
+
+    /// Mark the specified conversations as seen locally.
+    /// Same deferred-signal + undo semantics as `markAllConversationsSeen()`.
+    @discardableResult
+    func markConversationsSeen(in localIds: Set<UUID>) -> [UUID] {
+        markConversationsSeenImpl { localIds.contains($0.id) }
+    }
+
+    /// Shared implementation for bulk mark-as-seen operations.
+    /// `additionalFilter` narrows which conversations are marked beyond the
+    /// standard non-archived, non-private, has-unseen guards.
+    private func markConversationsSeenImpl(
+        where additionalFilter: (ConversationModel) -> Bool
+    ) -> [UUID] {
         // Commit (not cancel) any already-pending signals so a second
         // mark-all invocation doesn't silently drop the first batch.
         commitPendingSeenSignals()
@@ -743,7 +759,8 @@ final class ConversationListStore {
         for idx in snapshot.indices {
             guard !snapshot[idx].isArchived,
                   snapshot[idx].kind != .private,
-                  snapshot[idx].hasUnseenLatestAssistantMessage else { continue }
+                  snapshot[idx].hasUnseenLatestAssistantMessage,
+                  additionalFilter(snapshot[idx]) else { continue }
             let localId = snapshot[idx].id
             let conversationId = snapshot[idx].conversationId
             priorStates[localId] = MarkAllSeenPriorState(

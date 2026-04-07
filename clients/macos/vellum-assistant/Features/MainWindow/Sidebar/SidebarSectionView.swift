@@ -29,6 +29,8 @@ struct SidebarSectionView: View {
     var onCommitRename: ((String) -> Void)?
     var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onMarkAllRead: (() -> Void)? = nil
+    var onMarkAllReadInSubGroup: ((String, [UUID]) -> Void)? = nil
     var onArchiveAll: (() -> Void)? = nil
     var onArchiveAllInSubGroup: ((String, [UUID]) -> Void)? = nil
 
@@ -120,6 +122,7 @@ struct SidebarSectionView: View {
             onCommitRename: onCommitRename,
             onCancelRename: onCancelRename,
             onDelete: onDelete,
+            onMarkAllRead: onMarkAllRead,
             onArchiveAll: onArchiveAll,
             sidebar: sidebar
         )
@@ -329,6 +332,11 @@ struct SidebarSectionView: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .vContextMenu {
+            let unread = subGroup.conversations.filter(\.hasUnseenLatestAssistantMessage)
+            VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
+                onMarkAllReadInSubGroup?(subGroup.label, subGroup.conversations.map(\.id))
+            }
+            .disabled(unread.isEmpty)
             let archivable = subGroup.conversations.filter { !$0.isChannelConversation }
             VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
                 onArchiveAllInSubGroup?(subGroup.label, archivable.map(\.id))
