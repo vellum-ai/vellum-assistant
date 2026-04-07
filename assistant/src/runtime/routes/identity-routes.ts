@@ -97,10 +97,14 @@ function parseK8sMemoryBytes(value: string): number | null {
  */
 function getContainerMemoryLimitBytes(): number | null {
   // 1. Prefer the explicit env var set by the platform StatefulSet template.
-  const envLimit = process.env.VELLUM_MEMORY_LIMIT;
-  if (envLimit) {
-    const parsed = parseK8sMemoryBytes(envLimit);
-    if (parsed !== null) return parsed;
+  try {
+    const envLimit = process.env.VELLUM_MEMORY_LIMIT;
+    if (envLimit) {
+      const parsed = parseK8sMemoryBytes(envLimit);
+      if (parsed !== null) return parsed;
+    }
+  } catch {
+    /* env var parsing failed – fall through to cgroups */
   }
 
   // 2. Try cgroups v2.
