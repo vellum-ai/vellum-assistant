@@ -62,6 +62,7 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     @State var showConversationSwitcher = false
+    @State var showEarnCreditsModal = false
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
     @State var groupToDelete: ConversationGroup?
 
@@ -653,6 +654,9 @@ struct MainWindowView: View {
             .overlay { conversationActionsDismissLayer }
             .overlay(alignment: .topLeading) { conversationActionsDrawerLayer }
             .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
+            .sheet(isPresented: $showEarnCreditsModal) {
+                EarnCreditsModal()
+            }
             .overlay { conversationSwitcherDismissLayer }
             .overlay(alignment: .topLeading) { conversationSwitcherDrawerLayer }
             .ignoresSafeArea(edges: .top)

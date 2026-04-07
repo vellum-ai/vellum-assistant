@@ -9,13 +9,13 @@ struct DrawerMenuView: View {
     let onLogOut: () -> Void
     let onSignIn: () -> Void
     let onOpenBilling: () -> Void
+    let onEarnCredits: () -> Void
 
     @State private var effectiveBalance: String?
     @State private var isLowBalance = false
     @State private var isZeroBalance = false
     @State private var bootstrapGeneration: Int = 0
     @State private var isReferralCodesEnabled: Bool = false
-    @State private var showEarnCreditsModal: Bool = false
     @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
 
     private var isBillingVisible: Bool {
@@ -59,7 +59,7 @@ struct DrawerMenuView: View {
 
                 if isReferralVisible {
                     VMenuItem(icon: VIcon.gift.rawValue, label: String(localized: "Earn credits")) {
-                        showEarnCreditsModal = true
+                        onEarnCredits()
                     }
                 }
 
@@ -95,9 +95,6 @@ struct DrawerMenuView: View {
                let enabled = notification.userInfo?["enabled"] as? Bool {
                 isReferralCodesEnabled = enabled
             }
-        }
-        .sheet(isPresented: $showEarnCreditsModal) {
-            EarnCreditsModal()
         }
         .task {
             isReferralCodesEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("referral-codes")
