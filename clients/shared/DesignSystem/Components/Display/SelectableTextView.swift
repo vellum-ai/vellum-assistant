@@ -143,6 +143,8 @@ public struct VSelectableTextView: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainerInset = .zero
 
+        textView.delegate = context.coordinator
+
         textView.linkTextAttributes = [
             .foregroundColor: tintColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
@@ -193,7 +195,7 @@ public struct VSelectableTextView: NSViewRepresentable {
 
     public func makeCoordinator() -> Coordinator { Coordinator() }
 
-    public final class Coordinator {
+    public final class Coordinator: NSObject, NSTextViewDelegate {
         var lastAttributedString: NSAttributedString?
         var lastLineSpacing: CGFloat = 0
         private var pendingAttributedString: NSAttributedString?
@@ -238,6 +240,22 @@ public struct VSelectableTextView: NSViewRepresentable {
                 self.pendingLineSpacing = nil
                 self.applyAttributedString(attributedString, lineSpacing: lineSpacing, to: textView)
             }
+        }
+
+        // MARK: - NSTextViewDelegate
+
+        /// Opens clicked links in the default browser.
+        /// Reference: https://developer.apple.com/documentation/appkit/nstextviewdelegate/textview(_:clickedonlink:at:)
+        public func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            if let url = link as? URL {
+                NSWorkspace.shared.open(url)
+                return true
+            }
+            if let string = link as? String, let url = URL(string: string) {
+                NSWorkspace.shared.open(url)
+                return true
+            }
+            return false
         }
 
         func applyAttributedString(
