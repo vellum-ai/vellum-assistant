@@ -86,6 +86,7 @@ import type {
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostBrowserProxy } from "./host-browser-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type {
@@ -158,9 +159,10 @@ function resolveCanonicalRequestSourceType(
 
 /**
  * Build an onEvent callback that registers pending interactions when the agent
- * loop emits confirmation_request, secret_request, host_bash_request, or
- * host_file_request events. This ensures that channel approval interception
- * can look up the conversation by requestId.
+ * loop emits confirmation_request, secret_request, host_bash_request,
+ * host_browser_request, host_file_request, or host_cu_request events. This
+ * ensures that channel approval interception can look up the conversation by
+ * requestId.
  */
 function makePendingInteractionRegistrar(
   conversation: Conversation,
@@ -248,6 +250,12 @@ function makePendingInteractionRegistrar(
         conversation,
         conversationId,
         kind: "host_bash",
+      });
+    } else if (msg.type === "host_browser_request") {
+      pendingInteractions.register(msg.requestId, {
+        conversation,
+        conversationId,
+        kind: "host_browser",
       });
     } else if (msg.type === "host_file_request") {
       pendingInteractions.register(msg.requestId, {
@@ -1096,6 +1104,13 @@ export class DaemonServer {
           }),
         );
       }
+      if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
+        conversation.setHostBrowserProxy(
+          new HostBrowserProxy(conversation.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
+      }
       if (!conversation.isProcessing() || !conversation.hostFileProxy) {
         conversation.setHostFileProxy(
           new HostFileProxy(conversation.getCurrentSender(), (requestId) => {
@@ -1113,6 +1128,7 @@ export class DaemonServer {
       conversation.addPreactivatedSkillId("computer-use");
     } else if (!conversation.isProcessing()) {
       conversation.setHostBashProxy(undefined);
+      conversation.setHostBrowserProxy(undefined);
       conversation.setHostFileProxy(undefined);
       conversation.setHostCuProxy(undefined);
     }
