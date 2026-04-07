@@ -32,6 +32,7 @@ struct SidebarSectionHeader: View {
     var onCommitRename: ((String) -> Void)?
     var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
+    var onArchiveAll: (() -> Void)? = nil
     var sidebar: SidebarInteractionState?
 
     @FocusState private var isRenameFocused: Bool
@@ -142,6 +143,7 @@ struct SidebarSectionHeader: View {
         .modifier(ConditionalGroupContextMenu(
             onRename: onRename.map { rename in { rename(group.name) } },
             onDelete: onDelete,
+            onArchiveAll: onArchiveAll,
             hasConversations: conversationCount > 0
         ))
         .conditionalOnDrag(enabled: !group.isSystemGroup) {
@@ -154,15 +156,26 @@ struct SidebarSectionHeader: View {
 // MARK: - Conditional context menu modifier
 
 /// Only attaches a `.vContextMenu` when at least one action is available.
-/// System groups (where onRename and onDelete are both nil) get no context menu.
+/// System groups (where onRename and onDelete are both nil) get no context menu
+/// unless onArchiveAll is provided.
 private struct ConditionalGroupContextMenu: ViewModifier {
     let onRename: (() -> Void)?
     let onDelete: (() -> Void)?
+    let onArchiveAll: (() -> Void)?
     let hasConversations: Bool
 
     func body(content: Content) -> some View {
-        if onRename != nil || onDelete != nil {
+        if onRename != nil || onDelete != nil || onArchiveAll != nil {
             content.vContextMenu {
+                if let onArchiveAll {
+                    VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
+                        onArchiveAll()
+                    }
+                    .disabled(!hasConversations)
+                }
+                if onArchiveAll != nil && (onRename != nil || onDelete != nil) {
+                    VMenuDivider()
+                }
                 if let onRename {
                     VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") { onRename() }
                 }
