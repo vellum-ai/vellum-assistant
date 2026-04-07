@@ -82,7 +82,7 @@ export type AgentEvent =
       toolUseId: string;
       input: Record<string, unknown>;
     }
-  | { type: "server_tool_complete"; toolUseId: string; isError: boolean }
+  | { type: "server_tool_complete"; toolUseId: string; isError: boolean; content?: unknown[] }
   | { type: "error"; error: Error }
   | {
       type: "usage";
