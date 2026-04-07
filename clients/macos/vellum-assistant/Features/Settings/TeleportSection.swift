@@ -142,7 +142,7 @@ struct TeleportSection: View {
             } else if case .transferring(let step) = phase {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(spacing: VSpacing.sm) {
-                        if transferProgress == nil {
+                        if transferProgress == nil || (transferProgress ?? 0) < 0 {
                             ProgressView()
                                 .controlSize(.small)
                         }
@@ -150,7 +150,7 @@ struct TeleportSection: View {
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
                     }
-                    if let transferProgress {
+                    if let transferProgress, transferProgress >= 0 {
                         ProgressView(value: transferProgress)
                             .progressViewStyle(.linear)
                             .tint(VColor.primaryBase)
