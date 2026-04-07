@@ -982,17 +982,24 @@ private struct StepDetailRow: View {
 
             // Output with diff coloring + copy button
             if let result = toolCall.result, !result.isEmpty {
+                let resultLineCount = result.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
+                let resultIsLong = resultLineCount > 500 || (resultLineCount == 1 && result.count > 50_000)
+
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Output")
                         .font(VFont.labelSmall)
                         .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
 
+                    // Skip expensive AttributedString construction for long
+                    // content — building 500+ colored fragments on every
+                    // render is the dominant cost for large tool outputs.
                     outputBlock(
-                        text: nil,
-                        attributedText: coloredOutput(result, isError: toolCall.isError),
+                        text: resultIsLong ? result : nil,
+                        attributedText: resultIsLong ? nil : coloredOutput(result, isError: toolCall.isError),
                         copyText: result,
-                        copyLabel: "Copy output"
+                        copyLabel: "Copy output",
+                        isError: toolCall.isError
                     )
                 }
                 .padding(.horizontal, VSpacing.lg)
@@ -1010,7 +1017,8 @@ private struct StepDetailRow: View {
         text: String?,
         attributedText: AttributedString?,
         copyText: String,
-        copyLabel: String
+        copyLabel: String,
+        isError: Bool = false
     ) -> some View {
         let lineCount = copyText.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
         let isLong = lineCount > 500 || (lineCount == 1 && copyText.count > 50_000)
@@ -1021,7 +1029,7 @@ private struct StepDetailRow: View {
                     // Content at 500+ lines always exceeds 400pt, so a fixed
                     // height lets sizeThatFits return without measuring content.
                     ScrollView {
-                        outputTextView(text: text, attributedText: attributedText)
+                        outputTextView(text: text, attributedText: attributedText, isError: isError)
                     }
                     .frame(height: 400)
                 } else if let attrText = attributedText {
@@ -1029,13 +1037,13 @@ private struct StepDetailRow: View {
                         .font(VFont.bodySmallDefault)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
-                } else if let plainText = text {
-                    Text(plainText)
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                    } else if let plainText = text {
+                        Text(plainText)
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1071,7 +1079,8 @@ private struct StepDetailRow: View {
     @ViewBuilder
     private func outputTextView(
         text: String?,
-        attributedText: AttributedString?
+        attributedText: AttributedString?,
+        isError: Bool = false
     ) -> some View {
         if let attrText = attributedText {
             Text(attrText)
@@ -1080,7 +1089,7 @@ private struct StepDetailRow: View {
         } else if let plainText = text {
             Text(plainText)
                 .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentSecondary)
+                .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
