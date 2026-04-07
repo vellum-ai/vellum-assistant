@@ -58,9 +58,10 @@ interface ExportRequestBody {
  * then package everything into a tar.gz archive.
  *
  * Archive layout:
- *   audit-data.json          — tool invocation records
- *   config-snapshot.json     — sanitized workspace config
- *   daemon-logs/<name>       — daemon log files
+ *   audit-data.json                 — tool invocation records
+ *   config-snapshot.json            — sanitized workspace config
+ *   daemon-logs/<name>              — daemon log files
+ *   workspace/conversations/<dir>/  — allowlisted workspace data (see ./log-export/AGENTS.md)
  */
 async function handleExport(body: ExportRequestBody): Promise<Response> {
   const staging = mkdtempSync(join(tmpdir(), "vellum-export-"));
