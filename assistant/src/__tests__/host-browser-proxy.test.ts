@@ -318,4 +318,49 @@ describe("HostBrowserProxy", () => {
       });
     });
   });
+
+  describe("sender throws synchronously", () => {
+    test("rejects the promise, clears pending state and timer, invokes onInternalResolve", async () => {
+      const resolvedIds: string[] = [];
+      sentMessages = [];
+      sendToClient = () => {
+        throw new Error("transport down");
+      };
+      proxy = new HostBrowserProxy(sendToClient, (id) => resolvedIds.push(id));
+
+      // request() synchronously calls sendToClient inside the Promise
+      // executor. A throw there surfaces as a rejected promise.
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://x.test" } },
+        "session-1",
+      );
+
+      await expect(resultPromise).rejects.toThrow("transport down");
+
+      // No entries should have leaked into the pending map.
+      // (We can't assert against a specific requestId because the sender
+      // threw before any message was observed, so there's nothing to read
+      // the id from. We can instead assert the internal resolve fired once
+      // and that no pending entries remain for any id we issue next.)
+      expect(resolvedIds).toHaveLength(1);
+
+      // Issue a new request on a fresh (non-throwing) sender and verify
+      // the proxy is still functional — no stale timers or bookkeeping
+      // from the failed request.
+      sentMessages = [];
+      proxy.updateSender((msg) => sentMessages.push(msg), true);
+      const okPromise = proxy.request(
+        { cdpMethod: "Page.reload" },
+        "session-1",
+      );
+      expect(sentMessages).toHaveLength(1);
+      const okRequestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(proxy.hasPendingRequest(okRequestId)).toBe(true);
+      proxy.resolve(okRequestId, { content: "reloaded", isError: false });
+      const okResult = await okPromise;
+      expect(okResult.content).toBe("reloaded");
+      expect(okResult.isError).toBe(false);
+    });
+  });
 });

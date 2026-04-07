@@ -96,12 +96,26 @@ export class HostBrowserProxy {
         signal.addEventListener("abort", onAbort, { once: true });
       }
 
-      this.sendToClient({
-        ...input,
-        type: "host_browser_request",
-        requestId,
-        conversationId,
-      } as ServerMessage);
+      try {
+        this.sendToClient({
+          ...input,
+          type: "host_browser_request",
+          requestId,
+          conversationId,
+        } as ServerMessage);
+      } catch (err) {
+        // Sender threw synchronously (e.g. client transport error during
+        // event emission). Clean up pending state and timer so we don't
+        // leak an in-flight entry that nothing will ever resolve.
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        this.onInternalResolve?.(requestId);
+        log.warn(
+          { requestId, cdpMethod: input.cdpMethod, err },
+          "Host browser proxy send failed",
+        );
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
