@@ -107,6 +107,13 @@ public struct VMarqueeText: View {
                     }
                 }
             }
+            .onChange(of: containerWidth) { _, _ in
+                if isHovered && isTruncated && animationOffset == 0 {
+                    withAnimation(.linear(duration: scrollDuration)) {
+                        animationOffset = -overflow
+                    }
+                }
+            }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(text)
     }
