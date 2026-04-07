@@ -13,11 +13,11 @@
  *      first command-line argument, e.g. `chrome-extension://<id>/`) is on a
  *      hard-coded allowlist of known Vellum extension IDs.
  *   2. Listen on stdin for `{ type: "request_token" }` frames.
- *   3. POST the calling extension's origin to the running daemon's
+ *   3. POST the calling extension's origin to the running assistant's
  *      `/v1/browser-extension-pair` endpoint (port resolved from
  *      `--assistant-port`, then `~/.vellum/runtime-port`, then defaulting to
  *      7821).
- *   4. Echo the daemon's response back to Chrome as a
+ *   4. Echo the assistant's response back to Chrome as a
  *      `{ type: "token_response", token, expiresAt }` frame.
  *   5. On any unrecoverable error, write a `{ type: "error", message }` frame
  *      and exit with a non-zero status.
@@ -49,7 +49,7 @@ const ALLOWED_EXTENSION_IDS: ReadonlySet<string> = new Set<string>([
   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 ]);
 
-const DEFAULT_DAEMON_PORT = 7821;
+const DEFAULT_ASSISTANT_PORT = 7821;
 const RUNTIME_PORT_FILE = join(homedir(), ".vellum", "runtime-port");
 
 interface TokenResponse {
@@ -89,23 +89,23 @@ function parseAssistantPortArg(argv: readonly string[]): number | null {
 }
 
 /**
- * Resolve the assistant daemon's HTTP port. Resolution order:
+ * Resolve the assistant's HTTP port. Resolution order:
  *
  *   1. `--assistant-port <port>` CLI flag (highest precedence). This exists
  *      so a wrapper script registered in Chrome's NativeMessagingHosts
  *      manifest can pin the helper to a known port without relying on a
  *      lockfile.
  *   2. `~/.vellum/runtime-port` lockfile (a single integer). This file is
- *      not yet written by the daemon — see the TODO in this package's
+ *      not yet written by the assistant — see the TODO in this package's
  *      README. Once it is, no manifest changes are needed for default
  *      installs.
  *   3. The well-known default port `7821`.
  *
  * Any read or parse failure on the lockfile silently falls through to the
- * default rather than crashing — the daemon is the ultimate source of truth
- * and the subsequent HTTP call will surface a clear connection error.
+ * default rather than crashing — the assistant is the ultimate source of
+ * truth and the subsequent HTTP call will surface a clear connection error.
  */
-function resolveDaemonPort(argv: readonly string[]): number {
+function resolveAssistantPort(argv: readonly string[]): number {
   const fromArg = parseAssistantPortArg(argv);
   if (fromArg !== null) return fromArg;
   try {
@@ -118,7 +118,7 @@ function resolveDaemonPort(argv: readonly string[]): number {
     // Fall through to the default. This is expected on first launch and in
     // dev environments where the port file hasn't been written yet.
   }
-  return DEFAULT_DAEMON_PORT;
+  return DEFAULT_ASSISTANT_PORT;
 }
 
 /**
@@ -158,7 +158,7 @@ function fail(message: string, code = 1): never {
 }
 
 /**
- * POST the extension origin to the daemon's pair endpoint and return the
+ * POST the extension origin to the assistant's pair endpoint and return the
  * issued capability token. Surfaces a uniform error message on failure so
  * the caller can wrap it in a native-messaging error frame.
  *
@@ -171,7 +171,7 @@ async function requestToken(
   extensionOrigin: string,
   argv: readonly string[],
 ): Promise<TokenResponse> {
-  const port = resolveDaemonPort(argv);
+  const port = resolveAssistantPort(argv);
   const url = `http://127.0.0.1:${port}/v1/browser-extension-pair`;
 
   let response: Response;

@@ -3,7 +3,7 @@
 A tiny Node CLI binary that bridges the Vellum Chrome extension and the
 locally-running Vellum assistant via [Chrome Native Messaging][cnm]. It
 exists so the extension can bootstrap a scoped capability token for the
-self-hosted (local-daemon) transport without ever shipping a long-lived
+self-hosted (local-assistant) transport without ever shipping a long-lived
 secret in the extension package itself.
 
 This package is **scaffolding only** in this PR. It is not yet wired into
@@ -25,7 +25,7 @@ binary at all.
 Keeping the helper as its own package gives us:
 
 - A clean security boundary: the helper has zero imports from the
-  extension or the assistant daemon, and verifies the calling extension
+  extension or the assistant, and verifies the calling extension
   ID against a hard-coded allowlist before doing any work.
 - A small, auditable surface: ~200 lines of TypeScript that compile to a
   single Node CLI entry point.
@@ -85,8 +85,7 @@ include `unauthorized_origin`, `unsupported_frame_type`,
 any error string surfaced by the underlying `fetch` to the assistant
 (`failed to reach assistant at …`, `assistant pair request failed with
 HTTP 503`, etc.). Per the project-wide terminology rule in `AGENTS.md`,
-all user-visible strings refer to the local process as the "assistant"
-even though the binary is internally talking to the daemon HTTP server.
+all user-visible strings refer to the local process as the "assistant".
 
 ## Origin allowlist
 
@@ -103,7 +102,7 @@ release` comment in `src/index.ts`.
 
 ## Assistant port resolution
 
-The helper looks up the assistant daemon's HTTP port using the following
+The helper looks up the assistant's HTTP port using the following
 precedence (highest first):
 
 1. **`--assistant-port <port>`** CLI flag — accepts either
@@ -114,8 +113,8 @@ precedence (highest first):
    `RUNTIME_HTTP_PORT` from `resources.daemonPort`).
 2. **`~/.vellum/runtime-port`** lockfile — a single integer written by
    the assistant on startup. *Note: this lockfile is not yet written by
-   the daemon — see the TODO below.* Once it is, default installs will
-   not need any manifest-side configuration.
+   the assistant — see the TODO below.* Once it is, default installs
+   will not need any manifest-side configuration.
 3. **`7821`** — the well-known default port.
 
 If a step fails (file missing, parse error, etc.), resolution falls
@@ -123,9 +122,9 @@ through to the next step. The subsequent HTTP request will surface a
 clear connection error if the assistant isn't actually listening on the
 resolved port.
 
-> **TODO (follow-up):** Have the assistant daemon write its active HTTP
-> port to `~/.vellum/runtime-port` on startup so the lockfile branch
-> above starts working without requiring `--assistant-port`. This was
+> **TODO (follow-up):** Have the assistant write its active HTTP port
+> to `~/.vellum/runtime-port` on startup so the lockfile branch above
+> starts working without requiring `--assistant-port`. This was
 > intentionally left out of the scaffold PR (PR 7) to keep the change
 > surface small. Until then, multi-instance installs should rely on the
 > CLI flag via a wrapper script in the native messaging manifest.
@@ -156,18 +155,22 @@ extension-side bootstrap flow is wired up.
 
 ## Local manual smoke test
 
-Once the daemon is running and exposing `/v1/browser-extension-pair`
+Once the assistant is running and exposing `/v1/browser-extension-pair`
 (PR 11), you can exercise the helper end-to-end without Chrome by piping
 a framed request to it on stdin. Add the extension ID you want to test
 to `ALLOWED_EXTENSION_IDS` in `src/index.ts` (or use the existing dev
 placeholder), then:
 
 ```bash
-node -e "
-  const { encodeFrame } = require('./dist/protocol.js');
+node --input-type=module -e "
+  import { encodeFrame } from './dist/protocol.js';
   process.stdout.write(encodeFrame({ type: 'request_token' }));
 " | node dist/index.js "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"
 ```
+
+(The package is ESM — `"type": "module"` in `package.json` — so the
+inline snippet uses `--input-type=module` and dynamic `import()` rather
+than `require()`, which would fail with `ERR_REQUIRE_ESM`.)
 
 The helper will write a single `token_response` frame to stdout and
 exit `0`, or an `error` frame and exit `1`.
@@ -175,8 +178,8 @@ exit `0`, or an `error` frame and exit `1`.
 To target a non-default assistant port (e.g. a named local instance):
 
 ```bash
-node -e "
-  const { encodeFrame } = require('./dist/protocol.js');
+node --input-type=module -e "
+  import { encodeFrame } from './dist/protocol.js';
   process.stdout.write(encodeFrame({ type: 'request_token' }));
 " | node dist/index.js \
     "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/" \
@@ -185,7 +188,7 @@ node -e "
 
 ## Related PRs
 
-- **PR 11** — Daemon `/v1/browser-extension-pair` endpoint that mints
+- **PR 11** — Assistant `/v1/browser-extension-pair` endpoint that mints
   the capability token this helper requests.
 - **PR 12** — macOS installer changes that drop the compiled binary and
   the native messaging host manifest into Chrome's well-known
