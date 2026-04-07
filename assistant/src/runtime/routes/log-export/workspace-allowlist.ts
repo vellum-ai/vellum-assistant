@@ -14,14 +14,7 @@
  * `<ISO-with-dashes>_<conversationId>` format are silently skipped (Rule 3).
  */
 
-import {
-  cpSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  statSync,
-} from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { parseConversationDirName } from "../../../memory/conversation-directories.js";
@@ -200,16 +193,25 @@ function collectConversations(
   for (const { name } of candidates) {
     const srcPath = join(sourceDir, name);
 
-    // Guard: a canonical-looking entry might actually be a regular file
-    // (not a directory). Without this check, `dirSizeWithinBudget` would
-    // log an ENOTDIR warning and return 0, causing `cpSync` to blindly
-    // copy the file and bypass the byte cap. Skip non-directories
-    // entirely — they don't match the conversation-directory contract.
-    let srcStat: ReturnType<typeof statSync>;
+    // Guard: a canonical-looking entry must be a real directory under
+    // `conversations/`. Use `lstatSync` (not `statSync`) so symlinks are
+    // not dereferenced — a symlink with a canonical name pointing at an
+    // external directory must not be allowed to escape the allowlist
+    // boundary. Symlinks are rejected explicitly below; regular files
+    // (and anything else that isn't a directory) are also skipped so
+    // `dirSizeWithinBudget` and `cpSync` never see them.
+    let srcStat: ReturnType<typeof lstatSync>;
     try {
-      srcStat = statSync(srcPath);
+      srcStat = lstatSync(srcPath);
     } catch (err) {
       log.warn({ err, srcPath }, "Failed to stat conversation entry; skipping");
+      continue;
+    }
+    if (srcStat.isSymbolicLink()) {
+      log.warn(
+        { srcPath },
+        "Conversation entry is a symbolic link; skipping to preserve allowlist boundary",
+      );
       continue;
     }
     if (!srcStat.isDirectory()) {

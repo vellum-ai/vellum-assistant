@@ -366,11 +366,11 @@ describe("collectWorkspaceData — conversations entry", () => {
     if (process.platform === "win32") return;
 
     // Seed a single canonical conversation directory and stick a
-    // symlink loop inside it (`loop -> .`). The recursive sizing walk
-    // used to follow symlinks via statSync, which would cause it to
-    // descend into the loop forever and hang the export. With lstat we
-    // expect the function to return promptly and still process the
-    // conversation directory.
+    // symlink loop inside it (`loop -> .`). `dirSizeWithinBudget` uses
+    // `lstatSync` so that symlinks are skipped rather than dereferenced;
+    // without this, following the symlink would recurse infinitely and
+    // hang the export. We expect the function to return promptly and
+    // still process the conversation directory.
     const conversationsDir = getConversationsDir();
     mkdirSync(conversationsDir, { recursive: true });
 
@@ -389,9 +389,10 @@ describe("collectWorkspaceData — conversations entry", () => {
     const result = collectWorkspaceData({ staging });
     const elapsedMs = Date.now() - startMs;
 
-    // Sanity check: the call must complete quickly. If lstat were ever
-    // reverted back to stat, this would hang and time out the bun test
-    // runner long before this assertion ever fired.
+    // Sanity check: the call must complete quickly. The `lstatSync`
+    // guard is what keeps this from hanging — if the recursive walker
+    // were to dereference the symlink, the bun test runner would time
+    // out long before this assertion ever fired.
     expect(elapsedMs).toBeLessThan(5000);
 
     expect(result.entries).toHaveLength(1);
@@ -405,5 +406,61 @@ describe("collectWorkspaceData — conversations entry", () => {
 
     const copied = readdirSync(join(staging, "workspace", "conversations"));
     expect(copied).toContain(CONV_DIRS.jan20);
+  });
+
+  test("rejects top-level symlinks pointing outside the conversations dir", () => {
+    // Symlink creation requires elevated permissions on Windows; skip
+    // there to avoid spurious failures in CI on Windows hosts.
+    if (process.platform === "win32") return;
+
+    // Create a directory OUTSIDE `conversations/` that masquerades as a
+    // valid conversation dir (with a `meta.json`). The allowlist guard
+    // must not allow a symlink with a canonical name to escape the
+    // `conversations/` boundary by dereferencing into this external
+    // target.
+    const externalTarget = mkdtempSync(
+      join(tmpdir(), "ws-allowlist-external-"),
+    );
+    try {
+      writeFileSync(
+        join(externalTarget, "meta.json"),
+        JSON.stringify({ name: "evil" }, null, 2),
+        "utf-8",
+      );
+      writeFileSync(
+        join(externalTarget, "secret.txt"),
+        "should never be copied",
+        "utf-8",
+      );
+
+      // Seed the conversations dir and add a symlink with a canonical
+      // name pointing at the external target.
+      const conversationsDir = getConversationsDir();
+      mkdirSync(conversationsDir, { recursive: true });
+
+      const evilName = "2025-01-30T00-00-00.000Z_evil-target";
+      symlinkSync(externalTarget, join(conversationsDir, evilName), "dir");
+
+      const result = collectWorkspaceData({ staging });
+
+      // The symlink must be skipped by the top-level `lstatSync` guard.
+      // Nothing from the external target should land in the staging
+      // directory and the entry summary should not count it.
+      expect(result.entries).toHaveLength(1);
+      const [entry] = result.entries;
+      expect(entry.entry).toBe("conversations");
+      expect(entry.itemCount).toBe(0);
+      expect(entry.skippedDueToCap).toBe(0);
+      expect(entry.bytes).toBe(0);
+      expect(result.totalBytes).toBe(0);
+
+      // No staging directory should have been created because nothing
+      // qualified for copying.
+      expect(existsSync(join(staging, "workspace", "conversations"))).toBe(
+        false,
+      );
+    } finally {
+      rmSync(externalTarget, { recursive: true, force: true });
+    }
   });
 });
