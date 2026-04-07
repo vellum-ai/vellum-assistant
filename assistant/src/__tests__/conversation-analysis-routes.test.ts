@@ -121,7 +121,7 @@ describe("POST /v1/conversations/:id/analyze", () => {
     );
   });
 
-  test("marks analysis interactive when a matching subscriber is already connected", async () => {
+  test("keeps analysis non-interactive even when a matching subscriber is connected", async () => {
     const conversation = makeConversation();
     const assistantEventHub = new AssistantEventHub();
     assistantEventHub.subscribe(
@@ -163,7 +163,7 @@ describe("POST /v1/conversations/:id/analyze", () => {
       expect.any(String),
       "msg-1",
       expect.any(Function),
-      expect.objectContaining({ isInteractive: true, isUserMessage: true }),
+      expect.objectContaining({ isInteractive: false, isUserMessage: true }),
     );
   });
 });
