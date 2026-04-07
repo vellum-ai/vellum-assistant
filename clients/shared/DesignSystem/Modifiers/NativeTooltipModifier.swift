@@ -322,8 +322,33 @@ private final class VTooltipTrackerView: NSView {
             y: anchorY
         ))
 
-        let x = screenPoint.x - host.fittingSize.width / 2
-        let y = tooltipEdge == .bottom ? screenPoint.y - host.fittingSize.height - 4 : screenPoint.y + 4
+        let panelWidth = host.fittingSize.width
+        let panelHeight = host.fittingSize.height
+        let edgeInset: CGFloat = 4
+
+        // Find the screen containing the anchor point (fall back to main display)
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? NSScreen.main
+        let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: .infinity, height: .infinity)
+
+        // Compute initial position centered on the anchor
+        var x = screenPoint.x - panelWidth / 2
+        var y = tooltipEdge == .bottom
+            ? screenPoint.y - panelHeight - edgeInset
+            : screenPoint.y + edgeInset
+
+        // If the tooltip would be clipped on the preferred edge, flip to the opposite edge
+        if tooltipEdge == .bottom, y < visibleFrame.minY + edgeInset {
+            y = screenPoint.y + edgeInset
+        } else if tooltipEdge != .bottom, y + panelHeight > visibleFrame.maxY - edgeInset {
+            y = screenPoint.y - panelHeight - edgeInset
+        }
+
+        // Clamp horizontally within the visible screen bounds
+        x = max(visibleFrame.minX + edgeInset, min(x, visibleFrame.maxX - panelWidth - edgeInset))
+
+        // Clamp vertically within the visible screen bounds
+        y = max(visibleFrame.minY + edgeInset, min(y, visibleFrame.maxY - panelHeight - edgeInset))
+
         p.setFrameOrigin(NSPoint(x: x, y: y))
 
         p.alphaValue = 0
