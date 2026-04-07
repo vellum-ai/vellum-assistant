@@ -320,33 +320,55 @@ describe("HostBrowserProxy", () => {
   });
 
   describe("abort listener lifecycle", () => {
+    // Helper that wraps an AbortSignal to observe add/removeEventListener
+    // invocations without tripping over tsc's strict overload matching on
+    // AbortSignal itself.
+    type Spied = {
+      signal: AbortSignal;
+      addCalls: string[];
+      removeCalls: string[];
+    };
+    function spySignal(source: AbortSignal): Spied {
+      const addCalls: string[] = [];
+      const removeCalls: string[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const s = source as any;
+      const origAdd = source.addEventListener.bind(source);
+      const origRemove = source.removeEventListener.bind(source);
+      s.addEventListener = (
+        type: string,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...rest: any[]
+      ) => {
+        addCalls.push(type);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (origAdd as any)(type, ...rest);
+      };
+      s.removeEventListener = (
+        type: string,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...rest: any[]
+      ) => {
+        removeCalls.push(type);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (origRemove as any)(type, ...rest);
+      };
+      return { signal: source, addCalls, removeCalls };
+    }
+
     test("removes abort listener from signal after resolve completes", async () => {
       setup();
       const controller = new AbortController();
-      const signal = controller.signal;
-
-      // Spy on addEventListener / removeEventListener.
-      const addCalls: string[] = [];
-      const removeCalls: string[] = [];
-      const origAdd = signal.addEventListener.bind(signal);
-      const origRemove = signal.removeEventListener.bind(signal);
-      signal.addEventListener = ((type: string, ...rest: unknown[]) => {
-        addCalls.push(type);
-        return origAdd(type, ...(rest as Parameters<typeof origAdd>));
-      }) as typeof signal.addEventListener;
-      signal.removeEventListener = ((type: string, ...rest: unknown[]) => {
-        removeCalls.push(type);
-        return origRemove(type, ...(rest as Parameters<typeof origRemove>));
-      }) as typeof signal.removeEventListener;
+      const spy = spySignal(controller.signal);
 
       const resultPromise = proxy.request(
         { cdpMethod: "Page.reload" },
         "session-1",
-        signal,
+        spy.signal,
       );
 
-      expect(addCalls).toEqual(["abort"]);
-      expect(removeCalls).toEqual([]);
+      expect(spy.addCalls).toEqual(["abort"]);
+      expect(spy.removeCalls).toEqual([]);
 
       const requestId = (sentMessages[0] as Record<string, unknown>)
         .requestId as string;
@@ -354,7 +376,7 @@ describe("HostBrowserProxy", () => {
       await resultPromise;
 
       // Listener is detached after normal completion.
-      expect(removeCalls).toEqual(["abort"]);
+      expect(spy.removeCalls).toEqual(["abort"]);
 
       // Subsequent aborts are harmless no-ops (no side effects on the proxy).
       controller.abort();
@@ -365,25 +387,18 @@ describe("HostBrowserProxy", () => {
     test("removes abort listener from signal after dispose", () => {
       setup();
       const controller = new AbortController();
-      const signal = controller.signal;
-
-      const removeCalls: string[] = [];
-      const origRemove = signal.removeEventListener.bind(signal);
-      signal.removeEventListener = ((type: string, ...rest: unknown[]) => {
-        removeCalls.push(type);
-        return origRemove(type, ...(rest as Parameters<typeof origRemove>));
-      }) as typeof signal.removeEventListener;
+      const spy = spySignal(controller.signal);
 
       const p = proxy.request(
         { cdpMethod: "Page.reload" },
         "session-1",
-        signal,
+        spy.signal,
       );
       p.catch(() => {}); // Swallow expected rejection.
 
       proxy.dispose();
 
-      expect(removeCalls).toEqual(["abort"]);
+      expect(spy.removeCalls).toEqual(["abort"]);
     });
   });
 
