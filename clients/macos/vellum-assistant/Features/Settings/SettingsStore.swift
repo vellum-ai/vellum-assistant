@@ -24,10 +24,6 @@ public final class SettingsStore: ObservableObject {
     // MARK: - API Key State
 
     @Published var hasKey: Bool = false
-    @Published var hasBraveKey: Bool = false
-    @Published var hasPerplexityKey: Bool = false
-    @Published var hasImageGenKey: Bool = false
-    @Published var hasElevenLabsKey: Bool = false
     @Published var hasVercelKey: Bool = false
 
     // MARK: - Embedding Config State
@@ -47,10 +43,6 @@ public final class SettingsStore: ObservableObject {
     @Published var perplexityKeySaveError: String?
     @Published var imageGenKeySaveError: String?
     @Published var imageGenKeySaving: Bool = false
-    @Published var maskedBraveKey: String = ""
-    @Published var maskedPerplexityKey: String = ""
-    @Published var maskedImageGenKey: String = ""
-    @Published var maskedElevenLabsKey: String = ""
 
     // MARK: - Model Selection
 
@@ -472,18 +464,6 @@ public final class SettingsStore: ObservableObject {
         // the first daemon fetch completes.
         providerCatalog = ProviderCatalogEntry.defaultCatalog
 
-        // React to credential storage changes from other surfaces
-        NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.refreshAPIKeyState() }
-            .store(in: &cancellables)
-
-        // Load credential state asynchronously to avoid blocking the main
-        // thread with file-backed CredentialStorage reads during init.
-        Task { @MainActor [weak self] in
-            self?.refreshAPIKeyState()
-        }
-
         // Resolve lockfile-derived state (gateway URL, assistant topology)
         // on a background thread so that synchronous Data(contentsOf:)
         // file I/O does not block the main thread during init.
@@ -793,7 +773,7 @@ public final class SettingsStore: ObservableObject {
         refreshModelInfo()
     }
 
-    func saveBraveKey(_ raw: String) {
+    func saveBraveKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         braveKeySaveError = nil
@@ -801,18 +781,15 @@ public final class SettingsStore: ObservableObject {
         // Remove any stale deletion tombstone eagerly — the user's intent is to
         // save a new key, so any prior clear is superseded.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: "brave")
-        hasBraveKey = true
-        maskedBraveKey = Self.maskKey(trimmed)
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: "brave", value: trimmed)
             if result.success {
                 scheduleRoutingSourceRefresh()
+                onSuccess?()
             } else if let error = result.error {
                 braveKeySaveError = error
                 if !result.isTransient {
                     APIKeyManager.deleteKey(for: "brave")
-                    hasBraveKey = false
-                    maskedBraveKey = ""
                     // Restore the deletion tombstone if one existed before we
                     // removed it, so pending offline clears are not lost.
                     if hadTombstone {
@@ -827,12 +804,10 @@ public final class SettingsStore: ObservableObject {
         APIKeyManager.deleteKey(for: "brave")
         addDeletionTombstone(type: "api_key", name: "brave")
         deleteKeyFromDaemon(provider: "brave")
-        hasBraveKey = false
-        maskedBraveKey = ""
         scheduleRoutingSourceRefresh()
     }
 
-    func savePerplexityKey(_ raw: String) {
+    func savePerplexityKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         perplexityKeySaveError = nil
@@ -840,18 +815,15 @@ public final class SettingsStore: ObservableObject {
         // Remove any stale deletion tombstone eagerly — the user's intent is to
         // save a new key, so any prior clear is superseded.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: "perplexity")
-        hasPerplexityKey = true
-        maskedPerplexityKey = Self.maskKey(trimmed)
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: "perplexity", value: trimmed)
             if result.success {
                 scheduleRoutingSourceRefresh()
+                onSuccess?()
             } else if let error = result.error {
                 perplexityKeySaveError = error
                 if !result.isTransient {
                     APIKeyManager.deleteKey(for: "perplexity")
-                    hasPerplexityKey = false
-                    maskedPerplexityKey = ""
                     // Restore the deletion tombstone if one existed before we
                     // removed it, so pending offline clears are not lost.
                     if hadTombstone {
@@ -866,8 +838,6 @@ public final class SettingsStore: ObservableObject {
         APIKeyManager.deleteKey(for: "perplexity")
         addDeletionTombstone(type: "api_key", name: "perplexity")
         deleteKeyFromDaemon(provider: "perplexity")
-        hasPerplexityKey = false
-        maskedPerplexityKey = ""
         scheduleRoutingSourceRefresh()
     }
 
@@ -880,8 +850,6 @@ public final class SettingsStore: ObservableObject {
         // Remove any stale deletion tombstone eagerly — the user's intent is to
         // save a new key, so any prior clear is superseded.
         let hadTombstone = removeDeletionTombstone(type: "api_key", name: "gemini")
-        hasImageGenKey = true
-        maskedImageGenKey = Self.maskKey(trimmed)
         Task {
             let result = await syncKeyToDaemonWithValidation(provider: "gemini", value: trimmed)
             imageGenKeySaving = false
@@ -892,8 +860,6 @@ public final class SettingsStore: ObservableObject {
                 imageGenKeySaveError = error
                 if !result.isTransient {
                     APIKeyManager.deleteKey(for: "gemini")
-                    hasImageGenKey = false
-                    maskedImageGenKey = ""
                     // Restore the deletion tombstone if one existed before we
                     // removed it, so pending offline clears are not lost.
                     if hadTombstone {
@@ -908,8 +874,6 @@ public final class SettingsStore: ObservableObject {
         APIKeyManager.deleteKey(for: "gemini")
         addDeletionTombstone(type: "api_key", name: "gemini")
         deleteKeyFromDaemon(provider: "gemini")
-        hasImageGenKey = false
-        maskedImageGenKey = ""
         scheduleRoutingSourceRefresh()
     }
 
@@ -917,21 +881,16 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
-        hasElevenLabsKey = true
-        maskedElevenLabsKey = Self.maskKey(trimmed)
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
-        hasElevenLabsKey = false
-        maskedElevenLabsKey = ""
     }
 
     func clearAPIKeyForProvider(_ provider: String) {
         APIKeyManager.deleteKey(for: provider)
         addDeletionTombstone(type: "api_key", name: provider)
         deleteKeyFromDaemon(provider: provider)
-        refreshAPIKeyState()
         scheduleRoutingSourceRefresh()
         refreshModelInfo()
     }
@@ -993,36 +952,6 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func refreshAPIKeyState() {
-        let anthropicKey = APIKeyManager.getKey(for: "anthropic")
-        hasKey = anthropicKey != nil
-        maskedKey = Self.maskKey(anthropicKey)
-
-        let braveKey = APIKeyManager.getKey(for: "brave")
-        hasBraveKey = braveKey != nil
-        maskedBraveKey = Self.maskKey(braveKey)
-
-        let perplexityKey = APIKeyManager.getKey(for: "perplexity")
-        hasPerplexityKey = perplexityKey != nil
-        maskedPerplexityKey = Self.maskKey(perplexityKey)
-
-        let imageGenKey = APIKeyManager.getKey(for: "gemini")
-        hasImageGenKey = imageGenKey != nil
-        maskedImageGenKey = Self.maskKey(imageGenKey)
-
-        let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
-        hasElevenLabsKey = elevenLabsKey != nil
-        maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
-
-    }
-
-    func hasKeyForProvider(_ provider: String) -> Bool {
-        APIKeyManager.getKey(for: provider) != nil
-    }
-
-    func maskedKeyForProvider(_ provider: String) -> String {
-        Self.maskKey(APIKeyManager.getKey(for: provider))
-    }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".
     /// For short keys, reduces visible prefix/suffix so at least 3 characters are always hidden.
@@ -1152,11 +1081,12 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func saveEmbeddingAPIKey(_ raw: String, provider: String) {
+    func saveEmbeddingAPIKey(_ raw: String, provider: String, onKeySuccess: (() -> Void)? = nil) {
         embeddingKeySaveError = nil
         // Delegate to saveInferenceAPIKey — same credential store, same daemon validation
         saveInferenceAPIKey(raw, provider: provider, onSuccess: {
             self.refreshEmbeddingConfig()
+            onKeySuccess?()
         }, onError: { error in
             self.embeddingKeySaveError = error
         })
