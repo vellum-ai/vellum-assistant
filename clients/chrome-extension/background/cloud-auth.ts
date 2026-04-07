@@ -27,7 +27,13 @@ export async function getStoredToken(): Promise<StoredCloudToken | null> {
   const raw = result[STORAGE_KEY];
   if (!raw || typeof raw !== 'object') return null;
   const token = raw as StoredCloudToken;
-  if (typeof token.token !== 'string' || typeof token.expiresAt !== 'number') return null;
+  if (
+    typeof token.token !== 'string' ||
+    typeof token.expiresAt !== 'number' ||
+    typeof token.guardianId !== 'string'
+  ) {
+    return null;
+  }
   if (token.expiresAt <= Date.now()) return null;
   return token;
 }

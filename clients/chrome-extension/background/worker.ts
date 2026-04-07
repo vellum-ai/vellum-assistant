@@ -7,6 +7,16 @@
  */
 
 import type { ExtensionCommand, ExtensionResponse, ExtensionHeartbeat } from '../../../assistant/src/browser-extension-relay/protocol.js';
+import { signInCloud, type CloudAuthConfig, type StoredCloudToken } from './cloud-auth.js';
+
+// Cloud OAuth defaults — kept here so the popup can stay a thin client and the
+// service worker is the single owner of the launchWebAuthFlow lifecycle. This
+// avoids the MV3 popup teardown race where closing the popup mid-auth kills
+// the awaited promise before the token is persisted.
+//
+// PR 14 will plumb these through config; hard-coded for the Phase 2 skeleton.
+const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
+const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 const DEFAULT_RELAY_PORT = 7830;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -342,6 +352,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       connected: ws !== null && ws.readyState === WebSocket.OPEN,
     });
     return false;
+  }
+  if (message.type === 'cloud-auth-sign-in') {
+    // Run the OAuth flow in the service worker — not the popup — so the
+    // awaited promise survives the popup losing focus during the Chrome
+    // identity window. The popup just awaits this message response.
+    const config: CloudAuthConfig = {
+      gatewayBaseUrl:
+        typeof message.gatewayBaseUrl === 'string' ? message.gatewayBaseUrl : CLOUD_GATEWAY_BASE_URL,
+      clientId:
+        typeof message.clientId === 'string' ? message.clientId : CLOUD_OAUTH_CLIENT_ID,
+    };
+    signInCloud(config)
+      .then((stored: StoredCloudToken) => sendResponse({ ok: true, token: stored }))
+      .catch((err) => sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+    return true; // async
   }
 });
 

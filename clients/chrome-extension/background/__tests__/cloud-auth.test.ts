@@ -170,6 +170,23 @@ describe('getStoredToken', () => {
 
     expect(await getStoredToken()).toBeNull();
   });
+
+  test('returns null when guardianId is missing or non-string', async () => {
+    // Missing guardianId entirely — would otherwise render as "guardian:undefined" in the popup.
+    fakeStorage.data[STORAGE_KEY] = {
+      token: 'valid-token',
+      expiresAt: Date.now() + 60_000,
+    };
+    expect(await getStoredToken()).toBeNull();
+
+    // Non-string guardianId (e.g. a number).
+    fakeStorage.data[STORAGE_KEY] = {
+      token: 'valid-token',
+      expiresAt: Date.now() + 60_000,
+      guardianId: 42,
+    };
+    expect(await getStoredToken()).toBeNull();
+  });
 });
 
 describe('clearStoredToken', () => {
