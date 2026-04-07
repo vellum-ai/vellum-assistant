@@ -319,6 +319,74 @@ describe("HostBrowserProxy", () => {
     });
   });
 
+  describe("abort listener lifecycle", () => {
+    test("removes abort listener from signal after resolve completes", async () => {
+      setup();
+      const controller = new AbortController();
+      const signal = controller.signal;
+
+      // Spy on addEventListener / removeEventListener.
+      const addCalls: string[] = [];
+      const removeCalls: string[] = [];
+      const origAdd = signal.addEventListener.bind(signal);
+      const origRemove = signal.removeEventListener.bind(signal);
+      signal.addEventListener = ((type: string, ...rest: unknown[]) => {
+        addCalls.push(type);
+        return origAdd(type, ...(rest as Parameters<typeof origAdd>));
+      }) as typeof signal.addEventListener;
+      signal.removeEventListener = ((type: string, ...rest: unknown[]) => {
+        removeCalls.push(type);
+        return origRemove(type, ...(rest as Parameters<typeof origRemove>));
+      }) as typeof signal.removeEventListener;
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.reload" },
+        "session-1",
+        signal,
+      );
+
+      expect(addCalls).toEqual(["abort"]);
+      expect(removeCalls).toEqual([]);
+
+      const requestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(requestId, { content: "ok", isError: false });
+      await resultPromise;
+
+      // Listener is detached after normal completion.
+      expect(removeCalls).toEqual(["abort"]);
+
+      // Subsequent aborts are harmless no-ops (no side effects on the proxy).
+      controller.abort();
+      // No additional emitted envelopes from the late abort.
+      expect(sentMessages).toHaveLength(1);
+    });
+
+    test("removes abort listener from signal after dispose", () => {
+      setup();
+      const controller = new AbortController();
+      const signal = controller.signal;
+
+      const removeCalls: string[] = [];
+      const origRemove = signal.removeEventListener.bind(signal);
+      signal.removeEventListener = ((type: string, ...rest: unknown[]) => {
+        removeCalls.push(type);
+        return origRemove(type, ...(rest as Parameters<typeof origRemove>));
+      }) as typeof signal.removeEventListener;
+
+      const p = proxy.request(
+        { cdpMethod: "Page.reload" },
+        "session-1",
+        signal,
+      );
+      p.catch(() => {}); // Swallow expected rejection.
+
+      proxy.dispose();
+
+      expect(removeCalls).toEqual(["abort"]);
+    });
+  });
+
   describe("sender throws synchronously", () => {
     test("rejects the promise, clears pending state and timer, invokes onInternalResolve", async () => {
       const resolvedIds: string[] = [];
