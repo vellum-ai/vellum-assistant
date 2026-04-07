@@ -324,7 +324,7 @@ public struct ToolConfirmationBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
-        .adaptiveScrollFrame(for: content, maxHeight: maxHeight)
+        .adaptiveScrollFrame(for: content, maxHeight: maxHeight, lineCount: cachedPreviewLineCount)
         .padding(VSpacing.sm)
         .onAppear {
             if cachedPreviewLineCount == nil {
