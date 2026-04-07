@@ -361,6 +361,16 @@ struct ChatBubble: View, Equatable {
                         onForkFromMessage: onForkFromMessage,
                         onInspectMessage: onInspectMessage
                     )
+
+                    // Avatar below the latest assistant message.
+                    // Placed inside the VStack so it participates in the
+                    // VStack's .leading alignment and avoids a multi-root
+                    // body whose children flatten into the parent LazyVStack
+                    // with duplicate .id(message.id) — causing incorrect
+                    // width proposals at narrow window sizes (LUM-688).
+                    if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
+                        inlineAvatar
+                    }
                 }
                 // Give this content priority so LazyVStack doesn't compress it,
                 // which caused trailing tool chips to overlap long text content.
@@ -384,13 +394,6 @@ struct ChatBubble: View, Equatable {
             let resolved = await MediaEmbedResolver.resolve(message: message, settings: settings)
             guard !Task.isCancelled else { return }
             mediaEmbedIntents = resolved
-        }
-
-        // Avatar below the latest assistant message, left-aligned
-        if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
-            inlineAvatar
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, VSpacing.sm)
         }
     }
 
