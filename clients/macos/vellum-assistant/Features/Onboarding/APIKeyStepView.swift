@@ -112,7 +112,7 @@ struct APIKeyStepView: View {
                 }
 
                 VButton(label: "Need help deciding?", style: .ghost) {
-                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/hosting-options")!)
+                    NSWorkspace.shared.open(AppURLs.hostingOptionsDocs)
                 }
 
                 if !isAuthenticated {

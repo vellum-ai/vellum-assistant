@@ -434,7 +434,7 @@ struct SettingsPanel: View {
                     .foregroundStyle(VColor.contentSecondary)
 
                 Button {
-                    NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/pricing")!)
+                    NSWorkspace.shared.open(AppURLs.pricingDocs)
                 } label: {
                     HStack(spacing: VSpacing.xs) {
                         Text("View pricing")
