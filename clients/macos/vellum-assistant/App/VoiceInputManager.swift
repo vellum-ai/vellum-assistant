@@ -79,6 +79,10 @@ final class VoiceInputManager {
     /// Whether the microphone is currently recording for PTT/dictation.
     private(set) var isRecording = false
 
+    /// Timestamp when the current recording session started. Used to detect
+    /// micro-recordings that stop almost immediately (likely failures).
+    private var recordingStartTime: CFAbsoluteTime = 0
+
     /// Guards against double-start/double-stop from rapid key events.
     private var isActivatorHeld = false
 
@@ -612,21 +616,23 @@ final class VoiceInputManager {
     // MARK: - Recording
 
     private func beginRecording() {
+        log.info("beginRecording() called — origin=\(String(describing: activeOrigin)) mode=\(String(describing: currentMode)) isRecording=\(isRecording)")
+
         // Recreate speech recognizer if transiently unavailable (e.g. after
         // sleep/wake, heavy use, or audio route changes).
         if speechRecognizer?.isAvailable != true {
-            log.warning("Speech recognizer unavailable — recreating")
+            log.warning("Speech recognizer unavailable (nil=\(speechRecognizer == nil)) — recreating")
             speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
         }
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
-            log.error("Speech recognizer not available")
+            log.error("Speech recognizer not available after recreation attempt (nil=\(speechRecognizer == nil), available=\(speechRecognizer?.isAvailable ?? false))")
             currentDictationContext = nil
             return
         }
 
         // Don't start if a previous recognition task is still processing
         if recognitionTask != nil {
-            log.warning("Previous recognition task still active, skipping")
+            log.warning("Previous recognition task still active (state=\(String(describing: recognitionTask?.state))), skipping")
             currentDictationContext = nil
             return
         }
@@ -636,9 +642,11 @@ final class VoiceInputManager {
         // silently opening System Settings.
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        log.info("Permissions — mic=\(String(describing: micStatus)) speech=\(String(describing: speechStatus))")
 
         if micStatus == .notDetermined || speechStatus == .notDetermined {
             // Show a primer explaining why we need mic access, then request.
+            log.info("Showing permission primer (mic=\(String(describing: micStatus)) speech=\(String(describing: speechStatus)))")
             currentDictationContext = nil
             permissionOverlay.show(kind: .firstUse, onDismiss: {}, onContinue: { [weak self] in
                 Task { @MainActor in
@@ -658,6 +666,7 @@ final class VoiceInputManager {
             } else {
                 deniedPermission = .speechRecognition
             }
+            log.warning("Permission denied — showing overlay (mic=\(String(describing: micStatus)) speech=\(String(describing: speechStatus)))")
             permissionOverlay.show(kind: .denied(deniedPermission), onDismiss: {}, onContinue: {})
             currentDictationContext = nil
             return
@@ -669,6 +678,7 @@ final class VoiceInputManager {
         recordingGeneration &+= 1
         let generation = recordingGeneration
         isRecording = true
+        recordingStartTime = CFAbsoluteTimeGetCurrent()
         onRecordingStateChanged?(true)
         if currentMode == .dictation {
             if activeOrigin == .chatComposer {
@@ -742,7 +752,8 @@ final class VoiceInputManager {
                 return
             }
             guard success else {
-                log.error("Audio engine failed to start — invalid format or engine error")
+                let elapsed = CFAbsoluteTimeGetCurrent() - self.recordingStartTime
+                log.error("Audio engine failed to start after \(String(format: "%.1f", elapsed))s — invalid format or engine error. Resetting engine for next attempt.")
                 self.isRecording = false
                 self.onRecordingStateChanged?(false)
                 self.currentDictationContext = nil
@@ -763,10 +774,12 @@ final class VoiceInputManager {
                     if let result = result {
                         let text = result.bestTranscription.formattedString
                         if result.isFinal {
-                            log.info("Transcription: \(text, privacy: .public)")
+                            let elapsed = CFAbsoluteTimeGetCurrent() - self.recordingStartTime
+                            log.info("Final transcription after \(String(format: "%.1f", elapsed))s: \"\(text, privacy: .public)\"")
                             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 self.handleFinalTranscription(text)
                             } else {
+                                log.warning("Empty final transcription after \(String(format: "%.1f", elapsed))s — stopping recording")
                                 VoiceFeedback.playDeactivationChime()
                             }
                             self.recognitionTask = nil
@@ -780,7 +793,8 @@ final class VoiceInputManager {
                     }
 
                     if let error = error {
-                        log.error("Recognition error: \(error.localizedDescription)")
+                        let elapsed = CFAbsoluteTimeGetCurrent() - self.recordingStartTime
+                        log.error("Recognition error after \(String(format: "%.1f", elapsed))s: \(error.localizedDescription) (domain=\((error as NSError).domain) code=\((error as NSError).code))")
                         self.recognitionTask = nil
                         VoiceFeedback.playDeactivationChime()
                         self.stopRecording()
@@ -929,11 +943,17 @@ final class VoiceInputManager {
 
     private func stopRecording() {
         guard isRecording else {
+            log.info("stopRecording() called but isRecording=false — tearing down audio state only")
             // Even when isRecording is false, audio state may be inconsistent
             // (e.g. a prior error set isRecording=false without fully cleaning up).
             // Tear down unconditionally so the cancel button always works.
             tearDownAudioState()
             return
+        }
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - recordingStartTime
+        if elapsed < 1.0 {
+            log.warning("Micro-recording detected: recording stopped after only \(String(format: "%.2f", elapsed))s — likely a failure, not user action")
         }
 
         isRecording = false
@@ -949,7 +969,7 @@ final class VoiceInputManager {
             overlayWindow.dismiss()
         }
         awaitingDaemonResponse = false  // reset for next recording
-        log.info("Voice recording stopped")
+        log.info("Voice recording stopped after \(String(format: "%.1f", elapsed))s")
 
         tearDownAudioState()
     }
