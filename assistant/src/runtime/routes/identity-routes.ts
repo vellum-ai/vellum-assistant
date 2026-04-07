@@ -54,10 +54,56 @@ interface MemoryInfo {
   maxMb: number;
 }
 
-// Read the container memory limit from cgroups if available, falling back to host total.
-// cgroups v2: /sys/fs/cgroup/memory.max (returns "max" when unlimited)
-// cgroups v1: /sys/fs/cgroup/memory/memory.limit_in_bytes (large sentinel when unlimited)
+/**
+ * Parse a Kubernetes-style memory string (e.g. "3Gi", "512Mi", "1G") into bytes.
+ * Returns null if the value is not a recognized format.
+ */
+function parseK8sMemoryBytes(value: string): number | null {
+  const match = value
+    .trim()
+    .match(/^(\d+(?:\.\d+)?)\s*(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E|m)?$/);
+  if (!match) return null;
+  const num = parseFloat(match[1]);
+  const unit = match[2] ?? "";
+  const multipliers: Record<string, number> = {
+    "": 1,
+    m: 1e-3,
+    k: 1e3,
+    M: 1e6,
+    G: 1e9,
+    T: 1e12,
+    P: 1e15,
+    E: 1e18,
+    Ki: 1024,
+    Mi: 1024 ** 2,
+    Gi: 1024 ** 3,
+    Ti: 1024 ** 4,
+    Pi: 1024 ** 5,
+    Ei: 1024 ** 6,
+  };
+  const mult = multipliers[unit];
+  if (mult === undefined) return null;
+  const bytes = Math.round(num * mult);
+  return bytes > 0 ? bytes : null;
+}
+
+/**
+ * Read the memory limit from the VELLUM_MEMORY_LIMIT env var (K8s resource format),
+ * then fall back to cgroups, then to os.totalmem().
+ *
+ * In platform mode the container runs under gVisor where cgroup files may report
+ * the node's memory rather than the container limit. VELLUM_MEMORY_LIMIT is set
+ * by the StatefulSet template to the exact K8s memory limit (e.g. "3Gi").
+ */
 function getContainerMemoryLimitBytes(): number | null {
+  // 1. Prefer the explicit env var set by the platform StatefulSet template.
+  const envLimit = process.env.VELLUM_MEMORY_LIMIT;
+  if (envLimit) {
+    const parsed = parseK8sMemoryBytes(envLimit);
+    if (parsed !== null) return parsed;
+  }
+
+  // 2. Try cgroups v2.
   try {
     const v2 = readFileSync("/sys/fs/cgroup/memory.max", "utf-8").trim();
     if (v2 !== "max") {
@@ -67,6 +113,8 @@ function getContainerMemoryLimitBytes(): number | null {
   } catch {
     /* not available */
   }
+
+  // 3. Try cgroups v1.
   try {
     const v1 = readFileSync(
       "/sys/fs/cgroup/memory/memory.limit_in_bytes",
