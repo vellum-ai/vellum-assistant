@@ -49,7 +49,7 @@ public struct VMarqueeText: View {
     }
 
     private var isTruncated: Bool {
-        textWidth > containerWidth + 1
+        containerWidth > 0 && textWidth > containerWidth + 1
     }
 
     private var overflow: CGFloat {
@@ -58,6 +58,22 @@ public struct VMarqueeText: View {
 
     private var scrollDuration: Double {
         Double(overflow) / Self.scrollSpeed
+    }
+
+    /// Resets the scroll offset to zero and starts the scroll animation
+    /// in the next run-loop cycle. The two-step dispatch is necessary
+    /// because SwiftUI batches state changes within a single update —
+    /// `withAnimation(nil) { offset = 0 }` followed by
+    /// `withAnimation(.linear) { offset = -overflow }` would only apply
+    /// the final value, skipping the reset.
+    private func resetAndScroll() {
+        withAnimation(nil) { animationOffset = 0 }
+        DispatchQueue.main.async {
+            guard isHovered, isTruncated else { return }
+            withAnimation(.linear(duration: scrollDuration)) {
+                animationOffset = -overflow
+            }
+        }
     }
 
     public var body: some View {
@@ -98,25 +114,11 @@ public struct VMarqueeText: View {
                 }
             }
             .onChange(of: text) { _, _ in
-                withAnimation(nil) {
-                    animationOffset = 0
-                }
-                if isHovered && isTruncated {
-                    withAnimation(.linear(duration: scrollDuration)) {
-                        animationOffset = -overflow
-                    }
-                }
+                resetAndScroll()
             }
             .onChange(of: containerWidth) { _, _ in
                 if isHovered && isTruncated {
-                    // Reset and retarget: width changed mid-scroll or text
-                    // became truncated after hover started (e.g. sidebar
-                    // layout shift). Snap to start, then animate to the
-                    // new overflow target.
-                    withAnimation(nil) { animationOffset = 0 }
-                    withAnimation(.linear(duration: scrollDuration)) {
-                        animationOffset = -overflow
-                    }
+                    resetAndScroll()
                 }
             }
             .accessibilityElement(children: .ignore)
