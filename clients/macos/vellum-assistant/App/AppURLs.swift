@@ -1,0 +1,90 @@
+import Foundation
+
+/// Centralized URLs the macOS app links out to.
+///
+/// The docs base URL can be overridden at runtime via the `VELLUM_DOCS_BASE_URL`
+/// environment variable (e.g. for staging or local docs servers). Falls back to
+/// the production docs site.
+///
+/// Pattern parallels the assistant's `src/config/env.ts` — a single source of
+/// truth, accessed via static getters rather than scattered string literals.
+public enum AppURLs {
+    /// Default base URL for Vellum docs. Used when no env var override is set.
+    public static let defaultDocsBaseURL = "https://www.vellum.ai/docs"
+
+    /// Base URL for Vellum docs. Honors `VELLUM_DOCS_BASE_URL` if set, otherwise
+    /// returns `defaultDocsBaseURL`. Trailing slashes are stripped so callers can
+    /// safely append paths with `/`.
+    ///
+    /// The env override is validated: it must parse as an absolute http(s) URL
+    /// with a non-nil host. Malformed values fall back to `defaultDocsBaseURL`
+    /// to prevent downstream force-unwraps in `docsURL(...)` from crashing.
+    public static var docsBaseURL: String {
+        let raw = ProcessInfo.processInfo.environment["VELLUM_DOCS_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let candidate = raw, !candidate.isEmpty else {
+            return defaultDocsBaseURL
+        }
+        let normalized = candidate.hasSuffix("/") ? String(candidate.dropLast()) : candidate
+        // Reject the override if it isn't a parseable absolute http(s) URL.
+        // This prevents downstream force-unwraps from crashing on malformed values.
+        guard
+            let url = URL(string: normalized),
+            let scheme = url.scheme?.lowercased(),
+            scheme == "http" || scheme == "https",
+            url.host != nil
+        else {
+            return defaultDocsBaseURL
+        }
+        return normalized
+    }
+
+    // MARK: - Concrete docs URLs
+
+    /// Pricing docs page — linked from the Billing settings tab and the
+    /// Models & Services tab pricing banner.
+    public static var pricingDocs: URL {
+        docsURL(path: "/pricing")
+    }
+
+    /// Hosting options docs — linked from the API key onboarding step.
+    public static var hostingOptionsDocs: URL {
+        docsURL(path: "/hosting-options")
+    }
+
+    /// Terms of Use docs — linked from the onboarding ToS consent.
+    public static var termsOfUseDocs: URL {
+        docsURL(path: "/vellum-terms-of-use")
+    }
+
+    /// Privacy Policy docs — linked from the onboarding ToS consent.
+    public static var privacyPolicyDocs: URL {
+        docsURL(path: "/privacy-policy")
+    }
+
+    // MARK: - Helpers
+
+    /// Build a docs URL by appending a path to the (possibly env-overridden) base.
+    /// Force-unwrap is safe: `docsBaseURL` is always a valid URL string and `path`
+    /// is a literal path component supplied at the call site.
+    public static func docsURL(path: String) -> URL {
+        let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
+        return URL(string: "\(docsBaseURL)\(normalizedPath)")!
+    }
+
+    /// Build a docs URL with UTM tracking query parameters. Used by the Help menu
+    /// Documentation entry to attribute traffic to the macOS app.
+    public static func docsURL(
+        path: String = "",
+        utmSource: String,
+        utmMedium: String
+    ) -> URL {
+        let normalizedPath = path.isEmpty || path.hasPrefix("/") ? path : "/\(path)"
+        var components = URLComponents(string: "\(docsBaseURL)\(normalizedPath)")!
+        components.queryItems = [
+            URLQueryItem(name: "utm_source", value: utmSource),
+            URLQueryItem(name: "utm_medium", value: utmMedium),
+        ]
+        return components.url!
+    }
+}
