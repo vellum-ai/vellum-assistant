@@ -202,14 +202,15 @@ public struct VFileBrowser<
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(rootDropTarget)
         } else {
+            let data = visibleRowData
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(cachedVisibleRowData.rows, id: \.id) { row in
+                    ForEach(data.rows, id: \.id) { row in
                         VFileBrowserTreeRow(
                             node: row.node,
                             depth: row.depth,
                             isSelected: selectedPath == row.node.path,
-                            isExpanded: expandedPaths.contains(row.node.path) || cachedVisibleRowData.forcedExpanded.contains(row.node.path),
+                            isExpanded: expandedPaths.contains(row.node.path) || data.forcedExpanded.contains(row.node.path),
                             onTap: { handleTap(row.node) },
                             rowContextMenu: rowContextMenu,
                             onDrop: onDrop
@@ -225,6 +226,24 @@ public struct VFileBrowser<
             .onChange(of: expandedPaths) { recomputeVisibleRowData() }
             .onChange(of: rootNodes) { recomputeVisibleRowData() }
         }
+    }
+
+    /// Optimistic memo accessor for the flattened visible row set.
+    ///
+    /// The `cachedVisibleRowData` state property is updated by `.onAppear` and
+    /// `.onChange` callbacks, but SwiftUI evaluates the view body BEFORE those
+    /// callbacks fire. On the very first render after `rootNodes` transitions
+    /// from empty to non-empty, the cache is still the empty initial value,
+    /// which would produce a sub-frame "empty tree" flash before the
+    /// recomputation lands. To prevent that, fall back to computing the row
+    /// set inline when the cache is stale (empty rows but non-empty
+    /// `rootNodes`). The next `.onChange`/`.onAppear` tick will populate the
+    /// cache so subsequent body evaluations take the fast path.
+    private var visibleRowData: VisibleRowData {
+        if !cachedVisibleRowData.rows.isEmpty || rootNodes.isEmpty {
+            return cachedVisibleRowData
+        }
+        return computeVisibleRowData()
     }
 
     @ViewBuilder
@@ -308,27 +327,36 @@ public struct VFileBrowser<
         let forcedExpanded: Set<String>
     }
 
-    /// Recomputes the cached visible row set from the current `rootNodes`,
-    /// `expandedPaths`, and `searchText`. Called from `.onAppear` and from
-    /// `.onChange` handlers on the three inputs instead of being evaluated
-    /// inside the view body — per `clients/AGENTS.md` § "View Bodies and
-    /// Rendering", tree flattening and filtering is too heavy for body eval.
+    /// Computes the visible row set from the current `rootNodes`,
+    /// `expandedPaths`, and `searchText` without mutating state. Used by both
+    /// the memoized `recomputeVisibleRowData()` writer (which stores the
+    /// result in `cachedVisibleRowData`) and the `visibleRowData` computed
+    /// property's fallback path (which needs a correct row set during a body
+    /// evaluation where the cache hasn't been populated yet).
     ///
     /// When search is active, the tree is filtered to matches and their
     /// ancestors, and ALL ancestor directories are forcibly rendered as
     /// expanded regardless of `expandedPaths`. Directory taps are ignored
     /// during search (see `handleTap`) so the persistent expansion state is
     /// preserved.
-    private func recomputeVisibleRowData() {
-        let newData: VisibleRowData
+    private func computeVisibleRowData() -> VisibleRowData {
         if searchText.isEmpty {
             let rows = Self.flattenTree(rootNodes, depth: 0, expanded: expandedPaths)
-            newData = VisibleRowData(rows: rows, forcedExpanded: [])
-        } else {
-            let result = Self.filterTreeForSearch(rootNodes, query: searchText)
-            let rows = Self.flattenTree(result.nodes, depth: 0, expanded: result.forcedExpanded)
-            newData = VisibleRowData(rows: rows, forcedExpanded: result.forcedExpanded)
+            return VisibleRowData(rows: rows, forcedExpanded: [])
         }
+        let result = Self.filterTreeForSearch(rootNodes, query: searchText)
+        let rows = Self.flattenTree(result.nodes, depth: 0, expanded: result.forcedExpanded)
+        return VisibleRowData(rows: rows, forcedExpanded: result.forcedExpanded)
+    }
+
+    /// Recomputes the cached visible row set and writes it to
+    /// `cachedVisibleRowData`. Called from `.onAppear` and `.onChange`
+    /// handlers on `rootNodes`, `expandedPaths`, and `searchText` instead of
+    /// being evaluated inside the view body — per `clients/AGENTS.md` §
+    /// "View Bodies and Rendering", tree flattening and filtering is too
+    /// heavy for body eval.
+    private func recomputeVisibleRowData() {
+        let newData = computeVisibleRowData()
         if newData != cachedVisibleRowData {
             cachedVisibleRowData = newData
         }

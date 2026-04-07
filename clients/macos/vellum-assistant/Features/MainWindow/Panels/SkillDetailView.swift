@@ -10,6 +10,7 @@ struct SkillDetailView: View {
 
     @State private var expandedFilePath: String?
     @State private var expandedPaths: Set<String> = []
+    @State private var didSeedExpandedPaths: Bool = false
     @State private var skillFileViewMode: FileViewMode = .source
     @State private var browserNodes: [VFileBrowserNode] = []
 
@@ -68,22 +69,26 @@ struct SkillDetailView: View {
                 }
             }
 
-            // 3. On first load only, expand every directory in the tree so nested
-            //    files are visible by default — this preserves the pre-tree flat-list
-            //    behavior where all files were immediately visible. On subsequent
-            //    refetches (e.g. files re-fetched after an edit), keep the user's
-            //    existing expansion state so manual collapses aren't clobbered.
-            //    `expandedPaths` is reset to `[]` in `.onDisappear`, so navigating
+            // 3. On the first fetch for this skill view, expand every directory in
+            //    the tree so nested files are visible by default — this preserves
+            //    the pre-tree flat-list behavior where all files were immediately
+            //    visible. On subsequent refetches (e.g. files re-fetched after an
+            //    edit, a refresh button, or a file watcher), the `didSeedExpandedPaths`
+            //    flag prevents re-seeding so manual collapses aren't clobbered —
+            //    even if the user has collapsed every directory (which would defeat
+            //    a naive `expandedPaths.isEmpty` predicate). `didSeedExpandedPaths`
+            //    is reset in `.onDisappear` alongside `expandedPaths`, so navigating
             //    to a different skill re-triggers the initial seeding.
             //    Compute `allDirectoryPaths` from the filtered text files (not the
             //    raw file list) so directories that only contain binaries — which
             //    don't appear in the tree — don't leak into `expandedPaths`.
-            if expandedPaths.isEmpty && !textFiles.isEmpty {
+            if !didSeedExpandedPaths && !textFiles.isEmpty {
                 var newExpanded = Self.allDirectoryPaths(in: textFiles)
                 if let selectedPath = expandedFilePath {
                     newExpanded.formUnion(Self.ancestorPaths(of: selectedPath))
                 }
                 expandedPaths = newExpanded
+                didSeedExpandedPaths = true
             }
         }
         .onChange(of: expandedFilePath) {
@@ -98,6 +103,7 @@ struct SkillDetailView: View {
         .onDisappear {
             expandedFilePath = nil
             expandedPaths = []
+            didSeedExpandedPaths = false
             browserNodes = []
             skillsManager.clearSkillDetail()
         }
