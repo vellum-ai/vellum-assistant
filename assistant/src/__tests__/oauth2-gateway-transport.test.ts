@@ -776,5 +776,72 @@ describe("OAuth2 gateway transport", () => {
       const result = await flowPromise;
       expect(result.grantedScopes).toEqual(["read", "write"]);
     });
+
+    test("default-space provider still parses comma-separated token response scopes (GitHub/Slack compat)", async () => {
+      // Providers like GitHub and Slack use space as their authorize-URL
+      // separator but return comma-separated scopes in token responses.
+      // The defensive split MUST tolerate that without requiring providers
+      // to opt into scopeSeparator: ",".
+      mockPublicBaseUrl = "https://gw.example.com";
+      mockTokenResponse = {
+        ok: true,
+        status: 200,
+        body: {
+          access_token: "test-access-token",
+          refresh_token: "test-refresh-token",
+          expires_in: 3600,
+          scope: "repo,read:user,notifications",
+          token_type: "Bearer",
+        },
+      };
+
+      // BASE_OAUTH_CONFIG uses the default " " separator.
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("github-style-code");
+
+      const result = await flowPromise;
+      expect(result.grantedScopes).toEqual([
+        "repo",
+        "read:user",
+        "notifications",
+      ]);
+    });
+
+    test("default-space provider parses space-separated token response scopes", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+      mockTokenResponse = {
+        ok: true,
+        status: 200,
+        body: {
+          access_token: "test-access-token",
+          refresh_token: "test-refresh-token",
+          expires_in: 3600,
+          scope: "read write admin",
+          token_type: "Bearer",
+        },
+      };
+
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("space-token-code");
+
+      const result = await flowPromise;
+      expect(result.grantedScopes).toEqual(["read", "write", "admin"]);
+    });
   });
 });
