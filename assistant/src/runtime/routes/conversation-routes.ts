@@ -423,8 +423,18 @@ export function handleListMessages(
   // pendingToolUses map — otherwise they render as "Unknown" tool calls.
   const mergedMessages = mergeToolResultsIntoAssistantMessages(rawMessages);
 
+  // During streaming, all assistant turns within one agent loop accumulate
+  // on a single client-side ChatMessage (via currentAssistantMessageId).
+  // In the DB, each API turn is a separate assistant row because
+  // consolidation is deferred to compaction for prefix-cache stability.
+  // Merge consecutive assistant messages here at query time so
+  // renderHistoryContent produces the same contentOrder shape as streaming
+  // (consecutive tool refs grouped together).
+  const consolidatedMessages =
+    mergeConsecutiveAssistantMessages(mergedMessages);
+
   // Parse content blocks and extract text + tool calls
-  const parsed = mergedMessages.map((msg) => {
+  const parsed = consolidatedMessages.map((msg) => {
     let content: unknown;
     try {
       content = JSON.parse(msg.content);
@@ -788,6 +798,104 @@ function mergeToolResultsIntoAssistantMessages(
 
   // Write back any modified assistant message content.
   for (const [idx, content] of parsedAssistantContent) {
+    result[idx] = { ...result[idx], content: JSON.stringify(content) };
+  }
+
+  return result;
+}
+
+// ── Consecutive assistant message merging ────────────────────────────
+
+/**
+ * Merge consecutive assistant messages into a single message at query time.
+ *
+ * During streaming, all assistant turns within one agent loop accumulate on
+ * a single client-side ChatMessage. In the DB, each API turn is stored as a
+ * separate assistant row (consolidation is deferred to compaction for
+ * prefix-cache stability). This produces N separate assistant messages that
+ * the client renders as N individual bubbles — each showing "Completed 1
+ * step" instead of one grouped "Completed N steps" accordion.
+ *
+ * This function concatenates the content block arrays of consecutive
+ * assistant messages (no intervening user messages after tool-result
+ * merging) into the first message of each run. The merged messages are
+ * removed from the output. This is query-time only — the DB is not
+ * modified.
+ *
+ * The first message in each run keeps its id, createdAt, and metadata so
+ * that attachment lookups, display timestamps, and subagent notifications
+ * continue to work. Metadata from later messages in the run (e.g.
+ * subagentNotification) is preserved by promoting it to the surviving
+ * message when the surviving message has no metadata of its own for that
+ * field.
+ */
+function mergeConsecutiveAssistantMessages(
+  messages: MessageRow[],
+): MessageRow[] {
+  const result: MessageRow[] = [];
+  // Tracks parsed content for messages we're actively merging into.
+  // Key = index in `result`, value = parsed content blocks array.
+  const pendingMerges = new Map<number, unknown[]>();
+
+  for (const msg of messages) {
+    if (msg.role === "assistant") {
+      const lastIdx = result.length - 1;
+      if (lastIdx >= 0 && result[lastIdx].role === "assistant") {
+        // Consecutive assistant message — merge into the previous one.
+        let targetContent = pendingMerges.get(lastIdx);
+        if (!targetContent) {
+          // First merge for this target — parse its existing content.
+          try {
+            const parsed = JSON.parse(result[lastIdx].content);
+            targetContent = Array.isArray(parsed) ? parsed : [parsed];
+          } catch {
+            targetContent = [];
+          }
+          pendingMerges.set(lastIdx, targetContent);
+        }
+        // Append this message's content blocks.
+        try {
+          const parsed = JSON.parse(msg.content);
+          if (Array.isArray(parsed)) {
+            targetContent.push(...parsed);
+          }
+        } catch {
+          // Unparseable content — skip silently.
+        }
+        // Promote metadata fields that the surviving message lacks.
+        if (msg.metadata && result[lastIdx].metadata) {
+          try {
+            const survivorMeta = JSON.parse(result[lastIdx].metadata!);
+            const donorMeta = JSON.parse(msg.metadata);
+            let promoted = false;
+            if (
+              !survivorMeta.subagentNotification &&
+              donorMeta.subagentNotification
+            ) {
+              survivorMeta.subagentNotification =
+                donorMeta.subagentNotification;
+              promoted = true;
+            }
+            if (promoted) {
+              result[lastIdx] = {
+                ...result[lastIdx],
+                metadata: JSON.stringify(survivorMeta),
+              };
+            }
+          } catch {
+            // Malformed metadata — skip promotion.
+          }
+        } else if (msg.metadata && !result[lastIdx].metadata) {
+          result[lastIdx] = { ...result[lastIdx], metadata: msg.metadata };
+        }
+        continue;
+      }
+    }
+    result.push(msg);
+  }
+
+  // Write back merged content for any messages that were targets.
+  for (const [idx, content] of pendingMerges) {
     result[idx] = { ...result[idx], content: JSON.stringify(content) };
   }
 
