@@ -402,7 +402,8 @@ private struct VTooltipContent: View {
 
     var body: some View {
         Text(text)
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 280, alignment: .leading)
             .font(VFont.labelDefault)
             .foregroundStyle(VColor.contentDefault)
             .padding(.horizontal, VSpacing.sm)
