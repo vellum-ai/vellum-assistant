@@ -1209,18 +1209,24 @@ export async function handleSendMessage(
   const preservingProxies =
     conversation.isProcessing() &&
     !supportsHostProxy(sourceInterface, "host_bash");
-  // hasNoClient gates whether host proxies treat themselves as connected. The
-  // chrome-extension interface is non-interactive (no SSE prompter UI) but
-  // still has a connected client that can service host_browser_request events,
-  // so deriving hasNoClient purely from !isInteractive would incorrectly mark
-  // the just-constructed hostBrowserProxy unavailable. Treat any interface
-  // that supports host_browser as having a client, so the proxy stays usable.
-  const hasNoClient = !(
-    isInteractive || supportsHostProxy(sourceInterface, "host_browser")
-  );
-  conversation.updateClient(onEvent, hasNoClient, {
+  // hasNoClient must remain `!isInteractive` so downstream tool gating
+  // (`isToolActiveForContext` for HOST_TOOL_NAMES, `createToolExecutor`'s
+  // `isInteractive: !ctx.hasNoClient`) keeps host_bash/host_file/host_cu
+  // tools gated for non-desktop interfaces. The chrome-extension interface
+  // is non-interactive (no SSE prompter UI) but still has a connected client
+  // that can service host_browser_request events; we restore that single
+  // proxy explicitly below without relaxing `hasNoClient`.
+  conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
+  // For non-interactive interfaces that DO support host_browser
+  // (chrome-extension), explicitly re-enable just the browser proxy. The
+  // helper bypasses the `hasNoClient` gate so the single-capability
+  // chrome-extension turn can drive the browser via CDP without leaking
+  // host_bash/host_file tool availability into tool gating.
+  if (supportsHostProxy(sourceInterface, "host_browser")) {
+    conversation.restoreBrowserProxyAvailability();
+  }
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS

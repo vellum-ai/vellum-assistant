@@ -550,13 +550,20 @@ export class Conversation {
    * interfaces (e.g. chrome-extension) that support host_browser but not
    * the full desktop proxy set, so calling restoreProxyAvailability() would
    * incorrectly re-enable bash/file/CU proxies that should stay disabled.
-   * Mirrors the hasNoClient gate from restoreProxyAvailability so a
-   * disconnected client doesn't get its proxy reactivated.
+   *
+   * Unlike `restoreProxyAvailability()`, this helper does NOT gate on
+   * `hasNoClient`. The chrome-extension interface is non-interactive (so
+   * `hasNoClient === true`), but it DOES have a connected client that can
+   * service `host_browser_request` events. Gating on `hasNoClient` would
+   * leave the just-constructed proxy unavailable and the only way to make
+   * it available would be to flip `hasNoClient` false, which would
+   * incorrectly enable host_bash/host_file/host_cu tool gating downstream.
+   *
+   * Callers must only invoke this when they know the current interface
+   * supports host_browser (see `supportsHostProxy(id, "host_browser")`).
    */
   restoreBrowserProxyAvailability(): void {
-    if (!this.hasNoClient) {
-      this.hostBrowserProxy?.updateSender(this.sendToClient, true);
-    }
+    this.hostBrowserProxy?.updateSender(this.sendToClient, true);
   }
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
