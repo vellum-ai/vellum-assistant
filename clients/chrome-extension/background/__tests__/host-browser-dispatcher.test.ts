@@ -41,6 +41,13 @@ interface MockCdpProxy extends CdpProxy {
   sendCalls: Array<{ target: CdpTarget; frame: CdpRequestFrame }>;
   detachCalls: CdpTarget[];
   disposeCalls: number;
+  /**
+   * Currently-registered onDetach handlers. Tests fire detach events by
+   * calling these directly via the `fireDetach` helper below.
+   */
+  detachHandlers: Set<(target: CdpDebuggee, reason: string) => void>;
+  /** Synthetically dispatch a detach event to all registered handlers. */
+  fireDetach(target: CdpDebuggee, reason?: string): void;
 }
 
 function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
@@ -55,6 +62,7 @@ function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
     attachCalls,
     sendCalls,
     detachCalls,
+    detachHandlers,
     get disposeCalls() {
       return disposeCalls;
     },
@@ -77,6 +85,9 @@ function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
     onDetach(handler) {
       detachHandlers.add(handler);
       return () => detachHandlers.delete(handler);
+    },
+    fireDetach(target, reason = 'target_closed') {
+      for (const h of detachHandlers) h(target, reason);
     },
     dispose() {
       disposeCalls += 1;
@@ -257,6 +268,109 @@ describe('createHostBrowserDispatcher', () => {
       expect(harness.proxy.attachCalls.length).toBe(2);
       expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: 'target-A' });
       expect(harness.proxy.attachCalls[1].target).toEqual({ targetId: 'target-B' });
+    });
+  });
+
+  describe('handle — onDetach cache invalidation', () => {
+    test('re-attaches after Chrome fires onDetach for a tabId target', async () => {
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+
+      // First call attaches.
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.attachCalls[0].target).toEqual({ tabId: 42 });
+
+      // Second call (no detach yet) reuses the cached attachment — proves
+      // the entry is in the cache.
+      await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-2' });
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      // Chrome fires onDetach for the tab — e.g. user closed it, navigated
+      // away, clicked Cancel on the chrome.debugger infobar, or another
+      // debugger took over via Target.attachToTarget.
+      harness.proxy.fireDetach({ tabId: 42 }, 'target_closed');
+
+      // Next call must re-attach because the cache entry was invalidated.
+      // Otherwise we'd silently send a CDP command against a torn-down
+      // session and hit a permanent failure.
+      await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-3' });
+      expect(harness.proxy.attachCalls.length).toBe(2);
+      expect(harness.proxy.attachCalls[1].target).toEqual({ tabId: 42 });
+    });
+
+    test('re-attaches after Chrome fires onDetach for a targetId target', async () => {
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+
+      const withSession: HostBrowserRequestEnvelope = {
+        ...sampleRequest,
+        cdpSessionId: 'target-xyz',
+      };
+
+      await harness.dispatcher.handle(withSession);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      // Cache hit — second call must NOT re-attach.
+      await harness.dispatcher.handle({ ...withSession, requestId: 'req-2' });
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      harness.proxy.fireDetach({ targetId: 'target-xyz' }, 'target_closed');
+
+      await harness.dispatcher.handle({ ...withSession, requestId: 'req-3' });
+      expect(harness.proxy.attachCalls.length).toBe(2);
+      expect(harness.proxy.attachCalls[1].target).toEqual({
+        targetId: 'target-xyz',
+      });
+    });
+
+    test('detach for an unrelated target does not invalidate other entries', async () => {
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+
+      // Attach two distinct targets.
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: 'target-A',
+      });
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        requestId: 'req-2',
+        cdpSessionId: 'target-B',
+      });
+      expect(harness.proxy.attachCalls.length).toBe(2);
+
+      // Detach only target-A. target-B's cached attachment must survive.
+      harness.proxy.fireDetach({ targetId: 'target-A' }, 'target_closed');
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        requestId: 'req-3',
+        cdpSessionId: 'target-B',
+      });
+      // No new attach for target-B.
+      expect(harness.proxy.attachCalls.length).toBe(2);
+
+      // But target-A re-attaches.
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        requestId: 'req-4',
+        cdpSessionId: 'target-A',
+      });
+      expect(harness.proxy.attachCalls.length).toBe(3);
+      expect(harness.proxy.attachCalls[2].target).toEqual({ targetId: 'target-A' });
+    });
+
+    test('detach for a debuggee shape with neither tabId nor targetId is a no-op', async () => {
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      // Defensive: a malformed detach payload (e.g. extensionId-only) must
+      // not throw and must not invalidate anything we care about.
+      harness.proxy.fireDetach({}, 'target_closed');
+
+      // Cache entry for tabId 42 is still there → no new attach.
+      await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-2' });
+      expect(harness.proxy.attachCalls.length).toBe(1);
     });
   });
 
@@ -449,6 +563,21 @@ describe('createHostBrowserDispatcher', () => {
       harness = createHarness({ sendResult: { id: 1, result: {} } });
       await harness.dispatcher.handle(sampleRequest);
       expect(harness.proxy.attachCalls.length).toBe(1);
+    });
+
+    test('unsubscribes the onDetach handler', async () => {
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+
+      // Subscribing happens at construction time. The mock proxy exposes
+      // its handler set so we can directly observe registration/teardown.
+      expect(harness.proxy.detachHandlers.size).toBe(1);
+
+      harness.dispatcher.dispose();
+
+      // After dispose the dispatcher must release its detach handler so
+      // the proxy isn't left holding a stale closure that references the
+      // disposed dispatcher's `attachedTargets` set.
+      expect(harness.proxy.detachHandlers.size).toBe(0);
     });
   });
 });

@@ -18,7 +18,12 @@
  * continue to service browser tools exactly as before.
  */
 
-import { createCdpProxy, type CdpProxy, type CdpTarget } from './cdp-proxy.js';
+import {
+  createCdpProxy,
+  type CdpDebuggee,
+  type CdpProxy,
+  type CdpTarget,
+} from './cdp-proxy.js';
 
 /**
  * host_browser_request envelope as received over the existing browser-relay
@@ -93,6 +98,23 @@ function targetKey(target: CdpTarget): string {
   throw new Error('CdpTarget must have either tabId or targetId');
 }
 
+/**
+ * Build the same target-key from a `CdpDebuggee` payload as `targetKey`
+ * does for a `CdpTarget`. The CDP proxy's `onDetach` callback receives a
+ * `CdpDebuggee` (the chrome.debugger Debuggee shape), so we need a helper
+ * that produces an identical key from that variant — otherwise the cache
+ * deletion on detach would silently miss and the stale entry would persist.
+ *
+ * Returns `null` when the debuggee shape carries neither a `tabId` nor a
+ * `targetId` (e.g. extensionId-only attaches, which the dispatcher does
+ * not currently use). Callers treat null as "nothing to invalidate".
+ */
+function debuggeeKey(debuggee: CdpDebuggee): string | null {
+  if (debuggee.targetId) return `targetId:${debuggee.targetId}`;
+  if (debuggee.tabId !== undefined) return `tabId:${debuggee.tabId}`;
+  return null;
+}
+
 export function createHostBrowserDispatcher(
   deps: HostBrowserDispatcherDeps,
 ): HostBrowserDispatcher {
@@ -105,6 +127,18 @@ export function createHostBrowserDispatcher(
   // Deduping is cheaper and keeps the happy path clean.
   const attachedTargets = new Set<string>();
   let nextCdpId = 1;
+
+  // Invalidate the attached-targets cache whenever Chrome notifies us that
+  // it has detached the debugger from a target. This covers tab close,
+  // navigation across security origins, the user clicking "Cancel" on the
+  // chrome.debugger infobar, and another debugger taking over via
+  // Target.attachToTarget. Without this subscription the cache would hold
+  // a stale entry forever and subsequent commands against the same target
+  // would skip the re-attach and hit a permanent CDP failure.
+  const unsubscribeOnDetach = proxy.onDetach((debuggee) => {
+    const key = debuggeeKey(debuggee);
+    if (key !== null) attachedTargets.delete(key);
+  });
 
   async function handle(envelope: HostBrowserRequestEnvelope): Promise<void> {
     const abort = new AbortController();
@@ -177,6 +211,7 @@ export function createHostBrowserDispatcher(
     for (const abort of inFlight.values()) abort.abort();
     inFlight.clear();
     attachedTargets.clear();
+    unsubscribeOnDetach();
     proxy.dispose();
   }
 
