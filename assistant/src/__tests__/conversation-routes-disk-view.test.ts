@@ -114,6 +114,7 @@ function createFakeConversation(conversationId: string): Conversation {
     } | null,
     messages: [] as Array<unknown>,
     hostBashProxy: undefined as unknown,
+    hostBrowserProxy: undefined as unknown,
     hostFileProxy: undefined as unknown,
     hostCuProxy: undefined as unknown,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
