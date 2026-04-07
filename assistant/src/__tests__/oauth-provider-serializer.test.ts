@@ -73,7 +73,7 @@ describe("serializeProvider", () => {
 
     expect(result.defaultScopes).toEqual(["openid", "email"]);
     expect(result.scopePolicy).toEqual({ required: ["openid"] });
-    expect(result.authorizeParams).toEqual({ access_type: "offline" });
+    expect(result.extraParams).toEqual({ access_type: "offline" });
     expect(result.pingHeaders).toEqual({ "X-Api-Version": "2" });
     expect(result.pingBody).toEqual({ query: "{ me { id } }" });
     expect(result.injectionTemplates).toEqual([
@@ -96,7 +96,7 @@ describe("serializeProvider", () => {
 
     expect(result.defaultScopes).toEqual([]);
     expect(result.scopePolicy).toEqual({});
-    expect(result.authorizeParams).toBeNull();
+    expect(result.extraParams).toBeNull();
     expect(result.pingHeaders).toBeNull();
     expect(result.pingBody).toBeNull();
     expect(result.injectionTemplates).toBeNull();

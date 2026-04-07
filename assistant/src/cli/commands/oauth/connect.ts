@@ -414,7 +414,10 @@ Examples:
                 writeOutput(cmd, {
                   ok: true,
                   deferred: true,
-                  authorizeUrl: result.authorizeUrl,
+                  // Wire key stays `authUrl` for backward compatibility with
+                  // existing CLI script consumers; the internal field on
+                  // `result` is `authorizeUrl`.
+                  authUrl: result.authorizeUrl,
                   service: result.service,
                 });
               } else {

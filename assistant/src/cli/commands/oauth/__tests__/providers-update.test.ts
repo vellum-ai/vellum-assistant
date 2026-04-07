@@ -273,8 +273,8 @@ describe("assistant oauth providers update", () => {
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed.provider).toBe("custom-api");
-    expect(parsed.displayLabel).toBe("New Name");
+    expect(parsed.providerKey).toBe("custom-api");
+    expect(parsed.displayName).toBe("New Name");
   });
 
   // -------------------------------------------------------------------------
@@ -305,7 +305,7 @@ describe("assistant oauth providers update", () => {
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed.provider).toBe("custom-api");
+    expect(parsed.providerKey).toBe("custom-api");
 
     // Verify updateProvider was called with the correct params
     expect(mockUpdateProviderCalls).toHaveLength(1);
@@ -381,7 +381,7 @@ describe("assistant oauth providers update", () => {
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed.provider).toBe("custom-api");
+    expect(parsed.providerKey).toBe("custom-api");
 
     // Verify the new fields are present in the output (parsed from JSON strings)
     expect(parsed.loopbackPort).toBe(17400);

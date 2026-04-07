@@ -58,9 +58,26 @@ function _serializeProvider(
   row: OAuthProviderRow,
   options?: { redirectUri?: string | null },
 ) {
+  // Destructure the renamed Drizzle TS-side fields out of the row so they
+  // do not leak into the spread below. The wire format intentionally keeps
+  // the legacy camelCase keys (`providerKey`, `authUrl`, `tokenUrl`,
+  // `displayName`, `extraParams`) so existing CLI script consumers and any
+  // other clients that parse this output don't break. The renamed fields
+  // are emitted explicitly under their old names instead.
+  const {
+    provider,
+    authorizeUrl,
+    tokenExchangeUrl,
+    displayLabel,
+    authorizeParams,
+    ...rest
+  } = row;
   return {
-    ...row,
-    displayLabel: row.displayLabel ?? null,
+    ...rest,
+    providerKey: provider,
+    authUrl: authorizeUrl,
+    tokenUrl: tokenExchangeUrl,
+    displayName: displayLabel ?? null,
     description: row.description ?? null,
     dashboardUrl: row.dashboardUrl ?? null,
     clientIdPlaceholder: row.clientIdPlaceholder ?? null,
@@ -68,9 +85,7 @@ function _serializeProvider(
     supportsManagedMode: !!row.managedServiceConfigKey,
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
-    authorizeParams: row.authorizeParams
-      ? JSON.parse(row.authorizeParams)
-      : null,
+    extraParams: authorizeParams ? JSON.parse(authorizeParams) : null,
     pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
     pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,
     loopbackPort: row.loopbackPort ?? null,

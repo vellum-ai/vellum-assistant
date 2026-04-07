@@ -391,7 +391,7 @@ describe("assistant oauth connect", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.deferred).toBe(true);
-    expect(parsed.authorizeUrl).toBe(
+    expect(parsed.authUrl).toBe(
       "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
     );
     expect(parsed.service).toBe("google");
@@ -545,7 +545,7 @@ describe("assistant oauth connect", () => {
   // JSON output format for deferred case (BYO)
   // -------------------------------------------------------------------------
 
-  test("JSON output for deferred case includes ok, deferred, authorizeUrl, service", async () => {
+  test("JSON output for deferred case includes ok, deferred, authUrl, service", async () => {
     mockGetProvider = () => ({
       provider: "slack",
       authorizeUrl: "https://slack.com/oauth/v2/authorize",
@@ -581,7 +581,7 @@ describe("assistant oauth connect", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveProperty("ok", true);
     expect(parsed).toHaveProperty("deferred", true);
-    expect(parsed).toHaveProperty("authorizeUrl");
+    expect(parsed).toHaveProperty("authUrl");
     expect(parsed).toHaveProperty("service", "slack");
   });
 

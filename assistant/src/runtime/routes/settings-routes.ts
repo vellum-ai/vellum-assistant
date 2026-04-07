@@ -309,7 +309,9 @@ async function handleOAuthConnectStart(body: {
       return Response.json({
         ok: true,
         deferred: true,
-        authorizeUrl: result.authorizeUrl,
+        // Wire key stays `authUrl` for backward compatibility with existing
+        // clients; the internal field on `result` is `authorizeUrl`.
+        authUrl: result.authorizeUrl,
       });
     }
 
@@ -326,7 +328,9 @@ async function handleOAuthConnectStart(body: {
       ok: true,
       grantedScopes: result.grantedScopes,
       accountInfo: responseAccountInfo,
-      ...(authorizeUrl ? { authorizeUrl } : {}),
+      // Wire key stays `authUrl` for backward compatibility with existing
+      // clients; the local variable was renamed to `authorizeUrl`.
+      ...(authorizeUrl ? { authUrl: authorizeUrl } : {}),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

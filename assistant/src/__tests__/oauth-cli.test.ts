@@ -494,7 +494,7 @@ describe("assistant oauth providers list", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(4);
-    const keys = parsed.map((p: { provider: string }) => p.provider);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("google");
     expect(keys).toContain("google-calendar");
     expect(keys).toContain("slack");
@@ -526,7 +526,7 @@ describe("assistant oauth providers list", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(3);
-    const keys = parsed.map((p: { provider: string }) => p.provider);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("google");
     expect(keys).toContain("google-calendar");
     expect(keys).toContain("slack");
@@ -556,7 +556,7 @@ describe("assistant oauth providers list", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(3);
-    const keys = parsed.map((p: { provider: string }) => p.provider);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("google");
     expect(keys).toContain("google-calendar");
     expect(keys).toContain("slack");
@@ -573,7 +573,7 @@ describe("assistant oauth providers list", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(3);
-    const keys = parsed.map((p: { provider: string }) => p.provider);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("google");
     expect(keys).toContain("google-calendar");
     expect(keys).toContain("slack");
@@ -589,7 +589,7 @@ describe("assistant oauth providers list", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(2);
-    const keys = parsed.map((p: { provider: string }) => p.provider);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("google");
     expect(keys).toContain("google-calendar");
     expect(keys).not.toContain("slack");
@@ -610,7 +610,7 @@ describe("assistant oauth providers list", () => {
     // Both google and google-calendar match --provider-key "google" AND have
     // managedServiceConfigKey set, so both are returned.
     expect(parsed).toHaveLength(2);
-    const keys = parsed.map((p: { provider: string }) => p.provider);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("google");
     expect(keys).toContain("google-calendar");
   });
@@ -620,7 +620,7 @@ describe("assistant oauth providers list", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(4);
-    const keys = parsed.map((p: { provider: string }) => p.provider);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("google");
     expect(keys).toContain("google-calendar");
     expect(keys).toContain("slack");
