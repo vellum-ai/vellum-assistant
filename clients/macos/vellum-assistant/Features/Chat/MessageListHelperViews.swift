@@ -9,19 +9,15 @@ import VellumAssistantShared
 /// this view — not the parent `MessageListView.body` or `ForEach`.
 struct ScrollToLatestOverlayView: View {
     let scrollState: MessageListScrollState
+    /// Closure that scrolls to the bottom via the parent's `ScrollViewProxy`.
+    var onScrollToBottom: (() -> Void)?
 
     var body: some View {
         if scrollState.showScrollToLatest {
             Button(action: {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
-                // Spring animation drives both the CTA exit transition
-                // and the scroll-to-bottom. syncUIImmediately() inside
-                // requestPinToBottom captures showScrollToLatest = false
-                // within this animation transaction, so the .move/.opacity
-                // transition runs in sync with the scroll.
-                _ = withAnimation(VAnimation.spring) {
-                    scrollState.requestPinToBottom(animated: true, userInitiated: true)
-                }
+                scrollState.handleScrollToLatestTapped()
+                onScrollToBottom?()
             }) {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.arrowDown, size: 10)
