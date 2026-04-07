@@ -274,6 +274,62 @@ describe("renderHistoryContent", () => {
     ]);
   });
 
+  test("skips empty text blocks between tool_use blocks (consolidated message)", () => {
+    // Simulates consolidated content where assistant msg 2 started with an
+    // empty text block: [text("Plan"), tool_A, text(""), tool_B, tool_C, text("Done")]
+    const output = renderHistoryContent([
+      { type: "text", text: "Let me work on that." },
+      { type: "tool_use", id: "tu_1", name: "bash", input: { command: "ls" } },
+      { type: "tool_result", tool_use_id: "tu_1", content: "file.txt" },
+      { type: "text", text: "" },
+      { type: "tool_use", id: "tu_2", name: "bash", input: { command: "pwd" } },
+      { type: "tool_result", tool_use_id: "tu_2", content: "/home" },
+      { type: "tool_use", id: "tu_3", name: "bash", input: { command: "cat" } },
+      { type: "tool_result", tool_use_id: "tu_3", content: "contents" },
+      { type: "text", text: "Here are the results." },
+    ]);
+
+    // All 3 tool calls should be in one consecutive group (no empty text:1 splitting them)
+    expect(output.textSegments).toEqual([
+      "Let me work on that.",
+      "Here are the results.",
+    ]);
+    expect(output.contentOrder).toEqual([
+      "text:0",
+      "tool:0",
+      "tool:1",
+      "tool:2",
+      "text:1",
+    ]);
+  });
+
+  test("skips whitespace-only text blocks between tool_use blocks", () => {
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "bash", input: { command: "ls" } },
+      { type: "tool_result", tool_use_id: "tu_1", content: "file.txt" },
+      { type: "text", text: "   \n  " },
+      { type: "tool_use", id: "tu_2", name: "bash", input: { command: "pwd" } },
+      { type: "tool_result", tool_use_id: "tu_2", content: "/home" },
+    ]);
+
+    expect(output.contentOrder).toEqual(["tool:0", "tool:1"]);
+    expect(output.textSegments).toEqual([]);
+  });
+
+  test("preserves non-empty text blocks between tool_use blocks", () => {
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "bash", input: { command: "ls" } },
+      { type: "tool_result", tool_use_id: "tu_1", content: "file.txt" },
+      { type: "text", text: "Now continuing..." },
+      { type: "tool_use", id: "tu_2", name: "bash", input: { command: "pwd" } },
+      { type: "tool_result", tool_use_id: "tu_2", content: "/home" },
+    ]);
+
+    // Non-empty text should still split tool groups
+    expect(output.contentOrder).toEqual(["tool:0", "text:0", "tool:1"]);
+    expect(output.textSegments).toEqual(["Now continuing..."]);
+  });
+
   test("produces empty segments for non-array content", () => {
     const output = renderHistoryContent(null);
     expect(output.textSegments).toEqual([]);
