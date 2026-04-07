@@ -50,6 +50,18 @@ export function parseConversationDirName(
   const ms = Date.parse(iso);
   if (Number.isNaN(ms)) return null;
   if (!conversationId) return null;
+  // Reject conversation IDs that are path-traversal-shaped or contain
+  // path separators. These are never valid conversation IDs and would
+  // be a defense-in-depth concern if parsed.conversationId is later used
+  // to construct filesystem paths.
+  if (
+    conversationId === "." ||
+    conversationId === ".." ||
+    conversationId.includes("/") ||
+    conversationId.includes("\\")
+  ) {
+    return null;
+  }
   return { conversationId, createdAtMs: ms };
 }
 

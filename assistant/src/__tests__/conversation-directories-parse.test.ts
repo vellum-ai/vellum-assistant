@@ -69,6 +69,28 @@ describe("parseConversationDirName", () => {
     test("returns null for random garbage", () => {
       expect(parseConversationDirName("drafts/foo")).toBeNull();
     });
+
+    test("returns null when the conversation id is '.'", () => {
+      expect(parseConversationDirName("2025-01-15T00-00-00.000Z_.")).toBeNull();
+    });
+
+    test("returns null when the conversation id is '..'", () => {
+      expect(
+        parseConversationDirName("2025-01-15T00-00-00.000Z_.."),
+      ).toBeNull();
+    });
+
+    test("returns null when the conversation id contains a forward slash", () => {
+      expect(
+        parseConversationDirName("2025-01-15T00-00-00.000Z_foo/bar"),
+      ).toBeNull();
+    });
+
+    test("returns null when the conversation id contains a backslash", () => {
+      expect(
+        parseConversationDirName("2025-01-15T00-00-00.000Z_foo\\bar"),
+      ).toBeNull();
+    });
   });
 
   describe("ids containing underscores", () => {
