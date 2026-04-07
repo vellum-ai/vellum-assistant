@@ -73,18 +73,4 @@ public struct FeedItem: Codable, Identifiable, Sendable {
         self.minTimeAway = minTimeAway
         self.actions = actions
     }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case type
-        case priority
-        case title
-        case summary
-        case source
-        case timestamp
-        case status
-        case ttl
-        case minTimeAway = "min_time_away"
-        case actions
-    }
 }
