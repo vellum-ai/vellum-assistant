@@ -403,7 +403,7 @@ private final class VTooltipTrackerView: NSView {
         // because fittingSize has no way to pass a width proposal, causing
         // text to wrap at zero width and return an incorrect height.
         let maxTooltipWidth: CGFloat = 280
-        let tooltipHorizontalPadding: CGFloat = 16 // VSpacing.sm (8) × 2
+        let tooltipHorizontalPadding: CGFloat = VSpacing.sm * 2
         let measureHost = NSHostingView(rootView: VTooltipContent(text: tooltipText))
         let idealSize = measureHost.fittingSize
 
