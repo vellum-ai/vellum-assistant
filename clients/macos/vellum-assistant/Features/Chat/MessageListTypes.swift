@@ -58,7 +58,7 @@ final class ScrollGeometryUpdateDispatcher {
     static let shared = ScrollGeometryUpdateDispatcher()
 
     private var pendingSnapshots: [ObjectIdentifier: ScrollGeometrySnapshot] = [:]
-    private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    private var scheduledKeys: Set<ObjectIdentifier> = []
 
     func enqueue(
         for owner: MessageListScrollState,
@@ -67,31 +67,53 @@ final class ScrollGeometryUpdateDispatcher {
     ) {
         let key = ObjectIdentifier(owner)
         pendingSnapshots[key] = snapshot
-        guard tasks[key] == nil else { return }
-
-        tasks[key] = Task { @MainActor [weak self, weak owner] in
-            guard let self else { return }
-            defer {
-                self.tasks[key] = nil
-                self.pendingSnapshots[key] = nil
-            }
-
-            while !Task.isCancelled {
-                await Task.yield()
-                guard owner != nil else { return }
-                guard let latest = self.pendingSnapshots[key] else { return }
-                self.pendingSnapshots[key] = nil
-                handler(latest)
-                guard self.pendingSnapshots[key] != nil else { return }
-            }
-        }
+        guard scheduledKeys.insert(key).inserted else { return }
+        scheduleDrain(for: key, owner: owner, handler: handler)
     }
 
     func cancel(for owner: MessageListScrollState) {
         let key = ObjectIdentifier(owner)
-        tasks[key]?.cancel()
-        tasks[key] = nil
+        scheduledKeys.remove(key)
         pendingSnapshots[key] = nil
+    }
+
+    private func scheduleDrain(
+        for key: ObjectIdentifier,
+        owner: MessageListScrollState,
+        handler: @escaping @MainActor (ScrollGeometrySnapshot) -> Void
+    ) {
+        DispatchQueue.main.async { [weak self, weak owner] in
+            Task { @MainActor [weak self, weak owner] in
+                guard let self else { return }
+                guard let owner else {
+                    self.pendingSnapshots[key] = nil
+                    self.scheduledKeys.remove(key)
+                    return
+                }
+                self.drainNext(for: key, owner: owner, handler: handler)
+            }
+        }
+    }
+
+    private func drainNext(
+        for key: ObjectIdentifier,
+        owner: MessageListScrollState,
+        handler: @escaping @MainActor (ScrollGeometrySnapshot) -> Void
+    ) {
+        guard let latest = pendingSnapshots[key] else {
+            scheduledKeys.remove(key)
+            return
+        }
+
+        pendingSnapshots[key] = nil
+        handler(latest)
+
+        guard pendingSnapshots[key] != nil else {
+            scheduledKeys.remove(key)
+            return
+        }
+
+        scheduleDrain(for: key, owner: owner, handler: handler)
     }
 }
 
