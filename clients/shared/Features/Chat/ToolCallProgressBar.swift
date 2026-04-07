@@ -277,6 +277,15 @@ public struct ToolCallProgressBar: View {
                 cachedResultLineCount = nil
             }
         }
+        .onChange(of: toolCalls.first(where: { $0.id == expandedStepId })?.resultLength) {
+            if let expandedId = expandedStepId,
+               let expandedCall = toolCalls.first(where: { $0.id == expandedId }),
+               let result = expandedCall.result {
+                cachedResultLineCount = ToolCallChip.countLines(in: result)
+            } else {
+                cachedResultLineCount = nil
+            }
+        }
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay)
