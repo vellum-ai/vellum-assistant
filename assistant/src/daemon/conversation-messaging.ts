@@ -41,6 +41,7 @@ import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 
 const log = getLogger("conversation-messaging");
 
@@ -222,6 +223,7 @@ export function enqueueMessage(
   metadata?: Record<string, unknown>,
   options?: { isInteractive?: boolean },
   displayContent?: string,
+  transport?: ConversationTransportMetadata,
 ): { queued: boolean; requestId: string; rejected?: boolean } {
   if (!ctx.processing) {
     return { queued: false, requestId };
@@ -246,6 +248,7 @@ export function enqueueMessage(
     turnChannelContext,
     turnInterfaceContext,
     isInteractive: options?.isInteractive,
+    transport,
     displayContent,
     sentAt: Date.now(),
   });
