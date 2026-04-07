@@ -188,27 +188,29 @@ final class MarkdownSegmentViewTests: XCTestCase {
         let view = MarkdownSegmentView(segments: segments)
 
         // First measurement populates both caches.
-        let firstResult = view.resolveSelectableRunMeasurementResult(segments)
-        XCTAssertEqual(MarkdownSegmentView._measuredTextCacheInsertCount, 1)
+        _ = view.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertEqual(
+            MarkdownSegmentView._attributedStringBuildCount, 1,
+            "First call must build the AttributedString (cache miss)"
+        )
+
+        // Same generation — attributedStringCache should hit.
+        _ = view.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertEqual(
+            MarkdownSegmentView._attributedStringBuildCount, 1,
+            "Second call at the same generation must serve from attributedStringCache"
+        )
 
         // Bump typography generation (simulates scheduleTypographyRetryIfNeeded
         // firing after DM Sans loads, without clearing attributedStringCache).
         VFont.bumpTypographyGeneration()
 
-        // Second measurement must miss both caches and rebuild, ensuring
-        // heading fonts are re-resolved with the updated typography state.
-        let secondResult = view.resolveSelectableRunMeasurementResult(segments)
+        // After bump, attributedStringCache must miss so heading fonts are
+        // rebuilt with the updated typography state.
+        _ = view.resolveSelectableRunMeasurementResult(segments)
         XCTAssertEqual(
-            MarkdownSegmentView._measuredTextCacheInsertCount,
-            2,
-            "A typography generation bump must force both caches to miss so heading fonts are rebuilt"
-        )
-
-        // The rebuilt NSAttributedString should not be the same object as the
-        // first — confirming the attributedStringCache was bypassed.
-        XCTAssertFalse(
-            firstResult.nsAttributedString === secondResult.nsAttributedString,
-            "Post-bump measurement must produce a new NSAttributedString, not a stale cached one"
+            MarkdownSegmentView._attributedStringBuildCount, 2,
+            "A typography generation bump must cause an attributedStringCache miss"
         )
     }
 

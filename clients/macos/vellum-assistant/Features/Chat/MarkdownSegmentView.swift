@@ -250,6 +250,9 @@ struct MarkdownSegmentView: View, Equatable {
     /// Exposed for testing: number of cache insertions into `measuredTextCache`.
     /// NSCache doesn't expose its count, so we maintain a parallel counter.
     @MainActor static var _measuredTextCacheInsertCount: Int = 0
+    /// Exposed for testing: number of times `buildAttributedStringUncached` was
+    /// called (i.e. `attributedStringCache` misses).
+    @MainActor static var _attributedStringBuildCount: Int = 0
     #endif
     #endif
 
@@ -278,6 +281,7 @@ struct MarkdownSegmentView: View, Equatable {
         typographyRetryTimestamps.removeAll()
         #if DEBUG
         _measuredTextCacheInsertCount = 0
+        _attributedStringBuildCount = 0
         #endif
         #endif
     }
@@ -321,6 +325,9 @@ struct MarkdownSegmentView: View, Equatable {
         }
 
         let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor)
+        #if DEBUG
+        Self._attributedStringBuildCount += 1
+        #endif
 
         // Skip caching for very long segment groups to avoid a single huge
         // entry evicting many smaller, more frequently accessed entries.
