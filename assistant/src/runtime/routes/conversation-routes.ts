@@ -78,6 +78,7 @@ import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
+import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -1164,11 +1165,43 @@ export async function handleSendMessage(
   } else if (!conversation.isProcessing()) {
     conversation.setHostBashProxy(undefined);
   }
+  // For the chrome-extension interface we route host_browser_request /
+  // host_browser_cancel frames through the in-process ChromeExtensionRegistry
+  // to the WebSocket opened against /v1/browser-relay by the connected
+  // extension, instead of the SSE/onEvent hub used by macOS. The registry
+  // lookup is keyed by the JWT-derived actor principal id, which the
+  // runtime captured at WebSocket upgrade time.
+  //
+  // macOS (and any other interface that supports host_browser in the
+  // future via the SSE hub) keeps using `onEvent` — see the else branch.
+  const browserProxySendToClient: (msg: ServerMessage) => void =
+    sourceInterface === "chrome-extension"
+      ? (msg) => {
+          const gid = authContext.actorPrincipalId;
+          if (!gid) {
+            // No guardian identity on this turn — nothing to route to.
+            // The proxy will observe this via its try/catch and surface a
+            // transport error back to the caller.
+            throw new Error(
+              "chrome-extension host_browser send skipped: no guardianId on AuthContext",
+            );
+          }
+          const ok = getChromeExtensionRegistry().send(gid, msg);
+          if (!ok) {
+            throw new Error(
+              `chrome-extension host_browser send failed: no active connection for guardian ${gid}`,
+            );
+          }
+        }
+      : onEvent;
   if (supportsHostProxy(sourceInterface, "host_browser")) {
     if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
-      const browserProxy = new HostBrowserProxy(onEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
+      const browserProxy = new HostBrowserProxy(
+        browserProxySendToClient,
+        (requestId) => {
+          pendingInteractions.resolve(requestId);
+        },
+      );
       conversation.setHostBrowserProxy(browserProxy);
     }
   } else if (!conversation.isProcessing()) {
@@ -1226,6 +1259,18 @@ export async function handleSendMessage(
   // host_bash/host_file tool availability into tool gating.
   if (supportsHostProxy(sourceInterface, "host_browser")) {
     conversation.restoreBrowserProxyAvailability?.();
+  }
+  // For chrome-extension, the call chain above (updateClient +
+  // restoreBrowserProxyAvailability) replaces the proxy's sendToClient
+  // with `onEvent`, which would emit host_browser_request frames over
+  // the SSE hub instead of the chrome-extension WebSocket. Re-apply the
+  // registry-routed sender so the just-constructed proxy forwards
+  // host_browser_request frames to the connected extension.
+  if (
+    sourceInterface === "chrome-extension" &&
+    supportsHostProxy(sourceInterface, "host_browser")
+  ) {
+    conversation.hostBrowserProxy?.updateSender(browserProxySendToClient, true);
   }
 
   // ── Canned first-greeting fast path ──

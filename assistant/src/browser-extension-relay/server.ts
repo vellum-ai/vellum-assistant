@@ -28,6 +28,14 @@ interface PendingCommand {
 export interface BrowserRelayWebSocketData {
   wsType: "browser-relay";
   connectionId: string;
+  /**
+   * Guardian identity derived from the JWT claims at WebSocket upgrade
+   * time. Used by the ChromeExtensionRegistry (runtime/) to route
+   * host_browser_request frames to the correct extension. Undefined when
+   * HTTP auth is disabled (dev bypass) or when the token's sub cannot be
+   * parsed into an actor principal.
+   */
+  guardianId?: string;
 }
 
 export interface ExtensionRelayStatus {
