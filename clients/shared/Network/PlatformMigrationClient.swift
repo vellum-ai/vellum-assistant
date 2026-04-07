@@ -143,7 +143,7 @@ public enum PlatformMigrationClient {
             session.finishTasksAndInvalidate()
         }
 
-        let urlPath = logPath(from: uploadURL) ?? "signed-url-upload"
+        let urlPath = logPath(from: uploadURL)
 
         for attempt in 0...maxRetries {
             log.info("PUT \(urlPath, privacy: .public)\(attempt > 0 ? " (retry \(attempt)/\(maxRetries))" : "")")
