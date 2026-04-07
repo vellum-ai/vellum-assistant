@@ -105,7 +105,7 @@ struct ChatBubbleOverflowMenu: View {
         if hasOverflowActions {
             Color.clear
                 .frame(height: Self.reservedRowHeight)
-                .overlay(alignment: .leading) {
+                .overlay(alignment: isUser ? .trailing : .leading) {
                     if showOverflowMenu {
                         menuContent
                             .transition(.opacity)
