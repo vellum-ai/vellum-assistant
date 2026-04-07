@@ -396,4 +396,38 @@ describe("POST /v1/export — workspace allowlist", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("treats empty-string conversationId as no filter", async () => {
+    const res = await callExport({ conversationId: "" });
+    const dir = await extractArchive(res);
+    try {
+      // With conversationId === "" (which the rest of handleExport treats as
+      // unfiltered), workspace conversations should also be unfiltered. All
+      // four canonical conversation dirs should be present.
+      const conversationsDir = join(dir, "workspace", "conversations");
+      const entries = readdirSync(conversationsDir);
+      expect(entries).toContain("2025-01-10T00-00-00.000Z_conv-jan10");
+      expect(entries).toContain("2025-01-15T00-00-00.000Z_conv-jan15");
+      expect(entries).toContain("2025-01-20T00-00-00.000Z_conv-jan20");
+      expect(entries).toContain("2025-01-25T00-00-00.000Z_conv-jan25");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("treats startTime=0 and endTime=0 as no filter", async () => {
+    const res = await callExport({ startTime: 0, endTime: 0 });
+    const dir = await extractArchive(res);
+    try {
+      const conversationsDir = join(dir, "workspace", "conversations");
+      const entries = readdirSync(conversationsDir);
+      // All four canonical conversation dirs should be present (no filtering).
+      expect(entries).toContain("2025-01-10T00-00-00.000Z_conv-jan10");
+      expect(entries).toContain("2025-01-15T00-00-00.000Z_conv-jan15");
+      expect(entries).toContain("2025-01-20T00-00-00.000Z_conv-jan20");
+      expect(entries).toContain("2025-01-25T00-00-00.000Z_conv-jan25");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

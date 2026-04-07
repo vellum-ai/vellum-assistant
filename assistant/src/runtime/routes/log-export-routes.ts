@@ -248,9 +248,9 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     // the rest of the export.
     const workspaceResult = collectWorkspaceData({
       staging,
-      conversationId,
-      startTime,
-      endTime,
+      conversationId: conversationId || undefined,
+      startTime: startTime || undefined,
+      endTime: endTime || undefined,
     });
 
     // --- Sanitized config snapshot ---
