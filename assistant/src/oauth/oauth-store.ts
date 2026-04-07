@@ -3,6 +3,11 @@
  *
  * Backed by Drizzle + SQLite. All JSON fields (default_scopes, scope_policy,
  * extra_params, granted_scopes, metadata) are stored as serialized JSON strings.
+ *
+ * Note: TS field names use camelCase from the platform's naming
+ * (provider, authorizeUrl, tokenExchangeUrl, displayLabel, authorizeParams),
+ * while underlying SQL columns retain their original snake_case names
+ * (provider_key, auth_url, token_url, display_name, extra_params).
  */
 
 import {
@@ -43,13 +48,13 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
- * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, userinfoUrl, extraParams,
+ * CONFLICT DO UPDATE so that implementation fields (authorizeUrl, tokenExchangeUrl,
+ * tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
  * identityResponsePaths, identityFormat, identityOkField, featureFlag)
- * and display metadata (displayName, description, dashboardUrl,
+ * and display metadata (displayLabel, description, dashboardUrl,
  * clientIdPlaceholder, requiresClientSecret) propagate to existing
  * installations on every startup, while user-customizable fields
  * (defaultScopes, scopePolicy) are only written on the
@@ -59,9 +64,9 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  */
 export function seedProviders(
   profiles: Array<{
-    providerKey: string;
-    authUrl: string;
-    tokenUrl: string;
+    provider: string;
+    authorizeUrl: string;
+    tokenExchangeUrl: string;
     tokenEndpointAuthMethod?: string;
     userinfoUrl?: string;
     pingUrl?: string;
@@ -71,9 +76,9 @@ export function seedProviders(
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
-    extraParams?: Record<string, string>;
+    authorizeParams?: Record<string, string>;
     managedServiceConfigKey?: string;
-    displayName?: string;
+    displayLabel?: string;
     description?: string;
     dashboardUrl?: string | null;
     clientIdPlaceholder?: string | null;
@@ -100,8 +105,8 @@ export function seedProviders(
   const db = getDb();
   const now = Date.now();
   for (const p of profiles) {
-    const authUrl = p.authUrl;
-    const tokenUrl = p.tokenUrl;
+    const authorizeUrl = p.authorizeUrl;
+    const tokenExchangeUrl = p.tokenExchangeUrl;
     const tokenEndpointAuthMethod = p.tokenEndpointAuthMethod ?? null;
     const userinfoUrl = p.userinfoUrl ?? null;
     const pingUrl = p.pingUrl ?? null;
@@ -112,9 +117,11 @@ export function seedProviders(
     const baseUrl = p.baseUrl ?? null;
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
-    const extraParams = p.extraParams ? JSON.stringify(p.extraParams) : null;
+    const authorizeParams = p.authorizeParams
+      ? JSON.stringify(p.authorizeParams)
+      : null;
     const managedServiceConfigKey = p.managedServiceConfigKey ?? null;
-    const displayName = p.displayName ?? null;
+    const displayLabel = p.displayLabel ?? null;
     const description = p.description ?? null;
     const dashboardUrl = p.dashboardUrl ?? null;
     const clientIdPlaceholder = p.clientIdPlaceholder ?? null;
@@ -141,21 +148,21 @@ export function seedProviders(
 
     db.insert(oauthProviders)
       .values({
-        providerKey: p.providerKey,
-        authUrl,
-        tokenUrl,
+        provider: p.provider,
+        authorizeUrl,
+        tokenExchangeUrl,
         tokenEndpointAuthMethod,
         userinfoUrl,
         baseUrl,
         defaultScopes,
         scopePolicy,
-        extraParams,
+        authorizeParams,
         pingUrl,
         pingMethod,
         pingHeaders,
         pingBody,
         managedServiceConfigKey,
-        displayName,
+        displayLabel,
         description,
         dashboardUrl,
         clientIdPlaceholder,
@@ -176,20 +183,20 @@ export function seedProviders(
         updatedAt: now,
       })
       .onConflictDoUpdate({
-        target: oauthProviders.providerKey,
+        target: oauthProviders.provider,
         set: {
-          authUrl,
-          tokenUrl,
+          authorizeUrl,
+          tokenExchangeUrl,
           tokenEndpointAuthMethod,
           userinfoUrl,
           baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
-          extraParams,
+          authorizeParams,
           pingUrl,
           pingMethod,
           pingHeaders,
           pingBody,
           managedServiceConfigKey,
-          displayName,
+          displayLabel,
           description,
           dashboardUrl,
           clientIdPlaceholder,
@@ -214,12 +221,12 @@ export function seedProviders(
 }
 
 /** Look up a provider by its primary key. */
-export function getProvider(providerKey: string): OAuthProviderRow | undefined {
+export function getProvider(provider: string): OAuthProviderRow | undefined {
   const db = getDb();
   return db
     .select()
     .from(oauthProviders)
-    .where(eq(oauthProviders.providerKey, providerKey))
+    .where(eq(oauthProviders.provider, provider))
     .get();
 }
 
@@ -234,9 +241,9 @@ export function listProviders(): OAuthProviderRow[] {
  * provider_key already exists.
  */
 export function registerProvider(params: {
-  providerKey: string;
-  authUrl: string;
-  tokenUrl: string;
+  provider: string;
+  authorizeUrl: string;
+  tokenExchangeUrl: string;
   tokenEndpointAuthMethod?: string;
   userinfoUrl?: string;
   pingUrl?: string;
@@ -246,9 +253,9 @@ export function registerProvider(params: {
   baseUrl?: string;
   defaultScopes: string[];
   scopePolicy: Record<string, unknown>;
-  extraParams?: Record<string, string>;
+  authorizeParams?: Record<string, string>;
   managedServiceConfigKey?: string;
-  displayName?: string;
+  displayLabel?: string;
   description?: string;
   dashboardUrl?: string;
   clientIdPlaceholder?: string;
@@ -274,28 +281,30 @@ export function registerProvider(params: {
   const db = getDb();
   const now = Date.now();
 
-  const existing = getProvider(params.providerKey);
+  const existing = getProvider(params.provider);
   if (existing) {
-    throw new Error(`OAuth provider already exists: ${params.providerKey}`);
+    throw new Error(`OAuth provider already exists: ${params.provider}`);
   }
 
   const row = {
-    providerKey: params.providerKey,
-    authUrl: params.authUrl,
-    tokenUrl: params.tokenUrl,
+    provider: params.provider,
+    authorizeUrl: params.authorizeUrl,
+    tokenExchangeUrl: params.tokenExchangeUrl,
     tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? null,
     userinfoUrl: params.userinfoUrl ?? null,
     baseUrl: params.baseUrl ?? null,
     defaultScopes: JSON.stringify(params.defaultScopes),
     scopePolicy: JSON.stringify(params.scopePolicy),
-    extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
+    authorizeParams: params.authorizeParams
+      ? JSON.stringify(params.authorizeParams)
+      : null,
     pingUrl: params.pingUrl ?? null,
     pingMethod: params.pingMethod ?? null,
     pingHeaders: params.pingHeaders ? JSON.stringify(params.pingHeaders) : null,
     pingBody:
       params.pingBody !== undefined ? JSON.stringify(params.pingBody) : null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
-    displayName: params.displayName ?? null,
+    displayLabel: params.displayLabel ?? null,
     description: params.description ?? null,
     dashboardUrl: params.dashboardUrl ?? null,
     clientIdPlaceholder: params.clientIdPlaceholder ?? null,
@@ -333,17 +342,17 @@ export function registerProvider(params: {
 /**
  * Update mutable fields on an existing provider. Only the fields explicitly
  * provided (not `undefined`) are written; everything else is left unchanged.
- * JSON fields (defaultScopes, scopePolicy, extraParams, pingHeaders, pingBody)
+ * JSON fields (defaultScopes, scopePolicy, authorizeParams, pingHeaders, pingBody)
  * are serialized with JSON.stringify before storage.
  *
  * Returns the updated provider row, or `undefined` if no provider with the
  * given key exists.
  */
 export function updateProvider(
-  providerKey: string,
+  provider: string,
   params: Partial<{
-    authUrl: string;
-    tokenUrl: string;
+    authorizeUrl: string;
+    tokenExchangeUrl: string;
     tokenEndpointAuthMethod: string;
     userinfoUrl: string;
     pingUrl: string;
@@ -353,8 +362,8 @@ export function updateProvider(
     baseUrl: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
-    extraParams: Record<string, string>;
-    displayName: string;
+    authorizeParams: Record<string, string>;
+    displayLabel: string;
     description: string;
     dashboardUrl: string;
     clientIdPlaceholder: string;
@@ -378,14 +387,15 @@ export function updateProvider(
     featureFlag: string;
   }>,
 ): OAuthProviderRow | undefined {
-  const existing = getProvider(providerKey);
+  const existing = getProvider(provider);
   if (!existing) return undefined;
 
   const db = getDb();
   const set: Record<string, unknown> = { updatedAt: Date.now() };
 
-  if (params.authUrl !== undefined) set.authUrl = params.authUrl;
-  if (params.tokenUrl !== undefined) set.tokenUrl = params.tokenUrl;
+  if (params.authorizeUrl !== undefined) set.authorizeUrl = params.authorizeUrl;
+  if (params.tokenExchangeUrl !== undefined)
+    set.tokenExchangeUrl = params.tokenExchangeUrl;
   if (params.tokenEndpointAuthMethod !== undefined)
     set.tokenEndpointAuthMethod = params.tokenEndpointAuthMethod;
   if (params.userinfoUrl !== undefined) set.userinfoUrl = params.userinfoUrl;
@@ -400,9 +410,9 @@ export function updateProvider(
     set.defaultScopes = JSON.stringify(params.defaultScopes);
   if (params.scopePolicy !== undefined)
     set.scopePolicy = JSON.stringify(params.scopePolicy);
-  if (params.extraParams !== undefined)
-    set.extraParams = JSON.stringify(params.extraParams);
-  if (params.displayName !== undefined) set.displayName = params.displayName;
+  if (params.authorizeParams !== undefined)
+    set.authorizeParams = JSON.stringify(params.authorizeParams);
+  if (params.displayLabel !== undefined) set.displayLabel = params.displayLabel;
   if (params.description !== undefined) set.description = params.description;
   if (params.dashboardUrl !== undefined) set.dashboardUrl = params.dashboardUrl;
   if (params.clientIdPlaceholder !== undefined)
@@ -432,10 +442,10 @@ export function updateProvider(
 
   db.update(oauthProviders)
     .set(set)
-    .where(eq(oauthProviders.providerKey, providerKey))
+    .where(eq(oauthProviders.provider, provider))
     .run();
 
-  return getProvider(providerKey);
+  return getProvider(provider);
 }
 
 /**
@@ -445,14 +455,12 @@ export function updateProvider(
  * Note: SQLite enforces the foreign-key constraint from `oauth_apps.provider_key`,
  * so deleting a provider that has existing apps will throw.
  */
-export function deleteProvider(providerKey: string): boolean {
-  const existing = getProvider(providerKey);
+export function deleteProvider(provider: string): boolean {
+  const existing = getProvider(provider);
   if (!existing) return false;
 
   const db = getDb();
-  db.delete(oauthProviders)
-    .where(eq(oauthProviders.providerKey, providerKey))
-    .run();
+  db.delete(oauthProviders).where(eq(oauthProviders.provider, provider)).run();
   return rawChanges() > 0;
 }
 
@@ -465,7 +473,7 @@ export function deleteProvider(providerKey: string): boolean {
  * Generates a UUID on insert.
  */
 export async function upsertApp(
-  providerKey: string,
+  provider: string,
   clientId: string,
   clientSecretOpts?: {
     clientSecretValue?: string;
@@ -499,10 +507,7 @@ export async function upsertApp(
     .select()
     .from(oauthApps)
     .where(
-      and(
-        eq(oauthApps.providerKey, providerKey),
-        eq(oauthApps.clientId, clientId),
-      ),
+      and(eq(oauthApps.provider, provider), eq(oauthApps.clientId, clientId)),
     )
     .get();
 
@@ -549,7 +554,7 @@ export async function upsertApp(
 
   const row = {
     id,
-    providerKey,
+    provider,
     clientId,
     clientSecretCredentialPath: credPath,
     createdAt: now,
@@ -597,7 +602,7 @@ export async function getAppClientSecret(
 
 /** Look up an app by (provider_key, client_id). */
 export function getAppByProviderAndClientId(
-  providerKey: string,
+  provider: string,
   clientId: string,
 ): OAuthAppRow | undefined {
   const db = getDb();
@@ -605,10 +610,7 @@ export function getAppByProviderAndClientId(
     .select()
     .from(oauthApps)
     .where(
-      and(
-        eq(oauthApps.providerKey, providerKey),
-        eq(oauthApps.clientId, clientId),
-      ),
+      and(eq(oauthApps.provider, provider), eq(oauthApps.clientId, clientId)),
     )
     .get();
 }
@@ -618,13 +620,13 @@ export function getAppByProviderAndClientId(
  * Returns undefined if no app exists for this provider.
  */
 export function getMostRecentAppByProvider(
-  providerKey: string,
+  provider: string,
 ): OAuthAppRow | undefined {
   const db = getDb();
   return db
     .select()
     .from(oauthApps)
-    .where(eq(oauthApps.providerKey, providerKey))
+    .where(eq(oauthApps.provider, provider))
     .orderBy(desc(oauthApps.createdAt))
     .limit(1)
     .get();
@@ -670,7 +672,7 @@ export async function deleteApp(id: string): Promise<boolean> {
  */
 export function createConnection(params: {
   oauthAppId: string;
-  providerKey: string;
+  provider: string;
   accountInfo?: string;
   grantedScopes: string[];
   expiresAt?: number;
@@ -687,7 +689,7 @@ export function createConnection(params: {
   const row = {
     id,
     oauthAppId: params.oauthAppId,
-    providerKey: params.providerKey,
+    provider: params.provider,
     accountInfo: params.accountInfo ?? null,
     grantedScopes: JSON.stringify(params.grantedScopes),
     expiresAt: params.expiresAt ?? null,
@@ -724,14 +726,14 @@ export function getConnection(id: string): OAuthConnectionRow | undefined {
  * Returns `undefined` when no matching active connection exists.
  */
 export function getActiveConnection(
-  providerKey: string,
+  provider: string,
   options?: { clientId?: string; account?: string },
 ): OAuthConnectionRow | undefined {
   const { clientId, account } = options ?? {};
   const db = getDb();
 
   const conditions = [
-    eq(oauthConnections.providerKey, providerKey),
+    eq(oauthConnections.provider, provider),
     eq(oauthConnections.status, "active"),
   ];
 
@@ -740,7 +742,7 @@ export function getActiveConnection(
   }
 
   if (clientId) {
-    const app = getAppByProviderAndClientId(providerKey, clientId);
+    const app = getAppByProviderAndClientId(provider, clientId);
     if (!app) return undefined;
     conditions.push(eq(oauthConnections.oauthAppId, app.id));
   }
@@ -756,26 +758,26 @@ export function getActiveConnection(
 
 /** @deprecated Use {@link getActiveConnection} instead. */
 export function getConnectionByProvider(
-  providerKey: string,
+  provider: string,
   clientId?: string,
 ): OAuthConnectionRow | undefined {
-  return getActiveConnection(providerKey, { clientId });
+  return getActiveConnection(provider, { clientId });
 }
 
 /** @deprecated Use {@link getActiveConnection} instead. */
 export function getConnectionByProviderAndAccount(
-  providerKey: string,
+  provider: string,
   accountInfo?: string,
   clientId?: string,
 ): OAuthConnectionRow | undefined {
-  return getActiveConnection(providerKey, { clientId, account: accountInfo });
+  return getActiveConnection(provider, { clientId, account: accountInfo });
 }
 
 /**
  * Get ALL active connections for a provider (supports multi-account).
  */
 export function listActiveConnectionsByProvider(
-  providerKey: string,
+  provider: string,
 ): OAuthConnectionRow[] {
   const db = getDb();
   return db
@@ -783,7 +785,7 @@ export function listActiveConnectionsByProvider(
     .from(oauthConnections)
     .where(
       and(
-        eq(oauthConnections.providerKey, providerKey),
+        eq(oauthConnections.provider, provider),
         eq(oauthConnections.status, "active"),
       ),
     )
@@ -799,10 +801,8 @@ export function listActiveConnectionsByProvider(
  * but the secure-key write for the access token failed, which would make
  * `resolveOAuthConnection()` throw at usage time.
  */
-export async function isProviderConnected(
-  providerKey: string,
-): Promise<boolean> {
-  const conn = getActiveConnection(providerKey);
+export async function isProviderConnected(provider: string): Promise<boolean> {
+  const conn = getActiveConnection(provider);
   if (!conn || conn.status !== "active") return false;
   return (
     (await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))) !==
@@ -853,24 +853,24 @@ export function updateConnection(
 
 /** List connections, optionally filtered by provider key and/or client ID. */
 export function listConnections(
-  providerKey?: string,
+  provider?: string,
   clientId?: string,
 ): OAuthConnectionRow[] {
   const db = getDb();
 
   let rows: OAuthConnectionRow[];
-  if (providerKey) {
+  if (provider) {
     rows = db
       .select()
       .from(oauthConnections)
-      .where(eq(oauthConnections.providerKey, providerKey))
-      .orderBy(oauthConnections.providerKey, oauthConnections.id)
+      .where(eq(oauthConnections.provider, provider))
+      .orderBy(oauthConnections.provider, oauthConnections.id)
       .all();
   } else {
     rows = db
       .select()
       .from(oauthConnections)
-      .orderBy(oauthConnections.providerKey, oauthConnections.id)
+      .orderBy(oauthConnections.provider, oauthConnections.id)
       .all();
   }
 
@@ -914,13 +914,13 @@ export function deleteConnection(id: string): boolean {
  * to avoid orphaning secrets).
  */
 export async function disconnectOAuthProvider(
-  providerKey: string,
+  provider: string,
   clientId?: string,
   connectionId?: string,
 ): Promise<"disconnected" | "not-found" | "error"> {
   const conn = connectionId
     ? getConnection(connectionId)
-    : getActiveConnection(providerKey, { clientId });
+    : getActiveConnection(provider, { clientId });
   if (!conn) return "not-found";
 
   // Wrap the assistant's secure-key functions into the SecureKeyBackend
@@ -945,7 +945,7 @@ export async function disconnectOAuthProvider(
     // way to surface the failure.
     log.warn(
       {
-        providerKey,
+        provider,
         connectionId: conn.id,
         accessTokenResult,
         refreshTokenResult,

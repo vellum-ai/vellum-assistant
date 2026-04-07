@@ -60,11 +60,11 @@ let slackChannelConfigCalls: Array<{
 }> = [];
 
 mock.module("../oauth/manual-token-connection.js", () => ({
-  syncManualTokenConnection: async (providerKey: string) => {
+  syncManualTokenConnection: async (provider: string) => {
     const { credentialKey } = await import("../security/credential-key.js");
     const { getSecureKeyAsync } = await import("../security/secure-keys.js");
 
-    if (providerKey === "slack_channel") {
+    if (provider === "slack_channel") {
       const hasBotToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "bot_token"),
       ));
@@ -72,9 +72,9 @@ mock.module("../oauth/manual-token-connection.js", () => ({
         credentialKey("slack_channel", "app_token"),
       ));
       if (hasBotToken && hasAppToken) {
-        manualConnectionStore[providerKey] = "active";
+        manualConnectionStore[provider] = "active";
       } else {
-        delete manualConnectionStore[providerKey];
+        delete manualConnectionStore[provider];
       }
     }
   },

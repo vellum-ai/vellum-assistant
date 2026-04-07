@@ -25,14 +25,14 @@ const MANUAL_TOKEN_CLIENT_ID = "manual-config";
  * Ensure an active oauth_connection row exists for the given manual-token
  * provider. Creates the synthetic oauth_app row on first use.
  *
- * @param providerKey - The provider key (e.g. "slack_channel", "telegram")
+ * @param provider - The provider key (e.g. "slack_channel", "telegram")
  * @param accountInfo - Optional account info to store (e.g. team name, bot username)
  */
 export async function ensureManualTokenConnection(
-  providerKey: string,
+  provider: string,
   accountInfo?: string,
 ): Promise<void> {
-  const existing = getConnectionByProvider(providerKey);
+  const existing = getConnectionByProvider(provider);
   if (existing) {
     // Update account info if provided
     if (accountInfo !== undefined) {
@@ -42,11 +42,11 @@ export async function ensureManualTokenConnection(
   }
 
   // Create synthetic app + connection
-  const app = await upsertApp(providerKey, MANUAL_TOKEN_CLIENT_ID);
+  const app = await upsertApp(provider, MANUAL_TOKEN_CLIENT_ID);
 
   createConnection({
     oauthAppId: app.id,
-    providerKey,
+    provider,
     accountInfo,
     grantedScopes: [],
     hasRefreshToken: false,
@@ -59,8 +59,8 @@ export async function ensureManualTokenConnection(
  * Note: This only removes the oauth_connection row. The caller is still
  * responsible for deleting the stored credentials separately.
  */
-export function removeManualTokenConnection(providerKey: string): void {
-  const conn = getConnectionByProvider(providerKey);
+export function removeManualTokenConnection(provider: string): void {
+  const conn = getConnectionByProvider(provider);
   if (!conn) return;
   deleteConnection(conn.id);
 }
@@ -73,10 +73,10 @@ export function removeManualTokenConnection(providerKey: string): void {
  * keep connection status in sync without duplicating per-provider rules.
  */
 export async function syncManualTokenConnection(
-  providerKey: string,
+  provider: string,
   accountInfo?: string,
 ): Promise<void> {
-  switch (providerKey) {
+  switch (provider) {
     case "telegram": {
       const hasBotToken = !!(await getSecureKeyAsync(
         credentialKey("telegram", "bot_token"),
@@ -85,9 +85,9 @@ export async function syncManualTokenConnection(
         credentialKey("telegram", "webhook_secret"),
       ));
       if (hasBotToken && hasWebhookSecret) {
-        await ensureManualTokenConnection(providerKey, accountInfo);
+        await ensureManualTokenConnection(provider, accountInfo);
       } else {
-        removeManualTokenConnection(providerKey);
+        removeManualTokenConnection(provider);
       }
       return;
     }
@@ -100,9 +100,9 @@ export async function syncManualTokenConnection(
         credentialKey("slack_channel", "app_token"),
       ));
       if (hasBotToken && hasAppToken) {
-        await ensureManualTokenConnection(providerKey, accountInfo);
+        await ensureManualTokenConnection(provider, accountInfo);
       } else {
-        removeManualTokenConnection(providerKey);
+        removeManualTokenConnection(provider);
       }
       return;
     }

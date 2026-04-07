@@ -60,7 +60,7 @@ function _serializeProvider(
 ) {
   return {
     ...row,
-    displayName: row.displayName ?? null,
+    displayLabel: row.displayLabel ?? null,
     description: row.description ?? null,
     dashboardUrl: row.dashboardUrl ?? null,
     clientIdPlaceholder: row.clientIdPlaceholder ?? null,
@@ -68,7 +68,9 @@ function _serializeProvider(
     supportsManagedMode: !!row.managedServiceConfigKey,
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
-    extraParams: row.extraParams ? JSON.parse(row.extraParams) : null,
+    authorizeParams: row.authorizeParams
+      ? JSON.parse(row.authorizeParams)
+      : null,
     pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
     pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,
     loopbackPort: row.loopbackPort ?? null,
@@ -107,8 +109,8 @@ export function serializeProviderSummary(
 ): SerializedProviderSummary | null {
   if (!row) return null;
   return {
-    provider_key: row.providerKey,
-    display_name: row.displayName ?? null,
+    provider_key: row.provider,
+    display_name: row.displayLabel ?? null,
     description: row.description ?? null,
     dashboard_url: row.dashboardUrl ?? null,
     client_id_placeholder: row.clientIdPlaceholder ?? null,

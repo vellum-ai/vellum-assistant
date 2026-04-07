@@ -339,7 +339,7 @@ Examples:
             // Manual-token providers (slack_channel, telegram) don't use
             // OAuth2 browser flows — credentials are configured via
             // `assistant credentials` or chat setup instead.
-            if (providerRow.authUrl === "urn:manual-token") {
+            if (providerRow.authorizeUrl === "urn:manual-token") {
               writeError(
                 `"${provider}" uses manual token configuration, not an OAuth browser flow. ` +
                   `Set the token with: assistant credentials set <token_value> --service ${provider} --field <field_name>`,
@@ -414,12 +414,12 @@ Examples:
                 writeOutput(cmd, {
                   ok: true,
                   deferred: true,
-                  authUrl: result.authUrl,
+                  authorizeUrl: result.authorizeUrl,
                   service: result.service,
                 });
               } else {
                 process.stdout.write(
-                  `\nAuthorize with ${provider}:\n\n${result.authUrl}\n\nThe connection will complete automatically once you authorize.\n`,
+                  `\nAuthorize with ${provider}:\n\n${result.authorizeUrl}\n\nThe connection will complete automatically once you authorize.\n`,
                 );
               }
               return;

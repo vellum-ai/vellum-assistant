@@ -2,21 +2,21 @@ import { describe, expect, mock, test } from "bun:test";
 
 const mockListProviders = mock(() => [
   {
-    providerKey: "google",
-    displayName: "Google",
+    provider: "google",
+    displayLabel: "Google",
     description: "Google OAuth provider",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
     clientIdPlaceholder: null,
     requiresClientSecret: 1,
     managedServiceConfigKey: "google-oauth",
-    authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-    tokenUrl: "https://oauth2.googleapis.com/token",
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenExchangeUrl: "https://oauth2.googleapis.com/token",
     tokenEndpointAuthMethod: null,
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "[]",
-    extraParams: null,
+    authorizeParams: null,
 
     pingUrl: null,
     pingMethod: null,
@@ -38,21 +38,21 @@ const mockListProviders = mock(() => [
     updatedAt: 1735689550000,
   },
   {
-    providerKey: "github",
-    displayName: "GitHub",
+    provider: "github",
+    displayLabel: "GitHub",
     description: "GitHub OAuth provider",
     dashboardUrl: "https://github.com/settings/developers",
     clientIdPlaceholder: null,
     requiresClientSecret: 1,
     managedServiceConfigKey: null,
-    authUrl: "https://github.com/login/oauth/authorize",
-    tokenUrl: "https://github.com/login/oauth/access_token",
+    authorizeUrl: "https://github.com/login/oauth/authorize",
+    tokenExchangeUrl: "https://github.com/login/oauth/access_token",
     tokenEndpointAuthMethod: null,
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "[]",
-    extraParams: null,
+    authorizeParams: null,
 
     pingUrl: null,
     pingMethod: null,
@@ -75,9 +75,9 @@ const mockListProviders = mock(() => [
   },
 ]);
 
-const mockGetProvider = mock((providerKey: string) => {
+const mockGetProvider = mock((provider: string) => {
   const all = mockListProviders();
-  return all.find((p) => p.providerKey === providerKey) ?? undefined;
+  return all.find((p) => p.provider === provider) ?? undefined;
 });
 
 mock.module("../oauth/oauth-store.js", () => ({
@@ -211,16 +211,16 @@ describe("GET /v1/oauth/providers", () => {
   });
 });
 
-describe("GET /v1/oauth/providers/:providerKey", () => {
+describe("GET /v1/oauth/providers/:provider", () => {
   test("returns the correct provider", async () => {
     const req = new Request("http://localhost/v1/oauth/providers/google");
     const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers/:providerKey").handler({
+    const res = await getRoute("GET", "oauth/providers/:provider").handler({
       req,
       url,
       server: null as never,
       authContext: null as never,
-      params: { providerKey: "google" },
+      params: { provider: "google" },
     });
 
     expect(res.status).toBe(200);
@@ -245,12 +245,12 @@ describe("GET /v1/oauth/providers/:providerKey", () => {
   test("returns 404 for unknown provider", async () => {
     const req = new Request("http://localhost/v1/oauth/providers/nonexistent");
     const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers/:providerKey").handler({
+    const res = await getRoute("GET", "oauth/providers/:provider").handler({
       req,
       url,
       server: null as never,
       authContext: null as never,
-      params: { providerKey: "nonexistent" },
+      params: { provider: "nonexistent" },
     });
 
     expect(res.status).toBe(404);

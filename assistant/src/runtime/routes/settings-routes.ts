@@ -240,7 +240,7 @@ async function handleOAuthConnectStart(body: {
   try {
     // For HTTP, we cannot send `open_url` mid-request. The auth URL is
     // returned to the client to open.
-    let authUrl: string | undefined;
+    let authorizeUrl: string | undefined;
 
     const result = await orchestrateOAuthConnect({
       service,
@@ -250,7 +250,7 @@ async function handleOAuthConnectStart(body: {
       callbackTransport: "loopback",
       isInteractive: true,
       openUrl: (url: string) => {
-        authUrl = url;
+        authorizeUrl = url;
       },
       onDeferredComplete: (deferredResult) => {
         // Prefer accountInfo from oauth-store when available.
@@ -309,7 +309,7 @@ async function handleOAuthConnectStart(body: {
       return Response.json({
         ok: true,
         deferred: true,
-        authUrl: result.authUrl,
+        authorizeUrl: result.authorizeUrl,
       });
     }
 
@@ -326,7 +326,7 @@ async function handleOAuthConnectStart(body: {
       ok: true,
       grantedScopes: result.grantedScopes,
       accountInfo: responseAccountInfo,
-      ...(authUrl ? { authUrl } : {}),
+      ...(authorizeUrl ? { authorizeUrl } : {}),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

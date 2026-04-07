@@ -43,16 +43,16 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // GET /v1/oauth/providers/:providerKey — Get a single provider.
+    // GET /v1/oauth/providers/:provider — Get a single provider.
     {
-      endpoint: "oauth/providers/:providerKey",
+      endpoint: "oauth/providers/:provider",
       method: "GET",
       handler: ({ params }) => {
-        const row = getProvider(params.providerKey);
+        const row = getProvider(params.provider);
         if (!row) {
           return httpError(
             "NOT_FOUND",
-            `No OAuth provider registered for "${params.providerKey}"`,
+            `No OAuth provider registered for "${params.provider}"`,
             404,
           );
         }
@@ -60,7 +60,7 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
         if (!isProviderVisible(row, loadConfig())) {
           return httpError(
             "NOT_FOUND",
-            `No OAuth provider registered for "${params.providerKey}"`,
+            `No OAuth provider registered for "${params.provider}"`,
             404,
           );
         }

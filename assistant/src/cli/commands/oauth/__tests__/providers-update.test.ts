@@ -137,21 +137,21 @@ async function runCommand(
 // ---------------------------------------------------------------------------
 
 const sampleProviderRow = {
-  providerKey: "custom-api",
-  authUrl: "https://custom-api.example.com/oauth/authorize",
-  tokenUrl: "https://custom-api.example.com/oauth/token",
+  provider: "custom-api",
+  authorizeUrl: "https://custom-api.example.com/oauth/authorize",
+  tokenExchangeUrl: "https://custom-api.example.com/oauth/token",
   tokenEndpointAuthMethod: null,
   userinfoUrl: null,
   baseUrl: null,
   defaultScopes: "[]",
   scopePolicy: "{}",
-  extraParams: null,
+  authorizeParams: null,
   managedServiceConfigKey: null,
   pingUrl: null,
   pingMethod: null,
   pingHeaders: null,
   pingBody: null,
-  displayName: null,
+  displayLabel: null,
   description: null,
   dashboardUrl: null,
   clientIdPlaceholder: null,
@@ -214,7 +214,7 @@ describe("assistant oauth providers update", () => {
   test("built-in provider returns error suggesting register", async () => {
     mockGetProvider = () => ({
       ...sampleProviderRow,
-      providerKey: "google",
+      provider: "google",
     });
 
     const { exitCode, stdout } = await runCommand([
@@ -259,7 +259,7 @@ describe("assistant oauth providers update", () => {
     mockGetProvider = () => ({ ...sampleProviderRow });
     mockUpdateProvider = (_key, _params) => ({
       ...sampleProviderRow,
-      displayName: "New Name",
+      displayLabel: "New Name",
       updatedAt: Date.now(),
     });
 
@@ -273,8 +273,8 @@ describe("assistant oauth providers update", () => {
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed.providerKey).toBe("custom-api");
-    expect(parsed.displayName).toBe("New Name");
+    expect(parsed.provider).toBe("custom-api");
+    expect(parsed.displayLabel).toBe("New Name");
   });
 
   // -------------------------------------------------------------------------
@@ -285,9 +285,9 @@ describe("assistant oauth providers update", () => {
     mockGetProvider = () => ({ ...sampleProviderRow });
     mockUpdateProvider = (_key, _params) => ({
       ...sampleProviderRow,
-      displayName: "My API",
+      displayLabel: "My API",
       defaultScopes: '["read","write"]',
-      authUrl: "https://new.example.com/auth",
+      authorizeUrl: "https://new.example.com/auth",
       updatedAt: Date.now(),
     });
 
@@ -305,15 +305,15 @@ describe("assistant oauth providers update", () => {
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed.providerKey).toBe("custom-api");
+    expect(parsed.provider).toBe("custom-api");
 
     // Verify updateProvider was called with the correct params
     expect(mockUpdateProviderCalls).toHaveLength(1);
     expect(mockUpdateProviderCalls[0].key).toBe("custom-api");
     expect(mockUpdateProviderCalls[0].params).toEqual({
-      displayName: "My API",
+      displayLabel: "My API",
       defaultScopes: ["read", "write"],
-      authUrl: "https://new.example.com/auth",
+      authorizeUrl: "https://new.example.com/auth",
     });
   });
 
@@ -381,7 +381,7 @@ describe("assistant oauth providers update", () => {
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed.providerKey).toBe("custom-api");
+    expect(parsed.provider).toBe("custom-api");
 
     // Verify the new fields are present in the output (parsed from JSON strings)
     expect(parsed.loopbackPort).toBe(17400);
