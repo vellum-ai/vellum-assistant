@@ -240,6 +240,10 @@ extension MessageListView {
         let lastVisibleIsAssistant = lastVisible?.role == .assistant
         let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
         let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
+        let isStreamingWithoutText = isSending
+            && (lastVisible?.isStreaming == true)
+            && (lastVisible?.text.isEmpty ?? true)
+            && !hasActiveToolCall
 
         let result = MessageListDerivedState(
             messageIndexById: layout.messageIndexById,
@@ -264,6 +268,7 @@ extension MessageListView {
             hasActiveToolCall: hasActiveToolCall,
             canInlineProcessing: canInlineProcessing,
             shouldShowThinkingIndicator: shouldShowThinkingIndicator,
+            isStreamingWithoutText: isStreamingWithoutText,
             hasMessages: !liveMessages.isEmpty
         )
 

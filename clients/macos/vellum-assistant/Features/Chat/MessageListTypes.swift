@@ -141,6 +141,7 @@ struct MessageListDerivedState {
     let hasActiveToolCall: Bool
     let canInlineProcessing: Bool
     let shouldShowThinkingIndicator: Bool
+    let isStreamingWithoutText: Bool
     let hasMessages: Bool
 }
 
