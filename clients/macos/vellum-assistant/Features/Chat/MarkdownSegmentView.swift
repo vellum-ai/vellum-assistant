@@ -779,6 +779,14 @@ private struct CodeBlockView: View, Equatable {
         return ceil(lm.defaultLineHeight(for: VFont.nsMono))
     }()
 
+    /// Maximum height for long code blocks inside LazyVStack cells.
+    /// Content exceeding this is vertically scrollable.
+    private static let maxCodeBlockHeight: CGFloat = 400
+
+    /// Line threshold derived from maxCodeBlockHeight / codeLineHeight.
+    /// Content above this count takes the capped-height ScrollView path.
+    private static let lineThreshold: Int = 25
+
     static func == (lhs: CodeBlockView, rhs: CodeBlockView) -> Bool {
         lhs.language == rhs.language
             && lhs.code == rhs.code
@@ -806,21 +814,35 @@ private struct CodeBlockView: View, Equatable {
                 .padding(.top, VSpacing.xs)
             }
 
-            // Pre-compute height from line count so the ScrollView has a
-            // definite size during LazyVStack's sizeThatFits pass, avoiding
-            // expensive Core Text measurement for off-screen cells.
-            let codeLineCount = code.components(separatedBy: "\n").count
-            let codeBlockHeight = CGFloat(codeLineCount) * Self.codeLineHeight + VSpacing.sm * 2
+            let codeLineCount = code.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+            let isLong = codeLineCount > Self.lineThreshold || (codeLineCount == 1 && code.utf8.count > 50_000)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(.custom("DMMono-Regular", size: 13))
-                    .foregroundStyle(textColor)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: true, vertical: true)
-                    .padding(VSpacing.sm)
+            if isLong {
+                // Long code: both horizontal and vertical scroll, capped height.
+                // .frame(height:) compiles to _FixedSizeLayout — O(1), never
+                // measures children. Safe inside LazyVStack cells.
+                ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                    Text(code)
+                        .font(.custom("DMMono-Regular", size: 13))
+                        .foregroundStyle(textColor)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .padding(VSpacing.sm)
+                }
+                .frame(height: Self.maxCodeBlockHeight)
+            } else {
+                // Short code: horizontal scroll only, natural height.
+                let codeBlockHeight = CGFloat(codeLineCount) * Self.codeLineHeight + VSpacing.sm * 2
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(code)
+                        .font(.custom("DMMono-Regular", size: 13))
+                        .foregroundStyle(textColor)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .padding(VSpacing.sm)
+                }
+                .frame(height: codeBlockHeight)
             }
-            .frame(height: codeBlockHeight)
         }
         .optionalMaxWidth(maxContentWidth)
         .background(codeBackgroundColor)
