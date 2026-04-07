@@ -99,11 +99,11 @@ describe("VellumPlatformClient", () => {
       await client!.fetch("/v1/some/endpoint/");
     });
 
-    test("injects Bearer auth header", async () => {
+    test("injects Api-Key auth header", async () => {
       globalThis.fetch = mock(
         async (_url: string | URL | Request, init?: RequestInit) => {
           const headers = new Headers(init?.headers);
-          expect(headers.get("Authorization")).toBe("Bearer sk-test-key");
+          expect(headers.get("Authorization")).toBe("Api-Key sk-test-key");
           return new Response("ok", { status: 200 });
         },
       ) as unknown as typeof globalThis.fetch;
@@ -117,7 +117,7 @@ describe("VellumPlatformClient", () => {
         async (_url: string | URL | Request, init?: RequestInit) => {
           const headers = new Headers(init?.headers);
           expect(headers.get("Content-Type")).toBe("application/json");
-          expect(headers.get("Authorization")).toBe("Bearer sk-test-key");
+          expect(headers.get("Authorization")).toBe("Api-Key sk-test-key");
           return new Response("ok", { status: 200 });
         },
       ) as unknown as typeof globalThis.fetch;

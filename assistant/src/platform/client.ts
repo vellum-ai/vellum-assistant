@@ -74,7 +74,7 @@ export class VellumPlatformClient {
   /**
    * Authenticated fetch against the platform API.
    *
-   * Prepends `platformBaseUrl` to `path` and injects the Bearer auth header.
+   * Prepends `platformBaseUrl` to `path` and injects the `Api-Key` auth header.
    * Callers handle response parsing and domain-specific error mapping.
    */
   async fetch(path: string, init?: RequestInit): Promise<Response> {
