@@ -57,6 +57,8 @@ interface PendingRequest {
   resolve: (result: ToolExecutionResult) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
+  detachAbort: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,8 +154,13 @@ export class HostCuProxy {
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
+      // Declared up-front so onAbort (defined before detachAbort is assigned)
+      // can close over a stable reference once it's wired below.
+      let detachAbort: () => void = () => {};
+
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        detachAbort();
         this.onInternalResolve?.(requestId);
         log.warn({ requestId, toolName }, "Host CU proxy request timed out");
         resolve({
@@ -162,13 +169,14 @@ export class HostCuProxy {
         });
       }, REQUEST_TIMEOUT_SEC * 1000);
 
-      this.pending.set(requestId, { resolve, reject, timer });
-
       if (signal) {
         const onAbort = () => {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
+            // Abort fired — nothing to detach, but call the no-op for symmetry
+            // so callers can rely on detachAbort being idempotent.
+            detachAbort();
             this.onInternalResolve?.(requestId);
             try {
               this.sendToClient({
@@ -182,17 +190,32 @@ export class HostCuProxy {
           }
         };
         signal.addEventListener("abort", onAbort, { once: true });
+        detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.sendToClient({
-        type: "host_cu_request",
-        requestId,
-        conversationId,
-        toolName,
-        input,
-        stepNumber,
-        reasoning,
-      } as ServerMessage);
+      this.pending.set(requestId, { resolve, reject, timer, detachAbort });
+
+      try {
+        this.sendToClient({
+          type: "host_cu_request",
+          requestId,
+          conversationId,
+          toolName,
+          input,
+          stepNumber,
+          reasoning,
+        } as ServerMessage);
+      } catch (err) {
+        // Sender threw synchronously (e.g. client transport error during
+        // event emission). Clean up pending state and timer so we don't
+        // leak an in-flight entry that nothing will ever resolve.
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        detachAbort();
+        this.onInternalResolve?.(requestId);
+        log.warn({ requestId, toolName, err }, "Host CU proxy send failed");
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
@@ -203,6 +226,7 @@ export class HostCuProxy {
       return;
     }
     clearTimeout(entry.timer);
+    entry.detachAbort();
     this.pending.delete(requestId);
 
     // Capture pre-update state so formatObservation sees the correct previous AX tree
@@ -388,6 +412,7 @@ export class HostCuProxy {
   dispose(): void {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
+      entry.detachAbort();
       this.onInternalResolve?.(requestId);
       try {
         this.sendToClient({
