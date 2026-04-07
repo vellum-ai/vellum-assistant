@@ -342,7 +342,7 @@ Examples:
             if (providerRow.authUrl === "urn:manual-token") {
               writeError(
                 `"${provider}" uses manual token configuration, not an OAuth browser flow. ` +
-                  `Set credentials with 'assistant credentials set --service ${provider} --field <key> <value>'.`,
+                  `Set the token with: assistant credentials set <token_value> --service ${provider} --field <field_name>`,
               );
               return;
             }

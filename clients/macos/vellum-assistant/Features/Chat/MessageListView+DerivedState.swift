@@ -244,6 +244,7 @@ extension MessageListView {
             && (lastVisible?.isStreaming == true)
             && (lastVisible?.text.isEmpty ?? true)
             && !hasActiveToolCall
+            && !canInlineProcessing
 
         let result = MessageListDerivedState(
             messageIndexById: layout.messageIndexById,

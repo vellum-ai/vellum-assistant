@@ -690,7 +690,9 @@ describe("assistant oauth connect", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("manual token configuration");
-    expect(parsed.error).toContain("credentials set --service");
+    expect(parsed.error).toContain("assistant credentials set");
+    expect(parsed.error).toContain("--service");
+    expect(parsed.error).toContain("--field");
   });
 
   // -------------------------------------------------------------------------

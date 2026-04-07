@@ -562,7 +562,7 @@ export function readAutoinjectList(pkbDir: string): string[] | null {
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
-    return files.length > 0 ? files : null;
+    return files.length > 0 ? files : [];
   } catch {
     return null;
   }
@@ -628,7 +628,7 @@ export function injectPkbContext(message: Message, content: string): Message {
     if (
       block.type === "text" &&
       (block.text.startsWith("<memory") ||
-        block.text.startsWith("</memory") ||
+        block.text.startsWith("</memory_image>") ||
         block.text.startsWith("<memory_context"))
     ) {
       insertIdx = i + 1;
@@ -1081,6 +1081,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   "<pkb>",
   "<transport_hints>",
+  "<system_notice>One or more tool calls returned an error.",
 ];
 
 /**

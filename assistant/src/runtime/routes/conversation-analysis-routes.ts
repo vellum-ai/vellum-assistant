@@ -19,7 +19,6 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
-import { resolveLocalTrustContext } from "../local-actor-identity.js";
 
 const log = getLogger("conversation-analysis-routes");
 
@@ -115,22 +114,34 @@ Analyze the conversation above. Provide a structured self-assessment:
 
 Be honest and specific. Reference particular moments in the transcript. Focus on patterns that generalize beyond this specific conversation.
 
-If you identify insights worth remembering for future conversations, use your memory tools to save them.`;
+Do not use tools during analysis. If you identify insights worth remembering for future conversations, include them in the response as explicit memory candidates instead of saving them directly.`;
 
         // h. Persist the user message
         const message = await addMessage(
           newConv.id,
           "user",
           JSON.stringify([{ type: "text", text: prompt }]),
-          { provenanceTrustClass: "guardian" as const },
+          { provenanceTrustClass: "unknown" as const },
         );
         const messageId = message.id;
 
-        // i. Load the conversation into memory and set guardian trust context
+        // i. Load the conversation into memory with untrusted analysis context
         const analysisConversation =
           await deps.sendMessageDeps.getOrCreateConversation(newConv.id);
-        analysisConversation.setTrustContext(resolveLocalTrustContext("vellum"));
+        analysisConversation.setTrustContext({
+          trustClass: "unknown",
+          sourceChannel: "vellum",
+        });
         await analysisConversation.ensureActorScopedHistory();
+        // Analysis runs over attacker-influenced transcript content, so do not
+        // expose any tools, even when a live client is available.
+        analysisConversation.setSubagentAllowedTools(new Set<string>());
+
+        const hasLiveSubscriber =
+          deps.sendMessageDeps.assistantEventHub.hasSubscribersForEvent({
+            assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+            conversationId: newConv.id,
+          });
 
         // j. Build onEvent using inline hub publisher
         const onEvent = (msg: ServerMessage) => {
@@ -138,6 +149,7 @@ If you identify insights worth remembering for future conversations, use your me
             buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, newConv.id),
           );
         };
+        analysisConversation.updateClient(onEvent, !hasLiveSubscriber);
 
         // k. Set up processing state (required by runAgentLoop guard)
         analysisConversation.processing = true;
@@ -147,7 +159,7 @@ If you identify insights worth remembering for future conversations, use your me
         // l. Fire-and-forget the agent loop
         analysisConversation
           .runAgentLoop(prompt, messageId, onEvent, {
-            isInteractive: false,
+            isInteractive: hasLiveSubscriber,
             isUserMessage: true,
           })
           .catch((err) => {

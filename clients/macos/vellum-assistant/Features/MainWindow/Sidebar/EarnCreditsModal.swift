@@ -6,8 +6,6 @@ import VellumAssistantShared
 /// Presented from the "Earn credits" row in the preferences drawer.
 @MainActor
 struct EarnCreditsModal: View {
-    static let creditsPerReferral: Int = 5
-
     @Environment(\.dismiss) private var dismiss
 
     @State private var referralCode: ReferralCodeResponse?
@@ -18,8 +16,23 @@ struct EarnCreditsModal: View {
     @State private var showTerms: Bool = false
 
     private var subtitleText: String {
-        let cap = (referralCode?.earning_cap ?? "100").replacingOccurrences(of: ".00", with: "")
-        return "Share Vellum with friends — you'll each earn \(Self.creditsPerReferral) credits when they sign up, up to \(cap) total."
+        guard let code = referralCode else {
+            return "Refer friends to earn free credits."
+        }
+        let cap = formatCredits(code.earning_cap)
+        let referrerAmount = formatCredits(code.referrer_credit_amount)
+        let refereeAmount = formatCredits(code.credit_amount)
+        if referrerAmount == refereeAmount {
+            return "Share Vellum with friends — you'll each earn \(referrerAmount) credits when they sign up, up to \(cap) total."
+        } else {
+            return "Share Vellum with friends — you'll earn \(referrerAmount) credits and they'll get \(refereeAmount) when they sign up, up to \(cap) total."
+        }
+    }
+
+    /// Strip trailing `.00` from a decimal-string credit amount so that whole
+    /// numbers render as `5` instead of `5.00`.
+    private func formatCredits(_ amount: String) -> String {
+        amount.replacingOccurrences(of: ".00", with: "")
     }
 
     var body: some View {
@@ -29,8 +42,8 @@ struct EarnCreditsModal: View {
             closeAction: { dismiss() },
             backAction: showTerms ? { withAnimation { showTerms = false } } : nil
         ) {
-            if showTerms {
-                termsContent
+            if showTerms, let referralCode {
+                termsContent(referralCode)
             } else if isLoading {
                 loadingContent
             } else if let error {
@@ -152,8 +165,8 @@ struct EarnCreditsModal: View {
 
     // MARK: - Terms Content
 
-    private var termsContent: some View {
-        let cap = (referralCode?.earning_cap ?? "100").replacingOccurrences(of: ".00", with: "")
+    private func termsContent(_ code: ReferralCodeResponse) -> some View {
+        let cap = formatCredits(code.earning_cap)
         return VStack(alignment: .leading, spacing: VSpacing.lg) {
             Text("Referral Program Terms")
                 .font(VFont.titleSmall)
@@ -186,20 +199,57 @@ struct EarnCreditsModal: View {
 
     // MARK: - Loading
 
+    /// Skeleton placeholder that mirrors `mainContent` section-for-section so
+    /// the modal layout doesn't jump when the API responds.
     private var loadingContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            VSkeletonBone(width: 120, height: 14)
-            VSkeletonBone(height: 20)
-            VSkeletonBone(height: 20)
-            VSkeletonBone(height: 20)
-            VSkeletonBone(height: 28)
-            HStack(spacing: VSpacing.xl) {
-                VSkeletonBone(width: 80, height: 14)
-                VSkeletonBone(width: 80, height: 14)
+            // How it works steps
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                howItWorksStepSkeleton(textWidth: 140)
+                howItWorksStepSkeleton(textWidth: 100)
+                howItWorksStepSkeleton(textWidth: 130)
             }
+
+            SettingsDivider()
+
+            // Referral link row — full-width URL field + icon-only copy button
+            HStack(spacing: VSpacing.sm) {
+                VSkeletonBone(height: 32, radius: VRadius.md)
+                VSkeletonBone(width: 32, height: 32, radius: VRadius.md)
+            }
+
+            SettingsDivider()
+
+            // Stats row — two equal-width inline stat items
+            HStack(spacing: VSpacing.md) {
+                statItemSkeleton()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                statItemSkeleton()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            SettingsDivider()
+
+            // Terms link — small centered text
+            VSkeletonBone(width: 150, height: 12)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(.bottom, VSpacing.lg)
         .accessibilityHidden(true)
+    }
+
+    private func howItWorksStepSkeleton(textWidth: CGFloat) -> some View {
+        HStack(spacing: VSpacing.md) {
+            VSkeletonBone(width: 28, height: 28, radius: VRadius.sm)
+            VSkeletonBone(width: textWidth, height: 14)
+        }
+    }
+
+    private func statItemSkeleton() -> some View {
+        HStack(spacing: VSpacing.xs) {
+            VSkeletonBone(width: 12, height: 12)
+            VSkeletonBone(width: 100, height: 12)
+        }
     }
 
     // MARK: - Error
