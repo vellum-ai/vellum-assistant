@@ -11,6 +11,7 @@ struct SkillDetailView: View {
     @State private var expandedFilePath: String?
     @State private var expandedPaths: Set<String> = []
     @State private var skillFileViewMode: FileViewMode = .source
+    @State private var browserNodes: [VFileBrowserNode] = []
 
     private var hasViewableFiles: Bool {
         guard let files = skillsManager.selectedSkillFiles else { return true }
@@ -45,15 +46,36 @@ struct SkillDetailView: View {
             }
         }
         .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
+            // 1. Rebuild the browser node tree from the latest file list (moved out of
+            //    view body per clients/AGENTS.md: no heavy transformation in body).
+            if let files = skillsManager.selectedSkillFiles?.files {
+                let textFiles = files.filter { !$0.isBinary && $0.content != nil }
+                browserNodes = Self.buildSkillNodeTree(from: textFiles)
+            } else {
+                browserNodes = []
+            }
+
+            // 2. Auto-select SKILL.md (or the first text file) on first load.
             if expandedFilePath == nil, let files = skillsManager.selectedSkillFiles?.files {
                 let skillMd = files.first { $0.path == "SKILL.md" && !$0.isBinary && $0.content != nil }
                 let firstText = files.first { !$0.isBinary && $0.content != nil }
                 if let selectedFile = skillMd ?? firstText {
                     expandedFilePath = selectedFile.path
-                    expandedPaths.formUnion(Self.ancestorPaths(of: selectedFile.path))
                     let autoModes = availableViewModes(for: selectedFile.path, mimeType: selectedFile.mimeType)
                     skillFileViewMode = autoModes.first ?? .source
                 }
+            }
+
+            // 3. Expand every directory in the tree so nested files are visible by
+            //    default. This preserves the previous flat-list behavior where all
+            //    files were immediately visible. Also union the selected file's
+            //    ancestors as a defensive no-op (already a subset of the above).
+            if let files = skillsManager.selectedSkillFiles?.files {
+                var newExpanded = Self.allDirectoryPaths(in: files)
+                if let selectedPath = expandedFilePath {
+                    newExpanded.formUnion(Self.ancestorPaths(of: selectedPath))
+                }
+                expandedPaths = newExpanded
             }
         }
         .onChange(of: expandedFilePath) {
@@ -68,6 +90,7 @@ struct SkillDetailView: View {
         .onDisappear {
             expandedFilePath = nil
             expandedPaths = []
+            browserNodes = []
             skillsManager.clearSkillDetail()
         }
     }
@@ -82,6 +105,21 @@ struct SkillDetailView: View {
         var result: Set<String> = []
         for i in 1..<components.count {
             result.insert(components[0..<i].joined(separator: "/"))
+        }
+        return result
+    }
+
+    /// Returns every directory path present in a flat list of skill files.
+    /// E.g. a file `external/asana/asana.md` contributes `external` and
+    /// `external/asana` to the resulting set.
+    private static func allDirectoryPaths(in files: [SkillFileEntry]) -> Set<String> {
+        var result: Set<String> = []
+        for file in files {
+            let components = file.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            guard components.count > 1 else { continue }
+            for i in 1..<components.count {
+                result.insert(components[0..<i].joined(separator: "/"))
+            }
         }
         return result
     }
@@ -143,12 +181,6 @@ struct SkillDetailView: View {
     }
 
     // MARK: - File Browser
-
-    private var browserNodes: [VFileBrowserNode] {
-        guard let files = skillsManager.selectedSkillFiles else { return [] }
-        let textFiles = files.files.filter { !$0.isBinary && $0.content != nil }
-        return Self.buildSkillNodeTree(from: textFiles)
-    }
 
     /// Build a sorted `[VFileBrowserNode]` tree from a flat list of skill files.
     /// Sorting: directories first (alphabetical), then files (alphabetical).
