@@ -65,32 +65,36 @@ export function markSurfaceCompleted(
   }
 
   // Persist to DB.
-  const rows = getMessages(ctx.conversationId);
-  for (let r = rows.length - 1; r >= 0; r--) {
-    let parsed: unknown[];
-    try {
-      const result = JSON.parse(rows[r].content);
-      if (!Array.isArray(result)) continue;
-      parsed = result;
-    } catch {
-      // Some rows store plain text content (e.g. notification seeding) —
-      // skip them and keep scanning.
-      continue;
-    }
-    let found = false;
-    for (const pb of parsed) {
-      const rb = pb as Record<string, unknown>;
-      if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
-        rb.completed = true;
-        rb.completionSummary = summary;
-        found = true;
-        break;
+  try {
+    const rows = getMessages(ctx.conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      let parsed: unknown[];
+      try {
+        const result = JSON.parse(rows[r].content);
+        if (!Array.isArray(result)) continue;
+        parsed = result;
+      } catch {
+        // Some rows store plain text content (e.g. notification seeding) —
+        // skip them and keep scanning.
+        continue;
+      }
+      let found = false;
+      for (const pb of parsed) {
+        const rb = pb as Record<string, unknown>;
+        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
+          rb.completed = true;
+          rb.completionSummary = summary;
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        updateMessageContent(rows[r].id, JSON.stringify(parsed));
+        return;
       }
     }
-    if (found) {
-      updateMessageContent(rows[r].id, JSON.stringify(parsed));
-      return;
-    }
+  } catch (err) {
+    log.warn({ err, surfaceId }, "Failed to persist surface completion to DB");
   }
 }
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
