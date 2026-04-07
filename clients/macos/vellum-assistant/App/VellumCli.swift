@@ -152,13 +152,11 @@ final class VellumCli {
     /// exist and the CLI will fail with "Not logged in". This bridges the
     /// gap by writing the desktop's token to the expected path.
     nonisolated private static func writePlatformTokenFile(_ token: String) {
-        let configDir: String
-        if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"], !xdg.isEmpty {
-            configDir = (xdg as NSString).appendingPathComponent("vellum")
-        } else {
-            configDir = (FileManager.default.homeDirectoryForCurrentUser.path as NSString)
-                .appendingPathComponent(".config/vellum")
-        }
+        // Always write to ~/.config/vellum/ — the CLI child process does not
+        // receive XDG_CONFIG_HOME (it's not in forwardedEnvKeys), so it always
+        // reads from the default path.
+        let configDir = (FileManager.default.homeDirectoryForCurrentUser.path as NSString)
+            .appendingPathComponent(".config/vellum")
         let tokenPath = (configDir as NSString).appendingPathComponent("platform-token")
 
         let fm = FileManager.default
