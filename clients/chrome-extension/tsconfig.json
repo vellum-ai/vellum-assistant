@@ -18,6 +18,7 @@
     "background/cdp-proxy.ts",
     "background/cloud-auth.ts",
     "background/host-browser-dispatcher.ts",
+    "background/relay-connection.ts",
     "background/__tests__/**/*.ts",
     "types/**/*.d.ts"
   ]
