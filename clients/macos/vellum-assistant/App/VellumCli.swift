@@ -521,6 +521,242 @@ final class VellumCli {
         log.info("CLI rollback completed successfully for '\(name, privacy: .public)'")
     }
 
+    // MARK: - Teleport (pass-through to CLI)
+
+    /// How long to wait for the teleport CLI command before giving up.
+    /// Teleport involves export, optional hatch, and import — allow up to 10 min.
+    private static let teleportTimeout: TimeInterval = 600.0
+
+    /// Teleport an assistant's data to a different hosting environment via the CLI.
+    ///
+    /// Invokes `vellum teleport --from <source> --<targetEnv> [--keep-source]` and
+    /// streams stdout/stderr lines to `onOutput` so the UI can display progress.
+    ///
+    /// The CLI handles the entire flow internally: export from source, hatch target
+    /// (if needed), import to target, and optionally retire the source. After this
+    /// method returns successfully the lockfile will contain the new assistant entry.
+    ///
+    /// - Parameters:
+    ///   - from: Assistant ID (name) of the source assistant.
+    ///   - targetEnv: Target environment flag: `"local"`, `"docker"`, or `"platform"`.
+    ///   - keepSource: When `true`, the CLI preserves the source assistant after transfer.
+    ///   - onOutput: Called on each stdout/stderr line for UI progress display.
+    func teleport(
+        from sourceName: String,
+        targetEnv: String,
+        keepSource: Bool = false,
+        onOutput: @escaping @Sendable (String) -> Void
+    ) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping teleport (dev mode)")
+            throw CLIError.binaryNotFound
+        }
+
+        log.info("Running teleport via CLI at \(binaryURL.path, privacy: .public) --from \(sourceName, privacy: .public) --\(targetEnv, privacy: .public)")
+        log.info("[audit] CLI invoke: teleport args=--from \(sourceName, privacy: .public) --\(targetEnv, privacy: .public)\(keepSource ? " --keep-source" : "", privacy: .public)")
+        let teleportStartTime = ContinuousClock.now
+
+        var teleportArgs = ["teleport", "--from", sourceName, "--\(targetEnv)"]
+        if keepSource {
+            teleportArgs.append("--keep-source")
+        }
+
+        let proc = Process()
+        proc.executableURL = binaryURL
+        proc.arguments = teleportArgs
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        proc.standardOutput = stdoutPipe
+        proc.standardError = stderrPipe
+
+        var env = Self.makeBaseEnvironment()
+
+        if env["VELLUM_PLATFORM_URL"] == nil {
+            #if DEBUG
+            env["VELLUM_PLATFORM_URL"] = "https://dev-platform.vellum.ai"
+            #else
+            env["VELLUM_PLATFORM_URL"] = "https://platform.vellum.ai"
+            #endif
+        }
+
+        // Forward stored provider API keys so the CLI can authenticate
+        // with remote assistants during export/import.
+        for (provider, envVar) in VellumCli.providerEnvVars {
+            if env[envVar] == nil,
+               let storedKey = APIKeyManager.getKey(for: provider),
+               !storedKey.isEmpty {
+                env[envVar] = storedKey
+            }
+        }
+
+        // Forward platform session token so the CLI can authenticate
+        // with managed/platform assistants.
+        if let sessionToken = SessionTokenManager.getToken() {
+            env["VELLUM_SESSION_TOKEN"] = sessionToken
+        }
+
+        proc.environment = env
+
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+
+        // Accumulate stderr so the error message includes the actual failure reason.
+        let stderrAccumulator = StderrAccumulator()
+
+        // Line buffers: readabilityHandler delivers arbitrary Data chunks,
+        // not guaranteed line-delimited strings. We accumulate bytes and
+        // split on newline so onOutput always receives complete lines.
+        let newlineByte: UInt8 = 0x0A
+        var stdoutBuffer = Data()
+        var stderrBuffer = Data()
+        let bufferQueue = DispatchQueue(label: "com.vellum.cli.teleport-line-buffer")
+
+        stdoutHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            bufferQueue.sync {
+                stdoutBuffer.append(data)
+                while let newlineIndex = stdoutBuffer.firstIndex(of: newlineByte) {
+                    let lineData = stdoutBuffer[stdoutBuffer.startIndex..<newlineIndex]
+                    stdoutBuffer = Data(stdoutBuffer[(newlineIndex + 1)...])
+                    if let line = String(data: lineData, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            onOutput(trimmed)
+                        }
+                    }
+                }
+            }
+        }
+
+        stderrHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            bufferQueue.sync {
+                stderrBuffer.append(data)
+                while let newlineIndex = stderrBuffer.firstIndex(of: newlineByte) {
+                    let lineData = stderrBuffer[stderrBuffer.startIndex..<newlineIndex]
+                    stderrBuffer = Data(stderrBuffer[(newlineIndex + 1)...])
+                    if let line = String(data: lineData, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            stderrAccumulator.append(trimmed)
+                            onOutput(trimmed)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Use terminationHandler + continuation instead of waitUntilExit()
+        // so the MainActor is suspended (not blocked), allowing queued
+        // onOutput callbacks to update the UI while the process runs.
+        let once = OnceFlag()
+        let timeoutSeconds = Int(Self.teleportTimeout)
+
+        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+            let timeoutItem = DispatchWorkItem { [weak proc] in
+                if once.trySet() {
+                    log.error("Teleport timed out after \(timeoutSeconds) seconds — terminating CLI process")
+                    proc?.terminate()
+                    continuation.resume(throwing: CLIError.executionFailed("Teleport timed out after \(timeoutSeconds) seconds"))
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.teleportTimeout, execute: timeoutItem)
+
+            proc.terminationHandler = { finished in
+                timeoutItem.cancel()
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+
+                // Drain any data that arrived after the last readabilityHandler
+                // callback but before we nil'd the handlers.
+                let remainingStdout = stdoutHandle.availableData
+                let remainingStderr = stderrHandle.availableData
+
+                bufferQueue.sync {
+                    if !remainingStdout.isEmpty {
+                        stdoutBuffer.append(remainingStdout)
+                        while let newlineIndex = stdoutBuffer.firstIndex(of: newlineByte) {
+                            let lineData = stdoutBuffer[stdoutBuffer.startIndex..<newlineIndex]
+                            stdoutBuffer = Data(stdoutBuffer[(newlineIndex + 1)...])
+                            if let line = String(data: lineData, encoding: .utf8) {
+                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    onOutput(trimmed)
+                                }
+                            }
+                        }
+                    }
+
+                    if !remainingStderr.isEmpty {
+                        stderrBuffer.append(remainingStderr)
+                        while let newlineIndex = stderrBuffer.firstIndex(of: newlineByte) {
+                            let lineData = stderrBuffer[stderrBuffer.startIndex..<newlineIndex]
+                            stderrBuffer = Data(stderrBuffer[(newlineIndex + 1)...])
+                            if let line = String(data: lineData, encoding: .utf8) {
+                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    stderrAccumulator.append(trimmed)
+                                    onOutput(trimmed)
+                                }
+                            }
+                        }
+                    }
+
+                    // Flush partial lines
+                    if let line = String(data: stdoutBuffer, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            onOutput(trimmed)
+                        }
+                    }
+                    stdoutBuffer = Data()
+
+                    if let line = String(data: stderrBuffer, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            stderrAccumulator.append(trimmed)
+                            onOutput(trimmed)
+                        }
+                    }
+                    stderrBuffer = Data()
+                }
+
+                guard once.trySet() else { return }
+                continuation.resume(returning: finished.terminationStatus)
+            }
+            do {
+                try proc.run()
+                log.info("CLI teleport launched with pid \(proc.processIdentifier)")
+            } catch {
+                timeoutItem.cancel()
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+                if once.trySet() {
+                    continuation.resume(throwing: CLIError.executionFailed("Failed to launch teleport: \(error.localizedDescription)"))
+                }
+            }
+        }
+
+        let teleportElapsed = ContinuousClock.now - teleportStartTime
+        let teleportMs = teleportElapsed.components.seconds * 1000 + Int64(teleportElapsed.components.attoseconds / 1_000_000_000_000_000)
+
+        if status != 0 {
+            let stderr = stderrAccumulator.content
+            let detail = stderr.isEmpty
+                ? "Teleport process exited with code \(status)"
+                : stderr
+            log.error("CLI teleport failed with exit code \(status): \(detail, privacy: .private)")
+            log.warning("[audit] CLI done: teleport exit=\(status) duration=\(teleportMs)ms")
+            throw CLIError.executionFailed(detail)
+        }
+
+        log.info("CLI teleport completed successfully")
+        log.info("[audit] CLI done: teleport exit=0 duration=\(teleportMs)ms")
+    }
+
     // MARK: - Remote Hatch (pass-through to CLI)
 
     struct RemoteHatchConfig {

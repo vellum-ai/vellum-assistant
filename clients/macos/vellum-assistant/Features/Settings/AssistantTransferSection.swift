@@ -7,13 +7,16 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Assis
 
 /// Transfer UI for moving an assistant between local and cloud (managed) hosting.
 ///
-/// For local assistants, offers "Transfer to Cloud" which exports a `.vbundle`,
-/// creates/discovers a managed assistant on the platform, imports the bundle,
-/// switches the active connection, and retires the local assistant.
+/// For local assistants, offers "Transfer to Cloud" which delegates to the CLI's
+/// `vellum teleport --from <source> --platform` command, then switches the active
+/// connection and retires the local assistant.
 ///
-/// For managed assistants, offers "Transfer to Local" which initiates an async
-/// platform export, polls for completion, downloads the bundle, ensures a local
-/// assistant exists, imports the bundle, switches, and retires the managed one.
+/// For managed assistants, offers "Transfer to Local" which delegates to the CLI's
+/// `vellum teleport --from <source> --local` command, then switches the active
+/// connection and retires the managed assistant.
+///
+/// The CLI handles the entire export → hatch → import flow internally. The desktop
+/// only manages the UI state and post-teleport assistant switch.
 @MainActor
 struct AssistantTransferSection: View {
     let assistant: LockfileAssistant
@@ -120,8 +123,13 @@ struct AssistantTransferSection: View {
         }
     }
 
-    // MARK: - Transfer Logic
+    // MARK: - Transfer Logic (CLI delegation)
 
+    /// Transfers a local assistant to the cloud via `vellum teleport --from <source> --platform`.
+    ///
+    /// The CLI handles the entire export → hatch → import flow. After the CLI completes,
+    /// the desktop discovers the new assistant from the lockfile, switches to it, and
+    /// retires the source.
     private func transferLocalToManaged() async {
         isTransferring = true
         errorMessage = nil
@@ -130,58 +138,43 @@ struct AssistantTransferSection: View {
             currentStep = nil
         }
 
+        let sourceName = assistant.assistantId
+
+        // Snapshot assistant IDs before teleport so we can diff afterward
+        let assistantIdsBefore = Set(LockfileAssistant.loadAll().map(\.assistantId))
+
         do {
-            // Step 1 — Export local assistant data
-            currentStep = "Exporting assistant data..."
-            let bundleData = try await exportAssistantBundle()
-
-            // Step 2 — Ensure managed assistant exists on platform
-            currentStep = "Setting up cloud assistant..."
-            let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
-            let platformAssistant: PlatformAssistant
-            switch outcome {
-            case .reusedExisting(let assistant):
-                platformAssistant = assistant
-            case .createdNew(let assistant):
-                platformAssistant = assistant
-            }
-            let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
-                assistantId: platformAssistant.id,
-                runtimeUrl: AuthService.shared.baseURL,
-                hatchedAt: platformAssistant.created_at ?? Date().iso8601String
+            currentStep = "Preparing teleport..."
+            try await AppDelegate.shared?.vellumCli.teleport(
+                from: sourceName,
+                targetEnv: "platform",
+                onOutput: { line in
+                    Task { @MainActor in
+                        currentStep = line
+                    }
+                }
             )
-            guard lockfileSuccess else {
-                throw TransferError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
-            }
 
-            // Step 3 — Import bundle to managed assistant
-            currentStep = "Uploading data to cloud..."
-            try await importBundleToManaged(bundleData: bundleData)
-
-            // Step 4 — Switch to managed assistant
+            // Discover the new assistant by diffing the lockfile
             currentStep = "Switching to cloud assistant..."
-            guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
-                throw TransferError.managedEntryNotFound
-            }
-            AppDelegate.shared?.performSwitchAssistant(to: managedAssistant)
+            let newAssistant = try discoverNewAssistant(
+                assistantIdsBefore: assistantIdsBefore,
+                sourceName: sourceName
+            )
+
+            AppDelegate.shared?.performSwitchAssistant(to: newAssistant)
             transferTask = nil
             onClose()
-
-            // Step 5 — Retire local assistant (fire-and-forget)
-            currentStep = "Cleaning up..."
-            let localName = assistant.assistantId
-            do {
-                try await AppDelegate.shared?.vellumCli.retire(name: localName)
-            } catch {
-                log.error("[transfer] Failed to retire local assistant \(localName, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
     }
 
-    // MARK: - Managed → Local Transfer Logic
-
+    /// Transfers a managed (cloud) assistant to local via `vellum teleport --from <source> --local`.
+    ///
+    /// The CLI handles the entire export → hatch → import flow. After the CLI completes,
+    /// the desktop discovers the new assistant from the lockfile, switches to it, and
+    /// retires the source.
     private func transferManagedToLocal() async {
         isTransferring = true
         errorMessage = nil
@@ -190,249 +183,61 @@ struct AssistantTransferSection: View {
             currentStep = nil
         }
 
-        let managedAssistantId = assistant.assistantId
+        let sourceName = assistant.assistantId
+
+        // Snapshot assistant IDs before teleport so we can diff afterward
+        let assistantIdsBefore = Set(LockfileAssistant.loadAll().map(\.assistantId))
 
         do {
-            // Step 1 — Initiate export
-            currentStep = "Requesting cloud export..."
-            let exportResponse = try await GatewayHTTPClient.post(path: "migrations/export")
-            guard exportResponse.isSuccess else {
-                throw TransferError.exportFailed(statusCode: exportResponse.statusCode)
-            }
-            guard let exportJson = try? JSONSerialization.jsonObject(with: exportResponse.data) as? [String: Any],
-                  let jobId = exportJson["job_id"] as? String else {
-                throw TransferError.exportFailed(statusCode: 0)
-            }
-
-            // Step 2 — Poll for completion (up to 5 minutes)
-            currentStep = "Waiting for export..."
-            var downloadUrl: String?
-            for _ in 0..<100 {
-                try Task.checkCancellation()
-                let (statusResult, statusResponse): (ExportStatusResponse?, _) = try await GatewayHTTPClient.get(
-                    path: "migrations/export/\(jobId)/status"
-                ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
-                guard statusResponse.isSuccess, let statusResult else {
-                    throw TransferError.exportFailed(statusCode: statusResponse.statusCode)
-                }
-
-                if statusResult.status == "complete" {
-                    guard let url = statusResult.downloadUrl else {
-                        throw TransferError.exportFailed(statusCode: 0)
+            currentStep = "Preparing teleport..."
+            try await AppDelegate.shared?.vellumCli.teleport(
+                from: sourceName,
+                targetEnv: "local",
+                onOutput: { line in
+                    Task { @MainActor in
+                        currentStep = line
                     }
-                    downloadUrl = url
-                    break
-                } else if statusResult.status == "failed" {
-                    throw TransferError.importFailed(message: statusResult.error ?? "Export job failed")
-                } else if statusResult.status == "pending" || statusResult.status == "processing" {
-                    try await Task.sleep(nanoseconds: 3_000_000_000)
-                } else {
-                    throw TransferError.exportFailed(statusCode: 0)
                 }
-            }
-
-            guard let finalDownloadUrl = downloadUrl else {
-                throw TransferError.exportTimedOut
-            }
-
-            // Step 3 — Download bundle
-            currentStep = "Downloading assistant data..."
-            guard let bundleURL = URL(string: finalDownloadUrl) else {
-                throw TransferError.invalidURL
-            }
-            let (bundleData, dlResponse) = try await URLSession.shared.data(from: bundleURL)
-            guard let httpDlResponse = dlResponse as? HTTPURLResponse, httpDlResponse.statusCode == 200 else {
-                let statusCode = (dlResponse as? HTTPURLResponse)?.statusCode ?? 0
-                throw TransferError.exportFailed(statusCode: statusCode)
-            }
-
-            // Step 4 — Ensure local assistant exists and its daemon is running
-            currentStep = "Preparing local assistant..."
-            var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
-            if localAssistant == nil {
-                try await AppDelegate.shared?.vellumCli.hatch()
-                localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
-            } else {
-                // Existing local assistant may be sleeping — wake it before health check
-                try await AppDelegate.shared?.vellumCli.wake(name: localAssistant!.assistantId)
-            }
-            guard let resolvedLocal = localAssistant else {
-                throw TransferError.localAssistantNotFound
-            }
-
-            // Wait for gateway readiness (up to 30s)
-            for i in 0..<30 {
-                if await HealthCheckClient.isReachable(for: resolvedLocal, timeout: 1) {
-                    break
-                }
-                if i == 29 {
-                    throw TransferError.localAssistantNotFound
-                }
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-
-            // Step 5 — Bootstrap actor token against the local gateway
-            // (without calling performSwitchAssistant, which destroys the window)
-            currentStep = "Authenticating with local assistant..."
-            let actorToken = try await bootstrapActorToken(localAssistantId: resolvedLocal.assistantId)
-            ActorTokenManager.setToken(actorToken)
-
-            // Step 6 — Import to local (swap connected assistant to target local gateway)
-            currentStep = "Importing data..."
-            UserDefaults.standard.set(resolvedLocal.assistantId, forKey: "connectedAssistantId")
-            let importResponse = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/migrations/import",
-                body: bundleData,
-                contentType: "application/octet-stream",
-                timeout: 120
             )
-            guard importResponse.isSuccess else {
-                throw TransferError.importFailed(message: "HTTP \(importResponse.statusCode)")
-            }
-            if let importJson = try? JSONSerialization.jsonObject(with: importResponse.data) as? [String: Any],
-               let success = importJson["success"] as? Bool, !success {
-                let errorMsg = (importJson["error"] as? String) ?? "Import reported failure"
-                throw TransferError.importFailed(message: errorMsg)
-            }
 
-            // Step 7 — Switch to local assistant now that import succeeded
-            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
+            // Discover the new assistant by diffing the lockfile
+            currentStep = "Switching to local assistant..."
+            let newAssistant = try discoverNewAssistant(
+                assistantIdsBefore: assistantIdsBefore,
+                sourceName: sourceName
+            )
+
+            AppDelegate.shared?.performSwitchAssistant(to: newAssistant)
             transferTask = nil
             onClose()
-
-            // Step 8 — Retire managed assistant (fire-and-forget, swap back to managed)
-            currentStep = "Cleaning up..."
-            UserDefaults.standard.set(managedAssistantId, forKey: "connectedAssistantId")
-            do {
-                let retireResponse = try await GatewayHTTPClient.delete(
-                    path: "assistants/{assistantId}/retire",
-                    timeout: 30
-                )
-                if retireResponse.isSuccess {
-                    log.info("[transfer] Retired managed assistant \(managedAssistantId, privacy: .public)")
-                } else {
-                    log.error("[transfer] Failed to retire managed assistant \(managedAssistantId, privacy: .public): HTTP \(retireResponse.statusCode, privacy: .public)")
-                }
-            } catch {
-                log.error("[transfer] Failed to retire managed assistant \(managedAssistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
     }
 
-    // MARK: - Local → Managed Transfer Helpers
+    // MARK: - Helpers
 
-    /// Exports the local assistant's data as a `.vbundle` binary archive.
-    private func exportAssistantBundle() async throws -> Data {
-        let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/migrations/export",
-            timeout: 60
-        )
-        guard response.isSuccess else {
-            throw TransferError.exportFailed(statusCode: response.statusCode)
-        }
-        return response.data
-    }
-
-    /// Bootstraps an actor token against a local assistant's gateway `/v1/guardian/init`
-    /// endpoint without going through `performSwitchAssistant` (which destroys the window).
-    /// Temporarily swaps `connectedAssistantId` to target the local assistant's gateway.
-    /// Retries with exponential backoff up to ~30s.
-    private func bootstrapActorToken(localAssistantId: String) async throws -> String {
-        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        UserDefaults.standard.set(localAssistantId, forKey: "connectedAssistantId")
-        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
-
-        let deviceId = PairingQRCodeSheet.computeHostId()
-        let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
-
-        var delay: UInt64 = 2_000_000_000
-        for attempt in 0..<6 {
-            try Task.checkCancellation()
-
-            if let response = try? await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/guardian/init",
-                json: body,
-                timeout: 15
-            ), response.isSuccess,
-               let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-               let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
-                return token
-            }
-
-            if attempt < 5 {
-                try await Task.sleep(nanoseconds: delay)
-                delay = min(delay * 2, 10_000_000_000)
-            }
-        }
-
-        throw TransferError.notSignedIn
-    }
-
-    /// Imports a `.vbundle` archive into the managed assistant via the signed URL upload flow.
+    /// Discovers the new assistant that the CLI created by diffing the lockfile
+    /// against a pre-teleport snapshot.
     ///
-    /// Uses 3 steps: request signed URL → upload to GCS → trigger import from GCS.
-    /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
-    private func importBundleToManaged(bundleData: Data) async throws {
-        // Step 1: Request a signed upload URL from the platform
-        let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
-
-        // Step 2: Upload bundle directly to GCS via signed URL
-        try await PlatformMigrationClient.uploadToSignedUrl(uploadInfo.uploadUrl, bundleData: bundleData)
-
-        // Step 3: Trigger import from GCS
-        let (statusCode, data) = try await PlatformMigrationClient.importFromGcs(bundleKey: uploadInfo.bundleKey)
-
-        guard (200..<300).contains(statusCode) else {
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let errorMsg = json["error"] as? String {
-                throw TransferError.importFailed(message: errorMsg)
-            }
-            throw TransferError.importFailed(message: "HTTP \(statusCode)")
+    /// Falls back to checking `activeAssistant` if no new entry was added (the CLI
+    /// may have reused an existing assistant).
+    private func discoverNewAssistant(
+        assistantIdsBefore: Set<String>,
+        sourceName: String
+    ) throws -> LockfileAssistant {
+        let assistantsAfter = LockfileAssistant.loadAll()
+        if let newAssistant = assistantsAfter.first(where: { !assistantIdsBefore.contains($0.assistantId) }) {
+            return newAssistant
         }
 
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let success = json["success"] as? Bool, !success {
-            let errorMsg = (json["error"] as? String) ?? "Import reported failure"
-            throw TransferError.importFailed(message: errorMsg)
+        // Fallback: the CLI may have reused an existing assistant.
+        // Look for the active assistant that isn't the source.
+        let activeId = LockfileAssistant.loadActiveAssistantId()
+        if let fallback = assistantsAfter.first(where: { $0.assistantId == activeId && $0.assistantId != sourceName }) {
+            return fallback
         }
-    }
-}
 
-// MARK: - Transfer Errors
-
-private struct ExportStatusResponse: Decodable {
-    let status: String
-    let downloadUrl: String?
-    let error: String?
-}
-
-private enum TransferError: LocalizedError {
-    case invalidURL
-    case notSignedIn
-    case exportFailed(statusCode: Int)
-    case exportTimedOut
-    case importFailed(message: String)
-    case managedEntryNotFound
-    case localAssistantNotFound
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidURL:
-            return "Invalid URL"
-        case .notSignedIn:
-            return "Sign in required to transfer"
-        case .exportFailed(let statusCode):
-            return "Export failed (HTTP \(statusCode))"
-        case .exportTimedOut:
-            return "Export timed out after 5 minutes"
-        case .importFailed(let message):
-            return "Import failed: \(message)"
-        case .managedEntryNotFound:
-            return "Could not find managed assistant entry after creation"
-        case .localAssistantNotFound:
-            return "Could not find or create a local assistant"
-        }
+        throw VellumCli.CLIError.executionFailed("Transfer completed but could not identify the new assistant in the lockfile.")
     }
 }
