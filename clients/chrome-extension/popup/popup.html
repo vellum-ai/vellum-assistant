@@ -95,6 +95,37 @@
     }
     #btn-disconnect:hover:not(:disabled) { background: #e5e7eb; }
 
+    .divider {
+      height: 1px;
+      background: #e5e7eb;
+      margin: 16px 0 14px 0;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
+    }
+
+    #btn-cloud-signin {
+      width: 100%;
+      background: #111827;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    #btn-cloud-signin:hover:not(:disabled) { background: #1f2937; }
+
+    .cloud-status {
+      font-size: 12px;
+      color: #4b5563;
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+    .cloud-status.signed-in { color: #0f766e; }
+
     .hint {
       font-size: 11px;
       color: #9ca3af;
@@ -162,6 +193,12 @@
   </div>
 
   <p class="hint">Token is auto-fetched from the local gateway. Port defaults to 7830.</p>
+
+  <div class="divider"></div>
+
+  <p class="section-label">Cloud</p>
+  <p class="cloud-status" id="cloud-status">Not signed in</p>
+  <button id="btn-cloud-signin" type="button">Sign in with Vellum (cloud)</button>
 
   <script type="module" src="popup.js"></script>
 </body>
