@@ -193,7 +193,7 @@ public enum GatewayHTTPClient {
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: delegate)
         let http = response as? HTTPURLResponse
         let statusCode = http?.statusCode ?? -1
 
