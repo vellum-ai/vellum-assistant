@@ -151,7 +151,9 @@ struct MessageListView: View {
             }
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .overlay(alignment: .bottom) {
-                ScrollToLatestOverlayView(scrollState: scrollState)
+                ScrollToLatestOverlayView(scrollState: scrollState) {
+                    scrollState.requestPinToBottom(animated: true, userInitiated: true)
+                }
             }
             .onAppear { handleAppear() }
             .onDisappear {
