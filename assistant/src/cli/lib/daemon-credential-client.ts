@@ -31,7 +31,7 @@ const log = getLogger("daemon-credential-client");
 const CREDENTIAL_KEY_PREFIX = "credential/";
 
 /** Hard timeout for daemon HTTP requests to prevent CLI commands from hanging. */
-const DAEMON_FETCH_TIMEOUT_MS = 5_000;
+const DAEMON_FETCH_TIMEOUT_MS = 60_000;
 
 const PROVIDER_ENV_VARS: Record<string, string> = PROVIDER_ENV_VAR_NAMES;
 
