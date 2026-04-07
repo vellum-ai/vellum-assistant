@@ -45,15 +45,21 @@ export function homeFeedRouteDefinitions(): RouteDefinition[] {
 
         // TODO: Create a new conversation with context about the action.
         // This requires wiring SendMessageDeps into the route, which is
-        // deferred to a follow-up PR. For now, return a stub response.
-        const conversationId = `stub-${itemId}-${actionId}`;
+        // deferred to a follow-up PR.
 
         log.info(
           { itemId, actionId, label: action.label, title: item.title },
-          "Feed action triggered (stub)",
+          "Feed action triggered (not yet implemented)",
         );
 
-        return Response.json({ ok: true, conversationId });
+        return Response.json(
+          {
+            error: "Not implemented",
+            message:
+              "Conversation creation for feed actions is not yet implemented",
+          },
+          { status: 501 },
+        );
       },
     },
   ];
