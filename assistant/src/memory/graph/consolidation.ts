@@ -91,25 +91,25 @@ Today is ${today}.
 
 ## Your Tasks
 
-1. **Merge duplicates**: If two or more nodes describe the same event or fact, merge them into one by:
+1. **Merge duplicates**: If two or more nodes describe the exact same specific event or fact with substantially the same details, merge them into one by:
    - Keeping the richer/more complete version (UPDATE it to incorporate details from duplicates)
    - DELETE the duplicates
    - Preserve the highest significance, reinforcement count, and stability from the merged nodes
-   - Create a "supersedes" edge from the surviving node to each deleted node (the store handles deletion, but log the relationship)
+   - Create a "supersedes" edge from the surviving node to each deleted node
+   - Two nodes about the same person or topic but with DIFFERENT details, timestamps, or context are NOT duplicates — leave them both intact.
 
-2. **Downgrade faded memories**: For nodes at "faded" or "gist" fidelity, rewrite their content to be shorter and more abstract — like how a real memory fades. A "faded" memory should be 1-2 sentences. A "gist" memory should be one sentence capturing only the essence.
+2. **Rewrite faded content**: For nodes at "faded" or "gist" fidelity, rewrite their content to be shorter and more abstract — like how a real memory fades. A "faded" memory should be 1-2 sentences. A "gist" memory should be one sentence capturing only the essence.
 
 3. **Update narrative roles**: If a node is clearly a turning point, inciting incident, or thesis in a larger story arc, set its narrativeRole and partOfStory.
 
-4. **Mark gone**: If a node is at "gist" fidelity and has very low significance (< 0.2), mark it for deletion — it's faded beyond usefulness.
-
-5. **Resolve stale prospective nodes**: If a prospective node (type=prospective) is older than 7 days and has no "resolved-by" edge, it's likely a stale commitment. Downgrade its fidelity to "gist" and rewrite it as a past observation (e.g. "Had planned to X" instead of "Need to X"). If it's already at gist with significance < 0.2, mark it for deletion. If the node has an event_date in the past, clear it by setting event_date to null.
+4. **Resolve stale prospective nodes**: If a prospective node (type=prospective) is older than 7 days and has no "resolved-by" edge, downgrade its fidelity to "gist" and rewrite it as a past observation (e.g. "Had planned to X" instead of "Need to X"). If the node has an event_date in the past, clear it by setting event_date to null.
 
 ## Constraints
 
-- Do NOT create new nodes — consolidation only merges, updates, and prunes
+- Do NOT create new nodes — consolidation only merges, updates, and rewrites
 - Do NOT change a node's type
 - Do NOT increase fidelity (memories only fade, never sharpen)
+- Do NOT delete non-duplicate nodes — only delete the non-survivor in a merge. Fading and eventual cleanup are handled by the decay engine, not consolidation.
 - Preserve first-person prose style in content rewrites
 - When merging, keep the node with higher reinforcementCount as the survivor
 
@@ -206,17 +206,6 @@ function getTopSignificanceNodes(
     .slice(0, n);
 }
 
-function getDecayedNodes(scopeId: string): MemoryNode[] {
-  const all = queryNodes({
-    scopeId,
-    limit: 10000,
-  });
-  return all.filter(
-    (n) =>
-      (n.fidelity === "faded" || n.fidelity === "gist") && !isCapabilityNode(n),
-  );
-}
-
 function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
   const all = queryNodes({
     scopeId,
@@ -286,7 +275,7 @@ async function identifyDuplicateGroups(
     })
     .join("\n");
 
-  const systemPrompt = `You are scanning a list of memory nodes for DUPLICATES — nodes that describe the same event, fact, or topic. Group duplicates together. Two nodes are duplicates if they describe the same underlying thing, even if worded differently. Be aggressive — if in doubt, group them. Only include nodes that have at least one duplicate.`;
+  const systemPrompt = `You are scanning a list of memory nodes for DUPLICATES — nodes that describe the exact same specific event or fact. Group duplicates together. Two nodes are duplicates ONLY if they describe the same underlying thing with substantially the same details. Be conservative — nodes about the same person or topic but with different details, timestamps, or context are NOT duplicates. Only include nodes that have at least one true duplicate.`;
 
   const response = await provider.sendMessage(
     [userMessage(listing)],
@@ -657,7 +646,6 @@ export async function runConsolidation(
   const partitions: Array<{ name: string; nodes: MemoryNode[] }> = [
     { name: "recent", nodes: getRecentNodes(scopeId) },
     { name: "significant", nodes: getTopSignificanceNodes(scopeId) },
-    { name: "decayed", nodes: getDecayedNodes(scopeId) },
     { name: "random", nodes: getRandomSample(scopeId) },
   ];
 
