@@ -165,6 +165,7 @@ struct MessageListContentView: View, Equatable {
     // MARK: - Body
 
     var body: some View {
+        let turnMinHeight: CGFloat = max(0, viewportHeight - 150)
         LazyVStack(alignment: .leading, spacing: VSpacing.md) {
             if isLoadingMoreMessages {
                 HStack {
@@ -235,6 +236,7 @@ struct MessageListContentView: View, Equatable {
                     providerCatalogHash: providerCatalogHash
                 )
                 .equatable()
+                .frame(minHeight: isLatestAssistant ? turnMinHeight : nil, alignment: .top)
             }
 
             ForEach(state.orphanSubagents) { subagent in
@@ -250,28 +252,28 @@ struct MessageListContentView: View, Equatable {
             }
 
             if state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil {
-                if isCompacting {
-                    compactingIndicatorRow()
-                } else {
-                    thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    if isCompacting {
+                        compactingIndicatorRow()
+                    } else {
+                        thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                    }
+                    thinkingAvatarRow
                 }
-                thinkingAvatarRow
+                .frame(minHeight: turnMinHeight, alignment: .top)
             } else if state.isStreamingWithoutText {
                 HStack {
                     TypingIndicatorView()
                     Spacer()
                 }
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                .frame(minHeight: turnMinHeight, alignment: .top)
                 .id("streaming-without-text-indicator")
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                 compactingIndicatorRow()
+                    .frame(minHeight: turnMinHeight, alignment: .top)
             }
-
-            // Smart spacer: animates open on send, shrinks as assistant content grows
-            Color.clear
-                .frame(height: scrollState.spacerHeight)
-                .id("scroll-bottom-spacer")
 
             // Bottom anchor for explicit jumps
             Color.clear
