@@ -156,6 +156,13 @@ final class OnboardingState {
             currentStep = maxStep
         }
 
+        // enteredApiKey is not persisted (plaintext secrets shouldn't live in
+        // UserDefaults). If the app was killed after the API key entry step but
+        // before hatching completed, send the user back to re-enter their key.
+        if currentStep > 2 && !skippedAPIKeyEntry && !hasHatched {
+            currentStep = 2
+        }
+
         // Opt in to usage data and diagnostics by default for new users.
         // Also check legacy keys so we don't override an existing opt-out from
         // users who haven't yet been migrated by syncPrivacyConfig().
