@@ -344,6 +344,7 @@ export class AgentLoop {
                   type: "server_tool_complete",
                   toolUseId: event.toolUseId,
                   isError: event.isError,
+                  ...(event.content ? { content: event.content } : {}),
                 });
               }
             },

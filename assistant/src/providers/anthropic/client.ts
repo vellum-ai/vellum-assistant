@@ -982,6 +982,7 @@ export class AnthropicProvider implements Provider {
               type: "server_tool_complete",
               toolUseId: block.tool_use_id,
               isError: !!isError,
+              ...(Array.isArray(block.content) ? { content: block.content } : {}),
             });
           }
           if (event.type === "content_block_stop") {
