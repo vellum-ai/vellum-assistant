@@ -80,6 +80,8 @@ final class SidebarInteractionState {
 
     /// Group ID currently targeted during a drag-and-drop operation.
     var dropTargetSectionId: String?
+    /// Group ID where a forbidden drop indicator is active (e.g. Scheduled during conversation drag).
+    var dropForbiddenSectionId: String?
     /// Group ID currently being dragged (set on drag start via .onDrag).
     var draggingGroupId: String?
     /// Whether the group drop indicator should appear at the bottom (true) or top (false).
@@ -139,6 +141,7 @@ final class SidebarInteractionState {
         draggingConversationId = nil
         dropTargetConversationId = nil
         dropTargetSectionId = nil
+        dropForbiddenSectionId = nil
         removeDragEndMonitor()
     }
 

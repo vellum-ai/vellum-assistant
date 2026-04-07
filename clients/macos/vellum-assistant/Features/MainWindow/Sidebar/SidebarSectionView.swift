@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -106,6 +107,7 @@ struct SidebarSectionView: View {
             conversationCount: displayCount,
             isExpanded: isExpanded,
             isDropTarget: isDropTarget,
+            isDropForbidden: sidebar?.dropForbiddenSectionId == group.id,
             isGroupReorderTarget: !group.isSystemGroup && sidebar?.dropTargetSectionId == group.id && sidebar?.draggingConversationId == nil,
             groupDropIndicatorAtBottom: sidebar?.groupDropIndicatorAtBottom ?? false,
             aggregateState: aggregateState,
@@ -131,7 +133,10 @@ struct SidebarSectionView: View {
             .padding(.bottom, VSpacing.xxs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isDropTarget ? VColor.systemPositiveWeak : .clear)
+                    .fill(
+                        sidebar?.dropForbiddenSectionId == group.id ? VColor.systemNegativeWeak :
+                        isDropTarget ? VColor.systemPositiveWeak : .clear
+                    )
             )
             .modifier(SectionBodyDropModifier(
                 groupId: group.id,
@@ -430,6 +435,8 @@ struct SidebarSectionView: View {
 
 /// ViewModifier that conditionally attaches a SidebarSectionHeaderDropDelegate
 /// to a section header when sidebar and conversationManager are available.
+/// For the Scheduled group, uses an AppKit-based overlay to show the native
+/// macOS forbidden cursor (SwiftUI's DropProposal(.forbidden) doesn't produce it).
 struct SectionHeaderDropModifier: ViewModifier {
     let group: ConversationGroup
     let sidebar: SidebarInteractionState?
@@ -437,12 +444,22 @@ struct SectionHeaderDropModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if let sidebar, let conversationManager {
-            content.onDrop(of: [.plainText], delegate: SidebarSectionHeaderDropDelegate(
-                groupId: group.id,
-                group: group,
-                sidebar: sidebar,
-                conversationManager: conversationManager
-            ))
+            if group.id == ConversationGroup.scheduled.id {
+                content.overlay(
+                    ForbiddenDropOverlay(
+                        isActive: sidebar.draggingConversationId != nil,
+                        sidebar: sidebar,
+                        groupId: group.id
+                    )
+                )
+            } else {
+                content.onDrop(of: [.plainText], delegate: SidebarSectionHeaderDropDelegate(
+                    groupId: group.id,
+                    group: group,
+                    sidebar: sidebar,
+                    conversationManager: conversationManager
+                ))
+            }
         } else {
             content
         }
@@ -451,6 +468,7 @@ struct SectionHeaderDropModifier: ViewModifier {
 
 /// ViewModifier that conditionally attaches a conversation-group drop target to
 /// an expanded section body so drops work reliably in whitespace between rows.
+/// For the Scheduled group, uses an AppKit-based overlay for the forbidden cursor.
 struct SectionBodyDropModifier: ViewModifier {
     let groupId: String
     let sidebar: SidebarInteractionState?
@@ -458,11 +476,21 @@ struct SectionBodyDropModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if let sidebar, let conversationManager {
-            content.onDrop(of: [.plainText], delegate: SidebarSectionBodyDropDelegate(
-                groupId: groupId,
-                sidebar: sidebar,
-                conversationManager: conversationManager
-            ))
+            if groupId == ConversationGroup.scheduled.id {
+                content.overlay(
+                    ForbiddenDropOverlay(
+                        isActive: sidebar.draggingConversationId != nil,
+                        sidebar: sidebar,
+                        groupId: groupId
+                    )
+                )
+            } else {
+                content.onDrop(of: [.plainText], delegate: SidebarSectionBodyDropDelegate(
+                    groupId: groupId,
+                    sidebar: sidebar,
+                    conversationManager: conversationManager
+                ))
+            }
         } else {
             content
         }
@@ -475,13 +503,7 @@ struct SidebarSectionBodyDropDelegate: DropDelegate {
     let sidebar: SidebarInteractionState
     let conversationManager: ConversationManager
 
-    /// Scheduled conversations are system-managed; the group rejects conversation drops.
-    private var isScheduledGroup: Bool { groupId == ConversationGroup.scheduled.id }
-
     func validateDrop(info: DropInfo) -> Bool {
-        // Return true for Scheduled so macOS continues calling dropUpdated,
-        // where we return .forbidden to show the 🚫 cursor.
-        if isScheduledGroup { return true }
         guard let sourceId = sidebar.draggingConversationId,
               let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
               source.groupId != groupId
@@ -490,14 +512,10 @@ struct SidebarSectionBodyDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        if isScheduledGroup {
-            return DropProposal(operation: .forbidden)
-        }
-        return DropProposal(operation: .move)
+        DropProposal(operation: .move)
     }
 
     func dropEntered(info: DropInfo) {
-        if isScheduledGroup { return }
         sidebar.dropTargetSectionId = groupId
     }
 
@@ -508,11 +526,95 @@ struct SidebarSectionBodyDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        if isScheduledGroup { return false }
         let sourceId = sidebar.draggingConversationId
         sidebar.endConversationDrag()
         guard let sourceId else { return false }
         conversationManager.moveConversationToGroup(sourceId, groupId: groupId)
         return true
+    }
+}
+
+// MARK: - AppKit Forbidden Drop Overlay
+
+/// NSView that implements NSDraggingDestination directly, returning an empty
+/// NSDragOperation so macOS shows the native 🚫 forbidden cursor.
+///
+/// SwiftUI's DropProposal(operation: .forbidden) doesn't reliably produce the
+/// forbidden cursor on macOS — the translation from DropProposal to
+/// NSDragOperation appears broken. This view bypasses SwiftUI and returns the
+/// empty operation set directly to AppKit.
+private final class ForbiddenDropTargetView: NSView {
+    var onDragEntered: (() -> Void)?
+    var onDragExited: (() -> Void)?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Pass through all regular mouse events (clicks, hovers, scrolls).
+        // NSDraggingDestination dispatch is frame-based and independent of
+        // hitTest, so drag events still reach this view when it is registered.
+        nil
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onDragEntered?()
+        return []  // Empty operation → macOS shows 🚫 cursor
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        []  // Keep showing 🚫 cursor on every frame
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        onDragExited?()
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        onDragExited?()
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        false  // Reject all drops
+    }
+}
+
+/// Transparent overlay that shows the native macOS 🚫 forbidden cursor when
+/// a drag enters. Only activates (registers for drag types) when `isActive`
+/// is true — i.e. a conversation drag is in progress. When inactive, the view
+/// has no registered types and is invisible to both mouse and drag events.
+private struct ForbiddenDropOverlay: NSViewRepresentable {
+    let isActive: Bool
+    let sidebar: SidebarInteractionState
+    let groupId: String
+
+    func makeNSView(context: Context) -> ForbiddenDropTargetView {
+        let view = ForbiddenDropTargetView()
+        configureCallbacks(view)
+        if isActive {
+            view.registerForDraggedTypes([.string])
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: ForbiddenDropTargetView, context: Context) {
+        configureCallbacks(nsView)
+        if isActive {
+            nsView.registerForDraggedTypes([.string])
+        } else {
+            nsView.unregisterDraggedTypes()
+        }
+    }
+
+    private func configureCallbacks(_ view: ForbiddenDropTargetView) {
+        let sid = sidebar
+        let gid = groupId
+        view.onDragEntered = {
+            Task { @MainActor in sid.dropForbiddenSectionId = gid }
+        }
+        view.onDragExited = {
+            Task { @MainActor in
+                if sid.dropForbiddenSectionId == gid {
+                    sid.dropForbiddenSectionId = nil
+                }
+            }
+        }
     }
 }
