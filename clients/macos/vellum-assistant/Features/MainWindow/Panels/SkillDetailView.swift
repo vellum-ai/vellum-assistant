@@ -9,6 +9,7 @@ struct SkillDetailView: View {
     let onDelete: (SkillInfo) -> Void
 
     @State private var expandedFilePath: String?
+    @State private var expandedPaths: Set<String> = []
     @State private var skillFileViewMode: FileViewMode = .source
 
     private var hasViewableFiles: Bool {
@@ -49,6 +50,7 @@ struct SkillDetailView: View {
                 let firstText = files.first { !$0.isBinary && $0.content != nil }
                 if let selectedFile = skillMd ?? firstText {
                     expandedFilePath = selectedFile.path
+                    expandedPaths.formUnion(Self.ancestorPaths(of: selectedFile.path))
                     let autoModes = availableViewModes(for: selectedFile.path, mimeType: selectedFile.mimeType)
                     skillFileViewMode = autoModes.first ?? .source
                 }
@@ -58,14 +60,30 @@ struct SkillDetailView: View {
             if let selectedPath = expandedFilePath,
                let filesResponse = skillsManager.selectedSkillFiles,
                let file = filesResponse.files.first(where: { $0.path == selectedPath }) {
+                expandedPaths.formUnion(Self.ancestorPaths(of: selectedPath))
                 let selectedModes = availableViewModes(for: file.path, mimeType: file.mimeType)
                 skillFileViewMode = selectedModes.first ?? .source
             }
         }
         .onDisappear {
             expandedFilePath = nil
+            expandedPaths = []
             skillsManager.clearSkillDetail()
         }
+    }
+
+    // MARK: - Path helpers
+
+    /// Returns all ancestor folder paths of a file (or nested folder) path.
+    /// E.g. `ancestorPaths(of: "a/b/c.md")` returns `["a", "a/b"]`.
+    private static func ancestorPaths(of path: String) -> Set<String> {
+        let components = path.split(separator: "/").map(String.init)
+        guard components.count > 1 else { return [] }
+        var result: Set<String> = []
+        for i in 1..<components.count {
+            result.insert(components[0..<i].joined(separator: "/"))
+        }
+        return result
     }
 
     // MARK: - Origin-Specific Metadata
@@ -126,16 +144,68 @@ struct SkillDetailView: View {
 
     // MARK: - File Browser
 
-    private var browserFiles: [VFileBrowserFile] {
+    private var browserNodes: [VFileBrowserNode] {
         guard let files = skillsManager.selectedSkillFiles else { return [] }
-        return files.files
-            .filter { !$0.isBinary && $0.content != nil }
-            .map { VFileBrowserFile(
-                id: $0.path, name: $0.name, path: $0.path,
-                size: $0.size, mimeType: $0.mimeType,
-                isBinary: $0.isBinary, content: $0.content,
-                icon: fileIcon(for: $0.mimeType, fileName: $0.name)
-            )}
+        let textFiles = files.files.filter { !$0.isBinary && $0.content != nil }
+        return Self.buildSkillNodeTree(from: textFiles)
+    }
+
+    /// Build a sorted `[VFileBrowserNode]` tree from a flat list of skill files.
+    /// Mirrors the logic of `FileTreeNode.buildTree`, producing the design-system
+    /// node type directly. Sorting: directories first (alphabetical), then files
+    /// (alphabetical).
+    private static func buildSkillNodeTree(from files: [SkillFileEntry]) -> [VFileBrowserNode] {
+        var childrenByParent: [String: [VFileBrowserNode]] = [:]
+        var createdDirs: Set<String> = []
+
+        for file in files {
+            let components = file.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            guard !components.isEmpty else { continue }
+
+            // Create intermediate directory nodes for components 0..(N-2)
+            for i in 0..<(components.count - 1) {
+                let dirPath = components[0...i].joined(separator: "/")
+                guard !createdDirs.contains(dirPath) else { continue }
+                createdDirs.insert(dirPath)
+                let parentPath = i == 0 ? "" : components[0..<i].joined(separator: "/")
+                let dirNode = VFileBrowserNode(
+                    id: dirPath,
+                    name: components[i],
+                    path: dirPath,
+                    isDirectory: true
+                )
+                childrenByParent[parentPath, default: []].append(dirNode)
+            }
+
+            // Create file leaf node
+            let parentPath = components.count == 1 ? "" : components[0..<(components.count - 1)].joined(separator: "/")
+            let fileNode = VFileBrowserNode(
+                id: file.path,
+                name: file.name,
+                path: file.path,
+                isDirectory: false,
+                size: file.size,
+                icon: fileIcon(for: file.mimeType, fileName: file.name)
+            )
+            childrenByParent[parentPath, default: []].append(fileNode)
+        }
+
+        func buildChildren(forParent parentPath: String) -> [VFileBrowserNode] {
+            guard var nodes = childrenByParent[parentPath] else { return [] }
+            nodes = nodes.map { node in
+                guard node.isDirectory else { return node }
+                var dirNode = node
+                dirNode.children = buildChildren(forParent: node.path)
+                return dirNode
+            }
+            nodes.sort { a, b in
+                if a.isDirectory != b.isDirectory { return a.isDirectory }
+                return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            }
+            return nodes
+        }
+
+        return buildChildren(forParent: "")
     }
 
     @ViewBuilder
@@ -156,14 +226,16 @@ struct SkillDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VFileBrowser(
-                files: browserFiles,
+                rootNodes: browserNodes,
+                expandedPaths: $expandedPaths,
                 selectedPath: $expandedFilePath
-            ) { selectedFile in
-                if let selectedFile,
-                   let content = selectedFile.content {
+            ) { selectedNode in
+                if let selectedNode,
+                   let file = skillsManager.selectedSkillFiles?.files.first(where: { $0.path == selectedNode.path }),
+                   let content = file.content {
                     FileContentView(
-                        fileName: selectedFile.path,
-                        mimeType: selectedFile.mimeType,
+                        fileName: file.path,
+                        mimeType: file.mimeType,
                         content: .constant(content),
                         viewMode: $skillFileViewMode,
                         isActivelyEditing: .constant(false)

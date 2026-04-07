@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Shared row label for file tree views — renders indentation, expand/collapse chevron,
-/// file/folder icon, and name. Used by both SkillFileTreeView and WorkspaceTreeRow.
+/// file/folder icon, and name. Used by WorkspaceTreeRow.
 struct FileTreeRowLabel: View {
     let name: String
     let isDirectory: Bool
