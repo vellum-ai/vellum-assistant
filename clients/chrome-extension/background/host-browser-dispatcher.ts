@@ -18,41 +18,45 @@
  * continue to service browser tools exactly as before.
  */
 
-import { createCdpProxy, type CdpProxy } from './cdp-proxy.js';
+import { createCdpProxy, type CdpProxy, type CdpTarget } from './cdp-proxy.js';
 
 /**
  * host_browser_request envelope as received over the existing browser-relay
- * WebSocket. Field names use snake_case to match the daemon's ServerMessage
- * discriminator wire format; the canonical Swift + TypeScript types live in
- * their respective message-protocol files.
+ * WebSocket. Field names are camelCase to match the daemon's ServerMessage
+ * discriminator wire format — see
+ * `assistant/src/daemon/message-types/host-browser.ts` for the canonical
+ * types. Note `timeout_seconds` is the one snake_case field the daemon emits
+ * (a holdover from Phase 1) and we preserve it as-is.
  */
 export interface HostBrowserRequestEnvelope {
   type: 'host_browser_request';
-  request_id: string;
-  conversation_id: string;
-  cdp_method: string;
-  cdp_params?: Record<string, unknown>;
-  cdp_session_id?: string;
+  requestId: string;
+  conversationId: string;
+  cdpMethod: string;
+  cdpParams?: Record<string, unknown>;
+  cdpSessionId?: string;
   timeout_seconds?: number;
 }
 
 /** host_browser_cancel envelope sent when the daemon side aborts a request. */
 export interface HostBrowserCancelEnvelope {
   type: 'host_browser_cancel';
-  request_id: string;
+  requestId: string;
 }
 
 /**
  * Result envelope POSTed back to the runtime's /v1/host-browser-result
- * endpoint. Shape mirrors the HostBrowserProxy `resolve()` contract on the
- * daemon side: `content` is the stringified CDP result (or error), and
- * `is_error` is true if the CDP command reported a JSON-RPC error envelope
- * or if the dispatcher itself threw before it could reach the result frame.
+ * endpoint. Shape mirrors the runtime Zod schema in
+ * `assistant/src/runtime/routes/host-browser-routes.ts` (`requestId`,
+ * `content`, `isError`): `content` is the stringified CDP result (or error),
+ * and `isError` is true if the CDP command reported a JSON-RPC error
+ * envelope or if the dispatcher itself threw before it could reach the
+ * result frame.
  */
 export interface HostBrowserResultEnvelope {
-  request_id: string;
+  requestId: string;
   content: string;
-  is_error: boolean;
+  isError: boolean;
 }
 
 export interface HostBrowserDispatcherDeps {
@@ -77,49 +81,102 @@ export interface HostBrowserDispatcher {
   dispose(): void;
 }
 
+/**
+ * Stable string key for an attach-tracking set. A CdpTarget is either a
+ * numeric `tabId` or an opaque `targetId` string — we serialize whichever
+ * is set into a prefix-disambiguated key so tabId=123 and targetId="123"
+ * can't collide.
+ */
+function targetKey(target: CdpTarget): string {
+  if (target.targetId) return `targetId:${target.targetId}`;
+  if (target.tabId !== undefined) return `tabId:${target.tabId}`;
+  throw new Error('CdpTarget must have either tabId or targetId');
+}
+
 export function createHostBrowserDispatcher(
   deps: HostBrowserDispatcherDeps,
 ): HostBrowserDispatcher {
   const proxy = deps.cdpProxy ?? createCdpProxy();
   const inFlight = new Map<string, AbortController>();
+  // Track which targets we've already attached to so repeat commands
+  // against the same tab/session don't unnecessarily call attach again.
+  // Chrome treats a second attach as a hard failure ("Another debugger is
+  // already attached..."), so either we dedupe here or we catch the error.
+  // Deduping is cheaper and keeps the happy path clean.
+  const attachedTargets = new Set<string>();
   let nextCdpId = 1;
 
   async function handle(envelope: HostBrowserRequestEnvelope): Promise<void> {
     const abort = new AbortController();
-    inFlight.set(envelope.request_id, abort);
+    inFlight.set(envelope.requestId, abort);
     try {
-      const target = await deps.resolveTarget(envelope.cdp_session_id);
-      await proxy.attach(target, '1.3');
+      const target = await deps.resolveTarget(envelope.cdpSessionId);
+      const key = targetKey(target);
+      if (!attachedTargets.has(key)) {
+        try {
+          await proxy.attach(target, '1.3');
+          attachedTargets.add(key);
+        } catch (attachErr) {
+          // Tolerate the "already attached" race: Chrome surfaces this as
+          // "Another debugger is already attached to the tab with id: N."
+          // when a concurrent sibling request or an earlier invocation that
+          // predates this dispatcher instance already owns the debuggee.
+          // Treat it as success and record the target as attached. The
+          // match is case-insensitive because Chrome's wording has shifted
+          // across versions and across extensionId/tabId/targetId variants.
+          const msg = (
+            attachErr instanceof Error ? attachErr.message : String(attachErr)
+          ).toLowerCase();
+          if (msg.includes('already attached')) {
+            attachedTargets.add(key);
+          } else {
+            throw attachErr;
+          }
+        }
+      }
       const frame = await proxy.send(target, {
         id: nextCdpId++,
-        method: envelope.cdp_method,
-        params: envelope.cdp_params,
-        sessionId: envelope.cdp_session_id,
+        method: envelope.cdpMethod,
+        params: envelope.cdpParams,
+        sessionId: envelope.cdpSessionId,
       });
       await deps.postResult({
-        request_id: envelope.request_id,
+        requestId: envelope.requestId,
         content: JSON.stringify(frame.error ?? frame.result ?? {}),
-        is_error: frame.error != null,
+        isError: frame.error != null,
       });
     } catch (err) {
-      await deps.postResult({
-        request_id: envelope.request_id,
-        content: err instanceof Error ? err.message : String(err),
-        is_error: true,
-      });
+      // Guard the failure-path postResult in its own try/catch: if the HTTP
+      // POST itself fails (e.g. the relay socket is torn down while we're
+      // in the error path) we must NOT let that secondary rejection escape
+      // to the Chrome service worker as an unhandled promise rejection.
+      try {
+        await deps.postResult({
+          requestId: envelope.requestId,
+          content: err instanceof Error ? err.message : String(err),
+          isError: true,
+        });
+      } catch (postErr) {
+        console.error(
+          '[host-browser-dispatcher] Failed to post error result for',
+          envelope.requestId,
+          postErr,
+        );
+      }
     } finally {
-      inFlight.delete(envelope.request_id);
+      inFlight.delete(envelope.requestId);
     }
   }
 
   function cancel(envelope: HostBrowserCancelEnvelope): void {
-    inFlight.get(envelope.request_id)?.abort();
-    inFlight.delete(envelope.request_id);
+    inFlight.get(envelope.requestId)?.abort();
+    inFlight.delete(envelope.requestId);
   }
 
   function dispose(): void {
     for (const abort of inFlight.values()) abort.abort();
     inFlight.clear();
+    attachedTargets.clear();
     proxy.dispose();
   }
 

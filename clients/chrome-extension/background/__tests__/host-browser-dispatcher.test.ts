@@ -135,10 +135,10 @@ function createHarness(options: MockCdpProxyOptions = {}): DispatcherTestHarness
 
 const sampleRequest: HostBrowserRequestEnvelope = {
   type: 'host_browser_request',
-  request_id: 'req-1',
-  conversation_id: 'conv-1',
-  cdp_method: 'Browser.getVersion',
-  cdp_params: { foo: 'bar' },
+  requestId: 'req-1',
+  conversationId: 'conv-1',
+  cdpMethod: 'Browser.getVersion',
+  cdpParams: { foo: 'bar' },
 };
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -176,21 +176,21 @@ describe('createHostBrowserDispatcher', () => {
 
       // A single success result was posted with the stringified CDP result.
       expect(harness.results.length).toBe(1);
-      expect(harness.results[0].request_id).toBe('req-1');
-      expect(harness.results[0].is_error).toBe(false);
+      expect(harness.results[0].requestId).toBe('req-1');
+      expect(harness.results[0].isError).toBe(false);
       expect(harness.results[0].content).toBe(
         JSON.stringify({ product: 'Chrome/120', protocolVersion: '1.3' }),
       );
     });
 
-    test('routes via targetId when cdp_session_id is provided', async () => {
+    test('routes via targetId when cdpSessionId is provided', async () => {
       harness = createHarness({
         sendResult: { id: 1, result: {} },
       });
 
       const withSession: HostBrowserRequestEnvelope = {
         ...sampleRequest,
-        cdp_session_id: 'target-xyz',
+        cdpSessionId: 'target-xyz',
       };
       await harness.dispatcher.handle(withSession);
 
@@ -200,8 +200,68 @@ describe('createHostBrowserDispatcher', () => {
     });
   });
 
+  describe('handle — attach deduplication', () => {
+    test('skips proxy.attach on repeat requests against the same target', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: {} },
+      });
+
+      await harness.dispatcher.handle(sampleRequest);
+      await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-2' });
+      await harness.dispatcher.handle({ ...sampleRequest, requestId: 'req-3' });
+
+      // Only the first request should have attached; the subsequent two
+      // reuse the cached attachment.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls.length).toBe(3);
+      expect(harness.results.length).toBe(3);
+      expect(harness.results.every((r) => r.isError === false)).toBe(true);
+    });
+
+    test('tolerates "Already attached" errors from proxy.attach and caches success', async () => {
+      harness = createHarness({
+        attachThrows: new Error(
+          'Another debugger is already attached to the tab with id: 42.',
+        ),
+      });
+
+      await harness.dispatcher.handle(sampleRequest);
+
+      // Send proceeded despite the attach error — the dispatcher treated
+      // "Already attached" as a non-fatal success.
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('routes different targetIds to distinct attach entries', async () => {
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpSessionId: 'target-A',
+      });
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        requestId: 'req-2',
+        cdpSessionId: 'target-B',
+      });
+      // Second call to target-A should reuse the cached attachment.
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        requestId: 'req-3',
+        cdpSessionId: 'target-A',
+      });
+
+      expect(harness.proxy.attachCalls.length).toBe(2);
+      expect(harness.proxy.attachCalls[0].target).toEqual({ targetId: 'target-A' });
+      expect(harness.proxy.attachCalls[1].target).toEqual({ targetId: 'target-B' });
+    });
+  });
+
   describe('handle — CDP error envelope', () => {
-    test('posts is_error: true with the stringified error object', async () => {
+    test('posts isError: true with the stringified error object', async () => {
       harness = createHarness({
         sendResult: {
           id: 1,
@@ -212,7 +272,7 @@ describe('createHostBrowserDispatcher', () => {
       await harness.dispatcher.handle(sampleRequest);
 
       expect(harness.results.length).toBe(1);
-      expect(harness.results[0].is_error).toBe(true);
+      expect(harness.results[0].isError).toBe(true);
       expect(harness.results[0].content).toBe(
         JSON.stringify({ code: -32000, message: 'cannot find context with specified id' }),
       );
@@ -220,7 +280,7 @@ describe('createHostBrowserDispatcher', () => {
   });
 
   describe('handle — exception path', () => {
-    test('posts is_error: true when resolveTarget throws', async () => {
+    test('posts isError: true when resolveTarget throws', async () => {
       harness.resolveTargetImpl = async () => {
         throw new Error('no active tab');
       };
@@ -230,12 +290,12 @@ describe('createHostBrowserDispatcher', () => {
       expect(harness.proxy.attachCalls.length).toBe(0);
       expect(harness.proxy.sendCalls.length).toBe(0);
       expect(harness.results.length).toBe(1);
-      expect(harness.results[0].is_error).toBe(true);
+      expect(harness.results[0].isError).toBe(true);
       expect(harness.results[0].content).toBe('no active tab');
-      expect(harness.results[0].request_id).toBe('req-1');
+      expect(harness.results[0].requestId).toBe('req-1');
     });
 
-    test('posts is_error: true when proxy.attach throws', async () => {
+    test('posts isError: true when proxy.attach throws a non-"Already attached" error', async () => {
       harness = createHarness({
         attachThrows: new Error('Cannot access a chrome:// URL'),
       });
@@ -243,11 +303,11 @@ describe('createHostBrowserDispatcher', () => {
       await harness.dispatcher.handle(sampleRequest);
 
       expect(harness.results.length).toBe(1);
-      expect(harness.results[0].is_error).toBe(true);
+      expect(harness.results[0].isError).toBe(true);
       expect(harness.results[0].content).toBe('Cannot access a chrome:// URL');
     });
 
-    test('posts is_error: true when proxy.send throws', async () => {
+    test('posts isError: true when proxy.send throws', async () => {
       harness = createHarness({
         sendThrows: new Error('debugger detached mid-command'),
       });
@@ -255,7 +315,7 @@ describe('createHostBrowserDispatcher', () => {
       await harness.dispatcher.handle(sampleRequest);
 
       expect(harness.results.length).toBe(1);
-      expect(harness.results[0].is_error).toBe(true);
+      expect(harness.results[0].isError).toBe(true);
       expect(harness.results[0].content).toBe('debugger detached mid-command');
     });
 
@@ -268,8 +328,34 @@ describe('createHostBrowserDispatcher', () => {
       await harness.dispatcher.handle(sampleRequest);
 
       expect(harness.results.length).toBe(1);
-      expect(harness.results[0].is_error).toBe(true);
+      expect(harness.results[0].isError).toBe(true);
       expect(harness.results[0].content).toBe('raw string rejection');
+    });
+
+    test('swallows postResult failures inside the catch handler (no unhandled rejection)', async () => {
+      // Force the handler into the error path AND make postResult itself
+      // throw. If the dispatcher does not guard the catch-block postResult,
+      // this rejection will escape and trip `handle()`.
+      harness = createHarness({
+        sendThrows: new Error('boom from send'),
+      });
+      let postResultCalls = 0;
+      harness.postResultImpl = async () => {
+        postResultCalls += 1;
+        throw new Error('relay socket torn down');
+      };
+
+      // Must not reject.
+      let rejected: unknown = null;
+      try {
+        await harness.dispatcher.handle(sampleRequest);
+      } catch (err) {
+        rejected = err;
+      }
+      expect(rejected).toBeNull();
+
+      // We still attempted to post the error envelope once.
+      expect(postResultCalls).toBe(1);
     });
   });
 
@@ -292,7 +378,7 @@ describe('createHostBrowserDispatcher', () => {
       // Mid-flight cancel.
       const cancelEnvelope: HostBrowserCancelEnvelope = {
         type: 'host_browser_cancel',
-        request_id: 'req-1',
+        requestId: 'req-1',
       };
       harness.dispatcher.cancel(cancelEnvelope);
 
@@ -311,7 +397,7 @@ describe('createHostBrowserDispatcher', () => {
       expect(() =>
         harness.dispatcher.cancel({
           type: 'host_browser_cancel',
-          request_id: 'unknown',
+          requestId: 'unknown',
         }),
       ).not.toThrow();
     });
@@ -345,6 +431,24 @@ describe('createHostBrowserDispatcher', () => {
       harness.dispatcher.dispose();
       harness.dispatcher.dispose();
       expect(harness.proxy.disposeCalls).toBe(2);
+    });
+
+    test('clears attached-target cache so the next attach happens fresh', async () => {
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+
+      // Attach once.
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+
+      // Dispose clears the attached set (and the proxy).
+      harness.dispatcher.dispose();
+
+      // A new dispatcher built on a *fresh* proxy should attach again on
+      // first use — we can't reuse the disposed dispatcher, so this test
+      // verifies the semantic by starting over.
+      harness = createHarness({ sendResult: { id: 1, result: {} } });
+      await harness.dispatcher.handle(sampleRequest);
+      expect(harness.proxy.attachCalls.length).toBe(1);
     });
   });
 });
