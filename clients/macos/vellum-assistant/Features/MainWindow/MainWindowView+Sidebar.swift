@@ -396,7 +396,7 @@ extension MainWindowView {
                     guard !markedIds.isEmpty else { return }
                     let count = markedIds.count
                     let toastId = windowState.showToast(
-                        message: "Marked \(count) conversation\(count == 1 ? "" : "s") as seen",
+                        message: "Marked \(count) conversation\(count == 1 ? "" : "s") as read",
                         style: .success,
                         primaryAction: VToastAction(label: "Undo") {
                             conversationManager.restoreUnseen(conversationIds: markedIds)

@@ -433,7 +433,7 @@ extension AppDelegate {
         guard !markedIds.isEmpty else { return }
         let count = markedIds.count
         let toastId = mainWindow?.windowState.showToast(
-            message: "Marked \(count) conversation\(count == 1 ? "" : "s") as seen",
+            message: "Marked \(count) conversation\(count == 1 ? "" : "s") as read",
             style: .success,
             primaryAction: VToastAction(label: "Undo") { [weak self] in
                 self?.mainWindow?.conversationManager.restoreUnseen(conversationIds: markedIds)
@@ -459,7 +459,7 @@ extension AppDelegate {
         menu.addItem(newChatItem)
 
         let markAllSeenItem = NSMenuItem(
-            title: "Mark All Conversations as Seen",
+            title: "Mark All Conversations as Read",
             action: #selector(markAllConversationsSeen),
             keyEquivalent: ""
         )

@@ -26,13 +26,13 @@ struct SidebarConversationsHeader: View {
             HStack(spacing: VSpacing.xs) {
                 if hasUnseenConversations {
                     VButton(
-                        label: "Mark all as seen",
+                        label: "Mark all as read",
                         iconOnly: VIcon.circleCheck.rawValue,
                         style: .ghost,
                         action: onMarkAllSeen
                     )
                     .disabled(isLoading)
-                    .vTooltip("Mark all as seen")
+                    .vTooltip("Mark all as read")
                 }
                 if let onCreateGroup {
                     VButton(
@@ -56,7 +56,7 @@ struct SidebarConversationsHeader: View {
             Button {
                 onMarkAllSeen()
             } label: {
-                Label { Text("Mark All as Seen") } icon: { VIconView(.circleCheck, size: 14) }
+                Label { Text("Mark All as Read") } icon: { VIconView(.circleCheck, size: 14) }
             }
             .disabled(!hasUnseenConversations)
         }
