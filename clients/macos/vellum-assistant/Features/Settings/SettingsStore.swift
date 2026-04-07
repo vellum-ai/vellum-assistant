@@ -1003,35 +1003,42 @@ public final class SettingsStore: ObservableObject {
     }
 
     func refreshAPIKeyState() async {
-        let anthropicKey = await APIKeyManager.getKey(for: "anthropic")
+        // Fetch all provider keys in parallel so the cache covers every
+        // provider that hasKeyForProvider / maskedKeyForProvider may be
+        // called with (including dynamic catalog providers like openai,
+        // fireworks, openrouter).
+        let allProviders = APIKeyManager.allSyncableProviders + ["elevenlabs"]
+        var cache: [String: String] = [:]
+        await withTaskGroup(of: (String, String?).self) { group in
+            for provider in allProviders {
+                group.addTask { (provider, await APIKeyManager.getKey(for: provider)) }
+            }
+            for await (provider, value) in group {
+                if let value { cache[provider] = value }
+            }
+        }
+        providerKeyCache = cache
+
+        // Update the dedicated @Published properties that the UI binds to.
+        let anthropicKey = cache["anthropic"]
         hasKey = anthropicKey != nil
         maskedKey = Self.maskKey(anthropicKey)
 
-        let braveKey = await APIKeyManager.getKey(for: "brave")
+        let braveKey = cache["brave"]
         hasBraveKey = braveKey != nil
         maskedBraveKey = Self.maskKey(braveKey)
 
-        let perplexityKey = await APIKeyManager.getKey(for: "perplexity")
+        let perplexityKey = cache["perplexity"]
         hasPerplexityKey = perplexityKey != nil
         maskedPerplexityKey = Self.maskKey(perplexityKey)
 
-        let imageGenKey = await APIKeyManager.getKey(for: "gemini")
+        let imageGenKey = cache["gemini"]
         hasImageGenKey = imageGenKey != nil
         maskedImageGenKey = Self.maskKey(imageGenKey)
 
-        let elevenLabsKey = await APIKeyManager.getKey(for: "elevenlabs")
+        let elevenLabsKey = cache["elevenlabs"]
         hasElevenLabsKey = elevenLabsKey != nil
         maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
-
-        // Update the provider key cache so synchronous helpers
-        // (hasKeyForProvider, maskedKeyForProvider) stay current.
-        var cache: [String: String] = [:]
-        if let v = anthropicKey { cache["anthropic"] = v }
-        if let v = braveKey { cache["brave"] = v }
-        if let v = perplexityKey { cache["perplexity"] = v }
-        if let v = imageGenKey { cache["gemini"] = v }
-        if let v = elevenLabsKey { cache["elevenlabs"] = v }
-        providerKeyCache = cache
     }
 
     func hasKeyForProvider(_ provider: String) -> Bool {
