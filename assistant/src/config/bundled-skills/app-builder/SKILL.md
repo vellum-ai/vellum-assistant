@@ -437,9 +437,9 @@ vellum.widgets.countdown("timer-el", "2025-12-31T00:00:00Z", {
 - **Mix freely** - widgets compose well together and with custom elements
 - **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts. They handle overflow clipping, bounds, scaling, and dark mode. Hand-coded charts break layouts.
 
-#### Data bridge API (native only)
+#### Data bridge API (deprecated)
 
-> **Prefer custom route handlers** for new apps. The data bridge (`window.vellum.data`) only works in the native macOS WebView — it is unavailable in platform/Docker mode. Custom routes work everywhere.
+> **Prefer custom route handlers** for new apps. The data bridge (`window.vellum.data`) only works for assistants that run on the same machine as the desktop app, which will also be deprecated soon.
 
 The native WebView can read and write app records via `window.vellum.data`. All methods return Promises.
 
@@ -450,7 +450,6 @@ The native WebView can read and write app records via `window.vellum.data`. All 
 
 Important:
 
-- Only available in the native macOS app — not in platform/Docker deployments
 - Call `query()` on page load to populate initial state
 - User fields live in `record.data` (e.g., `record.data.title`)
 - Record IDs are UUID strings
