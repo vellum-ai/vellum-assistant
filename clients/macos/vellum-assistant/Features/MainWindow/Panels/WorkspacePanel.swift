@@ -52,7 +52,7 @@ final class WorkspaceBrowserState {
             viewMode = .source
         } else if ext == "md" || ext == "markdown" {
             viewMode = .preview
-        } else if ext == "json" {
+        } else if ext == "json" || ext == "jsonl" || ext == "ndjson" {
             viewMode = .tree
         } else {
             viewMode = .source
@@ -70,8 +70,11 @@ final class WorkspaceBrowserState {
             let mime = detail?.mimeType.lowercased() ?? ""
             let isJSONL = isJSONLContent(fileName: detail?.name ?? targetPath, mimeType: mime)
             let isJSON = !isJSONL && (ext == "json" || mime.hasPrefix("application/json"))
+            // JSONL is intentionally NOT pretty-printed — each line is already a
+            // standalone JSON value, and reflowing the file would corrupt the
+            // format. We do still want JSONL files to default to the tree view.
             let content = isJSON ? Self.prettyPrintJSON(raw) : raw
-            if isJSON, !prefersSource, viewMode != .tree {
+            if (isJSON || isJSONL), !prefersSource, viewMode != .tree {
                 viewMode = .tree
             }
             editableContent = content
