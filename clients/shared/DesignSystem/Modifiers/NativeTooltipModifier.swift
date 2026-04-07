@@ -311,9 +311,13 @@ private final class VTooltipTrackerView: NSView {
         p.ignoresMouseEvents = true
 
         let host = NSHostingView(rootView: VTooltipContent(text: tooltipText))
-        host.frame.size = host.fittingSize
+        // Capture fittingSize once before setting the frame — subsequent calls
+        // may return different values because .fixedSize(horizontal: false)
+        // allows the layout to change based on the proposed width.
+        let panelSize = host.fittingSize
+        host.frame.size = panelSize
         p.contentView = host
-        p.setContentSize(host.fittingSize)
+        p.setContentSize(panelSize)
 
         // Use AppKit's native coordinate conversion — works on any display.
         // Pre-compute both edge anchors so the flip logic can use the opposite edge.
@@ -326,8 +330,8 @@ private final class VTooltipTrackerView: NSView {
         ))
         let screenPoint = tooltipEdge == .bottom ? bottomScreenPoint : topScreenPoint
 
-        let panelWidth = host.fittingSize.width
-        let panelHeight = host.fittingSize.height
+        let panelWidth = panelSize.width
+        let panelHeight = panelSize.height
         let edgeInset: CGFloat = 4
 
         // Find the screen containing the anchor point (fall back to main display)
