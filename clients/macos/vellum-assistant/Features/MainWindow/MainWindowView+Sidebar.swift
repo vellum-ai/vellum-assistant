@@ -169,6 +169,7 @@ extension MainWindowView {
             },
             onArchiveAll: {
                 let archivableIds = conversations.filter { !$0.isChannelConversation }.map(\.id)
+                guard !archivableIds.isEmpty else { return }
                 archiveAllPending = ArchiveAllTarget(
                     displayName: group.name,
                     ids: archivableIds
