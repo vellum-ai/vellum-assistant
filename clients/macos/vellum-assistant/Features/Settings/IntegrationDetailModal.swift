@@ -174,7 +174,16 @@ struct IntegrationDetailModal: View {
     private var managedBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if !isLoggedIn {
-                managedLoginPrompt
+                integrationEmptyState(buttonLabel: "Log in to Vellum", buttonIcon: VIcon.logOut.rawValue) {
+                    Task {
+                        await authManager.loginWithToast(showToast: showToast, onSuccess: {
+                            if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
+                                AppDelegate.shared?.reconnectManagedAssistant()
+                            }
+                            Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
+                        })
+                    }
+                }
             } else if connections.isEmpty && !isConnecting {
                 integrationEmptyState {
                     store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
@@ -211,7 +220,7 @@ struct IntegrationDetailModal: View {
         }
     }
 
-    private func integrationEmptyState(onConnect: @escaping () -> Void) -> some View {
+    private func integrationEmptyState(buttonLabel: String = "Connect Account", buttonIcon: String = VIcon.plus.rawValue, onConnect: @escaping () -> Void) -> some View {
         VStack(spacing: VSpacing.md) {
             VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
 
@@ -219,7 +228,7 @@ struct IntegrationDetailModal: View {
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentSecondary)
 
-            VButton(label: "Connect Account", leftIcon: VIcon.plus.rawValue, style: .outlined) {
+            VButton(label: buttonLabel, leftIcon: buttonIcon, style: .outlined) {
                 onConnect()
             }
         }
@@ -227,37 +236,6 @@ struct IntegrationDetailModal: View {
         .padding(.vertical, VSpacing.xl)
     }
 
-    @State private var isLoginButtonHovered = false
-
-    private var managedLoginPrompt: some View {
-        Button {
-            Task {
-                await authManager.loginWithToast(showToast: showToast, onSuccess: {
-                    if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                        AppDelegate.shared?.reconnectManagedAssistant()
-                    }
-                    Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
-                })
-            }
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.logOut, size: 14)
-                Text(authManager.isSubmitting ? "Logging in..." : "Log in to Vellum")
-                    .font(VFont.bodyMediumDefault)
-            }
-            .foregroundStyle(VColor.primaryBase)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surfaceBase.opacity(isLoginButtonHovered ? 1 : 0))
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(authManager.isSubmitting)
-        .onHover { isLoginButtonHovered = $0 }
-    }
 
     private var managedConnectionsList: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
