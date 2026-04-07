@@ -341,6 +341,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             let escapedBaseURL = credentials.baseURL
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "'", with: "\\'")
+            let escapedPathPrefix = credentials.pathPrefix
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
             let headerEntries = credentials.headers.map { key, value in
                 let escapedKey = key
                     .replacingOccurrences(of: "\\", with: "\\\\")
@@ -361,7 +364,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                         if (!headers[k]) headers[k] = authHeaders[k];
                     }
                     options.headers = headers;
-                    var url = '\(escapedBaseURL)' + path;
+                    var prefix = '\(escapedPathPrefix)';
+                    var resolved = path.replace(/^\\/v1\\//, '/v1/' + prefix);
+                    var url = '\(escapedBaseURL)' + resolved;
                     return fetch(url, options);
                 };
                 """

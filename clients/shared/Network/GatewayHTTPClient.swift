@@ -475,6 +475,9 @@ public enum GatewayHTTPClient {
         /// Platform (managed): `["X-Session-Token": token, "Vellum-Organization-Id": orgId]`
         /// Local/remote (bearer): `["Authorization": "Bearer <jwt>"]`
         public let headers: [String: String]
+        /// Path prefix inserted between `/v1/` and the user-supplied path for managed
+        /// connections (e.g. `"assistants/<id>"`). Empty for local/remote connections.
+        public let pathPrefix: String
     }
 
     /// Resolves the gateway base URL and auth headers for injection into a WKWebView.
@@ -495,7 +498,13 @@ public enum GatewayHTTPClient {
                 headers["Vellum-Organization-Id"] = orgId
             }
         }
-        return WebViewCredentials(baseURL: connection.baseURL, headers: headers)
+        let pathPrefix: String
+        if connection.isManaged && !connection.assistantId.isEmpty {
+            pathPrefix = "assistants/\(connection.assistantId)/"
+        } else {
+            pathPrefix = ""
+        }
+        return WebViewCredentials(baseURL: connection.baseURL, headers: headers, pathPrefix: pathPrefix)
     }
 
     /// Constructs a gateway URL for the given path and query parameters.
