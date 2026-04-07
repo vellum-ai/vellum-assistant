@@ -84,6 +84,7 @@ struct SidebarSectionHeader: View {
                     onCommitRename?(renamingName)
                 }
                 .task {
+                    didCommitOrCancel = false
                     // Brief delay so the window's focus system settles after
                     // the context menu panel closes and key status transfers back.
                     try? await Task.sleep(nanoseconds: 50_000_000)
