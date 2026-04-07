@@ -81,9 +81,11 @@ struct EarnCreditsModal: View {
 
     private func howItWorksStep(icon: VIcon, title: String, subtitle: String) -> some View {
         HStack(alignment: .top, spacing: VSpacing.md) {
-            VIconView(icon, size: 16)
+            VIconView(icon, size: 14)
                 .foregroundStyle(VColor.primaryBase)
-                .frame(width: 24, height: 24)
+                .frame(width: 28, height: 28)
+                .background(VColor.primaryBase.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -107,7 +109,7 @@ struct EarnCreditsModal: View {
                     .font(.custom("DMMono-Regular", size: 13))
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(VSpacing.sm)
                     .background(VColor.surfaceBase)
@@ -118,8 +120,8 @@ struct EarnCreditsModal: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
                 VButton(
-                    label: copied ? "Copied!" : "Copy link",
-                    leftIcon: copied ? VIcon.check.rawValue : VIcon.copy.rawValue,
+                    label: copied ? "Copied" : "Copy referral link",
+                    iconOnly: copied ? VIcon.check.rawValue : VIcon.copy.rawValue,
                     style: .primary
                 ) {
                     copyToClipboard(code.referral_url)

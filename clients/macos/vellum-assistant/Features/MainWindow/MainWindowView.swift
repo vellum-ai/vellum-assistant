@@ -656,6 +656,7 @@ struct MainWindowView: View {
             .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
             .sheet(isPresented: $showEarnCreditsModal) {
                 EarnCreditsModal()
+                    .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
             }
             .overlay { conversationSwitcherDismissLayer }
             .overlay(alignment: .topLeading) { conversationSwitcherDrawerLayer }

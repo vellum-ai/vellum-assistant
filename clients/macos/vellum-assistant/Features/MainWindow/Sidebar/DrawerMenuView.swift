@@ -57,13 +57,15 @@ struct DrawerMenuView: View {
                     }
                 }
 
+                VMenuDivider()
+
                 if isReferralVisible {
                     VMenuItem(icon: VIcon.gift.rawValue, label: String(localized: "Earn credits")) {
                         onEarnCredits()
                     }
-                }
 
-                VMenuDivider()
+                    VMenuDivider()
+                }
             }
 
             VMenuItem(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
