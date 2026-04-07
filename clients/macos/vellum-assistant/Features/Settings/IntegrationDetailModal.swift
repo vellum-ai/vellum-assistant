@@ -95,9 +95,6 @@ struct IntegrationDetailModal: View {
             HStack {
                 Spacer()
                 VButton(label: "Close", style: .outlined, action: onClose)
-                if draftMode == "your-own" {
-                    yourOwnFooterButton
-                }
             }
         }
         .frame(width: 520)
@@ -380,28 +377,56 @@ struct IntegrationDetailModal: View {
         }
     }
 
-    /// Step 1: Credential entry form (shown when no apps, or user clicked "Add Another App")
+    /// Credential entry form inside a card with Add/Cancel buttons
     private var yourOwnFormStep: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VTextField(
                 "Client ID",
-                placeholder: yourOwnMeta?.client_id_placeholder ?? "Enter client ID",
+                placeholder: yourOwnMeta?.client_id_placeholder ?? "Enter your client ID",
                 text: $createAppClientId
             )
             if yourOwnMeta?.requires_client_secret ?? true {
                 VTextField(
                     "Client Secret",
-                    placeholder: "Enter client secret",
+                    placeholder: "Enter your client secret",
                     text: $createAppClientSecret,
                     isSecure: true
                 )
             }
             if yourOwnMeta?.dashboard_url != nil {
-                VInlineMessage("Find these in your \(displayName) developer console.", tone: .info)
+                VInlineMessage("Find these in your \(displayName) Developer console.", tone: .info)
+            }
+
+            HStack(spacing: VSpacing.sm) {
+                VButton(
+                    label: createAppIsSubmitting ? "Adding..." : "Add",
+                    style: .primary,
+                    isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
+                ) {
+                    createAppIsSubmitting = true
+                    Task {
+                        await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
+                        createAppClientId = ""
+                        createAppClientSecret = ""
+                        createAppIsSubmitting = false
+                        isShowingAddAppForm = false
+                    }
+                }
+                VButton(label: "Cancel", style: .outlined) {
+                    createAppClientId = ""
+                    createAppClientSecret = ""
+                    isShowingAddAppForm = false
+                }
             }
         }
+        .padding(VSpacing.lg)
+        .background(VColor.surfaceBase)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
     }
-
 
     private var yourOwnSkeleton: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -412,33 +437,6 @@ struct IntegrationDetailModal: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 VSkeletonBone(width: 100, height: 12)
                 VSkeletonBone(height: 36, radius: VRadius.md)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var yourOwnFooterButton: some View {
-        if shouldShowForm {
-            VButton(
-                label: createAppIsSubmitting ? "Adding..." : "Add",
-                style: .primary,
-                isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
-            ) {
-                createAppIsSubmitting = true
-                Task {
-                    await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
-                    createAppClientId = ""
-                    createAppClientSecret = ""
-                    createAppIsSubmitting = false
-                    isShowingAddAppForm = false
-                }
-            }
-            if isShowingAddAppForm {
-                VButton(label: "Cancel", style: .outlined) {
-                    createAppClientId = ""
-                    createAppClientSecret = ""
-                    isShowingAddAppForm = false
-                }
             }
         }
     }
