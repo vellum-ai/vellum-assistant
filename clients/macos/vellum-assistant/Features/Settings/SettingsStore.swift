@@ -294,6 +294,73 @@ public final class SettingsStore: ObservableObject {
     /// disable its button when the other surface is showing trust rules.
     @Published var isAnyTrustRulesSheetOpen = false
 
+    // MARK: - UserDefaults key classification (multi-platform-assistant)
+    //
+    // This block classifies every `UserDefaults.standard` key currently read or written
+    // by `SettingsStore` between roughly lines 297–630. The classification governs which
+    // keys will move to per-assistant scoped storage in a later PR of the
+    // multi-platform-hosted-assistant rollout, gated on the `multi-platform-assistant`
+    // feature flag.
+    //
+    // Three classifications are used:
+    //
+    //   • install-global  — legitimately spans every assistant on the same install
+    //                       (device/install telemetry, ToS-style preferences). These
+    //                       keys will NOT be scoped per-assistant.
+    //   • per-assistant   — will move to scoped storage in a later PR with a one-time,
+    //                       idempotent copy from the legacy unscoped key.
+    //   • deprecated      — dead key; do not migrate. Cleanup happens in a separate
+    //                       post-bake PR.
+    //
+    // install-global:
+    //   • sendDiagnostics            — line 320 (reader), line 509 (writer); also reads
+    //                                   legacy fallback key "sendPerformanceReports" at line 321.
+    //   • collectUsageData           — line 326 (reader), line 521 (writer).
+    //
+    // per-assistant (will be scoped on a future PR):
+    //   • cachedOrgId / "connectedOrganizationId"
+    //                                 — lines 418, 645, 650 (KVO publisher).
+    //   • selectedImageGenModel       — line 428 (reader), line 921 (writer).
+    //   • cmdEnterToSend              — line 433 (reader), line 502 (writer).
+    //   • globalHotkeyShortcut        — lines 435–438 (reader w/ default seed),
+    //                                   line 527 (writer).
+    //                                   NOTE: discuss in review whether this should be
+    //                                   reclassified as install-global. The user may
+    //                                   reasonably expect a global hotkey to remain
+    //                                   identical regardless of which assistant is
+    //                                   active. Defaulting to per-assistant unless the
+    //                                   team explicitly decides otherwise.
+    //   • quickInputHotkeyShortcut    — lines 440–443 (reader w/ default seed),
+    //                                   line 532 (writer).
+    //   • quickInputHotkeyKeyCode     — line 445 (reader), line 537 (writer).
+    //   • sidebarToggleShortcut       — lines 447–450 (reader w/ default seed),
+    //                                   line 542 (writer).
+    //   • newChatShortcut             — lines 452–455 (reader w/ default seed),
+    //                                   line 547 (writer).
+    //   • currentConversationShortcut — lines 457–460 (reader w/ default seed),
+    //                                   line 552 (writer).
+    //   • popOutShortcut              — lines 462–465 (reader w/ default seed),
+    //                                   line 557 (writer).
+    //
+    // deprecated (do not migrate; future cleanup):
+    //   • The legacy `connectedAssistantId` UserDefaults reference at
+    //     `AppDelegate+InputMonitors.swift` was removed in PR #24077. Fallback reads
+    //     remain at `AppDelegate+ConnectionSetup.swift:30` and
+    //     `AppDelegate+AuthLifecycle.swift:43` and are intentionally retained until
+    //     the multi-platform-assistant work bakes — they are tracked in that plan's
+    //     "out of scope" list, not here.
+    //
+    // Not classified (out of scope for per-assistant scoping — internal bookkeeping):
+    //   • kPendingKeyDeletionTombstones — lines 1126, 1131, 1139, 1143, 1149, 1166, 1168.
+    //     This is the tombstone list used by `SettingsStore`'s own pending-key-deletion
+    //     maintenance routine and is install-global by construction.
+    //
+    // Rollback story:
+    //   Flag off ⇒ readers/writers use legacy unscoped keys (today's behavior, byte-for-byte).
+    //   Flag on  ⇒ scoped keys, with a one-time idempotent copy from legacy.
+    //   Legacy keys are never deleted by this plan; cleanup happens in a separate
+    //   post-bake PR once the flag has fully rolled out.
+
     // MARK: - Privacy
 
     /// Whether the user has opted in to sending crash reports, error diagnostics, and
