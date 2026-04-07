@@ -41,6 +41,7 @@ public struct VMarqueeText: View {
     /// Points per second the text scrolls. Tuned for comfortable reading.
     private static let scrollSpeed: CGFloat = 30
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var containerWidth: CGFloat = 0
     @State private var animationOffset: CGFloat = 0
 
@@ -87,7 +88,7 @@ public struct VMarqueeText: View {
                 containerWidth = newWidth
             }
             .onChange(of: isHovered) { _, hovering in
-                if hovering && isTruncated {
+                if hovering && isTruncated && !reduceMotion {
                     withAnimation(.linear(duration: scrollDuration)) {
                         animationOffset = -overflow
                     }
@@ -98,7 +99,7 @@ public struct VMarqueeText: View {
                 }
             }
             .onChange(of: text) { _, _ in
-                if isHovered && isTruncated {
+                if isHovered && isTruncated && !reduceMotion {
                     withAnimation(.linear(duration: scrollDuration)) {
                         animationOffset = -overflow
                     }
@@ -107,10 +108,12 @@ public struct VMarqueeText: View {
                 }
             }
             .onChange(of: containerWidth) { _, _ in
-                if isHovered && isTruncated {
+                if isHovered && isTruncated && !reduceMotion {
                     withAnimation(.linear(duration: scrollDuration)) {
                         animationOffset = -overflow
                     }
+                } else {
+                    withAnimation(nil) { animationOffset = 0 }
                 }
             }
             .accessibilityElement(children: .ignore)
