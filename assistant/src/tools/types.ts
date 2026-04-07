@@ -176,6 +176,8 @@ export interface ToolContext {
   toolUseId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client (managed/cloud-hosted mode). */
   hostBashProxy?: import("../daemon/host-bash-proxy.js").HostBashProxy;
+  /** Optional proxy for delegating CDP commands to a connected client (managed/cloud-hosted mode). */
+  hostBrowserProxy?: import("../daemon/host-browser-proxy.js").HostBrowserProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
   hostFileProxy?: import("../daemon/host-file-proxy.js").HostFileProxy;
   /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
