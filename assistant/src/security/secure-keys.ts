@@ -86,6 +86,15 @@ let _cesHttpUnreachable = false;
 /** Minimum interval between CES reconnection attempts. */
 const RECONNECT_COOLDOWN_MS = 3_000;
 
+/**
+ * Hard timeout for each public credential operation (resolve + backend call).
+ * Prevents indefinite blocking when CES reconnection or backend operations hang.
+ *
+ * Set to 45s to comfortably cover the CES HTTP set worst case (~34s:
+ * 3 fetch attempts × 10s REQUEST_TIMEOUT_MS + 2 × 2s SET_RETRY_DELAY_MS).
+ */
+const CREDENTIAL_OP_TIMEOUT_MS = 45_000;
+
 /** Inject a CES RPC client for credential routing. Resets the resolved backend. */
 export function setCesClient(client: CesClient | undefined): void {
   _cesClient = client;
@@ -308,16 +317,58 @@ function updateCesHttpReachability(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Timeout helper
+// ---------------------------------------------------------------------------
+
+const CREDENTIAL_TIMEOUT_MSG = "Credential operation timed out";
+
+/**
+ * Race a credential operation against a hard deadline. If the operation
+ * does not settle within `CREDENTIAL_OP_TIMEOUT_MS`, return the supplied
+ * fallback value so callers degrade gracefully instead of hanging.
+ *
+ * Non-timeout errors from `op()` are propagated to callers rather than
+ * silently swallowed — only genuine timeouts return the fallback.
+ */
+async function withCredentialTimeout<T>(
+  op: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      log.warn(CREDENTIAL_TIMEOUT_MSG + " — returning fallback");
+      resolve(fallback);
+    }, CREDENTIAL_OP_TIMEOUT_MS);
+
+    op().then(
+      (val) => {
+        clearTimeout(timer);
+        resolve(val);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 /**
  * List all account names from the resolved backend (async).
  *
  * Queries exactly one backend — no cross-store merge.
  */
 export async function listSecureKeysAsync(): Promise<CredentialListResult> {
-  const backend = await resolveBackendAsync();
-  const result = await backend.list();
-  updateCesHttpReachability(backend, result.unreachable);
-  return result;
+  return withCredentialTimeout(
+    async () => {
+      const backend = await resolveBackendAsync();
+      const result = await backend.list();
+      updateCesHttpReachability(backend, result.unreachable);
+      return result;
+    },
+    { accounts: [], unreachable: true },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -336,13 +387,18 @@ export async function listSecureKeysAsync(): Promise<CredentialListResult> {
 export async function getSecureKeyResultAsync(
   account: string,
 ): Promise<SecureKeyResult> {
-  const backend = await resolveBackendAsync();
-  const result = await backend.get(account);
-  updateCesHttpReachability(backend, result.unreachable);
-  if (result.value != null) {
-    return { value: result.value, unreachable: false };
-  }
-  return { value: undefined, unreachable: result.unreachable };
+  return withCredentialTimeout(
+    async () => {
+      const backend = await resolveBackendAsync();
+      const result = await backend.get(account);
+      updateCesHttpReachability(backend, result.unreachable);
+      if (result.value != null) {
+        return { value: result.value, unreachable: false };
+      }
+      return { value: undefined, unreachable: result.unreachable };
+    },
+    { value: undefined, unreachable: true },
+  );
 }
 
 /**
@@ -364,16 +420,18 @@ export async function setSecureKeyAsync(
   account: string,
   value: string,
 ): Promise<boolean> {
-  const backend = await resolveBackendAsync();
-  const ok = await backend.set(account, value);
-  if (!ok) {
-    log.warn(
-      { account, backend: backend.name },
-      "Credential backend set failed",
-    );
-  }
-  updateCesHttpReachability(backend, !ok);
-  return ok;
+  return withCredentialTimeout(async () => {
+    const backend = await resolveBackendAsync();
+    const ok = await backend.set(account, value);
+    if (!ok) {
+      log.warn(
+        { account, backend: backend.name },
+        "Credential backend set failed",
+      );
+    }
+    updateCesHttpReachability(backend, !ok);
+    return ok;
+  }, false);
 }
 
 /**
@@ -384,10 +442,12 @@ export async function setSecureKeyAsync(
 export async function deleteSecureKeyAsync(
   account: string,
 ): Promise<DeleteResult> {
-  const backend = await resolveBackendAsync();
-  const result = await backend.delete(account);
-  updateCesHttpReachability(backend, result === "error");
-  return result;
+  return withCredentialTimeout(async () => {
+    const backend = await resolveBackendAsync();
+    const result = await backend.delete(account);
+    updateCesHttpReachability(backend, result === "error");
+    return result;
+  }, "error");
 }
 
 // ---------------------------------------------------------------------------
