@@ -24,7 +24,10 @@ extension AppDelegate {
     /// first valid current-environment assistant.
     @discardableResult
     func loadAssistantFromLockfile() -> LockfileAssistant? {
+        // Migration: fall back to UserDefaults for users upgrading from
+        // the old version whose lockfile doesn't yet have activeAssistant.
         let storedId = LockfileAssistant.loadActiveAssistantId()
+            ?? UserDefaults.standard.string(forKey: "connectedAssistantId")
         var assistant: LockfileAssistant?
 
         if let storedId, let found = LockfileAssistant.loadByName(storedId) {

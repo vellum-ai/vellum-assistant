@@ -384,13 +384,20 @@ public enum GatewayHTTPClient {
     /// Checks the process-local `_assistantOverride` first (set by
     /// `withAssistant(_:_:)`), then falls back to the lockfile's
     /// `activeAssistant` field via `LockfileAssistant.loadActiveAssistantId()`.
+    /// As a migration fallback, reads UserDefaults `connectedAssistantId`
+    /// for users upgrading from the old version whose lockfile doesn't
+    /// yet have `activeAssistant`.
     private static func resolveConnectedAssistant() -> LockfileAssistant? {
         let id: String
         if let override = _assistantOverride, !override.isEmpty {
             id = override
-        } else {
-            guard let activeId = LockfileAssistant.loadActiveAssistantId(), !activeId.isEmpty else { return nil }
+        } else if let activeId = LockfileAssistant.loadActiveAssistantId(), !activeId.isEmpty {
             id = activeId
+        } else if let legacyId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !legacyId.isEmpty {
+            // Migration: pre-upgrade users may not have activeAssistant in the lockfile yet.
+            id = legacyId
+        } else {
+            return nil
         }
         return LockfileAssistant.loadByName(id)
     }

@@ -37,7 +37,10 @@ extension AppDelegate {
                 // of the platform auth session, so the app can open in a logged-out
                 // state and the user can sign in from Settings > General.
                 // Skip managed assistants from a different platform environment.
+                // Migration: fall back to UserDefaults for users upgrading from
+                // the old version whose lockfile doesn't yet have activeAssistant.
                 let storedId = LockfileAssistant.loadActiveAssistantId()
+                    ?? UserDefaults.standard.string(forKey: "connectedAssistantId")
                 let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
                     ?? LockfileAssistant.loadLatest()
                 if let assistant, !assistant.isManaged, assistant.isCurrentEnvironment {
