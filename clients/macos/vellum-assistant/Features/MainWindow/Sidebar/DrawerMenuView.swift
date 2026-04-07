@@ -35,7 +35,9 @@ struct DrawerMenuView: View {
                 DrawerThemeToggle()
             }
 
-            VMenuDivider()
+            VMenuCustomRow {
+                tightDividerLine
+            }
 
             if let balance = effectiveBalance {
                 VMenuCustomRow {
@@ -55,29 +57,25 @@ struct DrawerMenuView: View {
                                 .buttonStyle(.plain)
                         }
                     }
+                    .frame(minHeight: VSize.rowMinHeight)
                 }
 
-                VMenuDivider()
+                VMenuCustomRow {
+                    tightDividerLine
+                }
 
                 if isReferralVisible {
                     VMenuItem(icon: VIcon.gift.rawValue, label: String(localized: "Earn credits")) {
                         onEarnCredits()
                     }
 
-                    VMenuDivider()
+                    VMenuCustomRow {
+                        tightDividerLine
+                    }
                 }
             }
 
             VMenuItem(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
-
-            VMenuCustomRow {
-                Text("Ask the assistant in chat to help you with any settings you wish to alter.")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentDisabled)
-                    .padding(.top, VSpacing.xs)
-            }
-
-            VMenuDivider()
 
             VMenuItem(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
             VMenuItem(icon: VIcon.scrollText.rawValue, label: String(localized: "Logs"), action: onDebug)
@@ -102,6 +100,14 @@ struct DrawerMenuView: View {
             isReferralCodesEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("referral-codes")
             await loadBalance()
         }
+    }
+
+    /// 1pt divider line without VMenuDivider's 4pt vertical padding,
+    /// used for sections that should sit tight against neighboring rows.
+    private var tightDividerLine: some View {
+        Rectangle()
+            .fill(VColor.surfaceBase)
+            .frame(height: 1)
     }
 
     private func loadBalance() async {
