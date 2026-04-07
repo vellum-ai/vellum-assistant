@@ -306,22 +306,29 @@ export async function handleConversationCreate(
       userMessageInterface: transportInterface,
       assistantMessageInterface: transportInterface,
     });
-    // Only create the host bash proxy for desktop client interfaces that can
-    // execute commands on the user's machine. Set before updateClient so
-    // updateClient's call to hostBashProxy.updateSender targets the new proxy.
-    if (supportsHostProxy(transportInterface)) {
+    // Only create each host proxy for interfaces that support the matching
+    // capability. macOS supports all four; the chrome-extension interface only
+    // supports host_browser. Set before updateClient so updateClient's call to
+    // hostBashProxy.updateSender targets the new proxy.
+    if (supportsHostProxy(transportInterface, "host_bash")) {
       const proxy = new HostBashProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversationObj.setHostBashProxy(proxy);
+    }
+    if (supportsHostProxy(transportInterface, "host_browser")) {
       const browserProxy = new HostBrowserProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversationObj.setHostBrowserProxy(browserProxy);
+    }
+    if (supportsHostProxy(transportInterface, "host_file")) {
       const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversationObj.setHostFileProxy(fileProxy);
+    }
+    if (supportsHostProxy(transportInterface, "host_cu")) {
       const cuProxy = new HostCuProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });

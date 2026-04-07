@@ -188,6 +188,7 @@ function createFakeConversation(conversationId: string): Conversation {
     setHostCuProxy(this: { hostCuProxy: unknown }, proxy: unknown) {
       this.hostCuProxy = proxy;
     },
+    restoreBrowserProxyAvailability: () => {},
     addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,

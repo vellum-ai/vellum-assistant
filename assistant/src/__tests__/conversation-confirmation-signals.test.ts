@@ -214,6 +214,8 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { Conversation } from "../daemon/conversation.js";
+import { HostBashProxy } from "../daemon/host-bash-proxy.js";
+import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -556,5 +558,79 @@ describe("sendToClient receives state signals", () => {
       phase: "thinking",
       reason: "confirmation_resolved",
     });
+  });
+});
+
+describe("restoreBrowserProxyAvailability", () => {
+  test("re-enables only the host browser proxy after clearProxyAvailability", () => {
+    const conversation = makeConversation();
+    const browserProxy = new HostBrowserProxy(() => {});
+    const bashProxy = new HostBashProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+    conversation.setHostBashProxy(bashProxy);
+
+    // Mark as having a connected client (interactive desktop path).
+    conversation.updateClient(() => {}, false);
+    expect(browserProxy.isAvailable()).toBe(true);
+    expect(bashProxy.isAvailable()).toBe(true);
+
+    // The drain queue clears all proxies for non-interactive turns.
+    conversation.clearProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(false);
+    expect(bashProxy.isAvailable()).toBe(false);
+
+    // restoreBrowserProxyAvailability should bring back ONLY the browser proxy.
+    conversation.restoreBrowserProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(true);
+    expect(bashProxy.isAvailable()).toBe(false);
+  });
+
+  test("re-enables the browser proxy even when hasNoClient is true (chrome-extension)", () => {
+    // Regression: chrome-extension is non-interactive (hasNoClient stays
+    // true so host_bash/host_file tools remain gated), but we still need
+    // to provision the hostBrowserProxy so it can service CDP commands.
+    // The helper must NOT gate on hasNoClient.
+    const conversation = makeConversation();
+    const browserProxy = new HostBrowserProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+
+    // updateClient with hasNoClient=true emulates the non-interactive
+    // chrome-extension turn. Host proxies start disabled because
+    // updateClient propagates hasNoClient through to updateSender.
+    conversation.updateClient(() => {}, true);
+    expect(browserProxy.isAvailable()).toBe(false);
+    expect(conversation["hasNoClient"]).toBe(true);
+
+    // The targeted helper bypasses the hasNoClient gate so the
+    // single-capability chrome-extension turn can drive the browser
+    // via CDP without flipping hasNoClient (which would also enable
+    // host_bash/host_file gating downstream).
+    conversation.restoreBrowserProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(true);
+    // hasNoClient itself MUST remain true so that
+    // isToolActiveForContext keeps host_bash/host_file/host_cu gated.
+    expect(conversation["hasNoClient"]).toBe(true);
+  });
+
+  test("leaves bash/file/cu proxies disabled when called for chrome-extension", () => {
+    // Regression: the targeted helper must not accidentally re-enable
+    // proxies other than host_browser, even when called from a path that
+    // owns multiple proxies (e.g. macOS holdover state with hasNoClient
+    // forced true for an explicit non-interactive run).
+    const conversation = makeConversation();
+    const browserProxy = new HostBrowserProxy(() => {});
+    const bashProxy = new HostBashProxy(() => {});
+    conversation.setHostBrowserProxy(browserProxy);
+    conversation.setHostBashProxy(bashProxy);
+
+    conversation.updateClient(() => {}, true);
+    expect(browserProxy.isAvailable()).toBe(false);
+    expect(bashProxy.isAvailable()).toBe(false);
+
+    conversation.restoreBrowserProxyAvailability();
+    expect(browserProxy.isAvailable()).toBe(true);
+    // Crucial: bash proxy stays disabled. The helper must touch ONLY the
+    // browser proxy.
+    expect(bashProxy.isAvailable()).toBe(false);
   });
 });

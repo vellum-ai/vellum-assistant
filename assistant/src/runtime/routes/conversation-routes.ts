@@ -1146,12 +1146,13 @@ export async function handleSendMessage(
     conversation,
   );
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Only create the host bash proxy for desktop client interfaces that can
-  // execute commands on the user's machine. Non-desktop conversations (CLI,
-  // channels, headless) fall back to local execution.
+  // Only create each host proxy for interfaces that support the matching
+  // capability. macOS supports all four; the chrome-extension interface only
+  // supports host_browser. Non-desktop conversations (CLI, channels, headless)
+  // fall back to local execution.
   // Set the proxy BEFORE updateClient so updateClient's call to
   // hostBashProxy.updateSender targets the correct (new) proxy.
-  if (supportsHostProxy(sourceInterface)) {
+  if (supportsHostProxy(sourceInterface, "host_bash")) {
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
@@ -1160,18 +1161,30 @@ export async function handleSendMessage(
       });
       conversation.setHostBashProxy(proxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostBashProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_browser")) {
     if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
       const browserProxy = new HostBrowserProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostBrowserProxy(browserProxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostBrowserProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       const fileProxy = new HostFileProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostFileProxy(fileProxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostFileProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       const cuProxy = new HostCuProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
@@ -1185,20 +1198,35 @@ export async function handleSendMessage(
       conversation.addPreactivatedSkillId("computer-use");
     }
   } else if (!conversation.isProcessing()) {
-    conversation.setHostBashProxy(undefined);
-    conversation.setHostBrowserProxy(undefined);
-    conversation.setHostFileProxy(undefined);
     conversation.setHostCuProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.
   // When proxies are preserved during an active turn (non-desktop request while
-  // processing), skip updating proxy senders to avoid degrading them.
+  // processing), skip updating proxy senders to avoid degrading them. The gate
+  // matches the host_bash capability because the legacy "reject send during
+  // host bash" flow is what this is really protecting.
   const preservingProxies =
-    conversation.isProcessing() && !supportsHostProxy(sourceInterface);
+    conversation.isProcessing() &&
+    !supportsHostProxy(sourceInterface, "host_bash");
+  // hasNoClient must remain `!isInteractive` so downstream tool gating
+  // (`isToolActiveForContext` for HOST_TOOL_NAMES, `createToolExecutor`'s
+  // `isInteractive: !ctx.hasNoClient`) keeps host_bash/host_file/host_cu
+  // tools gated for non-desktop interfaces. The chrome-extension interface
+  // is non-interactive (no SSE prompter UI) but still has a connected client
+  // that can service host_browser_request events; we restore that single
+  // proxy explicitly below without relaxing `hasNoClient`.
   conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
+  // For non-interactive interfaces that DO support host_browser
+  // (chrome-extension), explicitly re-enable just the browser proxy. The
+  // helper bypasses the `hasNoClient` gate so the single-capability
+  // chrome-extension turn can drive the browser via CDP without leaking
+  // host_bash/host_file tool availability into tool gating.
+  if (supportsHostProxy(sourceInterface, "host_browser")) {
+    conversation.restoreBrowserProxyAvailability?.();
+  }
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS
