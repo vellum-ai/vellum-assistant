@@ -69,21 +69,18 @@ struct SkillDetailView: View {
                 }
             }
 
-            // 3. On the first fetch for this skill view, expand every directory in
-            //    the tree so nested files are visible by default — this preserves
-            //    the pre-tree flat-list behavior where all files were immediately
-            //    visible. On subsequent refetches (e.g. files re-fetched after an
-            //    edit, a refresh button, or a file watcher), the `didSeedExpandedPaths`
-            //    flag prevents re-seeding so manual collapses aren't clobbered —
-            //    even if the user has collapsed every directory (which would defeat
-            //    a naive `expandedPaths.isEmpty` predicate). `didSeedExpandedPaths`
-            //    is reset in `.onDisappear` alongside `expandedPaths`, so navigating
+            // 3. On the first fetch for this skill view, start with all folders
+            //    collapsed. Only expand the ancestor chain of the auto-selected
+            //    file so that file remains visible in the tree — for the common
+            //    case where SKILL.md lives at the root, this is a no-op and every
+            //    folder stays collapsed. On subsequent refetches (e.g. files
+            //    re-fetched after an edit, a refresh button, or a file watcher),
+            //    the `didSeedExpandedPaths` flag prevents re-seeding so manual
+            //    expansions/collapses aren't clobbered. `didSeedExpandedPaths` is
+            //    reset in `.onDisappear` alongside `expandedPaths`, so navigating
             //    to a different skill re-triggers the initial seeding.
-            //    Compute `allDirectoryPaths` from the filtered text files (not the
-            //    raw file list) so directories that only contain binaries — which
-            //    don't appear in the tree — don't leak into `expandedPaths`.
             if !didSeedExpandedPaths && !textFiles.isEmpty {
-                var newExpanded = Self.allDirectoryPaths(in: textFiles)
+                var newExpanded: Set<String> = []
                 if let selectedPath = expandedFilePath {
                     newExpanded.formUnion(Self.ancestorPaths(of: selectedPath))
                 }
@@ -119,21 +116,6 @@ struct SkillDetailView: View {
         var result: Set<String> = []
         for i in 1..<components.count {
             result.insert(components[0..<i].joined(separator: "/"))
-        }
-        return result
-    }
-
-    /// Returns every directory path present in a flat list of skill files.
-    /// E.g. a file `external/asana/asana.md` contributes `external` and
-    /// `external/asana` to the resulting set.
-    private static func allDirectoryPaths(in files: [SkillFileEntry]) -> Set<String> {
-        var result: Set<String> = []
-        for file in files {
-            let components = file.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-            guard components.count > 1 else { continue }
-            for i in 1..<components.count {
-                result.insert(components[0..<i].joined(separator: "/"))
-            }
         }
         return result
     }
