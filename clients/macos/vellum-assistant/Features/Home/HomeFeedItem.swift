@@ -43,7 +43,7 @@ public struct FeedItem: Codable, Identifiable, Sendable {
     public let summary: String
     public let source: String?
     public let timestamp: Date
-    public let status: FeedItemStatus
+    public var status: FeedItemStatus
     public let ttl: Date?
     public let minTimeAway: TimeInterval?
     public let actions: [FeedAction]?

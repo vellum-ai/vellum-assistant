@@ -266,6 +266,7 @@ public final class MainWindow {
     let appListManager = AppListManager()
     let traceStore = TraceStore()
     let usageDashboardStore: UsageDashboardStore
+    let homeFeedStore: HomeFeedStore
     public let windowState = MainWindowState()
     let documentManager = DocumentManager()
     var onMicrophoneToggle: (() -> Void)?
@@ -318,6 +319,7 @@ public final class MainWindow {
             isFirstLaunch: isFirstLaunch
         )
         self.usageDashboardStore = UsageDashboardStore()
+        self.homeFeedStore = HomeFeedStore(eventStreamClient: services.connectionManager.eventStreamClient)
         self.conversationManager.ambientAgent = services.ambientAgent
         documentManager.connectionManager = connectionManager
         Task { @MainActor [weak self] in
@@ -434,7 +436,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, homeFeedStore: homeFeedStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

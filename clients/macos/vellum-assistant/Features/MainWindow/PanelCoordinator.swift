@@ -460,6 +460,11 @@ extension MainWindowView {
     @ViewBuilder
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
+        case .home:
+            HomeView(
+                store: homeFeedStore,
+                onClose: { windowState.dismissOverlay() }
+            )
         case .settings:
             SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
         case .debug:
