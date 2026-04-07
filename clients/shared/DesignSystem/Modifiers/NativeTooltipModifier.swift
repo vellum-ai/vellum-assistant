@@ -426,17 +426,17 @@ private final class VTooltipTrackerView: NSView {
         let visibleFrame = screen?.visibleFrame ?? .zero
         let tooltipSize = host.fittingSize
 
-        // Native tooltips appear below the cursor with a small vertical
-        // offset (~18 pt accounts for the standard cursor height).
-        let cursorOffset: CGFloat = 18
+        // Place the tooltip just above the cursor so it feels attached to
+        // the hovered item.  A small gap (2 pt) keeps it from touching the
+        // pointer.  If there isn't enough room above, flip to below.
+        let gap: CGFloat = 2
 
-        // Preferred placement: below cursor, horizontally centered on it.
         var x = mouse.x - tooltipSize.width / 2
-        var y = mouse.y - tooltipSize.height - cursorOffset
+        var y = mouse.y + gap                       // bottom edge just above cursor
 
-        // If the tooltip would go below the visible screen, flip above.
-        if y < visibleFrame.minY {
-            y = mouse.y + cursorOffset
+        // If the tooltip would go above the visible screen, flip below.
+        if y + tooltipSize.height > visibleFrame.maxY {
+            y = mouse.y - tooltipSize.height - gap
         }
 
         // Clamp to screen edges.
