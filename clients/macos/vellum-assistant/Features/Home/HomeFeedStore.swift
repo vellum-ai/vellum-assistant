@@ -30,11 +30,26 @@ final class HomeFeedStore {
     var threads: [FeedItem] { items.filter { $0.type == .thread } }
     var newCount: Int { items.filter { $0.status == .new }.count }
 
+    // MARK: - Persisted Session Tracking
+
+    /// The date the user last ended a session (app went to background).
+    /// Persisted across launches via UserDefaults.
+    var lastSessionDate: Date? {
+        didSet {
+            if let lastSessionDate {
+                UserDefaults.standard.set(lastSessionDate.timeIntervalSince1970, forKey: Self.lastSessionDateDefaultsName)
+            }
+        }
+    }
+
+    @ObservationIgnored private static let lastSessionDateDefaultsName = "homeFeedLastSessionDate"
+
     // MARK: - Dependencies
 
     @ObservationIgnored private let eventStreamClient: EventStreamClient
     @ObservationIgnored private var sseTask: Task<Void, Never>?
     @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
+    @ObservationIgnored private var backgroundObserver: NSObjectProtocol?
 
     // MARK: - Init
 
@@ -45,6 +60,13 @@ final class HomeFeedStore {
     /// pattern used by `DirectoryStore` and the home feed spec's `onAppear` trigger.
     init(eventStreamClient: EventStreamClient) {
         self.eventStreamClient = eventStreamClient
+
+        // Restore persisted lastSessionDate
+        let stored = UserDefaults.standard.double(forKey: Self.lastSessionDateDefaultsName)
+        if stored > 0 {
+            self.lastSessionDate = Date(timeIntervalSince1970: stored)
+        }
+
         startSSESubscription()
         startForegroundObserver()
     }
@@ -52,6 +74,9 @@ final class HomeFeedStore {
     deinit {
         sseTask?.cancel()
         if let observer = foregroundObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        if let observer = backgroundObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
     }
@@ -160,18 +185,33 @@ final class HomeFeedStore {
     // MARK: - App Foreground Observer
 
     private func startForegroundObserver() {
+        // Refresh feed when our app comes to the foreground
         foregroundObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            // Only refresh when *our* app comes to the foreground
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   app.bundleIdentifier == Bundle.appBundleIdentifier else {
                 return
             }
             Task { @MainActor [weak self] in
                 await self?.fetch()
+            }
+        }
+
+        // Record lastSessionDate when our app goes to the background
+        backgroundObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didDeactivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.bundleIdentifier == Bundle.appBundleIdentifier else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.lastSessionDate = Date()
             }
         }
     }

@@ -29,8 +29,8 @@ struct HomeView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         HomeContextBanner(
-                            lastSessionDate: store.lastUpdated,
-                            newCount: store.newCount
+                            lastSessionDate: store.lastSessionDate,
+                            newCount: filtered.filter { $0.status == .new }.count
                         )
 
                         // NEEDS ATTENTION: nudges as full cards, no cap
@@ -87,7 +87,7 @@ struct HomeView: View {
     /// Filters items based on the `minTimeAway` threshold.
     /// Items whose `minTimeAway` exceeds the time since last session are hidden.
     private var filteredItems: [FeedItem] {
-        guard let lastSession = store.lastUpdated else { return store.items }
+        guard let lastSession = store.lastSessionDate else { return store.items }
         let timeAway = Date().timeIntervalSince(lastSession)
         return store.items.filter { item in
             guard let minTimeAway = item.minTimeAway else { return true }
