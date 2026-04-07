@@ -78,9 +78,6 @@ private final class VTooltipCoordinator {
 /// - Only one tooltip is visible at a time (coordinator-managed singleton)
 /// - Won't show if the source view or any ancestor is hidden, fully
 ///   transparent, or zero-sized (e.g., sidebar behind the settings panel)
-/// - Clamps to screen bounds so the tooltip never goes off-screen
-/// - Wraps long text at ~300 pt to match native tooltip max-width
-/// - Dismisses on mouse-down, key-press, window move/resize (like native)
 ///
 /// Usage:
 /// ```swift
@@ -398,55 +395,16 @@ private final class VTooltipTrackerView: NSView {
         p.contentView = host
         p.setContentSize(host.fittingSize)
 
-        // Position the tooltip, clamped to the screen's visible frame so
-        // it never extends off any edge. Matches native tooltip behavior.
+        // Use AppKit's native coordinate conversion — works on any display
         let viewFrameInWindow = convert(bounds, to: nil)
-        let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
-        let visibleFrame = screen?.visibleFrame ?? .zero
-        let tooltipSize = host.fittingSize
-        let gap: CGFloat = 4
-
-        // Preferred anchor: center horizontally on the source view.
         let anchorY = tooltipEdge == .bottom ? viewFrameInWindow.minY : viewFrameInWindow.maxY
         let screenPoint = window.convertPoint(toScreen: NSPoint(
             x: viewFrameInWindow.midX,
             y: anchorY
         ))
 
-        // Compute preferred Y, then flip edge if it would go off-screen.
-        var preferredEdge = tooltipEdge
-        var y: CGFloat
-        if preferredEdge == .bottom {
-            y = screenPoint.y - tooltipSize.height - gap
-            if y < visibleFrame.minY {
-                // Flip to top
-                let topAnchor = window.convertPoint(toScreen: NSPoint(
-                    x: viewFrameInWindow.midX, y: viewFrameInWindow.maxY
-                )).y
-                y = topAnchor + gap
-                preferredEdge = .top
-            }
-        } else {
-            y = screenPoint.y + gap
-            if y + tooltipSize.height > visibleFrame.maxY {
-                // Flip to bottom
-                let bottomAnchor = window.convertPoint(toScreen: NSPoint(
-                    x: viewFrameInWindow.midX, y: viewFrameInWindow.minY
-                )).y
-                y = bottomAnchor - tooltipSize.height - gap
-                preferredEdge = .bottom
-            }
-        }
-
-        // Horizontal: center on source, then clamp to screen edges.
-        var x = screenPoint.x - tooltipSize.width / 2
-        x = max(x, visibleFrame.minX)
-        x = min(x, visibleFrame.maxX - tooltipSize.width)
-
-        // Final vertical clamp (safety net after flip).
-        y = max(y, visibleFrame.minY)
-        y = min(y, visibleFrame.maxY - tooltipSize.height)
-
+        let x = screenPoint.x - host.fittingSize.width / 2
+        let y = tooltipEdge == .bottom ? screenPoint.y - host.fittingSize.height - 4 : screenPoint.y + 4
         p.setFrameOrigin(NSPoint(x: x, y: y))
 
         p.alphaValue = 0
@@ -481,14 +439,9 @@ private final class VTooltipTrackerView: NSView {
 private struct VTooltipContent: View {
     let text: String
 
-    /// Maximum tooltip width matching native macOS tooltip behavior (~300 pt).
-    /// Long text wraps to multiple lines instead of extending off-screen.
-    private static let maxWidth: CGFloat = 300
-
     var body: some View {
         Text(text)
-            .frame(maxWidth: Self.maxWidth, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
+            .fixedSize()
             .font(VFont.labelDefault)
             .foregroundStyle(VColor.contentDefault)
             .padding(.horizontal, VSpacing.sm)
