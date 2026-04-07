@@ -392,8 +392,8 @@ extension AppDelegate {
                     if msg.code == .authenticationRequired && self.isCurrentAssistantManaged {
                         log.info("Received authenticationRequired error for managed assistant — showing reauth screen")
                         // Only set pending if not already set (preserve user's intended switch target)
-                                if UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId") == nil,
-                                   let assistantId = LockfileAssistant.loadActiveAssistantId() {
+                        if UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId") == nil,
+                           let assistantId = LockfileAssistant.loadActiveAssistantId() {
                             UserDefaults.standard.set(assistantId, forKey: "pendingManagedSwitchAssistantId")
                         }
                         self.showAuthWindow()
