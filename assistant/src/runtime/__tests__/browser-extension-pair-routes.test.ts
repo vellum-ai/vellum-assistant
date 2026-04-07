@@ -3,8 +3,13 @@
  *
  * Covers:
  *   - Method/host/origin enforcement (405, 403, 400, 401)
- *   - Successful mint on allowed origin (200)
- *   - Issued token round-trips through verifyHostBrowserCapability
+ *   - Successful mint on allowed origin (200) for both the preferred
+ *     `extensionOrigin` body field and the legacy `origin` alias
+ *   - `expiresAt` response field is an ISO 8601 string matching what the
+ *     native messaging helper validates
+ *   - IPv6 loopback `Host` header variants (bracketed and bare) are
+ *     accepted
+ *   - Issued token round-trips through `verifyHostBrowserCapability`
  *   - Tampered tokens fail verification
  */
 
@@ -16,7 +21,10 @@ import {
   setCapabilityTokenSecretForTests,
   verifyHostBrowserCapability,
 } from "../capability-tokens.js";
-import { handleBrowserExtensionPair } from "../routes/browser-extension-pair-routes.js";
+import {
+  handleBrowserExtensionPair,
+  parseHostHeader,
+} from "../routes/browser-extension-pair-routes.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -83,7 +91,7 @@ describe("handleBrowserExtensionPair", () => {
   test("rejects non-POST methods with 405", async () => {
     const req = buildRequest({
       method: "GET",
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(405);
@@ -91,7 +99,7 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects non-loopback peer with 403", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
     });
     const res = await handleBrowserExtensionPair(req, publicPeerServer);
     expect(res.status).toBe(403);
@@ -99,7 +107,7 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects LAN peer (not loopback) with 403", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
     });
     const res = await handleBrowserExtensionPair(req, lanPeerServer);
     expect(res.status).toBe(403);
@@ -107,7 +115,7 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects request with non-loopback Host header", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
       host: "vellum.example.com",
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -116,7 +124,7 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects request with x-forwarded-for header", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
       forwardedFor: "1.2.3.4",
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -135,43 +143,59 @@ describe("handleBrowserExtensionPair", () => {
     expect(res.status).toBe(400);
   });
 
-  test("returns 400 when origin is missing", async () => {
+  test("returns 400 when extensionOrigin is missing", async () => {
     const req = buildRequest({ body: {} });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(400);
   });
 
-  test("returns 400 when origin is not a string", async () => {
+  test("returns 400 when extensionOrigin is not a string", async () => {
+    const req = buildRequest({ body: { extensionOrigin: 42 } });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 400 when legacy origin field is not a string", async () => {
     const req = buildRequest({ body: { origin: 42 } });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(400);
   });
 
-  test("returns 401 when origin is not on the allowlist", async () => {
+  test("returns 401 when extensionOrigin is not on the allowlist", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://not-allowed/" },
+      body: { extensionOrigin: "chrome-extension://not-allowed/" },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(401);
   });
 
-  test("returns 200 with a valid token for an allowed origin", async () => {
+  test("returns 200 with a valid token for the preferred extensionOrigin field", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);
 
     const payload = (await res.json()) as {
       token: string;
-      expiresAt: number;
+      expiresAt: string;
       guardianId: string;
     };
 
     expect(typeof payload.token).toBe("string");
     expect(payload.token.length).toBeGreaterThan(0);
-    expect(typeof payload.expiresAt).toBe("number");
-    expect(payload.expiresAt).toBeGreaterThan(Date.now());
+
+    // expiresAt must be an ISO 8601 string (matching what the
+    // chrome-extension-native-host helper validates) and must be in
+    // the future.
+    expect(typeof payload.expiresAt).toBe("string");
+    expect(payload.expiresAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    );
+    const expiresAtMs = Date.parse(payload.expiresAt);
+    expect(Number.isNaN(expiresAtMs)).toBe(false);
+    expect(expiresAtMs).toBeGreaterThan(Date.now());
+
     expect(typeof payload.guardianId).toBe("string");
     expect(payload.guardianId.length).toBeGreaterThan(0);
 
@@ -180,7 +204,35 @@ describe("handleBrowserExtensionPair", () => {
     expect(claims).not.toBeNull();
     expect(claims?.capability).toBe("host_browser_command");
     expect(claims?.guardianId).toBe(payload.guardianId);
-    expect(claims?.expiresAt).toBe(payload.expiresAt);
+    // The numeric claim expiry should match the ISO response field.
+    expect(claims?.expiresAt).toBe(expiresAtMs);
+  });
+
+  test("returns 200 using the legacy `origin` field for backwards compat", async () => {
+    const req = buildRequest({
+      body: { origin: "chrome-extension://fakedevid/" },
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(200);
+    const payload = (await res.json()) as {
+      token: string;
+      expiresAt: string;
+    };
+    expect(typeof payload.token).toBe("string");
+    expect(typeof payload.expiresAt).toBe("string");
+  });
+
+  test("prefers extensionOrigin over legacy origin when both are provided", async () => {
+    // extensionOrigin is on the allowlist, `origin` is not — so the
+    // request must succeed because we honor `extensionOrigin` first.
+    const req = buildRequest({
+      body: {
+        extensionOrigin: "chrome-extension://fakedevid/",
+        origin: "chrome-extension://not-allowed/",
+      },
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(200);
   });
 
   test("accepts loopback Host header variants", async () => {
@@ -189,10 +241,14 @@ describe("handleBrowserExtensionPair", () => {
       "127.0.0.1:8765",
       "127.0.0.1",
       "localhost",
+      "127.1.2.3:8765",
+      "[::1]:8765",
+      "[::1]",
+      "::1",
     ];
     for (const host of variants) {
       const req = buildRequest({
-        body: { origin: "chrome-extension://fakedevid/" },
+        body: { extensionOrigin: "chrome-extension://fakedevid/" },
         host,
       });
       const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -200,9 +256,39 @@ describe("handleBrowserExtensionPair", () => {
     }
   });
 
+  test("rejects malformed bracketed Host header", async () => {
+    const req = buildRequest({
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      host: "[::1", // missing closing bracket
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(403);
+  });
+
+  test("rejects non-loopback IPv6 Host header", async () => {
+    const req = buildRequest({
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      host: "[2001:db8::1]:8765",
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(403);
+  });
+
+  test("parseHostHeader handles IPv4, IPv6, and bracketed forms", () => {
+    expect(parseHostHeader("localhost:8765")).toBe("localhost");
+    expect(parseHostHeader("127.0.0.1:8765")).toBe("127.0.0.1");
+    expect(parseHostHeader("127.0.0.1")).toBe("127.0.0.1");
+    expect(parseHostHeader("[::1]:8765")).toBe("::1");
+    expect(parseHostHeader("[::1]")).toBe("::1");
+    expect(parseHostHeader("::1")).toBe("::1");
+    expect(parseHostHeader("[2001:db8::1]:443")).toBe("2001:db8::1");
+    expect(parseHostHeader("[::1")).toBeNull();
+    expect(parseHostHeader("")).toBeNull();
+  });
+
   test("tampered tokens fail verification", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);
@@ -224,7 +310,7 @@ describe("handleBrowserExtensionPair", () => {
   test("tokens minted with a different secret fail verification", async () => {
     // Mint a token, then swap the secret — verification should fail.
     const req = buildRequest({
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);
@@ -237,7 +323,7 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects tampered payload even with matching signature length", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { extensionOrigin: "chrome-extension://fakedevid/" },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);

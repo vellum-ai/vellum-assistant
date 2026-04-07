@@ -9,15 +9,20 @@
  *   - **Localhost-only**: enforced by both the TCP peer IP (via
  *     `server.requestIP`) and the `Host` header. Non-localhost callers
  *     receive a 403.
- *   - **Origin allowlist**: the body must include `origin` matching a
- *     hard-coded allowlist of known Vellum chrome extension ids. This is a
- *     minimal check; real enforcement happens in the native messaging
- *     helper which vets the extension id that spawned it (PR 7).
+ *   - **Origin allowlist**: the body must include `extensionOrigin`
+ *     matching a hard-coded allowlist of known Vellum chrome extension
+ *     ids. This is a minimal check; real enforcement happens in the
+ *     native messaging helper which vets the extension id that spawned
+ *     it (PR 7).
  *   - **No auth header required**: the native messaging bootstrap flow
  *     runs before the extension has any token. The localhost + origin
  *     checks are the only gate.
  *
- * Returns `{ token, expiresAt, guardianId }` on success.
+ * Request body:  `{ extensionOrigin: string }` (also accepts the legacy
+ *                 `{ origin: string }` for backwards compatibility).
+ * Response body: `{ token, expiresAt, guardianId }` — `expiresAt` is an
+ *                 ISO 8601 timestamp string matching what the native
+ *                 messaging helper validates.
  */
 
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
@@ -47,18 +52,54 @@ export const ALLOWED_EXTENSION_ORIGINS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
+ * Parse an HTTP `Host` header value and extract the hostname portion.
+ *
+ * Handles IPv6 bracket notation (`[::1]:8765`), unbracketed IPv6
+ * (`::1`), hostname with port (`localhost:8765`), and bare hostnames
+ * (`localhost`). Returns `null` when the header is malformed (e.g.
+ * missing closing bracket).
+ *
+ * Exported for testing.
+ */
+export function parseHostHeader(raw: string): string | null {
+  if (raw.length === 0) return null;
+  // IPv6 literal in brackets, e.g. `[::1]` or `[::1]:8765`.
+  if (raw.startsWith("[")) {
+    const end = raw.indexOf("]");
+    if (end < 0) return null;
+    return raw.substring(1, end);
+  }
+  // Bare IPv6 (no brackets) contains multiple colons and should be
+  // treated as a whole. Anything with a single colon is `host:port`.
+  const firstColon = raw.indexOf(":");
+  if (firstColon < 0) return raw;
+  const secondColon = raw.indexOf(":", firstColon + 1);
+  if (secondColon >= 0) {
+    // Multiple colons and no brackets — assume unbracketed IPv6.
+    return raw;
+  }
+  return raw.substring(0, firstColon);
+}
+
+/**
  * Returns true if the Host header (if present) points at a loopback
  * address. We accept a missing Host header because some HTTP clients
  * (notably node test harnesses) omit it.
  */
 function isLoopbackHostHeader(host: string | null): boolean {
   if (!host) return true;
-  const hostname = host.split(":")[0]?.toLowerCase() ?? "";
+  const parsed = parseHostHeader(host);
+  if (parsed === null) return false;
+  const hostname = parsed.toLowerCase();
   if (hostname === "localhost") return true;
   if (hostname === "127.0.0.1") return true;
   if (hostname === "::1") return true;
-  if (hostname === "[::1]") return true;
-  if (hostname.startsWith("127.")) return true;
+  if (hostname.startsWith("127.")) {
+    // Matches the 127.0.0.0/8 loopback range (e.g. 127.0.0.1, 127.1.2.3).
+    const parts = hostname.split(".");
+    if (parts.length !== 4) return false;
+    return parts.every((p) => /^\d+$/.test(p) && Number(p) <= 255);
+  }
   return false;
 }
 
@@ -86,8 +127,11 @@ function resolveLocalGuardianId(): string {
 /**
  * Handle POST /v1/browser-extension-pair.
  *
- * Body: { origin: string }
- * Returns: { token, expiresAt, guardianId }
+ * Body:    `{ extensionOrigin: string }` (also accepts legacy
+ *          `{ origin: string }` for backwards compatibility).
+ * Returns: `{ token, expiresAt, guardianId }` where `expiresAt` is an
+ *          ISO 8601 timestamp string that the native messaging helper
+ *          validates as a string.
  */
 export async function handleBrowserExtensionPair(
   req: Request,
@@ -135,14 +179,27 @@ export async function handleBrowserExtensionPair(
   if (!body || typeof body !== "object") {
     return httpError("BAD_REQUEST", "body must be an object", 400);
   }
-  const origin = (body as { origin?: unknown }).origin;
-  if (typeof origin !== "string" || origin.length === 0) {
-    return httpError("BAD_REQUEST", "origin is required", 400);
+
+  // Accept `extensionOrigin` (preferred, matches the native messaging
+  // helper) and fall back to `origin` (legacy, for any callers that
+  // haven't migrated yet).
+  const raw = body as {
+    extensionOrigin?: unknown;
+    origin?: unknown;
+  };
+  const extensionOrigin =
+    typeof raw.extensionOrigin === "string" && raw.extensionOrigin.length > 0
+      ? raw.extensionOrigin
+      : typeof raw.origin === "string" && raw.origin.length > 0
+        ? raw.origin
+        : null;
+  if (extensionOrigin === null) {
+    return httpError("BAD_REQUEST", "extensionOrigin is required", 400);
   }
 
-  if (!ALLOWED_EXTENSION_ORIGINS.has(origin)) {
+  if (!ALLOWED_EXTENSION_ORIGINS.has(extensionOrigin)) {
     log.warn(
-      { origin },
+      { extensionOrigin },
       "Rejecting browser-extension-pair for disallowed origin",
     );
     return httpError("UNAUTHORIZED", "unauthorized origin", 401);
@@ -150,11 +207,12 @@ export async function handleBrowserExtensionPair(
 
   const guardianId = resolveLocalGuardianId();
   const { token, expiresAt } = mintHostBrowserCapability(guardianId);
+  const expiresAtIso = new Date(expiresAt).toISOString();
 
   log.info(
-    { origin, guardianId, expiresAt },
+    { extensionOrigin, guardianId, expiresAt: expiresAtIso },
     "Issued chrome extension capability token",
   );
 
-  return Response.json({ token, expiresAt, guardianId });
+  return Response.json({ token, expiresAt: expiresAtIso, guardianId });
 }

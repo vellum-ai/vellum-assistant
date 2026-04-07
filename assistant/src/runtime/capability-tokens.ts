@@ -6,8 +6,10 @@
  * Design:
  *   - Tokens are HMAC-SHA256 signed over a JSON claims payload.
  *   - Claims include a bound capability, guardian id, nonce, and expiry.
- *   - Signing uses a long-lived random secret persisted to the workspace
- *     data dir with 0600 permissions (mirrors `token-service.ts` pattern).
+ *   - Signing uses a long-lived random secret persisted to
+ *     `~/.vellum/protected/` with 0600 permissions. The protected
+ *     directory sits outside the workspace per AGENTS.md: workspace
+ *     directories must not hold security-sensitive material.
  *   - The secret is generated once on first launch and reused across
  *     subsequent daemon restarts so previously-minted tokens still verify.
  *   - Tests inject their own secret via `setCapabilityTokenSecretForTests`.
@@ -22,13 +24,14 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getDataDir } from "../util/platform.js";
+import { getDataDir, getProtectedDir } from "../util/platform.js";
 
 const log = getLogger("capability-tokens");
 
@@ -62,10 +65,24 @@ export interface CapabilityToken {
 let _secret: Buffer | undefined;
 
 /**
- * Returns the path where the capability-token secret is persisted.
- * Lives alongside other runtime-generated keys under workspace/data.
+ * Returns the canonical path where the capability-token secret is
+ * persisted: `~/.vellum/protected/capability-token-secret`. The protected
+ * directory is the canonical location for security-sensitive material
+ * and sits outside the workspace (which AGENTS.md forbids for secrets).
  */
 function getSecretPath(): string {
+  return join(getProtectedDir(), "capability-token-secret");
+}
+
+/**
+ * Legacy path under `workspace/data/` where earlier builds persisted the
+ * capability-token secret. We keep this as a read-only migration source
+ * so existing deployments don't regenerate their secret (and invalidate
+ * every outstanding token) on upgrade — the first launch after the
+ * upgrade copies the legacy file into `getProtectedDir()` and removes it
+ * from the workspace.
+ */
+function getLegacySecretPath(): string {
   return join(getDataDir(), "capability-token-secret");
 }
 
@@ -73,6 +90,10 @@ function getSecretPath(): string {
  * Load the capability-token secret from disk or generate and persist a new
  * one. Atomically writes with mode 0o600 so the secret is not readable by
  * other users on the same host.
+ *
+ * Migration: if the secret exists only at the legacy workspace path, copy
+ * it into the protected directory and delete the workspace copy so we do
+ * not leave security-sensitive material inside `workspace/`.
  */
 export function loadOrCreateCapabilityTokenSecret(): Buffer {
   const keyPath = getSecretPath();
@@ -94,13 +115,32 @@ export function loadOrCreateCapabilityTokenSecret(): Buffer {
     }
   }
 
+  // Attempt to migrate a legacy workspace-directory secret before we
+  // generate a fresh one. If this succeeds we end up with the legacy
+  // secret persisted at the protected path and the workspace copy
+  // removed, preserving every outstanding token across the upgrade.
+  const migrated = migrateLegacyCapabilityTokenSecret();
+  if (migrated) {
+    return migrated;
+  }
+
   const fresh = randomBytes(32);
+  writeSecretAtomic(keyPath, fresh);
+  log.info("Capability token secret generated and persisted");
+  return fresh;
+}
+
+/**
+ * Write `secret` to `keyPath` atomically with mode 0o600. Ensures the
+ * parent directory exists.
+ */
+function writeSecretAtomic(keyPath: string, secret: Buffer): void {
   const dir = dirname(keyPath);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
   const tmpPath = `${keyPath}.tmp.${process.pid}`;
-  writeFileSync(tmpPath, fresh, { mode: 0o600 });
+  writeFileSync(tmpPath, secret, { mode: 0o600 });
   renameSync(tmpPath, keyPath);
   try {
     chmodSync(keyPath, 0o600);
@@ -110,8 +150,50 @@ export function loadOrCreateCapabilityTokenSecret(): Buffer {
       "Failed to chmod capability token secret after write",
     );
   }
-  log.info("Capability token secret generated and persisted");
-  return fresh;
+}
+
+/**
+ * If a pre-migration capability token secret exists under the workspace
+ * data directory, copy it into the protected directory and remove the
+ * workspace copy. Returns the migrated secret if migration ran
+ * successfully, or `undefined` if there was nothing to migrate or the
+ * migration failed.
+ */
+function migrateLegacyCapabilityTokenSecret(): Buffer | undefined {
+  const legacyPath = getLegacySecretPath();
+  if (!existsSync(legacyPath)) {
+    return undefined;
+  }
+  try {
+    const raw = readFileSync(legacyPath);
+    if (raw.length !== 32) {
+      log.warn(
+        { legacyPath, length: raw.length },
+        "legacy capability token secret has unexpected length — ignoring",
+      );
+      return undefined;
+    }
+    writeSecretAtomic(getSecretPath(), raw);
+    try {
+      unlinkSync(legacyPath);
+    } catch (err) {
+      log.warn(
+        { err, legacyPath },
+        "Failed to remove legacy workspace capability token secret after migration",
+      );
+    }
+    log.info(
+      { from: legacyPath, to: getSecretPath() },
+      "Migrated capability token secret out of workspace into protected directory",
+    );
+    return raw;
+  } catch (err) {
+    log.warn(
+      { err, legacyPath },
+      "Failed to migrate legacy capability token secret — regenerating",
+    );
+    return undefined;
+  }
 }
 
 /**
