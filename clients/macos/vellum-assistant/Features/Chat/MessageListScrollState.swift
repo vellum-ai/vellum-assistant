@@ -431,10 +431,9 @@ final class MessageListScrollState {
     /// Tracks overlapping stabilization windows. Stabilization only ends
     /// when all active windows have completed, so concurrent reasons
     /// (e.g. resize during pagination) don't prematurely restore the mode.
-    /// Re-entering the same reason increments the count like any other entry.
-    /// Callers are structured so that each `beginStabilization` has a matching
-    /// `endStabilization` (cancelled task cleanup for resize, preceding
-    /// `endStabilization` in `suppressAutoScroll` for expansion).
+    /// Same-reason expansion re-entry increments the count and resets the
+    /// timer; the cancelled timeout calls `endStabilization()` to balance
+    /// the increment (matching the resize/pagination cleanup pattern).
     @ObservationIgnored private var activeStabilizationCount = 0
 
     // MARK: - Deep-Link Anchor Tracking
@@ -495,6 +494,7 @@ final class MessageListScrollState {
             previousMode = prev
             if activeReason == reason {
                 if reason == .expansion {
+                    activeStabilizationCount += 1
                     scheduleExpansionTimeout()
                 }
                 return
@@ -535,7 +535,7 @@ final class MessageListScrollState {
         expansionTimeoutTask?.cancel()
         expansionTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 200_000_000)
-            guard !Task.isCancelled, let self else { return }
+            guard let self else { return }
             self.endStabilization()
         }
     }
