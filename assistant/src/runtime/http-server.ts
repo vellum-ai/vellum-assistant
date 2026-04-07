@@ -147,6 +147,7 @@ import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
+import { hostBrowserRouteDefinitions } from "./routes/host-browser-routes.js";
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import {
@@ -1209,6 +1210,7 @@ export class RuntimeHttpServer {
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
       ...hostBashRouteDefinitions(),
+      ...hostBrowserRouteDefinitions(),
       ...hostCuRouteDefinitions(),
       ...hostFileRouteDefinitions(),
       ...(this.getSkillContext

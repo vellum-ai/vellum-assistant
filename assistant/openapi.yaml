@@ -3836,6 +3836,43 @@ paths:
               required:
                 - requestId
               additionalProperties: false
+  /v1/host-browser-result:
+    post:
+      operationId: hostbrowserresult_post
+      summary: Submit host browser result
+      description: Resolve a pending host browser request by requestId.
+      tags:
+        - host
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: Pending browser request ID
+                content:
+                  type: string
+                isError:
+                  type: boolean
+              required:
+                - requestId
+              additionalProperties: false
   /v1/host-cu-result:
     post:
       operationId: hostcuresult_post
