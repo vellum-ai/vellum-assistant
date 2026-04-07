@@ -37,4 +37,34 @@ final class SyntaxLanguageTests: XCTestCase {
     func testJavascriptStillMapsCorrectly() {
         XCTAssertEqual(SyntaxLanguage.detect(fileName: "app.js", mimeType: ""), .javascript)
     }
+
+    // MARK: - Parameterized MIME types
+
+    func testApplicationJsonWithCharsetParamMapsToJson() {
+        XCTAssertEqual(
+            SyntaxLanguage.detect(fileName: "anything.txt", mimeType: "application/json; charset=utf-8"),
+            .json
+        )
+    }
+
+    func testApplicationJsonlWithCharsetParamMapsToJson() {
+        XCTAssertEqual(
+            SyntaxLanguage.detect(fileName: "anything.txt", mimeType: "application/jsonl; charset=utf-8"),
+            .json
+        )
+    }
+
+    func testApplicationXNdjsonWithCharsetParamMapsToJson() {
+        XCTAssertEqual(
+            SyntaxLanguage.detect(fileName: "anything.txt", mimeType: "application/x-ndjson; charset=utf-8"),
+            .json
+        )
+    }
+
+    func testTextMarkdownWithCharsetParamMapsToMarkdown() {
+        XCTAssertEqual(
+            SyntaxLanguage.detect(fileName: "anything.txt", mimeType: "text/markdown; charset=utf-8"),
+            .markdown
+        )
+    }
 }
