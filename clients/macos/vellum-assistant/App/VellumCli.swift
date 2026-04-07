@@ -1030,25 +1030,6 @@ final class VellumCli {
 
         log.info("[audit] CLI invoke: \(commandName, privacy: .public) args=\(args.dropFirst().joined(separator: " "), privacy: .public)")
 
-        // Resolve provider API keys from the daemon's secret store BEFORE
-        // entering the detached Task (which is @Sendable and can't await).
-        // Fetch all keys concurrently to avoid sequential gateway timeouts.
-        var resolvedEnv = VellumCli.makeBaseEnvironment()
-        let missingProviders = VellumCli.providerEnvVars.filter { resolvedEnv[$0.value] == nil }
-        let fetchedKeys: [(String, String?)] = await withTaskGroup(of: (String, String?).self) { group in
-            for (provider, envVar) in missingProviders {
-                group.addTask { (envVar, await APIKeyManager.getKey(for: provider)) }
-            }
-            var results: [(String, String?)] = []
-            for await result in group { results.append(result) }
-            return results
-        }
-        for (envVar, key) in fetchedKeys {
-            if let key, !key.isEmpty {
-                resolvedEnv[envVar] = key
-            }
-        }
-
         let result: (stdout: String, stderr: String, status: Int32)
         do {
             result = try await Task.detached {
@@ -1061,7 +1042,13 @@ final class VellumCli {
                 proc.standardOutput = stdoutPipe
                 proc.standardError = stderrPipe
 
-                proc.environment = resolvedEnv
+                // Provider API keys are NOT injected here. The daemon
+                // receives its keys via syncApiKeysViaGateway() after
+                // startup, or through RemoteHatchConfig.providerApiKeys
+                // for remote hatch flows. makeBaseEnvironment() still
+                // forwards any provider env vars already present in the
+                // host process environment (e.g. terminal launches).
+                proc.environment = VellumCli.makeBaseEnvironment()
 
                 try proc.run()
 
