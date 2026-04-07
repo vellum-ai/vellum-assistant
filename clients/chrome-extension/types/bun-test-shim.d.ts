@@ -3,7 +3,7 @@
  * can be type-checked without depending on bun-types being installed in
  * the chrome-extension's own node_modules. The full bun-types package is
  * available in assistant/node_modules and is the runtime source of truth;
- * this shim only declares the surface used by the cloud-auth tests.
+ * this shim only declares the surface used by the extension's unit tests.
  */
 
 declare module 'bun:test' {

@@ -19,6 +19,7 @@
     "background/cloud-auth.ts",
     "background/host-browser-dispatcher.ts",
     "background/relay-connection.ts",
+    "background/self-hosted-auth.ts",
     "background/__tests__/**/*.ts",
     "types/**/*.d.ts"
   ]
