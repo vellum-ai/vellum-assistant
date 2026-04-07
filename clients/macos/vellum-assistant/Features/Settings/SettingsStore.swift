@@ -2225,14 +2225,6 @@ public final class SettingsStore: ObservableObject {
         if let googleOAuth = services["google-oauth"] as? [String: Any],
            let mode = googleOAuth["mode"] as? String {
             self.managedOAuthMode["google"] = mode
-        } else if let legacy = services["integration:google"] as? [String: Any],
-                  let mode = legacy["mode"] as? String {
-            // Migrate from the legacy key that was written due to a bug where
-            // setManagedOAuthMode fell back to the raw providerKey when metadata
-            // hadn't loaded yet. Read the value and re-save under the correct key
-            // so subsequent launches use the canonical path.
-            self.managedOAuthMode["google"] = mode
-            setManagedOAuthMode(mode, providerKey: "google")
         }
         if let outlookOAuth = services["outlook-oauth"] as? [String: Any],
            let mode = outlookOAuth["mode"] as? String {
