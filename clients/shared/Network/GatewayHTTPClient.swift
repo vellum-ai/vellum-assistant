@@ -159,26 +159,11 @@ public enum GatewayHTTPClient {
         }
         logOutgoing(request, quiet: false)
 
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            // Non-HTTP response — collect all bytes without progress.
-            var collected = Data()
-            for try await byte in bytes {
-                collected.append(byte)
-            }
-            return Response(data: collected, statusCode: -1)
-        }
-
-        logResponse(request, http: http, quiet: false)
+        let (result, http) = try await performStreamingPost(request: request, onProgress: onProgress)
 
         // 401 retry for non-managed (bearer token) connections.
-        if http.statusCode == 401, !connection.isManaged {
-            // Drain the 401 response body before attempting credential refresh.
-            for try await _ in bytes {}
-
+        if result.statusCode == 401, !connection.isManaged {
             if await refreshBearerCredentials(connection: connection) {
-                // Rebuild with fresh credentials from the credential store.
                 let freshConnection = try resolveConnection()
                 var retryRequest = try buildRequest(path: path, params: params, method: "POST", timeout: timeout, connection: freshConnection)
                 retryRequest.httpBody = body
@@ -187,64 +172,79 @@ public enum GatewayHTTPClient {
                 }
                 logOutgoing(retryRequest, quiet: false)
 
-                let (retryBytes, retryResponse) = try await URLSession.shared.bytes(for: retryRequest)
-
-                guard let retryHttp = retryResponse as? HTTPURLResponse else {
-                    var collected = Data()
-                    for try await byte in retryBytes {
-                        collected.append(byte)
-                    }
-                    return Response(data: collected, statusCode: -1)
-                }
-
-                logResponse(retryRequest, http: retryHttp, quiet: false)
-
-                return try await collectStreamingResponse(bytes: retryBytes, http: retryHttp, onProgress: onProgress)
+                let (retryResult, _) = try await performStreamingPost(request: retryRequest, onProgress: onProgress)
+                return retryResult
             }
 
             // Refresh failed — return the original 401 response.
-            return Response(data: Data(), statusCode: http.statusCode)
+            return result
         }
 
-        return try await collectStreamingResponse(bytes: bytes, http: http, onProgress: onProgress)
+        return result
     }
 
-    /// Collects a streaming byte response into `Data`, reporting progress via `onProgress`.
-    private static func collectStreamingResponse(
-        bytes: URLSession.AsyncBytes,
-        http: HTTPURLResponse,
+    /// Performs a POST request with progress tracking using a delegate-based data task
+    /// that receives data in chunks (not byte-by-byte).
+    private static func performStreamingPost(
+        request: URLRequest,
         onProgress: @escaping @MainActor (Double) -> Void
-    ) async throws -> Response {
-        let totalBytes = http.expectedContentLength // -1 when unknown
+    ) async throws -> (Response, HTTPURLResponse?) {
+        let delegate = DownloadProgressDelegate(onProgress: onProgress)
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
 
-        if totalBytes <= 0 {
-            // Content-Length unavailable — signal indeterminate progress.
-            await MainActor.run { onProgress(-1) }
+        let (data, response) = try await session.data(for: request)
+        let http = response as? HTTPURLResponse
+        let statusCode = http?.statusCode ?? -1
+
+        if let http {
+            logResponse(request, http: http, quiet: false)
         }
 
-        var collected = Data()
-        if totalBytes > 0 {
-            collected.reserveCapacity(Int(totalBytes))
-        }
-
-        var lastReportedFraction = 0.0
-        for try await byte in bytes {
-            collected.append(byte)
-            if totalBytes > 0 {
-                let fraction = Double(collected.count) / Double(totalBytes)
-                if fraction - lastReportedFraction >= 0.01 || collected.count == Int(totalBytes) {
-                    lastReportedFraction = fraction
-                    await MainActor.run { onProgress(min(fraction, 1.0)) }
-                }
-            }
-        }
-
-        // Ensure we always report completion when content length was known.
-        if totalBytes > 0, lastReportedFraction < 1.0 {
+        // Send final progress if we tracked determinately.
+        if delegate.totalBytes > 0, delegate.lastReportedFraction < 1.0 {
             await MainActor.run { onProgress(1.0) }
         }
 
-        return Response(data: collected, statusCode: http.statusCode)
+        return (Response(data: data, statusCode: statusCode), http)
+    }
+
+    /// URLSessionDataDelegate that tracks download progress via `didReceive data:` chunks.
+    private class DownloadProgressDelegate: NSObject, URLSessionDataDelegate {
+        let onProgress: @MainActor (Double) -> Void
+        var totalBytes: Int64 = -1
+        var receivedBytes: Int64 = 0
+        var lastReportedFraction: Double = 0.0
+        private var reportedIndeterminate = false
+
+        init(onProgress: @escaping @MainActor (Double) -> Void) {
+            self.onProgress = onProgress
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            totalBytes = response.expectedContentLength // -1 when unknown
+            if totalBytes <= 0, !reportedIndeterminate {
+                reportedIndeterminate = true
+                let callback = self.onProgress
+                Task { await callback(-1) }
+            }
+            completionHandler(.allow)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            receivedBytes += Int64(data.count)
+            guard totalBytes > 0 else { return }
+            let fraction = Double(receivedBytes) / Double(totalBytes)
+            guard fraction - lastReportedFraction >= 0.01 || receivedBytes >= totalBytes else { return }
+            lastReportedFraction = fraction
+            let callback = self.onProgress
+            Task { await callback(min(fraction, 1.0)) }
+        }
     }
 
     /// Performs an authenticated PATCH request against the gateway.
