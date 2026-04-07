@@ -49,7 +49,7 @@ const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
 interface ExportRequestBody {
   auditLimit?: number;
   conversationId?: string; // scope to a single conversation
-  includeAllConversations?: boolean; // include messages + LLM logs for all conversations
+  full?: boolean; // include all conversation data (messages + LLM logs) — use for test data debugging
   startTime?: number; // epoch ms — lower bound (inclusive)
   endTime?: number; // epoch ms — upper bound (inclusive)
 }
@@ -68,8 +68,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
   const staging = mkdtempSync(join(tmpdir(), "vellum-export-"));
 
   try {
-    const { conversationId, includeAllConversations, startTime, endTime } =
-      body;
+    const { conversationId, full, startTime, endTime } = body;
 
     // --- Audit data ---
     const limit = body.auditLimit ?? 1000;
@@ -102,7 +101,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
 
     // --- Conversation data tables ---
     // Included when scoped to a single conversation OR when all conversations are requested.
-    if (conversationId || includeAllConversations) {
+    if (conversationId || full) {
       const conversationFilter = conversationId
         ? [eq(messages.conversationId, conversationId)]
         : [];
@@ -282,13 +281,13 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     // --- Export manifest ---
     const manifestType = conversationId
       ? ("conversation-export" as const)
-      : includeAllConversations
+      : full
         ? ("full-export" as const)
         : ("global-export" as const);
     const manifest = {
       type: manifestType,
       ...(conversationId ? { conversationId } : {}),
-      ...(includeAllConversations ? { includeAllConversations: true } : {}),
+      ...(full ? { full: true } : {}),
       assistantVersion: APP_VERSION,
       commitSha: COMMIT_SHA,
       ...(startTime !== undefined ? { startTime } : {}),
@@ -308,7 +307,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
         totalBytes,
         hasConfig: configSnapshot !== undefined,
         conversationId: conversationId ?? null,
-        includeAllConversations: includeAllConversations ?? false,
+        full: full ?? false,
         workspaceEntries: workspaceResult.entries.length,
         workspaceBytes: workspaceResult.totalBytes,
       },
@@ -456,11 +455,11 @@ export function logExportRouteDefinitions(): RouteDefinition[] {
       .string()
       .optional()
       .describe("Scope to a single conversation"),
-    includeAllConversations: z
+    full: z
       .boolean()
       .optional()
       .describe(
-        "Include messages, LLM request logs, and usage events for all conversations",
+        "Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data debugging.",
       ),
     startTime: z.number().optional().describe("Lower bound epoch ms"),
     endTime: z.number().optional().describe("Upper bound epoch ms"),

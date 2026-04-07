@@ -3140,8 +3140,10 @@ paths:
                 conversationId:
                   description: Scope to a single conversation
                   type: string
-                includeAllConversations:
-                  description: Include messages, LLM request logs, and usage events for all conversations
+                full:
+                  description:
+                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
+                    debugging.
                   type: boolean
                 startTime:
                   description: Lower bound epoch ms
@@ -4338,8 +4340,10 @@ paths:
                 conversationId:
                   description: Scope to a single conversation
                   type: string
-                includeAllConversations:
-                  description: Include messages, LLM request logs, and usage events for all conversations
+                full:
+                  description:
+                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
+                    debugging.
                   type: boolean
                 startTime:
                   description: Lower bound epoch ms
@@ -7715,7 +7719,7 @@ paths:
     get:
       operationId: usage_breakdown_get
       summary: Get usage breakdown
-      description: Return grouped usage breakdown (by actor, provider, or model).
+      description: Return grouped usage breakdown (by actor, provider, model, or conversation).
       tags:
         - usage
       responses:
@@ -7751,7 +7755,7 @@ paths:
           required: false
           schema:
             type: string
-          description: "Group by: actor, provider, or model (required)"
+          description: "Group by: actor, provider, model, or conversation (required)"
   /v1/usage/daily:
     get:
       operationId: usage_daily_get
