@@ -102,7 +102,6 @@ import {
   applyRuntimeInjections,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
-  findLastInjectedPkbContent,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   readNowScratchpad,
@@ -779,24 +778,15 @@ export async function runAgentLoopImpl(
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
 
-    // Only inject NOW.md if it changed since the last injection in the
-    // conversation.  Keeping the previous injection in place avoids mutating
-    // historical user messages and preserves the cached prefix.
+    // Inject NOW.md and PKB content only on the first turn (or after
+    // compaction re-strips them).  Old injections persist in history and
+    // are never stripped on normal turns — this preserves the cached prefix.
     const currentNowContent = readNowScratchpad();
-    const lastInjectedNow = findLastInjectedNowContent(ctx.messages);
-    const nowScratchpad =
-      currentNowContent !== lastInjectedNow ? currentNowContent : null;
+    const nowScratchpad = isFirstMessage ? currentNowContent : null;
 
-    // Only inject PKB if it changed since the last injection in the
-    // conversation.  Keeping the previous injection in place avoids mutating
-    // historical user messages and preserves the cached prefix.
-    // Note: injectPkbContext escapes </pkb> sequences before writing to history,
-    // so we must apply the same escaping before comparing to avoid false mismatches.
     const currentPkbContent = readPkbContext();
-    const lastInjectedPkb = findLastInjectedPkbContent(ctx.messages);
-    const escapedCurrentPkb = currentPkbContent?.replace(/<\/pkb\s*>/gi, "&lt;/pkb&gt;") ?? null;
-    const pkbContext =
-      escapedCurrentPkb !== lastInjectedPkb ? currentPkbContent : null;
+    const pkbContext = isFirstMessage ? currentPkbContent : null;
+    const pkbActive = currentPkbContent !== null;
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
@@ -808,6 +798,7 @@ export async function runAgentLoopImpl(
       channelCommandContext: ctx.commandIntent ?? null,
       unifiedTurnContext: unifiedTurnContextStr,
       pkbContext,
+      pkbActive,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
