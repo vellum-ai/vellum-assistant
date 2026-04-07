@@ -124,4 +124,47 @@ describe("BrowserSessionManager", () => {
     expect(state.disposed).toBe(true);
     expect(manager.getSession(session.id)).toBeUndefined();
   });
+
+  test("send with a known sessionId routes through the matching backend", async () => {
+    const expectedResult: CdpResult = { result: { routed: true } };
+    const state: MockBackendState = {
+      available: true,
+      disposed: false,
+      sendImpl: async () => expectedResult,
+    };
+    const manager = new BrowserSessionManager({
+      backends: [createMockExtensionBackend(state)],
+    });
+    const session = manager.createSession();
+    const result = await manager.send(session.id, {
+      method: "Browser.getVersion",
+    });
+    expect(result).toEqual(expectedResult);
+    expect(state.lastCommand).toEqual({ method: "Browser.getVersion" });
+  });
+
+  test("send with an unknown sessionId throws", async () => {
+    const state: MockBackendState = { available: true, disposed: false };
+    const manager = new BrowserSessionManager({
+      backends: [createMockExtensionBackend(state)],
+    });
+    await expect(
+      manager.send("does-not-exist", { method: "Browser.getVersion" }),
+    ).rejects.toThrow("Unknown browser session: does-not-exist");
+    // The mock backend should not have received the command.
+    expect(state.lastCommand).toBeUndefined();
+  });
+
+  test("send with a sessionId of a disposed session throws", async () => {
+    const state: MockBackendState = { available: true, disposed: false };
+    const manager = new BrowserSessionManager({
+      backends: [createMockExtensionBackend(state)],
+    });
+    const session = manager.createSession();
+    manager.disposeSession(session.id);
+    await expect(
+      manager.send(session.id, { method: "Browser.getVersion" }),
+    ).rejects.toThrow(`Unknown browser session: ${session.id}`);
+    expect(state.lastCommand).toBeUndefined();
+  });
 });

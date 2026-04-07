@@ -38,14 +38,40 @@ export class BrowserSessionManager {
     return this.sessions.get(id);
   }
 
+  /**
+   * Dispatch a CDP command.
+   *
+   * - If `sessionId` is provided, the session must exist in the manager; otherwise this throws.
+   *   The command is routed through the backend whose `kind` matches the session's `backendKind`,
+   *   ensuring per-session backend isolation and making `disposeSession()` an actual enforcement
+   *   boundary against stale ids.
+   * - If `sessionId` is `undefined`, the first available backend is selected (legacy advisory
+   *   behavior used for one-off commands without a session handle).
+   *
+   * Phase 2 only has the extension backend so routing is effectively a no-op, but Phase 4 will
+   * rely on this contract once multi-backend / multi-tab multiplexing lands.
+   */
   async send(
     sessionId: string | undefined,
     command: CdpCommand,
     signal?: AbortSignal,
   ): Promise<CdpResult> {
-    // For now, session is advisory — all extension-backend commands route through the same connection.
-    // Phase 4 will use sessionId to route to specific targets when multi-tab multiplexing lands.
-    const backend = this.selectBackend();
+    let backend: BrowserBackend;
+    if (sessionId !== undefined) {
+      const session = this.sessions.get(sessionId);
+      if (!session) {
+        throw new Error(`Unknown browser session: ${sessionId}`);
+      }
+      const matched = this.backends.find((b) => b.kind === session.backendKind);
+      if (!matched) {
+        throw new Error(
+          `No backend available for session kind: ${session.backendKind}`,
+        );
+      }
+      backend = matched;
+    } else {
+      backend = this.selectBackend();
+    }
     return backend.send(command, signal);
   }
 
