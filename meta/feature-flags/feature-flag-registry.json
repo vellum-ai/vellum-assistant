@@ -174,8 +174,8 @@
       "scope": "assistant",
       "key": "settings-integrations-grid",
       "label": "Integrations Grid",
-      "description": "Show the Integrations grid in Models & Services settings, replacing individual OAuth provider cards",
-      "defaultEnabled": false
+      "description": "Show the Integrations tab in the Intelligence panel",
+      "defaultEnabled": true
     },
     {
       "id": "quick-input",
