@@ -18,8 +18,9 @@
  *     product string.
  *   - Abort: an aborted AbortSignal resolves with "Aborted" and the mock
  *     extension receives a host_browser_cancel frame.
- *   - Disconnection: if the extension is forcibly disconnected, the
- *     proxy times out gracefully on a short timeout.
+ *   - Timeout: if the mock extension receives the frame but never
+ *     POSTs a result, the proxy's setTimeout path fires and surfaces
+ *     a "timed out waiting for client response" error.
  *
  * The test runs entirely in Bun + loopback WebSocket/fetch — no real
  * Chrome required.
@@ -263,35 +264,42 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
     await mockExt.stop();
   });
 
-  test("disconnected extension: proxy.request times out gracefully", async () => {
+  test("timeout: proxy.request resolves with timeout error when client never responds", async () => {
     const guardianId = `test-guardian-${crypto.randomUUID()}`;
     const token = mintActorToken(guardianId);
 
     const { createMockChromeExtension } =
       await import("./fixtures/mock-chrome-extension.js");
+    // CDP handler that never resolves — the request frame reaches the
+    // mock extension successfully, but no result is ever POSTed back.
+    // This exercises the proxy's `setTimeout` path (as opposed to a
+    // synchronous send failure, which is a separate code path).
     const mockExt = createMockChromeExtension({
       runtimeBaseUrl,
       token,
+      cdpHandler: () => new Promise(() => {}),
     });
     await mockExt.start();
     await mockExt.waitForConnection();
     await waitForRegistryEntry(guardianId);
 
-    const { proxy } = createBoundProxy(guardianId, "conv-disconnect");
+    const { proxy } = createBoundProxy(guardianId, "conv-timeout");
 
-    // Force-close the extension's WebSocket before issuing the request
-    // and wait for the registry entry to drain. The send() path will
-    // then return false and the bound sendToClient wrapper will throw,
-    // which HostBrowserProxy surfaces as a rejected promise.
-    mockExt.forceDisconnect();
-    await waitForRegistryGone(guardianId);
+    // 50ms timeout — short enough to keep the test fast, long enough
+    // for the request frame to make the WS round-trip to the mock
+    // extension before the timer fires.
+    const result = await proxy.request(
+      { cdpMethod: "Browser.getVersion", timeout_seconds: 0.05 },
+      "conv-timeout",
+    );
 
-    await expect(
-      proxy.request(
-        { cdpMethod: "Browser.getVersion", timeout_seconds: 0.2 },
-        "conv-disconnect",
-      ),
-    ).rejects.toThrow(/no active connection/);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("timed out");
+
+    // Sanity check: the frame actually reached the mock extension (so
+    // we know we're exercising the proxy's timer, not a send failure).
+    expect(mockExt.receivedRequests()).toHaveLength(1);
+    expect(mockExt.receivedRequests()[0].cdpMethod).toBe("Browser.getVersion");
 
     proxy.dispose();
     await mockExt.stop();
@@ -321,16 +329,6 @@ async function waitForRegistryEntry(
 ): Promise<void> {
   await waitFor(
     () => getChromeExtensionRegistry().get(guardianId) !== undefined,
-    timeoutMs,
-  );
-}
-
-async function waitForRegistryGone(
-  guardianId: string,
-  timeoutMs = 2000,
-): Promise<void> {
-  await waitFor(
-    () => getChromeExtensionRegistry().get(guardianId) === undefined,
     timeoutMs,
   );
 }

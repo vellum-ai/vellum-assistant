@@ -215,7 +215,21 @@ export function createMockChromeExtension(
   return {
     async start() {
       if (ws) return;
-      ws = new WebSocket(wsUrl);
+      // Bun's `WebSocket` constructor accepts a second-argument options
+      // object with a `headers` field (a Bun-specific extension of the
+      // standard WebSocket API). We forward `extraHandshakeHeaders`
+      // through it so tests using service tokens can supply the
+      // `x-guardian-id` fallback expected by `/v1/browser-relay`.
+      //
+      // We cast through `unknown` because the DOM `WebSocket` type only
+      // knows about `(url, protocols)`. If this fixture is ever run in
+      // an environment that isn't Bun, the options object would be
+      // silently ignored — acceptable for a test fixture.
+      const wsOptions: { headers?: Record<string, string> } = {};
+      if (options.extraHandshakeHeaders) {
+        wsOptions.headers = options.extraHandshakeHeaders;
+      }
+      ws = new WebSocket(wsUrl, wsOptions as unknown as string | string[]);
       ws.addEventListener("open", () => {
         connected = true;
       });
