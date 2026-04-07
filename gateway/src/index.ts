@@ -960,6 +960,12 @@ async function main() {
       handler: (req) => handleHomeFeedGet(req),
     },
     {
+      path: /^\/v1\/assistants\/([^/]+)\/home\/feed\/?$/,
+      method: "GET",
+      auth: "edge",
+      handler: (req) => handleHomeFeedGet(req),
+    },
+    {
       path: /^\/v1\/home\/feed\/([^/]+)$/,
       method: "PATCH",
       auth: "edge",
@@ -967,6 +973,23 @@ async function main() {
         let itemId: string;
         try {
           itemId = decodeURIComponent(params[0]);
+        } catch {
+          return Response.json(
+            { error: "Invalid item ID encoding" },
+            { status: 400 },
+          );
+        }
+        return handleHomeFeedPatch(req, itemId);
+      },
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/home\/feed\/([^/]+)$/,
+      method: "PATCH",
+      auth: "edge",
+      handler: (req, params) => {
+        let itemId: string;
+        try {
+          itemId = decodeURIComponent(params[1]);
         } catch {
           return Response.json(
             { error: "Invalid item ID encoding" },
@@ -986,6 +1009,25 @@ async function main() {
         try {
           itemId = decodeURIComponent(params[0]);
           actionId = decodeURIComponent(params[1]);
+        } catch {
+          return Response.json(
+            { error: "Invalid item or action ID encoding" },
+            { status: 400 },
+          );
+        }
+        return handleHomeFeedAction(req, itemId, actionId);
+      },
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/home\/feed\/([^/]+)\/actions\/([^/]+)$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) => {
+        let itemId: string;
+        let actionId: string;
+        try {
+          itemId = decodeURIComponent(params[1]);
+          actionId = decodeURIComponent(params[2]);
         } catch {
           return Response.json(
             { error: "Invalid item or action ID encoding" },

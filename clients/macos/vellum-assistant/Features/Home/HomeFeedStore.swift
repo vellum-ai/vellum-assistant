@@ -6,6 +6,12 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HomeFeedStore")
 
+/// Wire-format wrapper returned by `GET /v1/home/feed`.
+private struct HomeFeedResponse: Decodable {
+    let items: [FeedItem]
+    let lastUpdated: String?
+}
+
 /// Observable store that owns home feed state and refreshes on SSE events
 /// or app foreground transitions.
 ///
@@ -90,15 +96,20 @@ final class HomeFeedStore {
         defer { isLoading = false }
 
         do {
-            let (decoded, response): ([FeedItem]?, GatewayHTTPClient.Response) =
+            let (decoded, response): (HomeFeedResponse?, GatewayHTTPClient.Response) =
                 try await GatewayHTTPClient.get(path: "assistants/{assistantId}/home/feed") { decoder in
                     decoder.dateDecodingStrategy = .iso8601
                     decoder.keyDecodingStrategy = .convertFromSnakeCase
                 }
 
             if response.isSuccess, let decoded {
-                items = decoded
-                lastUpdated = Date()
+                items = decoded.items
+                if let ts = decoded.lastUpdated {
+                    let formatter = ISO8601DateFormatter()
+                    lastUpdated = formatter.date(from: ts) ?? Date()
+                } else {
+                    lastUpdated = Date()
+                }
             } else {
                 let msg = "Failed to fetch feed (HTTP \(response.statusCode))"
                 log.error("\(msg)")
