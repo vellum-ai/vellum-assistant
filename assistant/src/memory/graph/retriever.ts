@@ -989,7 +989,7 @@ export async function retrieveForTurn(
   // Sourced from vector search candidates — only semantically relevant
   // capabilities compete for reserved slots.
   const perTurnCfg = opts.config.memory.retrieval.injection.perTurn;
-  const proceduralReserve = perTurnCfg.proceduralReserve;
+  const capabilityReserve = perTurnCfg.capabilityReserve;
 
   const proceduralCandidates = capabilityCandidates
     .filter(({ node }) => !opts.tracker.isInContext(node.id))
@@ -1008,7 +1008,7 @@ export async function retrieveForTurn(
       }
       return true;
     })
-    .slice(0, proceduralReserve);
+    .slice(0, capabilityReserve);
 
   const proceduralScored: ScoredNode[] = rankedProcedural.map(({ node, sim }) =>
     scoreCandidate(
