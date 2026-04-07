@@ -158,6 +158,33 @@
       cursor: pointer;
     }
 
+    .mode-group {
+      margin-bottom: 14px;
+    }
+
+    .mode-radio-row {
+      display: flex;
+      gap: 14px;
+      margin-top: 4px;
+    }
+
+    .mode-radio-row label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #374151;
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 0;
+    }
+
+    .mode-radio-row input[type="radio"] {
+      margin: 0;
+      cursor: pointer;
+    }
+
     .hint {
       font-size: 11px;
       color: #9ca3af;
@@ -197,6 +224,20 @@
   <p class="status-text" id="status-text">Not connected</p>
 
   <p class="error-text" id="error-text" style="display:none"></p>
+
+  <div class="mode-group">
+    <label>Connection mode</label>
+    <div class="mode-radio-row">
+      <label>
+        <input type="radio" name="relay-mode" value="self-hosted" id="mode-self-hosted" />
+        Self-hosted
+      </label>
+      <label>
+        <input type="radio" name="relay-mode" value="cloud" id="mode-cloud" />
+        Cloud
+      </label>
+    </div>
+  </div>
 
   <button class="manual-toggle" id="manual-toggle" type="button">Manual token entry</button>
   <div class="token-group" id="token-group">

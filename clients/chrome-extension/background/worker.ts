@@ -1,13 +1,32 @@
 /**
  * Chrome MV3 service worker — browser-relay bridge.
  *
- * Connects to ws://127.0.0.1:<relayPort>/v1/browser-relay and dispatches
- * ExtensionCommands from the server to browser APIs, sending back
- * ExtensionResponses.
+ * Connects to either
+ *   - the local daemon's browser-relay endpoint
+ *     (`ws://127.0.0.1:<relayPort>/v1/browser-relay`), or
+ *   - the cloud gateway's browser-relay endpoint
+ *     (`wss://<cloud-gateway>/v1/browser-relay`)
+ *
+ * depending on the `vellum.relayMode` key in chrome.storage.local
+ * (default `"self-hosted"` for back-compat). Both transports share the
+ * same envelope vocabulary — the choice is strictly about where the
+ * socket points and which token is presented on the handshake.
+ *
+ * Once connected, the worker dispatches incoming server messages:
+ *   - `host_browser_request` / `host_browser_cancel` envelopes are
+ *     routed to the CDP proxy dispatcher (Phase 2 PR 9, gated behind
+ *     the `vellum.cdpProxyEnabled` feature flag).
+ *   - Every other payload is treated as a legacy `ExtensionCommand`
+ *     and dispatched to the existing browser-API handlers.
  */
 
 import type { ExtensionCommand, ExtensionResponse, ExtensionHeartbeat } from '../../../assistant/src/browser-extension-relay/protocol.js';
-import { signInCloud, type CloudAuthConfig, type StoredCloudToken } from './cloud-auth.js';
+import {
+  signInCloud,
+  getStoredToken as getStoredCloudToken,
+  type CloudAuthConfig,
+  type StoredCloudToken,
+} from './cloud-auth.js';
 import {
   bootstrapLocalToken,
   type StoredLocalToken,
@@ -19,30 +38,36 @@ import {
   type HostBrowserCancelEnvelope,
   type HostBrowserResultEnvelope,
 } from './host-browser-dispatcher.js';
+import { RelayConnection, type RelayMode } from './relay-connection.js';
 
 // Cloud OAuth defaults — kept here so the popup can stay a thin client and the
 // service worker is the single owner of the launchWebAuthFlow lifecycle. This
 // avoids the MV3 popup teardown race where closing the popup mid-auth kills
 // the awaited promise before the token is persisted.
-//
-// PR 14 will plumb these through config; hard-coded for the Phase 2 skeleton.
 const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
 const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 const DEFAULT_RELAY_PORT = 7830;
 const HEARTBEAT_INTERVAL_MS = 30_000;
-const RECONNECT_BASE_MS = 1_000;
-const RECONNECT_MAX_MS = 30_000;
 
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
-let ws: WebSocket | null = null;
-let reconnectDelay = RECONNECT_BASE_MS;
+// ── Mode selection (Phase 2 PR 14) ─────────────────────────────────
+//
+// Existing installs have no `vellum.relayMode` key and must keep using
+// the local daemon transport. New installs can flip to cloud via the
+// popup radio group.
+const RELAY_MODE_KEY = 'vellum.relayMode';
+type RelayModeKind = 'self-hosted' | 'cloud';
+
+function isRelayModeKind(v: unknown): v is RelayModeKind {
+  return v === 'self-hosted' || v === 'cloud';
+}
+
+let relayMode: RelayModeKind = 'self-hosted';
+let relayConnection: RelayConnection | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let shouldConnect = false;
-
-/** WebSocket close codes that represent intentional, non-error closures. */
-const NORMAL_CLOSE_CODES = new Set([1000, 1001]);
 
 // ── Host browser dispatcher (Phase 2 PR 9) ──────────────────────────
 //
@@ -132,68 +157,151 @@ async function refreshToken(): Promise<boolean> {
   }
 }
 
-// ── WebSocket lifecycle ─────────────────────────────────────────────
+// ── Relay connection lifecycle ──────────────────────────────────────
 
-async function connect(): Promise<void> {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-    return;
+async function loadRelayMode(): Promise<RelayModeKind> {
+  const result = await chrome.storage.local.get(RELAY_MODE_KEY);
+  const stored = result[RELAY_MODE_KEY];
+  return isRelayModeKind(stored) ? stored : 'self-hosted';
+}
+
+async function buildRelayModeConfig(kind: RelayModeKind): Promise<RelayMode> {
+  if (kind === 'cloud') {
+    const stored = await getStoredCloudToken();
+    return {
+      kind: 'cloud',
+      baseUrl: CLOUD_GATEWAY_BASE_URL,
+      token: stored?.token ?? null,
+    };
   }
-
+  // Self-hosted: re-use the existing local-token flow. The plan explicitly
+  // defers the switch to PR 13's getStoredLocalToken() to a follow-up.
   const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
-  const relayUrlBase = `ws://127.0.0.1:${port}/v1/browser-relay`;
-  const url = token ? `${relayUrlBase}?token=${encodeURIComponent(token)}` : relayUrlBase;
+  return {
+    kind: 'self-hosted',
+    baseUrl: `http://127.0.0.1:${port}`,
+    token,
+  };
+}
 
-  ws = new WebSocket(url);
-
-  ws.addEventListener('open', () => {
-    console.log('[vellum-relay] Connected to relay server');
-    reconnectDelay = RECONNECT_BASE_MS;
-    startHeartbeat();
-  });
-
-  ws.addEventListener('message', (event) => {
-    handleServerMessage(event.data as string);
-  });
-
-  ws.addEventListener('close', (event) => {
-    console.log(`[vellum-relay] Disconnected (code=${event.code}). Reconnecting in ${reconnectDelay}ms…`);
-    stopHeartbeat();
-    ws = null;
-    if (shouldConnect) {
-      if (!NORMAL_CLOSE_CODES.has(event.code)) {
-        // Any unexpected close (including 1006 from failed HTTP 401 handshakes,
-        // 1008, 4001, etc.) — attempt a token refresh before reconnecting.
-        refreshToken().then(() => scheduleReconnect());
-      } else {
-        scheduleReconnect();
+/**
+ * Wire a RelayConnection up with the worker's message/open/close
+ * callbacks. Does NOT start it.
+ */
+function createRelayConnection(mode: RelayMode): RelayConnection {
+  return new RelayConnection({
+    mode,
+    onOpen: () => {
+      console.log(`[vellum-relay] Connected (${mode.kind})`);
+      startHeartbeat();
+    },
+    onMessage: (data) => {
+      handleServerMessage(data);
+    },
+    onClose: (code, reason) => {
+      console.log(`[vellum-relay] Disconnected (code=${code}, reason=${reason || 'n/a'})`);
+      stopHeartbeat();
+    },
+    onReconnect: async () => {
+      // Self-hosted: attempt to mint a fresh gateway token. Cloud: no-op
+      // for now — the cloud token is stored independently via OAuth and
+      // we'd rather surface the failure to the user than silently loop.
+      if (mode.kind === 'self-hosted') {
+        const ok = await refreshToken();
+        if (ok) {
+          const refreshed = await getBearerToken();
+          return refreshed;
+        }
       }
-    }
-  });
-
-  ws.addEventListener('error', () => {
-    // close event will follow; just log
-    console.warn('[vellum-relay] WebSocket error');
+    },
   });
 }
 
-function scheduleReconnect(): void {
-  setTimeout(() => {
-    if (shouldConnect) connect();
-  }, reconnectDelay);
-  reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+/**
+ * Thrown by `connect()` when the selected relay mode has no usable
+ * token yet. Callers (e.g. the popup connect handler) surface the
+ * message verbatim to the user so they can take action — signing in
+ * to cloud or re-pairing the local daemon — instead of seeing a
+ * silent no-op after pressing "Connect".
+ */
+class MissingTokenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MissingTokenError';
+  }
+}
+
+function missingTokenMessage(kind: RelayModeKind): string {
+  if (kind === 'cloud') {
+    return 'Sign in with Vellum (cloud) before connecting';
+  }
+  return 'Pair the Vellum daemon (self-hosted) before connecting';
+}
+
+async function connect(): Promise<void> {
+  if (relayConnection && relayConnection.isOpen()) return;
+  const mode = await buildRelayModeConfig(relayMode);
+  if (!mode.token) {
+    const msg = missingTokenMessage(mode.kind);
+    console.warn(`[vellum-relay] ${msg}`);
+    throw new MissingTokenError(msg);
+  }
+  // Tear down any stale instance before constructing a new one. This
+  // keeps the close/reconnect lifecycle simple — one RelayConnection
+  // per live socket, no hidden state carried across mode switches.
+  if (relayConnection) {
+    relayConnection.close(1000, 'reconfigured');
+  }
+  relayConnection = createRelayConnection(mode);
+  relayConnection.start();
+}
+
+function disconnect(): void {
+  stopHeartbeat();
+  if (relayConnection) {
+    relayConnection.close(1000, 'User disconnected');
+    relayConnection = null;
+  }
+}
+
+/**
+ * Handle a runtime switch of `vellum.relayMode` (e.g. the popup radio
+ * group flipped). Closes any current socket and opens a new one in the
+ * new mode — see plan PR 14 step 2.
+ */
+async function applyModeChange(newKind: RelayModeKind): Promise<void> {
+  if (newKind === relayMode) return;
+  relayMode = newKind;
+  if (!shouldConnect) return;
+  disconnect();
+  try {
+    await connect();
+  } catch (err) {
+    // The user switched modes before signing in / pairing. Leave the
+    // extension disconnected and let the next user-initiated connect
+    // bubble the error up through the popup message handler.
+    if (err instanceof MissingTokenError) {
+      shouldConnect = false;
+      console.warn(
+        `[vellum-relay] Mode switch to ${newKind} left disconnected: ${err.message}`,
+      );
+      return;
+    }
+    throw err;
+  }
 }
 
 function startHeartbeat(): void {
   stopHeartbeat();
   heartbeatTimer = setInterval(async () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!relayConnection || !relayConnection.isOpen()) return;
     const tabs = await chrome.tabs.query({});
     const heartbeat: ExtensionHeartbeat = {
       type: 'heartbeat',
       extensionVersion: EXTENSION_VERSION,
       connectedTabs: tabs.length,
     };
-    ws.send(JSON.stringify(heartbeat));
+    relayConnection.send(JSON.stringify(heartbeat));
   }, HEARTBEAT_INTERVAL_MS);
 }
 
@@ -205,8 +313,8 @@ function stopHeartbeat(): void {
 }
 
 function sendResponse(response: ExtensionResponse): void {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(response));
+  if (relayConnection && relayConnection.isOpen()) {
+    relayConnection.send(JSON.stringify(response));
   }
 }
 
@@ -422,21 +530,31 @@ async function handleScreenshot(cmd: ExtensionCommand): Promise<DispatchResult> 
 
 // ── Extension message listener (from popup) ─────────────────────────
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   if (message.type === 'connect') {
     shouldConnect = true;
-    connect().then(() => sendResponse({ ok: true })).catch((err) => sendResponse({ ok: false, error: String(err) }));
+    connect()
+      .then(() => sendResponseFn({ ok: true }))
+      .catch((err) => {
+        // Reset shouldConnect so a subsequent storage change or
+        // bootstrap doesn't silently retry a doomed connect. The user
+        // will press Connect again after signing in / pairing.
+        shouldConnect = false;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        sendResponseFn({ ok: false, error: errorMessage });
+      });
     return true; // async
   }
   if (message.type === 'disconnect') {
     shouldConnect = false;
-    ws?.close(1000, 'User disconnected');
-    sendResponse({ ok: true });
+    disconnect();
+    sendResponseFn({ ok: true });
     return false;
   }
   if (message.type === 'get_status') {
-    sendResponse({
-      connected: ws !== null && ws.readyState === WebSocket.OPEN,
+    sendResponseFn({
+      connected: relayConnection !== null && relayConnection.isOpen(),
+      mode: relayMode,
     });
     return false;
   }
@@ -451,8 +569,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         typeof message.clientId === 'string' ? message.clientId : CLOUD_OAUTH_CLIENT_ID,
     };
     signInCloud(config)
-      .then((stored: StoredCloudToken) => sendResponse({ ok: true, token: stored }))
-      .catch((err) => sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      .then((stored: StoredCloudToken) => sendResponseFn({ ok: true, token: stored }))
+      .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     return true; // async
   }
   if (message.type === 'self-hosted-pair') {
@@ -469,14 +587,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 // Auto-connect on service worker start if previously connected.
-// Refresh the token first so we don't reconnect with stale credentials.
-chrome.storage.local.get('autoConnect').then(async (result) => {
-  if (result.autoConnect === true) {
-    shouldConnect = true;
+// Refresh the self-hosted token first so we don't reconnect with stale
+// credentials — cloud-mode auto-connect just reads the stored OAuth
+// token and trusts the caller to re-sign in if it's expired.
+async function bootstrap(): Promise<void> {
+  relayMode = await loadRelayMode();
+  const { autoConnect } = await chrome.storage.local.get('autoConnect');
+  if (autoConnect !== true) return;
+  shouldConnect = true;
+  if (relayMode === 'self-hosted') {
     await refreshToken();
-    connect();
   }
-});
+  try {
+    await connect();
+  } catch (err) {
+    // A missing token at auto-connect time is not a hard failure —
+    // the user will see the disconnected state in the popup and can
+    // sign in / pair to try again. Log and move on.
+    if (err instanceof MissingTokenError) {
+      shouldConnect = false;
+      console.warn(`[vellum-relay] Skipping auto-connect: ${err.message}`);
+      return;
+    }
+    throw err;
+  }
+}
+
+bootstrap();
 
 // Load the CDP proxy feature flag at startup. Missing / non-boolean values
 // are treated as false so existing deployments exhibit no behavior change.
@@ -488,9 +625,8 @@ chrome.storage.local.get(CDP_PROXY_ENABLED_KEY).then((result) => {
   }
 });
 
-// Keep the flag live-updatable from the popup without requiring the service
-// worker to restart. `chrome.storage.onChanged` fires in the same service
-// worker context the value is set from, which is perfect here.
+// Keep feature flag + relay mode live-updatable from the popup without
+// requiring the service worker to restart.
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return;
   if (CDP_PROXY_ENABLED_KEY in changes) {
@@ -499,5 +635,12 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     console.log(
       `[vellum-relay] CDP proxy feature flag updated: ${cdpProxyEnabled}`,
     );
+  }
+  if (RELAY_MODE_KEY in changes) {
+    const newValue = changes[RELAY_MODE_KEY]?.newValue;
+    if (isRelayModeKind(newValue)) {
+      console.log(`[vellum-relay] Relay mode updated: ${newValue}`);
+      void applyModeChange(newValue);
+    }
   }
 });
