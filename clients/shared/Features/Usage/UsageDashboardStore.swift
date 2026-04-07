@@ -101,6 +101,7 @@ public enum UsageGroupByDimension: String, CaseIterable, Sendable {
     case actor
     case provider
     case model
+    case conversation
 }
 
 // MARK: - Formatting Helpers
