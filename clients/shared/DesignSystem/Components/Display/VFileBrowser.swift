@@ -1,77 +1,101 @@
 #if os(macOS)
 import SwiftUI
 
-// MARK: - File Browser Model
+// MARK: - File Browser Node Model
 
-public struct VFileBrowserFile: Identifiable {
+/// A navigation-only node in the `VFileBrowser` tree. This model is intentionally
+/// content-free: it does NOT carry file content, mimeType, or `isBinary`. The right
+/// pane content is always rendered by the caller via the `contentPane` closure, so
+/// the design system component never needs to know about file payloads.
+public struct VFileBrowserNode: Identifiable, Hashable {
     public let id: String
     public let name: String
     public let path: String
-    public let size: Int
-    public let mimeType: String
-    public let isBinary: Bool
-    public let content: String?
-    public let icon: VIcon
+    public let isDirectory: Bool
+    public let size: Int?           // nil for directories
+    public let icon: VIcon          // icon for files; directories always render as VIcon.folder
+    public var isDimmed: Bool       // for hidden files in the Workspace tab
+    public var children: [VFileBrowserNode]  // empty for leaves; may also be empty for not-yet-loaded folders in lazy mode
 
     public init(
         id: String,
         name: String,
         path: String,
-        size: Int,
-        mimeType: String,
-        isBinary: Bool,
-        content: String?,
-        icon: VIcon
+        isDirectory: Bool,
+        size: Int? = nil,
+        icon: VIcon = .fileText,
+        isDimmed: Bool = false,
+        children: [VFileBrowserNode] = []
     ) {
         self.id = id
         self.name = name
         self.path = path
+        self.isDirectory = isDirectory
         self.size = size
-        self.mimeType = mimeType
-        self.isBinary = isBinary
-        self.content = content
         self.icon = icon
+        self.isDimmed = isDimmed
+        self.children = children
     }
 }
 
 // MARK: - VFileBrowser
 
-/// A two-pane file browser with a searchable file list on the left and
+/// A two-pane file browser with a tree-based file list on the left and
 /// caller-provided content on the right. Both panes use bordered card
 /// styling matching the Figma spec.
+///
+/// The sidebar contains (top to bottom): a header row with a title and
+/// a trailing actions slot, a divider, a search bar (with auto-expand of
+/// matching parents), and a scrollable tree.
 ///
 /// The right pane content is provided via a `@ViewBuilder` closure so
 /// callers in the macOS target can pass `FileContentView` (which lives
 /// in VellumAssistantLib, not the shared module).
-public struct VFileBrowser<ContentPane: View>: View {
-    let files: [VFileBrowserFile]
+public struct VFileBrowser<HeaderActions: View, RowContextMenu: View, ContentPane: View>: View {
+    let title: String
+    let rootNodes: [VFileBrowserNode]
+    @Binding var expandedPaths: Set<String>
     @Binding var selectedPath: String?
-    var sidebarWidth: CGFloat
-    let contentPane: (VFileBrowserFile?) -> ContentPane
+    let searchPlaceholder: String
+    let sidebarWidth: CGFloat
+    let onExpand: ((VFileBrowserNode) async -> Void)?
+    let onSelect: ((VFileBrowserNode) -> Void)?
+    let onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)?
+    let headerActions: () -> HeaderActions
+    let rowContextMenu: (VFileBrowserNode) -> RowContextMenu
+    let contentPane: (VFileBrowserNode?) -> ContentPane
 
     @State private var searchText: String = ""
 
     public init(
-        files: [VFileBrowserFile],
+        title: String = "Files",
+        rootNodes: [VFileBrowserNode],
+        expandedPaths: Binding<Set<String>>,
         selectedPath: Binding<String?>,
+        searchPlaceholder: String = "Search files",
         sidebarWidth: CGFloat = 280,
-        @ViewBuilder contentPane: @escaping (VFileBrowserFile?) -> ContentPane
+        onExpand: ((VFileBrowserNode) async -> Void)? = nil,
+        onSelect: ((VFileBrowserNode) -> Void)? = nil,
+        onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)? = nil,
+        @ViewBuilder headerActions: @escaping () -> HeaderActions = { EmptyView() },
+        @ViewBuilder rowContextMenu: @escaping (VFileBrowserNode) -> RowContextMenu = { _ in EmptyView() },
+        @ViewBuilder contentPane: @escaping (VFileBrowserNode?) -> ContentPane
     ) {
-        self.files = files
+        self.title = title
+        self.rootNodes = rootNodes
+        self._expandedPaths = expandedPaths
         self._selectedPath = selectedPath
+        self.searchPlaceholder = searchPlaceholder
         self.sidebarWidth = sidebarWidth
+        self.onExpand = onExpand
+        self.onSelect = onSelect
+        self.onDrop = onDrop
+        self.headerActions = headerActions
+        self.rowContextMenu = rowContextMenu
         self.contentPane = contentPane
     }
 
-    private var filteredFiles: [VFileBrowserFile] {
-        if searchText.isEmpty { return files }
-        return files.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
-    }
-
-    private var selectedFile: VFileBrowserFile? {
-        guard let path = selectedPath else { return nil }
-        return files.first { $0.path == path }
-    }
+    // MARK: - Body
 
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
@@ -80,25 +104,47 @@ public struct VFileBrowser<ContentPane: View>: View {
         }
     }
 
+    // MARK: - Selection lookup
+
+    private var selectedNode: VFileBrowserNode? {
+        guard let path = selectedPath else { return nil }
+        return findNode(in: rootNodes, withPath: path)
+    }
+
+    private func findNode(in nodes: [VFileBrowserNode], withPath path: String) -> VFileBrowserNode? {
+        for node in nodes {
+            if node.path == path { return node }
+            if node.isDirectory, let match = findNode(in: node.children, withPath: path) {
+                return match
+            }
+        }
+        return nil
+    }
+
     // MARK: - Sidebar Pane
 
     private var sidebarPane: some View {
-        VStack(spacing: VSpacing.xs) {
-            VSearchBar(placeholder: "Search files", text: $searchText)
-
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(filteredFiles) { file in
-                        VFileBrowserRow(
-                            file: file,
-                            isActive: selectedPath == file.path,
-                            onSelect: { selectedPath = file.path }
-                        )
-                    }
-                }
+        VStack(spacing: 0) {
+            // Header row: title + trailing actions slot
+            HStack(spacing: VSpacing.sm) {
+                Text(title)
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentDefault)
+                Spacer()
+                headerActions()
             }
+            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
+
+            Divider()
+                .background(VColor.borderBase)
+
+            // Search bar BELOW the divider
+            VSearchBar(placeholder: searchPlaceholder, text: $searchText)
+                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.md))
+
+            // Scrollable tree
+            treeScrollView
         }
-        .padding(VSpacing.md)
         .frame(width: sidebarWidth)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
@@ -108,10 +154,45 @@ public struct VFileBrowser<ContentPane: View>: View {
         )
     }
 
+    private var treeScrollView: some View {
+        let data = visibleRowData
+        return ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(data.rows, id: \.node.path) { row in
+                    VFileBrowserTreeRow(
+                        node: row.node,
+                        depth: row.depth,
+                        isSelected: selectedPath == row.node.path,
+                        isExpanded: expandedPaths.contains(row.node.path) || data.forcedExpanded.contains(row.node.path),
+                        onTap: { handleTap(row.node) },
+                        rowContextMenu: rowContextMenu,
+                        onDrop: onDrop
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, VSpacing.xs)
+        }
+        .background(rootDropTarget)
+    }
+
+    @ViewBuilder
+    private var rootDropTarget: some View {
+        if let onDrop {
+            Color.clear
+                .contentShape(Rectangle())
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    onDrop(nil, providers)
+                }
+        } else {
+            Color.clear
+        }
+    }
+
     // MARK: - Right Pane
 
     private var rightPane: some View {
-        contentPane(selectedFile)
+        contentPane(selectedNode)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(VColor.surfaceLift)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
@@ -120,54 +201,228 @@ public struct VFileBrowser<ContentPane: View>: View {
                     .strokeBorder(VColor.borderHover, lineWidth: 1)
             )
     }
+
+    // MARK: - Tap handler
+
+    private func handleTap(_ node: VFileBrowserNode) {
+        if node.isDirectory {
+            let wasExpanded = expandedPaths.contains(node.path)
+            withAnimation(VAnimation.fast) {
+                if wasExpanded {
+                    expandedPaths.remove(node.path)
+                } else {
+                    expandedPaths.insert(node.path)
+                }
+            }
+            if !wasExpanded, let onExpand {
+                Task { await onExpand(node) }
+            }
+        } else {
+            selectedPath = node.path
+            onSelect?(node)
+        }
+    }
+
+    // MARK: - Tree flattening / search
+
+    private struct VisibleRowData {
+        let rows: [(node: VFileBrowserNode, depth: Int)]
+        let forcedExpanded: Set<String>
+    }
+
+    /// When search is active, the tree is filtered to matches and their ancestors,
+    /// and ALL ancestor directories are forcibly rendered as expanded regardless of
+    /// `expandedPaths`. This means clicking a directory during search appears to do
+    /// nothing — a deliberate UX choice so users always see the matches.
+    private var visibleRowData: VisibleRowData {
+        if searchText.isEmpty {
+            let rows = Self.flattenTree(rootNodes, depth: 0, expanded: expandedPaths)
+            return VisibleRowData(rows: rows, forcedExpanded: [])
+        }
+        let result = Self.filterTreeForSearch(rootNodes, query: searchText)
+        let rows = Self.flattenTree(result.nodes, depth: 0, expanded: result.forcedExpanded)
+        return VisibleRowData(rows: rows, forcedExpanded: result.forcedExpanded)
+    }
+
+    private static func flattenTree(
+        _ nodes: [VFileBrowserNode],
+        depth: Int,
+        expanded: Set<String>
+    ) -> [(node: VFileBrowserNode, depth: Int)] {
+        var result: [(VFileBrowserNode, Int)] = []
+        for node in nodes {
+            result.append((node, depth))
+            if node.isDirectory && expanded.contains(node.path) {
+                result.append(contentsOf: flattenTree(node.children, depth: depth + 1, expanded: expanded))
+            }
+        }
+        return result
+    }
+
+    private struct SearchResult {
+        let nodes: [VFileBrowserNode]      // tree pruned to matches + ancestors
+        let forcedExpanded: Set<String>    // every ancestor of every match
+    }
+
+    private static func filterTreeForSearch(_ nodes: [VFileBrowserNode], query: String) -> SearchResult {
+        var forcedExpanded: Set<String> = []
+        func filter(_ nodes: [VFileBrowserNode]) -> [VFileBrowserNode] {
+            return nodes.compactMap { node in
+                let nameMatches = node.name.localizedCaseInsensitiveContains(query)
+                if !node.isDirectory {
+                    return nameMatches ? node : nil
+                }
+                let filteredChildren = filter(node.children)
+                if nameMatches || !filteredChildren.isEmpty {
+                    forcedExpanded.insert(node.path)
+                    var copy = node
+                    copy.children = filteredChildren
+                    return copy
+                }
+                return nil
+            }
+        }
+        let filtered = filter(nodes)
+        return SearchResult(nodes: filtered, forcedExpanded: forcedExpanded)
+    }
 }
 
-// MARK: - File Row (with hover state like VNavItem)
+// MARK: - Convenience overload (no header actions, no row context menu)
 
-private struct VFileBrowserRow: View {
-    let file: VFileBrowserFile
-    let isActive: Bool
-    let onSelect: () -> Void
+extension VFileBrowser where HeaderActions == EmptyView, RowContextMenu == EmptyView {
+    /// Convenience initializer for callers that don't need a header actions slot
+    /// or per-row context menus. Provided as a non-defaulted overload so callers
+    /// only need to supply `contentPane`.
+    public init(
+        title: String = "Files",
+        rootNodes: [VFileBrowserNode],
+        expandedPaths: Binding<Set<String>>,
+        selectedPath: Binding<String?>,
+        searchPlaceholder: String = "Search files",
+        sidebarWidth: CGFloat = 280,
+        onExpand: ((VFileBrowserNode) async -> Void)? = nil,
+        onSelect: ((VFileBrowserNode) -> Void)? = nil,
+        onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)? = nil,
+        @ViewBuilder contentPane: @escaping (VFileBrowserNode?) -> ContentPane
+    ) {
+        self.init(
+            title: title,
+            rootNodes: rootNodes,
+            expandedPaths: expandedPaths,
+            selectedPath: selectedPath,
+            searchPlaceholder: searchPlaceholder,
+            sidebarWidth: sidebarWidth,
+            onExpand: onExpand,
+            onSelect: onSelect,
+            onDrop: onDrop,
+            headerActions: { EmptyView() },
+            rowContextMenu: { _ in EmptyView() },
+            contentPane: contentPane
+        )
+    }
+}
 
-    @State private var isHovered = false
+// MARK: - Tree Row
+//
+// `VFileBrowserTreeRow` is the visual analogue of `FileTreeRowLabel` from the
+// macOS target. We intentionally re-implement it here (instead of importing it)
+// because the design system module cannot depend on macOS-target code. The
+// rendering must match `FileTreeRowLabel` exactly: 12pt chevron at fixed
+// 12pt-wide leading position, 12pt folder/file icon, `VFont.bodyMediumDefault`
+// name, `VFont.labelDefault`/`VColor.contentTertiary` trailing size,
+// `CGFloat(depth) * VSpacing.lg + VSpacing.sm` leading padding,
+// `VSpacing.sm` trailing padding, `VSpacing.xs` vertical padding.
+
+private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
+    let node: VFileBrowserNode
+    let depth: Int
+    let isSelected: Bool
+    let isExpanded: Bool
+    let onTap: () -> Void
+    let rowContextMenu: (VFileBrowserNode) -> RowContextMenu
+    let onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)?
+
+    @State private var isDropTargeted = false
 
     var body: some View {
-        Button(action: onSelect) {
+        Button(action: onTap) {
             HStack(spacing: VSpacing.xs) {
-                VIconView(file.icon, size: VSize.iconDefault)
-                    .foregroundStyle(isActive ? VColor.primaryActive : VColor.primaryBase)
-                    .frame(width: VSize.iconSlot, height: VSize.iconSlot)
+                // Expand/collapse chevron for directories, spacer for files
+                if node.isDirectory {
+                    VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .frame(width: 12)
+                } else {
+                    Spacer().frame(width: 12)
+                }
 
-                Text(file.name)
+                // File or folder icon
+                VIconView(node.isDirectory ? .folder : node.icon, size: 12)
+                    .foregroundStyle(isSelected ? VColor.primaryActive : VColor.primaryBase)
+
+                // Name label
+                Text(node.name)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(isActive ? VColor.contentEmphasized : VColor.contentSecondary)
+                    .foregroundStyle(
+                        node.isDimmed ? VColor.contentTertiary :
+                        isSelected ? VColor.contentEmphasized :
+                        VColor.contentSecondary
+                    )
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                Spacer()
+                Spacer(minLength: VSpacing.sm)
 
-                Text(formatFileSize(file.size))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
+                // Trailing size for files only
+                if !node.isDirectory, let size = node.size {
+                    Text(formatFileSize(size))
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             }
-            .padding(.leading, VSpacing.xs)
-            .padding(.trailing, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .frame(minHeight: VSize.rowMinHeight)
+            .padding(EdgeInsets(
+                top: VSpacing.xs,
+                leading: CGFloat(depth) * VSpacing.lg + VSpacing.sm,
+                bottom: VSpacing.xs,
+                trailing: VSpacing.sm
+            ))
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                isActive ? VColor.surfaceActive :
-                isHovered ? VColor.surfaceBase :
-                Color.clear
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(isSelected ? VColor.surfaceActive : (isDropTargeted ? VColor.surfaceBase : Color.clear))
             )
-            .animation(VAnimation.fast, value: isHovered)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .opacity(node.isDimmed ? 0.6 : 1.0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
         .pointerCursor()
-        .accessibilityLabel(file.name)
-        .accessibilityHint(isActive ? "Selected" : "Tap to select")
+        .accessibilityLabel(node.name)
+        .accessibilityHint(
+            isSelected ? "Selected"
+            : (node.isDirectory ? "Tap to \(isExpanded ? "collapse" : "expand")" : "Tap to select")
+        )
+        .contextMenu { rowContextMenu(node) }
+        .modifier(DropTargetModifier(node: node, isTargeted: $isDropTargeted, onDrop: onDrop))
     }
 }
+
+/// Conditionally attaches an `.onDrop` handler to a row when both the node is
+/// a directory and an `onDrop` callback is provided. Files and rows without an
+/// `onDrop` callback are no-ops.
+private struct DropTargetModifier: ViewModifier {
+    let node: VFileBrowserNode
+    @Binding var isTargeted: Bool
+    let onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)?
+
+    func body(content: Content) -> some View {
+        if node.isDirectory, let onDrop {
+            content.onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+                onDrop(node, providers)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 #endif

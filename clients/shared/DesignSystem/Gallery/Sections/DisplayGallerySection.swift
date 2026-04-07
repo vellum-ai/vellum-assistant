@@ -9,6 +9,19 @@ struct DisplayGallerySection: View {
     @State private var basicSectionExpanded: Bool = true
     @State private var subtitleSectionExpanded: Bool = false
 
+    // VFileBrowser gallery state — independent per-scenario bindings so each
+    // demo behaves on its own.
+    #if os(macOS)
+    @State private var fileBrowserEagerExpanded: Set<String> = ["src", "src/components"]
+    @State private var fileBrowserEagerSelected: String? = "README.md"
+    @State private var fileBrowserLazyExpanded: Set<String> = ["src"]
+    @State private var fileBrowserLazySelected: String? = nil
+    @State private var fileBrowserSearchExpanded: Set<String> = []
+    @State private var fileBrowserSearchSelected: String? = nil
+    @State private var fileBrowserHeaderExpanded: Set<String> = ["src"]
+    @State private var fileBrowserHeaderSelected: String? = "src/main.swift"
+    #endif
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
             if filter == nil || filter == "vCard" {
@@ -407,8 +420,171 @@ struct DisplayGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vFileBrowser" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VFileBrowser
+                #if os(macOS)
+                GallerySectionHeader(
+                    title: "VFileBrowser",
+                    description: "Two-pane file browser with a tree-based file list, header actions slot, search with auto-expand, and caller-provided right pane content."
+                )
+
+                // Eager mode with a small tree
+                Text("Eager — small tree")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentSecondary)
+
+                VFileBrowser(
+                    title: "Files",
+                    rootNodes: Self.fileBrowserSampleTree,
+                    expandedPaths: $fileBrowserEagerExpanded,
+                    selectedPath: $fileBrowserEagerSelected
+                ) { node in
+                    fileBrowserContentPlaceholder(node)
+                }
+                .frame(height: 320)
+
+                // Lazy mode with stub onExpand
+                Text("Lazy — onExpand stub")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentSecondary)
+
+                VFileBrowser(
+                    title: "Workspace",
+                    rootNodes: Self.fileBrowserSampleTree,
+                    expandedPaths: $fileBrowserLazyExpanded,
+                    selectedPath: $fileBrowserLazySelected,
+                    onExpand: { _ in
+                        // No-op in the gallery — real callers fetch children here.
+                    }
+                ) { node in
+                    fileBrowserContentPlaceholder(node)
+                }
+                .frame(height: 320)
+
+                // Search active showing auto-expanded matches
+                Text("Search — auto-expand matches")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentSecondary)
+
+                Text("Type a query into the search bar (try \"swift\") to see matching parents auto-expand even though the tree starts collapsed.")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+
+                VFileBrowser(
+                    title: "Files",
+                    rootNodes: Self.fileBrowserSampleTree,
+                    expandedPaths: $fileBrowserSearchExpanded,
+                    selectedPath: $fileBrowserSearchSelected
+                ) { node in
+                    fileBrowserContentPlaceholder(node)
+                }
+                .frame(height: 320)
+
+                // Header with sample actions slot populated
+                Text("Header — actions slot")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentSecondary)
+
+                VFileBrowser(
+                    title: "Workspace",
+                    rootNodes: Self.fileBrowserSampleTree,
+                    expandedPaths: $fileBrowserHeaderExpanded,
+                    selectedPath: $fileBrowserHeaderSelected,
+                    headerActions: {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.plus, size: 12)
+                                .foregroundStyle(VColor.contentSecondary)
+                            VIconView(.folderPlus, size: 12)
+                                .foregroundStyle(VColor.contentSecondary)
+                        }
+                    },
+                    rowContextMenu: { _ in EmptyView() }
+                ) { node in
+                    fileBrowserContentPlaceholder(node)
+                }
+                .frame(height: 320)
+                #endif
+            }
+
         }
     }
+
+    // MARK: - VFileBrowser Helpers
+
+    #if os(macOS)
+    @ViewBuilder
+    private func fileBrowserContentPlaceholder(_ node: VFileBrowserNode?) -> some View {
+        if let node {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text(node.name)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentDefault)
+                Text(node.path)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else {
+            VEmptyState(title: "Select a file", icon: VIcon.fileText.rawValue)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private static let fileBrowserSampleTree: [VFileBrowserNode] = [
+        VFileBrowserNode(
+            id: "src",
+            name: "src",
+            path: "src",
+            isDirectory: true,
+            children: [
+                VFileBrowserNode(
+                    id: "src/components",
+                    name: "components",
+                    path: "src/components",
+                    isDirectory: true,
+                    children: [
+                        VFileBrowserNode(
+                            id: "src/components/Button.swift",
+                            name: "Button.swift",
+                            path: "src/components/Button.swift",
+                            isDirectory: false,
+                            size: 1234,
+                            icon: .fileCode
+                        ),
+                        VFileBrowserNode(
+                            id: "src/components/Card.swift",
+                            name: "Card.swift",
+                            path: "src/components/Card.swift",
+                            isDirectory: false,
+                            size: 2345,
+                            icon: .fileCode
+                        )
+                    ]
+                ),
+                VFileBrowserNode(
+                    id: "src/main.swift",
+                    name: "main.swift",
+                    path: "src/main.swift",
+                    isDirectory: false,
+                    size: 567,
+                    icon: .fileCode
+                )
+            ]
+        ),
+        VFileBrowserNode(
+            id: "README.md",
+            name: "README.md",
+            path: "README.md",
+            isDirectory: false,
+            size: 890,
+            icon: .fileText
+        )
+    ]
+    #endif
 
     // MARK: - Sample Data
 
@@ -441,6 +617,7 @@ extension DisplayGallerySection {
         case "vSelectableTextView": DisplayGallerySection(filter: "vSelectableTextView")
         case "vDiffView": DisplayGallerySection(filter: "vDiffView")
         case "vStreamingWaveform": DisplayGallerySection(filter: "vStreamingWaveform")
+        case "vFileBrowser": DisplayGallerySection(filter: "vFileBrowser")
         default:
             if let factory = DisplayGallerySection.externalPageFactories[id] {
                 AnyView(factory())
