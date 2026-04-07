@@ -3,6 +3,12 @@ import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
 
+/// Target for the "Archive All" confirmation alert.
+struct ArchiveAllTarget {
+    let displayName: String
+    let ids: [UUID]
+}
+
 struct MainWindowView: View {
     @Bindable var conversationManager: ConversationManager
     let appListManager: AppListManager
@@ -65,6 +71,7 @@ struct MainWindowView: View {
     @State var showEarnCreditsModal = false
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
     @State var groupToDelete: ConversationGroup?
+    @State var archiveAllPending: ArchiveAllTarget?
 
     /// Cached assistant display name, refreshed when the daemon emits an identity change event.
     @State var cachedAssistantName: String = "Your Assistant"
