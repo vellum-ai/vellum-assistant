@@ -117,6 +117,40 @@ describe("maybeEnqueueConversationStartersJob", () => {
     expect(getPendingJobs()).toHaveLength(1);
   });
 
+  test("enqueues after pruning reduces totalActive below lastCount", () => {
+    // Start with 5 nodes and set checkpoint to 5
+    for (let i = 0; i < 5; i++) insertMemoryNode();
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "5");
+
+    // Simulate pruning: mark 3 nodes as gone (reducing totalActive to 2)
+    const ids = (
+      getSqlite()
+        .prepare(`SELECT id FROM memory_graph_nodes LIMIT 3`)
+        .all() as Array<{ id: string }>
+    ).map((r) => r.id);
+    for (const id of ids) {
+      getSqlite().run(
+        `UPDATE memory_graph_nodes SET fidelity = 'gone' WHERE id = ?`,
+        [id],
+      );
+    }
+
+    // totalActive=2, lastCount=5 → delta would be -3 without clamp
+    // With clamp, delta=0 which is below threshold=1, so no job yet
+    maybeEnqueueConversationStartersJob("default");
+    expect(getPendingJobs()).toHaveLength(0);
+
+    // Add a new node → totalActive=3, lastCount=5, clamped delta=0, still no job
+    insertMemoryNode();
+    maybeEnqueueConversationStartersJob("default");
+    expect(getPendingJobs()).toHaveLength(0);
+
+    // Add 3 more nodes → totalActive=6, lastCount=5, delta=1 >= threshold=1
+    for (let i = 0; i < 3; i++) insertMemoryNode();
+    maybeEnqueueConversationStartersJob("default");
+    expect(getPendingJobs()).toHaveLength(1);
+  });
+
   test("scopes are independent", () => {
     insertMemoryNode("scope-a");
     insertMemoryNode("scope-b");

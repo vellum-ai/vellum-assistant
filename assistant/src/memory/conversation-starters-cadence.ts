@@ -5,7 +5,7 @@
  * active memory items have accumulated since the last generation.
  */
 
-import { and, eq, inArray, like } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
 import { getDb } from "./db.js";
@@ -49,7 +49,7 @@ export function maybeEnqueueConversationStartersJob(scopeId: string): void {
     threshold = 10;
   }
 
-  const delta = totalActive - lastCount;
+  const delta = Math.max(0, totalActive - lastCount);
   if (delta < threshold) return;
 
   // Dedup: don't enqueue if a pending/running job for this scope already exists
@@ -60,7 +60,7 @@ export function maybeEnqueueConversationStartersJob(scopeId: string): void {
       and(
         eq(memoryJobs.type, "generate_conversation_starters"),
         inArray(memoryJobs.status, ["pending", "running"]),
-        like(memoryJobs.payload, `%"scopeId":"${scopeId}"%`),
+        sql`json_extract(${memoryJobs.payload}, '$.scopeId') = ${scopeId}`,
       ),
     )
     .get();
