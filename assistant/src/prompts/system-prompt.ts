@@ -431,6 +431,8 @@ function buildParallelToolCallsSection(): string {
   return [
     "<use_parallel_tool_calls>",
     "For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. Prioritize calling tools in parallel whenever possible. For example, when reading 3 files, run 3 tool calls in parallel to read all 3 files into context at the same time. When running multiple read-only commands like `ls` or `list_dir`, always run all of the commands in parallel. Err on the side of maximizing parallel tool calls rather than running too many tools sequentially.",
+    "",
+    "For non-trivial independent workstreams — research, coding tasks, multi-step investigations — aggressively delegate to subagents (load the `subagent` skill for tools and instructions). Spawn subagents early and often; the cost of an unnecessary subagent is far lower than the cost of serializing work you could have parallelized.",
     "</use_parallel_tool_calls>",
   ].join("\n");
 }
