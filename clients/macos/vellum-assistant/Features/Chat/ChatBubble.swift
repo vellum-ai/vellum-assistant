@@ -19,6 +19,15 @@ extension EnvironmentValues {
     }
 }
 
+// MARK: - User Message Height Preference
+
+private struct IntrinsicHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 // MARK: - Chat Bubble
 
 struct ChatBubble: View, Equatable {
@@ -79,6 +88,13 @@ struct ChatBubble: View, Equatable {
     /// When true, suppress the inline avatar on this bubble because
     /// `thinkingAvatarRow` is rendering one below the thinking indicator.
     var hideInlineAvatar: Bool = false
+    /// Whether the user message is expanded beyond its collapsed height.
+    @State private var isUserMessageExpanded: Bool = false
+    /// The intrinsic (unconstrained) height of user message content, used to
+    /// determine whether the "Show more" button should appear.
+    @State private var userMessageIntrinsicHeight: CGFloat = 0
+    /// Max collapsed height for user message bubbles before "Show more" appears.
+    private let userMessageMaxCollapsedHeight: CGFloat = 150
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
     @State private var hoverState = ChatBubbleHoverState()
@@ -458,71 +474,73 @@ struct ChatBubble: View, Equatable {
     private var bubbleContent: some View {
         let partitioned = partitionedAttachments
         return bubbleChrome {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                if hasText {
-                    let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
-                    // Always render through MarkdownSegmentView to keep view
-                    // identity stable across async segment parsing transitions.
-                    // When a large message first renders, resolveSegments returns
-                    // [.text(text)] (plain placeholder) before async parsing
-                    // completes with rich segments (tables, headings, etc.).
-                    // Branching on hasRichContent used to switch between Text and
-                    // MarkdownSegmentView — different view types that caused
-                    // LazyVStack to use stale height measurements, resulting in
-                    // content truncation and footer overlap.
-                    MarkdownSegmentView(
-                        segments: segments,
-                        isStreaming: message.isStreaming,
-                        maxContentWidth: isUser ? max(bubbleMaxWidth - 2 * VSpacing.lg, 0) : bubbleMaxWidth,
-                        textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
-                        secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
-                        mutedTextColor: isUser ? VColor.contentSecondary : VColor.contentTertiary,
-                        tintColor: isUser ? VColor.contentDefault : VColor.primaryBase,
-                        codeTextColor: isUser ? VColor.contentDefault : VColor.systemNegativeStrong,
-                        codeBackgroundColor: isUser ? VColor.contentDefault.opacity(0.1) : VColor.surfaceActive,
-                        hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase
-                    )
-                    .equatable()
-                } else if !message.attachments.isEmpty {
-                    Text(attachmentSummary)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(isUser ? VColor.contentSecondary : VColor.contentSecondary)
-                }
+            userMessageHeightWrapper {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    if hasText {
+                        let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
+                        // Always render through MarkdownSegmentView to keep view
+                        // identity stable across async segment parsing transitions.
+                        // When a large message first renders, resolveSegments returns
+                        // [.text(text)] (plain placeholder) before async parsing
+                        // completes with rich segments (tables, headings, etc.).
+                        // Branching on hasRichContent used to switch between Text and
+                        // MarkdownSegmentView — different view types that caused
+                        // LazyVStack to use stale height measurements, resulting in
+                        // content truncation and footer overlap.
+                        MarkdownSegmentView(
+                            segments: segments,
+                            isStreaming: message.isStreaming,
+                            maxContentWidth: isUser ? max(bubbleMaxWidth - 2 * VSpacing.lg, 0) : bubbleMaxWidth,
+                            textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
+                            secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
+                            mutedTextColor: isUser ? VColor.contentSecondary : VColor.contentTertiary,
+                            tintColor: isUser ? VColor.contentDefault : VColor.primaryBase,
+                            codeTextColor: isUser ? VColor.contentDefault : VColor.systemNegativeStrong,
+                            codeBackgroundColor: isUser ? VColor.contentDefault.opacity(0.1) : VColor.surfaceActive,
+                            hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase
+                        )
+                        .equatable()
+                    } else if !message.attachments.isEmpty {
+                        Text(attachmentSummary)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(isUser ? VColor.contentSecondary : VColor.contentSecondary)
+                    }
 
-                let visibleImages = visibleAttachmentImages(partitioned.images)
-                if !visibleImages.isEmpty {
-                    attachmentImageGrid(visibleImages)
-                }
+                    let visibleImages = visibleAttachmentImages(partitioned.images)
+                    if !visibleImages.isEmpty {
+                        attachmentImageGrid(visibleImages)
+                    }
 
-                if !partitioned.videos.isEmpty {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        ForEach(partitioned.videos) { attachment in
-                            InlineVideoAttachmentView(attachment: attachment)
+                    if !partitioned.videos.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            ForEach(partitioned.videos) { attachment in
+                                InlineVideoAttachmentView(attachment: attachment)
+                            }
                         }
                     }
-                }
 
-                if !partitioned.audios.isEmpty {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        ForEach(partitioned.audios) { attachment in
-                            InlineAudioAttachmentView(attachment: attachment)
+                    if !partitioned.audios.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            ForEach(partitioned.audios) { attachment in
+                                InlineAudioAttachmentView(attachment: attachment)
+                            }
                         }
                     }
-                }
 
-                if !partitioned.files.isEmpty {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(partitioned.files) { attachment in
-                            fileAttachmentChip(attachment)
+                    if !partitioned.files.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            ForEach(partitioned.files) { attachment in
+                                fileAttachmentChip(attachment)
+                            }
                         }
                     }
-                }
 
-                // User messages keep tool calls inside the bubble
-                if isUser && !message.toolCalls.isEmpty {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(message.toolCalls) { toolCall in
-                            ToolCallChip(toolCall: toolCall)
+                    // User messages keep tool calls inside the bubble
+                    if isUser && !message.toolCalls.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            ForEach(message.toolCalls) { toolCall in
+                                ToolCallChip(toolCall: toolCall)
+                            }
                         }
                     }
                 }
@@ -535,6 +553,39 @@ struct ChatBubble: View, Equatable {
         // result was cached under a key never queried, producing only a wasted
         // @State update and re-render per message. Removed to eliminate the
         // redundant re-render cycle.
+    }
+
+    // MARK: - User Message Height Wrapper
+
+    /// Wraps user message content with a max collapsed height and "Show more" toggle.
+    /// For non-user messages, passes content through unchanged.
+    @ViewBuilder
+    private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        if isUser {
+            VStack(alignment: .trailing, spacing: 0) {
+                content()
+                    .background(GeometryReader { geo in
+                        Color.clear.preference(key: IntrinsicHeightKey.self, value: geo.size.height)
+                    })
+                    .frame(maxHeight: isUserMessageExpanded ? nil : userMessageMaxCollapsedHeight, alignment: .top)
+                    .clipped()
+
+                if userMessageIntrinsicHeight > userMessageMaxCollapsedHeight {
+                    Button(action: {
+                        withAnimation(VAnimation.fast) { isUserMessageExpanded.toggle() }
+                    }) {
+                        Text(isUserMessageExpanded ? "Show less" : "Show more")
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, VSpacing.xs)
+                }
+            }
+            .onPreferenceChange(IntrinsicHeightKey.self) { userMessageIntrinsicHeight = $0 }
+        } else {
+            content()
+        }
     }
 
     // MARK: - Document Widget
