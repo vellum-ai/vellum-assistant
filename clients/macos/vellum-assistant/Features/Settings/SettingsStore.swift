@@ -297,10 +297,11 @@ public final class SettingsStore: ObservableObject {
     // MARK: - UserDefaults key classification (multi-platform-assistant)
     //
     // This block classifies every `UserDefaults.standard` key currently read or written
-    // by `SettingsStore` between roughly lines 297–630. The classification governs which
-    // keys will move to per-assistant scoped storage in a later PR of the
-    // multi-platform-hosted-assistant rollout, gated on the `multi-platform-assistant`
-    // feature flag.
+    // by `SettingsStore`. The classification governs which keys will move to per-assistant
+    // scoped storage in a later PR of the multi-platform-hosted-assistant rollout, gated
+    // on the `multi-platform-assistant` feature flag. Grep for the literal key strings to
+    // locate the readers/writers — line numbers are intentionally omitted because they
+    // drift (per `clients/AGENTS.md` Documentation Update Protocol).
     //
     // Three classifications are used:
     //
@@ -313,47 +314,38 @@ public final class SettingsStore: ObservableObject {
     //                       post-bake PR.
     //
     // install-global:
-    //   • sendDiagnostics            — line 320 (reader), line 509 (writer); also reads
-    //                                   legacy fallback key "sendPerformanceReports" at line 321.
-    //   • collectUsageData           — line 326 (reader), line 521 (writer).
+    //   • "sendDiagnostics"            — also reads the legacy fallback key
+    //                                    "sendPerformanceReports" on first launch.
+    //   • "collectUsageData"
     //
     // per-assistant (will be scoped on a future PR):
-    //   • cachedOrgId / "connectedOrganizationId"
-    //                                 — lines 418, 645, 650 (KVO publisher).
-    //   • selectedImageGenModel       — line 428 (reader), line 921 (writer).
-    //   • cmdEnterToSend              — line 433 (reader), line 502 (writer).
-    //   • globalHotkeyShortcut        — lines 435–438 (reader w/ default seed),
-    //                                   line 527 (writer).
-    //                                   NOTE: discuss in review whether this should be
-    //                                   reclassified as install-global. The user may
-    //                                   reasonably expect a global hotkey to remain
-    //                                   identical regardless of which assistant is
-    //                                   active. Defaulting to per-assistant unless the
-    //                                   team explicitly decides otherwise.
-    //   • quickInputHotkeyShortcut    — lines 440–443 (reader w/ default seed),
-    //                                   line 532 (writer).
-    //   • quickInputHotkeyKeyCode     — line 445 (reader), line 537 (writer).
-    //   • sidebarToggleShortcut       — lines 447–450 (reader w/ default seed),
-    //                                   line 542 (writer).
-    //   • newChatShortcut             — lines 452–455 (reader w/ default seed),
-    //                                   line 547 (writer).
-    //   • currentConversationShortcut — lines 457–460 (reader w/ default seed),
-    //                                   line 552 (writer).
-    //   • popOutShortcut              — lines 462–465 (reader w/ default seed),
-    //                                   line 557 (writer).
+    //   • "connectedOrganizationId"    — exposed via `cachedOrgId`; also observed via
+    //                                    `UserDefaults.standard.publisher(for:)` KVO.
+    //   • "selectedImageGenModel"
+    //   • "cmdEnterToSend"
+    //   • "globalHotkeyShortcut"       — NOTE: discuss in review whether this should be
+    //                                    reclassified as install-global. The user may
+    //                                    reasonably expect a global hotkey to remain
+    //                                    identical regardless of which assistant is
+    //                                    active. Defaulting to per-assistant unless the
+    //                                    team explicitly decides otherwise.
+    //   • "quickInputHotkeyShortcut"
+    //   • "quickInputHotkeyKeyCode"
+    //   • "sidebarToggleShortcut"
+    //   • "newChatShortcut"
+    //   • "currentConversationShortcut"
+    //   • "popOutShortcut"
     //
     // deprecated (do not migrate; future cleanup):
     //   • The legacy `connectedAssistantId` UserDefaults reference at
     //     `AppDelegate+InputMonitors.swift` was removed in PR #24077. Fallback reads
-    //     remain at `AppDelegate+ConnectionSetup.swift:30` and
-    //     `AppDelegate+AuthLifecycle.swift:43` and are intentionally retained until
-    //     the multi-platform-assistant work bakes — they are tracked in that plan's
-    //     "out of scope" list, not here.
+    //     remain at `AppDelegate+ConnectionSetup.swift` and `AppDelegate+AuthLifecycle.swift`
+    //     and are intentionally retained until the multi-platform-assistant work bakes —
+    //     they are tracked in that plan's "out of scope" list, not here.
     //
     // Not classified (out of scope for per-assistant scoping — internal bookkeeping):
-    //   • kPendingKeyDeletionTombstones — lines 1126, 1131, 1139, 1143, 1149, 1166, 1168.
-    //     This is the tombstone list used by `SettingsStore`'s own pending-key-deletion
-    //     maintenance routine and is install-global by construction.
+    //   • `kPendingKeyDeletionTombstones` — the tombstone list used by `SettingsStore`'s
+    //     own pending-key-deletion maintenance routine, install-global by construction.
     //
     // Rollback story:
     //   Flag off ⇒ readers/writers use legacy unscoped keys (today's behavior, byte-for-byte).
