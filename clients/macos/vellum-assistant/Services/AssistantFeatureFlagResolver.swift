@@ -1,18 +1,21 @@
 import Foundation
+import os
 import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AssistantFeatureFlagResolver")
 
 /// Resolves assistant-scoped feature flags from the gateway API (cached in
 /// UserDefaults) plus the bundled unified registry.
 ///
-/// **Priority order:** persisted overrides > gateway cache > registry defaults.
-///
-/// *Persisted overrides* are user-toggled flags from Developer Settings, stored
-/// in UserDefaults so they survive app restarts and work in Docker/platform
-/// mode (no disk access required). Overrides are also PATCH-ed to the gateway
-/// as a best-effort write so the daemon stays in sync.
+/// **Priority order:** cached gateway flags > registry defaults.
 ///
 /// *Gateway cache* is the last successful fetch from
-/// `GET assistants/{id}/feature-flags`, stored in UserDefaults.
+/// `GET assistants/{id}/feature-flags`, stored in UserDefaults so the next
+/// cold-start picks up values before the gateway connection is established.
+///
+/// Writes (user toggles in Developer Settings) are persisted to the gateway
+/// via `PATCH assistants/{id}/feature-flags/{key}` and simultaneously written
+/// to the local cache for optimistic UI.
 enum AssistantFeatureFlagResolver {
 
     // MARK: - UserDefaults cache (gateway fetch results)
@@ -49,39 +52,34 @@ enum AssistantFeatureFlagResolver {
         UserDefaults.standard.set(enabled, forKey: "\(cachePrefix)\(key)")
     }
 
-    /// Removes all cached feature flags and persisted overrides from UserDefaults.
+    /// Removes all cached feature flags from UserDefaults.
     ///
-    /// Call this when the connected assistant changes so that stale values
-    /// from the previous assistant do not leak into the new one.
+    /// Call this when the connected assistant changes so that stale cached
+    /// values from the previous assistant do not leak into the new one.
     static func clearCachedFlags() {
         let defaults = UserDefaults.standard
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(cachePrefix) || key.hasPrefix(overridePrefix) {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(cachePrefix) {
             defaults.removeObject(forKey: key)
         }
     }
 
-    // MARK: - Persisted overrides (UserDefaults)
+    // MARK: - Gateway persistence
 
-    private static let overridePrefix = "AssistantFeatureFlagOverride."
-
-    /// Reads all persisted feature-flag overrides from UserDefaults.
+    /// Persists a feature-flag override to the gateway via PATCH.
     ///
-    /// These are user-toggled flags from Developer Settings that take
-    /// precedence over both the gateway cache and registry defaults.
-    static func readPersistedOverrides() -> [String: Bool] {
-        let defaults = UserDefaults.standard
-        var result: [String: Bool] = [:]
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(overridePrefix) {
-            let name = String(key.dropFirst(overridePrefix.count))
-            guard !name.isEmpty else { continue }
-            result[name] = defaults.bool(forKey: key)
+    /// This is the authoritative write path — the daemon and platform see the
+    /// updated value on the next read. Callers should also call
+    /// ``mergeCachedFlag(key:enabled:)`` for optimistic local UI.
+    static func mergePersistedFlag(key: String, enabled: Bool) async throws {
+        let response = try await GatewayHTTPClient.patch(
+            path: "assistants/{assistantId}/feature-flags/\(key)",
+            json: ["enabled": enabled],
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            log.error("mergePersistedFlag failed (HTTP \(response.statusCode))")
+            throw FeatureFlagError.requestFailed(response.statusCode)
         }
-        return result
-    }
-
-    /// Writes a single persisted override to UserDefaults.
-    static func writePersistedOverride(key: String, enabled: Bool) {
-        UserDefaults.standard.set(enabled, forKey: "\(overridePrefix)\(key)")
     }
 
     // MARK: - Resolution
@@ -95,21 +93,19 @@ enum AssistantFeatureFlagResolver {
     }
 
     static func resolvedFlags(
-        persistedOverrides: [String: Bool],
+        persistedFlags: [String: Bool],
         registryDefaults: [String: Bool]
     ) -> [String: Bool] {
-        registryDefaults.merging(persistedOverrides) { _, override in override }
+        registryDefaults.merging(persistedFlags) { _, persisted in persisted }
     }
 
     static func resolvedFlags(
         registryDefaults: [String: Bool]
     ) -> [String: Bool] {
-        let overrides = readPersistedOverrides()
         let cached = readCachedFlags()
-        // Priority: persisted overrides > cached gateway flags > defaults
+        // Priority: cached gateway flags > defaults
         return registryDefaults
             .merging(cached) { _, new in new }
-            .merging(overrides) { _, new in new }
     }
 
     static func resolvedFlags(

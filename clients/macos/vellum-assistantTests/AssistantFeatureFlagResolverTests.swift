@@ -24,7 +24,7 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
     func testUsesAssistantRegistryDefaultWhenNoOverrideExists() {
         let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
         let resolved = AssistantFeatureFlagResolver.resolvedFlags(
-            persistedOverrides: [:],
+            persistedFlags: [:],
             registryDefaults: registryDefaults
         )
         let enabled = resolved[conversationStartersKey] ?? true
@@ -35,7 +35,7 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
     func testPersistedOverrideWinsOverRegistryDefault() {
         let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
         let resolved = AssistantFeatureFlagResolver.resolvedFlags(
-            persistedOverrides: [conversationStartersKey: true],
+            persistedFlags: [conversationStartersKey: true],
             registryDefaults: registryDefaults
         )
         let enabled = resolved[conversationStartersKey] ?? true
@@ -46,7 +46,7 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
     func testUndeclaredAssistantFlagsDefaultToEnabled() {
         let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
         let resolved = AssistantFeatureFlagResolver.resolvedFlags(
-            persistedOverrides: [:],
+            persistedFlags: [:],
             registryDefaults: registryDefaults
         )
         let enabled = resolved["unknown"] ?? true
@@ -83,108 +83,87 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
         XCTAssertTrue(store.isEnabled(conversationStartersKey))
     }
 
-    // MARK: - writePersistedOverride / readPersistedOverrides round-trip
+    // MARK: - UserDefaults cache round-trip
 
-    func testWriteAndReadPersistedOverrideRoundTrip() {
-        let testKey = "test-override-\(UUID().uuidString)"
+    func testWriteAndReadCachedFlagRoundTrip() {
+        let testKey = "test-cache-\(UUID().uuidString)"
 
         addTeardownBlock {
-            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagOverride.\(testKey)")
+            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(testKey)")
         }
 
         // Write false
-        AssistantFeatureFlagResolver.writePersistedOverride(key: testKey, enabled: false)
-        var overrides = AssistantFeatureFlagResolver.readPersistedOverrides()
-        XCTAssertEqual(overrides[testKey], false)
+        AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: false)
+        var cached = AssistantFeatureFlagResolver.readCachedFlags()
+        XCTAssertEqual(cached[testKey], false)
 
         // Overwrite with true
-        AssistantFeatureFlagResolver.writePersistedOverride(key: testKey, enabled: true)
-        overrides = AssistantFeatureFlagResolver.readPersistedOverrides()
-        XCTAssertEqual(overrides[testKey], true)
+        AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: true)
+        cached = AssistantFeatureFlagResolver.readCachedFlags()
+        XCTAssertEqual(cached[testKey], true)
     }
 
-    // MARK: - Resolution priority: persisted override > cached > defaults
+    // MARK: - Resolution priority: cached gateway flags > defaults
 
-    func testPersistedOverrideWinsOverCachedFlag() {
+    func testCachedFlagWinsOverRegistryDefault() {
         let testKey = "test-priority-\(UUID().uuidString)"
 
         addTeardownBlock {
             UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(testKey)")
-            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagOverride.\(testKey)")
         }
 
-        // Write true as a persisted override
-        AssistantFeatureFlagResolver.writePersistedOverride(key: testKey, enabled: true)
+        // Registry says false, but cache says true
+        AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: true)
 
-        // Write false to the UserDefaults cache for the same key
-        AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: false)
-
-        // Verify the raw values: override says true, cached says false
-        let overrides = AssistantFeatureFlagResolver.readPersistedOverrides()
-        let cachedFlags = AssistantFeatureFlagResolver.readCachedFlags()
-        XCTAssertEqual(overrides[testKey], true)
-        XCTAssertEqual(cachedFlags[testKey], false)
-
-        // Build the resolved flags using the same priority chain:
-        // defaults < cached < persisted overrides
-        let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(
-            from: makeRegistry(defaultEnabled: false)
+        let registryDefaults: [String: Bool] = [testKey: false]
+        let resolved = AssistantFeatureFlagResolver.resolvedFlags(
+            registryDefaults: registryDefaults
         )
-        let resolved = registryDefaults
-            .merging(cachedFlags) { _, new in new }
-            .merging(overrides) { _, new in new }
 
-        // The persisted override (true) should win over the cached value (false)
+        // The cached value (true) should win over the registry default (false)
         XCTAssertEqual(resolved[testKey], true)
     }
 
-    // MARK: - Cache and persisted overrides work independently
+    // MARK: - writeCachedFlags replaces all cache entries
 
-    func testCacheAndPersistedOverridesWorkIndependently() {
-        let testKey = "test-independent-\(UUID().uuidString)"
+    func testWriteCachedFlagsReplacesAllEntries() {
+        let keyA = "test-replace-a-\(UUID().uuidString)"
+        let keyB = "test-replace-b-\(UUID().uuidString)"
 
         addTeardownBlock {
-            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(testKey)")
-            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagOverride.\(testKey)")
+            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(keyA)")
+            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(keyB)")
         }
 
-        // Write true to UserDefaults cache
-        AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: true)
+        // Write keyA
+        AssistantFeatureFlagResolver.mergeCachedFlag(key: keyA, enabled: true)
+        XCTAssertEqual(AssistantFeatureFlagResolver.readCachedFlags()[keyA], true)
 
-        // Write false as a persisted override
-        AssistantFeatureFlagResolver.writePersistedOverride(key: testKey, enabled: false)
+        // Replace all with only keyB
+        AssistantFeatureFlagResolver.writeCachedFlags([keyB: false])
 
-        // Verify they return their own values without interfering
-        let cachedFlags = AssistantFeatureFlagResolver.readCachedFlags()
-        XCTAssertEqual(cachedFlags[testKey], true)
-
-        let overrides = AssistantFeatureFlagResolver.readPersistedOverrides()
-        XCTAssertEqual(overrides[testKey], false)
-
-        XCTAssertNotEqual(cachedFlags[testKey], overrides[testKey])
+        let cached = AssistantFeatureFlagResolver.readCachedFlags()
+        XCTAssertNil(cached[keyA], "keyA should have been removed by writeCachedFlags")
+        XCTAssertEqual(cached[keyB], false)
     }
 
-    // MARK: - clearCachedFlags clears both caches and overrides
+    // MARK: - clearCachedFlags clears cache
 
-    func testClearCachedFlagsClearsBothCachesAndOverrides() {
+    func testClearCachedFlagsClearsCache() {
         let testKey = "test-clear-\(UUID().uuidString)"
 
         addTeardownBlock {
             UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(testKey)")
-            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagOverride.\(testKey)")
         }
 
         AssistantFeatureFlagResolver.mergeCachedFlag(key: testKey, enabled: true)
-        AssistantFeatureFlagResolver.writePersistedOverride(key: testKey, enabled: false)
 
-        // Both should exist before clearing
+        // Should exist before clearing
         XCTAssertEqual(AssistantFeatureFlagResolver.readCachedFlags()[testKey], true)
-        XCTAssertEqual(AssistantFeatureFlagResolver.readPersistedOverrides()[testKey], false)
 
         AssistantFeatureFlagResolver.clearCachedFlags()
 
-        // Both should be gone after clearing
+        // Should be gone after clearing
         XCTAssertNil(AssistantFeatureFlagResolver.readCachedFlags()[testKey])
-        XCTAssertNil(AssistantFeatureFlagResolver.readPersistedOverrides()[testKey])
     }
 }

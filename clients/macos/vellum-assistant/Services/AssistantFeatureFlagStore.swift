@@ -73,12 +73,8 @@ final class AssistantFeatureFlagStore: ObservableObject {
                 // Persist into the UserDefaults cache so the next cold-start
                 // picks up values from the last successful gateway fetch.
                 AssistantFeatureFlagResolver.writeCachedFlags(merged)
-                // Apply persisted local overrides on top (user toggles in
-                // Developer Settings survive even when the gateway disagrees).
-                let persisted = AssistantFeatureFlagResolver.readPersistedOverrides()
                 self.resolvedFlags = self.registryDefaults
                     .merging(merged) { _, new in new }
-                    .merging(persisted) { _, new in new }
                 log.info("Feature flags refreshed from gateway (\(merged.count) flags)")
             } catch {
                 log.warning("Gateway feature-flag fetch failed, falling back to disk: \(error.localizedDescription)")
