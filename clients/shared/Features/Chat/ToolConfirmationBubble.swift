@@ -19,6 +19,8 @@ public struct ToolConfirmationBubble: View {
     @State private var showTechnicalDetails = false
     @State private var useCompactConfirmationLayout = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
+    /// Cached line count for preview content — avoids O(n) byte scan on every render.
+    @State private var cachedPreviewLineCount: Int?
     @AppStorage("hasSeenCommandExplanation") private var hasSeenCommandExplanation = false
     @AppStorage("preferredAllowAction") private var preferredAllowAction: String = "allow_10m"
     #if os(macOS)
@@ -324,6 +326,11 @@ public struct ToolConfirmationBubble: View {
         }
         .adaptiveScrollFrame(for: content, maxHeight: maxHeight)
         .padding(VSpacing.sm)
+        .onAppear {
+            if cachedPreviewLineCount == nil {
+                cachedPreviewLineCount = ToolCallChip.countLines(in: content)
+            }
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)

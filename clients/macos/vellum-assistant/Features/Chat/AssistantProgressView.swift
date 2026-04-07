@@ -1012,11 +1012,13 @@ private struct StepDetailRow: View {
         copyText: String,
         copyLabel: String
     ) -> some View {
-        let lineCount = copyText.components(separatedBy: "\n").count
+        var lineCount = 1
+        for byte in copyText.utf8 where byte == 0x0A { lineCount += 1 }
+        let isLong = lineCount > 500 || copyText.count > 50_000
 
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if lineCount > 500 {
+                if isLong {
                     // Content at 500+ lines always exceeds 400pt, so a fixed
                     // height lets sizeThatFits return without measuring content.
                     ScrollView {

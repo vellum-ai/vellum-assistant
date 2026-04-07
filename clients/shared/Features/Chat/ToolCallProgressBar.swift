@@ -5,6 +5,9 @@ import SwiftUI
 public struct ToolCallProgressBar: View {
     public let toolCalls: [ToolCallData]
     @State private var expandedStepId: UUID?
+    /// Cached line count for the expanded tool call's result text — avoids O(n)
+    /// byte scan on every SwiftUI render pass when a step is expanded.
+    @State private var cachedResultLineCount: Int?
 
     public init(toolCalls: [ToolCallData]) {
         self.toolCalls = toolCalls
@@ -250,12 +253,29 @@ public struct ToolCallProgressBar: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
-                        .adaptiveScrollFrame(for: result, maxHeight: 200)
+                        .adaptiveScrollFrame(for: result, maxHeight: 200, lineThreshold: 200)
                     }
                 }
             }
         }
         .padding(VSpacing.md)
+        .onAppear {
+            if cachedResultLineCount == nil,
+               let expandedId = expandedStepId,
+               let expandedCall = toolCalls.first(where: { $0.id == expandedId }),
+               let result = expandedCall.result {
+                cachedResultLineCount = ToolCallChip.countLines(in: result)
+            }
+        }
+        .onChange(of: expandedStepId) {
+            if let expandedId = expandedStepId,
+               let expandedCall = toolCalls.first(where: { $0.id == expandedId }),
+               let result = expandedCall.result {
+                cachedResultLineCount = ToolCallChip.countLines(in: result)
+            } else {
+                cachedResultLineCount = nil
+            }
+        }
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay)
