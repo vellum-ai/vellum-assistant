@@ -6,6 +6,9 @@ metadata:
   emoji: "👥"
   vellum:
     display-name: "Contacts"
+    activation-hints:
+      - "Look up contact info before asking the user for email addresses or phone numbers"
+      - "User wants to manage who can message the assistant, or create/revoke invite links"
 ---
 
 Manage the user's contacts, relationship graph, access control (trusted contacts), and invite links. This skill covers contact CRUD with multi-channel tracking, controlling who can message the assistant through external channels (Telegram, phone), and creating/managing invite links that grant access.

@@ -6,6 +6,11 @@ metadata:
   emoji: "✅"
   vellum:
     display-name: "Tasks"
+    activation-hints:
+      - "User wants to add, check, or manage items on their to-do list or task queue"
+      - "For one-off action items, not recurring automations (use schedule for those)"
+    avoid-when:
+      - "User wants recurring/scheduled automation — use the schedule skill instead"
 ---
 
 Two-layer task system: **task templates** (reusable definitions with input placeholders) and **work items** (instances in the Task Queue with priority tiers and status tracking).
