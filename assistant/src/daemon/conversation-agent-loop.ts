@@ -1213,8 +1213,16 @@ export async function runAgentLoopImpl(
     // limit), incorporate those new messages into ctx.messages so the
     // convergence loop operates on the full (larger) history.
     if (state.contextTooLargeDetected) {
+      // Track whether ctx.messages was actually stripped so we know if
+      // NOW.md (and other injections) need to be re-injected.  When the
+      // provider rejects before adding any messages, the strip is skipped
+      // and ctx.messages still contains the previous injection — blindly
+      // re-injecting would duplicate the NOW.md block.
+      let convergenceStripped = false;
+
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
+        convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
       }
@@ -1337,12 +1345,13 @@ export async function runAgentLoopImpl(
           shouldInjectWorkspace = true;
         }
 
-        // ctx.messages has been stripped (line 1206/1373) so NOW.md must
-        // always be re-injected regardless of whether compaction ran.
+        // Only re-inject NOW.md when ctx.messages was actually stripped;
+        // otherwise the existing NOW.md block is still present and
+        // re-injecting would duplicate it.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
-          nowScratchpad: currentNowContent,
+          nowScratchpad: convergenceStripped ? currentNowContent : null,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1384,6 +1393,7 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
+            convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
           }
@@ -1459,12 +1469,12 @@ export async function runAgentLoopImpl(
               shouldInjectWorkspace = true;
             }
 
-            // ctx.messages was already stripped before the convergence
-            // loop, so NOW.md must always be re-injected here.
+            // Only re-inject NOW.md when ctx.messages was actually stripped;
+            // otherwise the existing block is still present.
             runMessages = applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
               pkbContext: currentPkbContent,
-              nowScratchpad: currentNowContent,
+              nowScratchpad: convergenceStripped ? currentNowContent : null,
               workspaceTopLevelContext: shouldInjectWorkspace
                 ? ctx.workspaceTopLevelContext
                 : null,
@@ -1579,12 +1589,12 @@ export async function runAgentLoopImpl(
             shouldInjectWorkspace = true;
           }
 
-          // ctx.messages was already stripped before the convergence
-          // loop, so NOW.md must always be re-injected here.
+          // Only re-inject NOW.md when ctx.messages was actually stripped;
+          // otherwise the existing block is still present.
           runMessages = applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             pkbContext: currentPkbContent,
-            nowScratchpad: currentNowContent,
+            nowScratchpad: convergenceStripped ? currentNowContent : null,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
