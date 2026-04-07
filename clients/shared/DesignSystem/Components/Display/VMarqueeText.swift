@@ -67,9 +67,9 @@ public struct VMarqueeText: View {
             .foregroundStyle(foregroundStyle)
             .lineLimit(1)
             .truncationMode(.tail)
-            .opacity(isHovered && isTruncated ? 0 : 1)
+            .opacity(isHovered && isTruncated && !reduceMotion ? 0 : 1)
             .overlay {
-                if isHovered && isTruncated {
+                if isHovered && isTruncated && !reduceMotion {
                     Color.clear
                         .overlay(alignment: .leading) {
                             Text(text)
