@@ -90,28 +90,6 @@ enum APIKeyManager {
         storage.get(account: udPrefix + provider)
     }
 
-    /// Fetch the plaintext API key from the daemon's secret store via
-    /// the gateway API. Returns `nil` when no key is stored or if the
-    /// request fails (e.g. daemon unreachable).
-    static func getKey(for provider: String) async -> String? {
-        do {
-            let body: [String: Any] = ["type": "api_key", "name": provider, "reveal": true]
-            let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
-            )
-            guard response.isSuccess,
-                  let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-                  let found = json["found"] as? Bool, found,
-                  let value = json["value"] as? String, !value.isEmpty else {
-                return nil
-            }
-            return value
-        } catch {
-            apiKeyLog.error("getKey(\(provider, privacy: .public)) async failed: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
     // MARK: - Generic provider access (async — gateway API)
 
     /// Result of an async key-write operation via the gateway API.

@@ -1042,12 +1042,6 @@ final class VellumCli {
                 proc.standardOutput = stdoutPipe
                 proc.standardError = stderrPipe
 
-                // Provider API keys are NOT injected here. The daemon
-                // receives its keys via syncApiKeysViaGateway() after
-                // startup, or through RemoteHatchConfig.providerApiKeys
-                // for remote hatch flows. makeBaseEnvironment() still
-                // forwards any provider env vars already present in the
-                // host process environment (e.g. terminal launches).
                 proc.environment = VellumCli.makeBaseEnvironment()
 
                 try proc.run()
