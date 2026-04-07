@@ -195,7 +195,7 @@ const MemoryContextLoadInjectionSchema = z
       .positive(
         "memory.retrieval.injection.contextLoad.maxNodes must be a positive integer",
       )
-      .default(40)
+      .default(25)
       .describe("Maximum number of memory nodes to load at conversation start"),
     serendipitySlots: z
       .number({
@@ -208,7 +208,7 @@ const MemoryContextLoadInjectionSchema = z
       .nonnegative(
         "memory.retrieval.injection.contextLoad.serendipitySlots must be non-negative",
       )
-      .default(10)
+      .default(5)
       .describe("Number of random wildcard memory picks at conversation start"),
     capabilityReserve: z
       .number({
@@ -238,7 +238,7 @@ const MemoryPerTurnInjectionSchema = z
       .positive(
         "memory.retrieval.injection.perTurn.maxNodes must be a positive integer",
       )
-      .default(8)
+      .default(6)
       .describe(
         "Maximum total memory nodes injected per turn (general + capability + serendipity)",
       ),
@@ -266,7 +266,7 @@ const MemoryPerTurnInjectionSchema = z
       .nonnegative(
         "memory.retrieval.injection.perTurn.capabilityReserve must be non-negative",
       )
-      .default(3)
+      .default(2)
       .describe("Reserved slots for skill/CLI capability nodes per turn"),
   })
   .describe("Memory injection limits for mid-conversation turns");
