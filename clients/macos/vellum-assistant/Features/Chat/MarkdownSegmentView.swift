@@ -785,7 +785,7 @@ private struct CodeBlockView: View, Equatable {
 
     /// Line threshold derived from maxCodeBlockHeight / codeLineHeight.
     /// Content above this count takes the capped-height ScrollView path.
-    private static let lineThreshold: Int = 25
+    private static let lineThreshold: Int = Int(maxCodeBlockHeight / codeLineHeight)
 
     static func == (lhs: CodeBlockView, rhs: CodeBlockView) -> Bool {
         lhs.language == rhs.language
