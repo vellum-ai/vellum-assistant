@@ -144,6 +144,36 @@ final class VellumCli {
         return env
     }
 
+    /// Writes a platform session token to the file the CLI reads for auth.
+    ///
+    /// The CLI's `readPlatformToken()` reads `~/.config/vellum/platform-token`.
+    /// When the desktop app has a session token (via `SessionTokenManager`)
+    /// but the user hasn't run `vellum login` separately, the file won't
+    /// exist and the CLI will fail with "Not logged in". This bridges the
+    /// gap by writing the desktop's token to the expected path.
+    nonisolated private static func writePlatformTokenFile(_ token: String) {
+        let configDir: String
+        if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"], !xdg.isEmpty {
+            configDir = (xdg as NSString).appendingPathComponent("vellum")
+        } else {
+            configDir = (FileManager.default.homeDirectoryForCurrentUser.path as NSString)
+                .appendingPathComponent(".config/vellum")
+        }
+        let tokenPath = (configDir as NSString).appendingPathComponent("platform-token")
+
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: configDir) {
+            try? fm.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
+
+        do {
+            try (token + "\n").write(toFile: tokenPath, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenPath)
+        } catch {
+            log.error("Failed to write platform token file at \(tokenPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     // MARK: - Binary Discovery
 
     private var cliBinaryURL: URL? {
@@ -590,10 +620,13 @@ final class VellumCli {
             }
         }
 
-        // Forward platform session token so the CLI can authenticate
-        // with managed/platform assistants.
+        // Ensure the CLI can find the platform session token.
+        // The CLI reads from ~/.config/vellum/platform-token (file-based),
+        // not from an environment variable. Write the desktop's token to
+        // that file so the CLI can authenticate with managed/platform
+        // assistants even if the user hasn't separately run `vellum login`.
         if let sessionToken = SessionTokenManager.getToken() {
-            env["VELLUM_SESSION_TOKEN"] = sessionToken
+            Self.writePlatformTokenFile(sessionToken)
         }
 
         proc.environment = env
