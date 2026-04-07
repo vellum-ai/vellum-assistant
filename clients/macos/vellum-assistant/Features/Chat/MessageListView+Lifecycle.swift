@@ -32,7 +32,11 @@ extension MessageListView {
                 flashHighlight(messageId: id)
                 anchorMessageId = nil
             } else if anchorMessageId == nil {
-                scrollProxy?.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                if let lastId = scrollState.lastMessageId {
+                    scrollProxy?.scrollTo(lastId, anchor: .bottom)
+                } else {
+                    scrollProxy?.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
             }
         }
     }
@@ -95,7 +99,11 @@ extension MessageListView {
 
         // --- Auto-follow on new messages ---
         if scrollState.shouldAutoFollow, scrollProxy != nil {
-            scrollProxy?.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+            if let lastId = scrollState.lastMessageId {
+                scrollProxy?.scrollTo(lastId, anchor: .bottom)
+            } else {
+                scrollProxy?.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+            }
         }
 
         // --- Confirmation focus handoff ---
@@ -108,7 +116,11 @@ extension MessageListView {
         if scrollState.isNearBottom {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 100_000_000)
-                scrollProxy?.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                if let lastId = scrollState.lastMessageId {
+                    scrollProxy?.scrollTo(lastId, anchor: .bottom)
+                } else {
+                    scrollProxy?.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
             }
         }
     }
@@ -120,7 +132,11 @@ extension MessageListView {
         highlightedMessageId = nil
         // Seed lastMessageId for the new conversation.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
-        scrollProxy?.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+        if let lastId = scrollState.lastMessageId {
+            scrollProxy?.scrollTo(lastId, anchor: .bottom)
+        } else {
+            scrollProxy?.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+        }
     }
 
     func handleAnchorMessageTask() async {
