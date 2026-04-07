@@ -25,6 +25,8 @@ import { removeOauthAppSetupSkillsMigration } from "./025-remove-oauth-app-setup
 import { backfillInstallMetaMigration } from "./026-backfill-install-meta.js";
 import { removeOrphanedOptimizedImagesCacheMigration } from "./027-remove-orphaned-optimized-images-cache.js";
 import { recoverConversationsFromDiskViewMigration } from "./028-recover-conversations-from-disk-view.js";
+import { seedPkbMigration } from "./029-seed-pkb.js";
+import { seedPkbAutoinjectMigration } from "./030-seed-pkb-autoinject.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -61,4 +63,6 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   backfillInstallMetaMigration,
   removeOrphanedOptimizedImagesCacheMigration,
   recoverConversationsFromDiskViewMigration,
+  seedPkbMigration,
+  seedPkbAutoinjectMigration,
 ];

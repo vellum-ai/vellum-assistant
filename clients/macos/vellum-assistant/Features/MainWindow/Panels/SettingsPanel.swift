@@ -8,7 +8,7 @@ enum SettingsTab: String {
     case sounds = "Sounds"
     case permissionsAndPrivacy = "Permissions & Privacy"
     case billing = "Billing"
-    case archivedConversations = "Archived Conversations"
+    case archivedConversations = "Archive"
     case schedules = "Schedules"
     case developer = "Developer"
 
@@ -518,7 +518,6 @@ struct SettingsPanel: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
-            store.refreshAPIKeyState()
             store.refreshVercelKeyState()
             store.refreshModelInfo()
             store.loadProviderRoutingSources()

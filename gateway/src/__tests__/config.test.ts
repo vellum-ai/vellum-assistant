@@ -23,7 +23,8 @@ describe("config: hardcoded defaults", () => {
     expect(config.unmappedPolicy).toBe("reject");
     expect(config.routingEntries).toEqual([]);
     expect(config.defaultAssistantId).toBeUndefined();
-    expect(config.logFile).toEqual({ dir: undefined, retentionDays: 30 });
+    expect(config.logFile.dir).toMatch(/\.vellum\/logs$/);
+    expect(config.logFile.retentionDays).toBe(30);
   });
 
   test("GATEWAY_PORT defaults to 7830", () => {

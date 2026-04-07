@@ -57,14 +57,44 @@ export function ensureGroupMigration(): void {
     }
   }
 
-  // 3. Seed system groups (three: pinned, scheduled, background)
+  // 3. Seed system groups (four: pinned, scheduled, background, all)
+  const now = Math.floor(Date.now() / 1000);
   rawExec(`
-    INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
+    INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group, created_at, updated_at)
     VALUES
-      ('system:pinned', 'Pinned', 0, TRUE),
-      ('system:scheduled', 'Scheduled', 1, TRUE),
-      ('system:background', 'Background', 2, TRUE)
+      ('system:pinned', 'Pinned', 0, TRUE, ${now}, ${now}),
+      ('system:scheduled', 'Scheduled', 1, TRUE, ${now}, ${now}),
+      ('system:background', 'Background', 2, TRUE, ${now}, ${now}),
+      ('system:all', 'Recents', 3, TRUE, ${now}, ${now})
   `);
+
+  // One-time migration: move system:all to sortPosition 3 (from 999999).
+  // Bump custom groups at position 3+ up by 1 to make room. Wrapped in a
+  // transaction so a crash between the shift and the sentinel can't cause
+  // repeated drift on restart.
+  const sortShiftDone = rawGet<{ id: string }>(
+    "SELECT id FROM conversation_groups WHERE id = '_sort_shift_complete'",
+  );
+  if (!sortShiftDone) {
+    try {
+      rawExec("BEGIN");
+      rawRun(
+        "UPDATE conversation_groups SET sort_position = sort_position + 1 WHERE is_system_group = 0 AND sort_position >= 3",
+      );
+      rawRun(
+        "UPDATE conversation_groups SET sort_position = 3 WHERE id = 'system:all' AND sort_position != 3",
+      );
+      rawRun(
+        `INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group, created_at, updated_at)
+         VALUES ('_sort_shift_complete', '_sort_shift_complete', -1, TRUE, ${now}, ${now})`,
+      );
+      rawExec("COMMIT");
+    } catch (err) {
+      rawExec("ROLLBACK");
+      log.error({ err }, "Sort-position shift transaction failed, rolled back");
+      throw err;
+    }
+  }
 
   // 4. One-time backfill (guard: persistent marker prevents re-running on restart)
   //
@@ -118,7 +148,7 @@ export function ensureGroupMigration(): void {
       // Step B: Scheduled -> system:scheduled (schedule/reminder source or has schedule_job_id)
       rawExec(`
         UPDATE conversations SET group_id = 'system:scheduled'
-        WHERE (source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL)
+        WHERE (source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL OR conversation_type = 'scheduled')
         AND group_id IS NULL
       `);
 
@@ -149,6 +179,36 @@ export function ensureGroupMigration(): void {
     } catch (err) {
       rawExec("ROLLBACK");
       log.error({ err }, "Group backfill transaction failed, rolled back");
+      throw err;
+    }
+  }
+
+  // 5. One-time backfill: assign all ungrouped conversations to system:all
+  //
+  // Separate from the initial backfill above because system:all is added later.
+  // Uses its own sentinel so it runs exactly once, even on existing installations
+  // where the original backfill already completed.
+  const allBackfillDone = rawGet<{ id: string }>(
+    "SELECT id FROM conversation_groups WHERE id = '_backfill_all_complete'",
+  );
+
+  if (!allBackfillDone) {
+    try {
+      rawExec("BEGIN");
+
+      rawExec(`
+        UPDATE conversations SET group_id = 'system:all' WHERE group_id IS NULL
+      `);
+
+      rawExec(`
+        INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
+        VALUES ('_backfill_all_complete', '_backfill_all_complete', -1, TRUE)
+      `);
+
+      rawExec("COMMIT");
+    } catch (err) {
+      rawExec("ROLLBACK");
+      log.error({ err }, "system:all backfill transaction failed, rolled back");
       throw err;
     }
   }

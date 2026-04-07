@@ -151,13 +151,19 @@ struct AssistantProgressView: View {
     var onTemporaryAllow: ((String, String) -> Void)? = nil
     var activeConfirmationRequestId: String? = nil  // For keyboard focus
 
+    /// Step detail expansion state lifted from StepDetailRow to survive
+    /// the trailing→interleaved rendering path switch in ChatBubble.
+    @Binding var expandedStepIds: Set<UUID>
+    /// Card-level expansion overrides lifted from this view's @State to
+    /// survive view recreation. Keyed by first tool call UUID in the group.
+    @Binding var cardExpansionOverrides: [UUID: Bool]
+
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool
-    @State private var startDate: Date = Date()
+    @State private var startDate: Date
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
-    @State private var hideInlineChips: Bool = false
     @State private var derived: DerivedProgressState
 
     // MARK: - Init
@@ -176,7 +182,9 @@ struct AssistantProgressView: View {
         onConfirmationDeny: ((String) -> Void)? = nil,
         onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
         onTemporaryAllow: ((String, String) -> Void)? = nil,
-        activeConfirmationRequestId: String? = nil
+        activeConfirmationRequestId: String? = nil,
+        expandedStepIds: Binding<Set<UUID>>,
+        cardExpansionOverrides: Binding<[UUID: Bool]>
     ) {
         self.toolCalls = toolCalls
         self.isStreaming = isStreaming
@@ -192,6 +200,8 @@ struct AssistantProgressView: View {
         self.onAlwaysAllow = onAlwaysAllow
         self.onTemporaryAllow = onTemporaryAllow
         self.activeConfirmationRequestId = activeConfirmationRequestId
+        self._expandedStepIds = expandedStepIds
+        self._cardExpansionOverrides = cardExpansionOverrides
         _derived = State(initialValue: DerivedProgressState.compute(
             toolCalls: toolCalls,
             decidedConfirmations: decidedConfirmations
@@ -201,8 +211,25 @@ struct AssistantProgressView: View {
         let isDenied = derived.hasDeniedToolCalls && derived.hasTools && !derived.allComplete
         let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         let shouldAutoExpand = (isComplete || isDenied) && expandFlag
-        _isExpanded = State(initialValue: shouldAutoExpand || derived.hasPendingConfirmation)
+        let initialStartDate = derived.earliestStartedAt ?? Date()
+        let initialProcessingStartDate: Date? = if isProcessing && (derived.allComplete || !derived.hasTools) {
+            Date()
+        } else {
+            nil
+        }
+        // Seed from user override if one exists, otherwise use auto-expand logic.
+        if let key = toolCalls.first?.id,
+           let override = cardExpansionOverrides.wrappedValue[key] {
+            _isExpanded = State(initialValue: override)
+        } else {
+            _isExpanded = State(initialValue: shouldAutoExpand || derived.hasPendingConfirmation)
+        }
+        _startDate = State(initialValue: initialStartDate)
+        _processingStartDate = State(initialValue: initialProcessingStartDate)
     }
+
+    /// Stable key for this progress card in `cardExpansionOverrides`.
+    private var cardKey: UUID? { toolCalls.first?.id }
 
     // MARK: - Derived State (reads from cached DerivedProgressState)
 
@@ -337,8 +364,7 @@ struct AssistantProgressView: View {
             // Code preview (streaming code phase)
             if phase == .streamingCode, let code = streamingCodePreview {
                 CodePreviewView(code: code)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.bottom, VSpacing.xs)
+                    .padding(EdgeInsets(top: 0, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
             }
         }
         .background(VColor.surfaceOverlay)
@@ -367,10 +393,12 @@ struct AssistantProgressView: View {
 
     private func handleToolCallsChange(_ newToolCalls: [ToolCallData]) {
         derived = DerivedProgressState.compute(toolCalls: newToolCalls, decidedConfirmations: decidedConfirmations)
+        syncStartDateFromDerivedIfNeeded()
     }
 
     private func handleConfirmationsChange(_ newConfirmations: [ToolConfirmationData]) {
         derived = DerivedProgressState.compute(toolCalls: toolCalls, decidedConfirmations: newConfirmations)
+        syncStartDateFromDerivedIfNeeded()
     }
 
     private func handlePhaseChange(_ newPhase: ProgressPhase) {
@@ -380,22 +408,28 @@ struct AssistantProgressView: View {
             reason: "phase_change:\(newPhase) group=\(derived.groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(derived.completedToolCount)/\(derived.totalToolCount) denied=\(derived.deniedCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
             toolCallCount: derived.totalToolCount
         ))
-        if newPhase == .processing {
-            processingStartDate = Date()
-            startDate = Date()
-        }
-        // Auto-expand when a step group completes, if the flag is enabled
-        if (newPhase == .complete || newPhase == .denied),
-           !isExpanded,
-           MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
-        {
-            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                kind: .progressCardTransition,
-                reason: "auto_expand:completed_steps_flag group=\(derived.groupId) phase=\(newPhase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                toolCallCount: derived.totalToolCount
-            ))
-            withAnimation(VAnimation.fast) {
-                isExpanded = true
+        // Auto-expand when a step group completes, if the flag is enabled.
+        // Skip if the user has explicitly set a preference for this card.
+        let hasUserCardPreference = cardKey != nil && cardExpansionOverrides[cardKey!] != nil
+        let shouldAutoExpandOnPhaseChange = (newPhase == .complete || newPhase == .denied)
+            && !hasUserCardPreference
+            && MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
+        deferProgressStateMutation {
+            if newPhase == .processing, phase == .processing {
+                processingStartDate = Date()
+                if derived.earliestStartedAt == nil {
+                    startDate = Date()
+                }
+            }
+            if shouldAutoExpandOnPhaseChange, !isExpanded {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:completed_steps_flag group=\(derived.groupId) phase=\(newPhase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                    toolCallCount: derived.totalToolCount
+                ))
+                withAnimation(VAnimation.fast) {
+                    isExpanded = true
+                }
             }
         }
     }
@@ -411,7 +445,11 @@ struct AssistantProgressView: View {
     }
 
     private func handlePendingConfirmationChange(_ pending: Bool) {
-        if pending && !isExpanded {
+        // Pending confirmations always force-expand — user must be able to
+        // see and interact with the approval UI.
+        guard pending else { return }
+        deferProgressStateMutation {
+            guard derived.hasPendingConfirmation, !isExpanded else { return }
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
                 reason: "auto_expand:pending_confirmation",
@@ -425,48 +463,30 @@ struct AssistantProgressView: View {
 
     private func handleOnAppear() {
         let wasExpandedOnEntry = isExpanded
-        if phase == .processing && processingStartDate == nil {
-            processingStartDate = Date()
-        }
-        // Seed startDate from persisted timestamps so the header timer
-        // shows correct elapsed time after history restore.
-        if let earliest = derived.earliestStartedAt {
-            startDate = earliest
-        }
-        // Auto-expand completed step groups when the flag is enabled.
-        // Also triggers rehydration for stripped tool call data so
-        // expanded groups don't render with empty details.
-        if !isExpanded,
-           (phase == .complete || phase == .denied),
-           MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
-        {
-            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                kind: .progressCardTransition,
-                reason: "auto_expand:completed_steps_flag_on_appear group=\(derived.groupId) phase=\(phase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                toolCallCount: derived.totalToolCount
-            ))
-            isExpanded = true
-            // Rehydration is handled by onChange(of: isExpanded) above.
-        }
-        // Auto-expand when a pending confirmation exists on appear
-        if derived.hasPendingConfirmation && !isExpanded {
-            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                kind: .progressCardTransition,
-                reason: "auto_expand:pending_confirmation_on_appear",
-                toolCallCount: derived.totalToolCount
-            ))
-            withAnimation(VAnimation.fast) {
-                isExpanded = true
-            }
-        }
+        let shouldAutoExpandPendingOnAppear = derived.hasPendingConfirmation && !isExpanded
+        let shouldRehydrateOnAppear = wasExpandedOnEntry && onRehydrate != nil && hasStrippedToolCalls
 
-        // Rehydrate stripped tool calls for cards that start expanded.
-        // When isExpanded is set to true in init(), onChange(of: isExpanded)
-        // never fires (no false→true transition), so we must check here.
-        // Gate on wasExpandedOnEntry so cards that just expanded above
-        // don't double-fire — onChange already handles their rehydration.
-        if wasExpandedOnEntry, onRehydrate != nil {
-            if hasStrippedToolCalls {
+        deferProgressStateMutation {
+            syncStartDateFromDerivedIfNeeded()
+            if phase == .processing && processingStartDate == nil {
+                processingStartDate = Date()
+                if derived.earliestStartedAt == nil {
+                    startDate = Date()
+                }
+            }
+
+            if shouldAutoExpandPendingOnAppear && derived.hasPendingConfirmation && !isExpanded {
+                ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+                    kind: .progressCardTransition,
+                    reason: "auto_expand:pending_confirmation_on_appear",
+                    toolCallCount: derived.totalToolCount
+                ))
+                withAnimation(VAnimation.fast) {
+                    isExpanded = true
+                }
+            }
+
+            if shouldRehydrateOnAppear {
                 onRehydrate?()
             }
         }
@@ -480,6 +500,19 @@ struct AssistantProgressView: View {
                 && tc.result == nil
                 && tc.inputRawDict == nil
                 && tc.cachedImages.isEmpty
+        }
+    }
+
+    private func deferProgressStateMutation(_ update: @escaping @MainActor () -> Void) {
+        Task { @MainActor in
+            update()
+        }
+    }
+
+    @MainActor
+    private func syncStartDateFromDerivedIfNeeded() {
+        if let earliest = derived.earliestStartedAt, startDate != earliest {
+            startDate = earliest
         }
     }
 
@@ -504,45 +537,50 @@ struct AssistantProgressView: View {
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
             }
+            if let key = cardKey { cardExpansionOverrides[key] = isExpanded }
         }) {
-            HStack(spacing: VSpacing.sm) {
-                // Status icon
-                statusIcon
-
-                // Headline text with cross-fade
-                headlineLabel
-
-                // Inline permission chips (collapsed only, hidden at narrow widths)
-                if !isExpanded && !hideInlineChips {
-                    inlinePermissionChips
-                }
-
-                Spacer()
-
-                // Elapsed time: live counter when active, final duration when complete
-                if isActive {
-                    elapsedTimeLabel
-                } else if derived.hasTools {
-                    completedDurationLabel
-                }
-
-                // Chevron (only if tools exist)
-                if hasChevron {
-                    VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
+            // Let SwiftUI choose the compact variant instead of toggling local
+            // state from a geometry callback, which can create layout feedback
+            // loops while the progress card is updating mid-send.
+            ViewThatFits(in: .horizontal) {
+                headerRowContent(showInlinePermissionChips: !isExpanded)
+                headerRowContent(showInlinePermissionChips: false)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .environment(\.isEnabled, true)
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: Bool.self) { proxy in
-            proxy.size.width < 350
-        } action: { shouldHide in
-            hideInlineChips = shouldHide
+    }
+
+    @ViewBuilder
+    private func headerRowContent(showInlinePermissionChips: Bool) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            // Status icon
+            statusIcon
+
+            // Headline text with cross-fade
+            headlineLabel
+
+            if showInlinePermissionChips {
+                inlinePermissionChips
+            }
+
+            Spacer()
+
+            // Elapsed time: live counter when active, final duration when complete
+            if isActive {
+                elapsedTimeLabel
+            } else if derived.hasTools {
+                completedDurationLabel
+            }
+
+            // Chevron (only if tools exist)
+            if hasChevron {
+                VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
     }
 
@@ -651,6 +689,19 @@ struct AssistantProgressView: View {
 
     // MARK: - Expanded Content
 
+    /// Derives a `Binding<Bool>` for a single step's expansion state from the
+    /// shared `expandedStepIds` set. The binding is scoped to one tool call ID
+    /// so StepDetailRow can use it as a drop-in replacement for `@State`.
+    private func isStepExpanded(_ id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { expandedStepIds.contains(id) },
+            set: { newValue in
+                if newValue { expandedStepIds.insert(id) }
+                else { expandedStepIds.remove(id) }
+            }
+        )
+    }
+
     @ViewBuilder
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -658,6 +709,7 @@ struct AssistantProgressView: View {
                 StepDetailRow(
                     toolCall: toolCall,
                     phase: phase,
+                    isDetailExpanded: isStepExpanded(toolCall.id),
                     skillLabel: toolCall.toolName == "skill_execute" ? derived.skillExecuteLabel : nil,
                     onRehydrate: onRehydrate
                 )
@@ -672,8 +724,7 @@ struct AssistantProgressView: View {
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
                         onTemporaryAllow: onTemporaryAllow
                     )
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
+                    .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
                 }
             }
         }
@@ -706,8 +757,7 @@ struct AssistantProgressView: View {
                     Text("+\(overflow)")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                        .padding(.horizontal, VSpacing.xs)
-                        .padding(.vertical, VSpacing.xxs)
+                        .padding(EdgeInsets(top: VSpacing.xxs, leading: VSpacing.xs, bottom: VSpacing.xxs, trailing: VSpacing.xs))
                         .background(
                             Capsule().fill(VColor.surfaceBase)
                         )
@@ -738,21 +788,20 @@ struct AssistantProgressView: View {
 private struct StepDetailRow: View {
     let toolCall: ToolCallData
     let phase: ProgressPhase
+    /// Expansion state lifted to ChatBubble so it survives the
+    /// trailing→interleaved rendering path switch mid-stream.
+    @Binding var isDetailExpanded: Bool
     /// Human-friendly label for skill_execute rows (e.g. "Using my frontend design skill").
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
-
-    @State private var isDetailExpanded = false
     @State private var isHovered = false
-    /// Cached formatted input — computed once on first expand.
-    @State private var cachedInputFull: String?
     @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     /// Lazily resolved full input text.
     private var resolvedInputFull: String {
-        if let cached = cachedInputFull { return cached }
         if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+        if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
         return ""
     }
 
@@ -858,46 +907,27 @@ private struct StepDetailRow: View {
             }
             .buttonStyle(.plain)
             .environment(\.isEnabled, true)
-            .padding(.leading, VSpacing.sm)
-            .padding(.trailing, VSpacing.xs)
-            .padding(.vertical, VSpacing.xs)
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs))
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(isHovered && hasDetails ? VColor.borderBase.opacity(0.5) : .clear)
             )
-            .padding(.leading, VSpacing.sm)
-            .padding(.trailing, VSpacing.xs)
+            .padding(EdgeInsets(top: 0, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.xs))
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
             if isDetailExpanded {
                 stepDetailContent
                     .transition(.opacity)
-                    .onAppear {
-                        if cachedInputFull == nil {
-                            if !toolCall.inputFull.isEmpty {
-                                cachedInputFull = toolCall.inputFull
-                            } else if let dict = toolCall.inputRawDict {
-                                cachedInputFull = ToolCallData.formatAllToolInput(dict)
-                            }
-                        }
-                        // Trigger on-demand rehydration when expanding truncated content.
-                        onRehydrate?()
-                    }
             }
         }
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
-            if newValue, cachedInputFull == nil {
-                if !toolCall.inputFull.isEmpty {
-                    cachedInputFull = toolCall.inputFull
-                } else if let dict = toolCall.inputRawDict {
-                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
+            if newValue {
+                Task { @MainActor in
+                    onRehydrate?()
                 }
             }
-        }
-        .onChange(of: toolCall.inputFull) {
-            cachedInputFull = nil
         }
     }
 
@@ -1012,8 +1042,7 @@ private struct StepDetailRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(VSpacing.sm)
-            .padding(.trailing, VSpacing.xl) // reserve space for copy button
+            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(VColor.surfaceOverlay.opacity(0.6))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
@@ -1138,11 +1167,7 @@ private struct CompactPermissionChip: View {
                 .font(VFont.labelSmall)
                 .foregroundStyle(chipColor)
         }
-        .padding(.horizontal, VSpacing.xs)
-        .padding(.vertical, VSpacing.xxs)
-        .background(
-            Capsule().fill(Color.clear)
-        )
+        .padding(EdgeInsets(top: VSpacing.xxs, leading: VSpacing.xs, bottom: VSpacing.xxs, trailing: VSpacing.xs))
         .overlay(
             Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
         )
@@ -1161,7 +1186,10 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
                 Animation.easeInOut(duration: 1.8).repeatForever(autoreverses: true),
                 value: isPulsing
             )
-            .onAppear { isPulsing = true }
+            .task {
+                guard !isPulsing else { return }
+                isPulsing = true
+            }
     }
 }
 

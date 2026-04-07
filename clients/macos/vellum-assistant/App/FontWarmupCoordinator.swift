@@ -46,6 +46,7 @@ final class FontWarmupCoordinator {
                 // NSFontManager.shared is an AppKit class that must not be
                 // accessed from a background thread.
                 VFont.prewarmNSFontManagerTokens()
+                self.refreshTypographyStateForReadyFonts()
                 self.markReady()
             }
         }
@@ -77,6 +78,14 @@ final class FontWarmupCoordinator {
     }
 
     // MARK: - Private
+
+    func refreshTypographyStateForReadyFonts() {
+        VFont.bumpTypographyGeneration()
+        MarkdownSegmentView.clearAttributedStringCache()
+        ChatBubble.segmentCache.removeAllObjects()
+        ChatBubble.lastStreamingSegments = nil
+        ChatBubble.lastStreamingParseTime = 0
+    }
 
     private func markReady() {
         isReady = true

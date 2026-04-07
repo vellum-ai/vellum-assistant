@@ -525,30 +525,14 @@ struct ChatGallerySection: View {
     }
 
     private func surfaceActionPill(label: String, style: SurfaceActionStyle) -> some View {
-        Text(label)
-            .font(VFont.bodyMediumDefault)
-            .foregroundStyle(surfaceActionForeground(style))
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(surfaceActionBackground(style))
-            )
+        VButton(label: label, style: surfaceActionButtonStyle(style)) {}
     }
 
-    private func surfaceActionForeground(_ style: SurfaceActionStyle) -> Color {
+    private func surfaceActionButtonStyle(_ style: SurfaceActionStyle) -> VButton.Style {
         switch style {
-        case .primary: return VColor.auxWhite
-        case .destructive: return VColor.auxWhite
-        case .secondary: return VColor.contentDefault
-        }
-    }
-
-    private func surfaceActionBackground(_ style: SurfaceActionStyle) -> Color {
-        switch style {
-        case .primary: return VColor.primaryBase
-        case .destructive: return VColor.systemNegativeStrong
-        case .secondary: return VColor.borderBase.opacity(0.5)
+        case .primary: return .primary
+        case .secondary: return .outlined
+        case .destructive: return .danger
         }
     }
 }

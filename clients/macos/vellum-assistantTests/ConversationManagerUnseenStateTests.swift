@@ -634,38 +634,48 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(appendedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 9.0)
     }
 
-    func testScheduleConversationCreatedWithUnseenFlag() {
+    /// Automated schedule conversations should never show unread indicators.
+    func testScheduleConversationCreatedWithoutUnseenFlag() {
+        // GIVEN a schedule conversation is created
         conversationManager.createScheduleConversation(
             conversationId: "schedule-conv-1",
             scheduleJobId: "sched-1",
             title: "Daily Standup"
         )
 
+        // WHEN we inspect the created conversation
         guard let conversation = conversationManager.conversations.first(where: { $0.conversationId == "schedule-conv-1" }) else {
             XCTFail("Expected schedule conversation to be created")
             return
         }
 
-        XCTAssertTrue(conversation.hasUnseenLatestAssistantMessage,
-                      "Schedule conversations should start with unread badge")
+        // THEN it should not have the unread badge (automated threads suppress unread)
+        XCTAssertFalse(conversation.hasUnseenLatestAssistantMessage,
+                       "Schedule conversations should not show unread badge")
         XCTAssertEqual(conversation.source, "schedule")
         XCTAssertEqual(conversation.scheduleJobId, "sched-1")
+        XCTAssertTrue(conversation.shouldSuppressUnreadIndicator)
     }
 
-    func testTaskRunConversationCreatedWithUnseenFlag() {
+    /// Automated task-run conversations should never show unread indicators.
+    func testTaskRunConversationCreatedWithoutUnseenFlag() {
+        // GIVEN a task-run conversation is created
         conversationManager.createTaskRunConversation(
             conversationId: "task-conv-1",
             workItemId: "work-1",
             title: "Run Tests"
         )
 
+        // WHEN we inspect the created conversation
         guard let conversation = conversationManager.conversations.first(where: { $0.conversationId == "task-conv-1" }) else {
             XCTFail("Expected task run conversation to be created")
             return
         }
 
-        XCTAssertTrue(conversation.hasUnseenLatestAssistantMessage,
-                      "Task run conversations should start with unread badge")
+        // THEN it should not have the unread badge (automated threads suppress unread)
+        XCTAssertFalse(conversation.hasUnseenLatestAssistantMessage,
+                       "Task run conversations should not show unread badge")
+        XCTAssertTrue(conversation.shouldSuppressUnreadIndicator)
     }
 
     func testNotificationConversationCreatedWithUnseenFlag() {
@@ -703,7 +713,9 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
                        "Duplicate conversationId should not create a second conversation")
     }
 
-    func testNotificationIntentMarksInactiveConversationUnseen() {
+    /// Notification intent on a schedule conversation should suppress unread but still update timestamps.
+    func testNotificationIntentSuppressesUnseenForAutomatedConversation() {
+        // GIVEN a schedule conversation exists (automated — suppresses unread)
         conversationManager.createScheduleConversation(
             conversationId: "notif-reuse-1",
             scheduleJobId: "sched-reuse-1",
@@ -715,17 +727,21 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        // Simulate previously seen state with stale recency
+        // AND it was previously seen with stale recency
         conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = false
         conversationManager.conversations[idx].lastInteractedAt = Date(timeIntervalSince1970: 1000)
 
-        // Ensure the active conversation is a different one (the default from setUp)
+        // AND the active conversation is a different one
         XCTAssertNotEqual(conversationManager.conversations[idx].id, conversationManager.activeConversationId)
 
+        // WHEN a notification intent arrives for the schedule conversation
         conversationManager.handleNotificationIntentForExistingConversation(daemonConversationId: "notif-reuse-1")
 
-        XCTAssertTrue(conversationManager.conversations[idx].hasUnseenLatestAssistantMessage,
-                      "Inactive conversation should be marked unseen after notification intent")
+        // THEN the unseen badge should remain suppressed (automated thread)
+        XCTAssertFalse(conversationManager.conversations[idx].hasUnseenLatestAssistantMessage,
+                       "Automated conversations should not show unread badge even after notification intent")
+
+        // AND timestamps should still be updated
         XCTAssertNotNil(conversationManager.conversations[idx].latestAssistantMessageAt,
                         "latestAssistantMessageAt should be set")
         XCTAssertTrue(
@@ -860,8 +876,9 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         let seenSignals = sentMessages.compactMap { $0 as? ConversationSeenSignal }
         XCTAssertFalse(seenSignals.contains(where: { $0.conversationId == "notif-seen-race" }),
                        "Pending seen signal should be removed when a notification intent marks the conversation unseen")
-        XCTAssertTrue(conversationManager.conversations[idx].hasUnseenLatestAssistantMessage,
-                      "Conversation should remain unseen after notification intent")
+        // Schedule conversations suppress unread, so the flag should be false after notification intent
+        XCTAssertFalse(conversationManager.conversations[idx].hasUnseenLatestAssistantMessage,
+                       "Automated conversation should not show unread badge after notification intent")
     }
 
     func testNotificationIntentQueuesCatchUpWhenVMBusy() {

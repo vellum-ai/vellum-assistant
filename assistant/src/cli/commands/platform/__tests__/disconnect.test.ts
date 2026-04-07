@@ -130,7 +130,7 @@ async function runCommand(
   process.exitCode = 0;
 
   try {
-    const program = buildCliProgram();
+    const program = await buildCliProgram();
     program.exitOverride();
     program.configureOutput({
       writeErr: () => {},

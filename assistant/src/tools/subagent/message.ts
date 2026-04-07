@@ -9,6 +9,12 @@ export async function executeSubagentMessage(
   const subagentId = resolveSubagentId(input, context);
   const content = input.content as string;
 
+  if (!subagentId && input.label) {
+    return {
+      content: `No subagent found with label "${input.label as string}".`,
+      isError: true,
+    };
+  }
   if (!subagentId || !content) {
     return {
       content: '"subagent_id" or "label", and "content" are required.',

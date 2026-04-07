@@ -81,6 +81,8 @@ export interface HistorySurface {
   data: Record<string, unknown>;
   actions?: Array<{ id: string; label: string; style?: string }>;
   display?: string;
+  completed?: boolean;
+  completionSummary?: string;
 }
 
 export interface RenderedHistoryContent {
@@ -281,6 +283,11 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
           : {},
         actions: Array.isArray(block.actions) ? block.actions : undefined,
         display: typeof block.display === "string" ? block.display : undefined,
+        completed: block.completed === true ? true : undefined,
+        completionSummary:
+          typeof block.completionSummary === "string"
+            ? block.completionSummary
+            : undefined,
       };
       surfaces.push(surface);
       contentOrder.push(`surface:${surfaces.length - 1}`);

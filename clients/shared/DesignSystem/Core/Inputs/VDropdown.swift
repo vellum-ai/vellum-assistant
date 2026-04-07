@@ -210,7 +210,14 @@ public struct VDropdown<T: Hashable>: View {
         )
 
         let appearance = window.effectiveAppearance
-        activePanel = VMenuPanel.show(at: screenPoint, sourceAppearance: appearance, excludeRect: triggerScreenRect) {
+        // Pass the resolved source window explicitly so VMenuPanel attaches the
+        // popup as a child of the trigger's window. Without this, VMenuPanel
+        // would fall back to a geometric search and could pick up the wrong
+        // window when the trigger lives in a modal that overlaps a larger
+        // window behind it (e.g. the Share Feedback modal over the main app
+        // window) — attaching to the wrong parent shoves the modal behind via
+        // `addChildWindow`.
+        activePanel = VMenuPanel.show(at: screenPoint, sourceWindow: window, sourceAppearance: appearance, excludeRect: triggerScreenRect) {
             VMenu(width: menuWidth) {
                 ForEach(optionList) { option in
                     VMenuItem(

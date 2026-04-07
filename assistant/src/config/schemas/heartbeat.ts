@@ -22,19 +22,40 @@ export const HeartbeatConfigSchema = z
       .int("heartbeat.activeHoursStart must be an integer")
       .min(0, "heartbeat.activeHoursStart must be >= 0")
       .max(23, "heartbeat.activeHoursStart must be <= 23")
+      .nullable()
       .default(8)
-      .describe("Hour of the day (0-23) when heartbeat checks begin"),
+      .describe(
+        "Hour of the day (0-23) when heartbeat checks begin, or null to disable active hours restriction",
+      ),
     activeHoursEnd: z
       .number({ error: "heartbeat.activeHoursEnd must be a number" })
       .int("heartbeat.activeHoursEnd must be an integer")
       .min(0, "heartbeat.activeHoursEnd must be >= 0")
       .max(23, "heartbeat.activeHoursEnd must be <= 23")
+      .nullable()
       .default(22)
-      .describe("Hour of the day (0-23) when heartbeat checks stop"),
+      .describe(
+        "Hour of the day (0-23) when heartbeat checks stop, or null to disable active hours restriction",
+      ),
   })
   .describe("Periodic heartbeat configuration for health monitoring")
   .superRefine((config, ctx) => {
-    if (config.activeHoursStart === config.activeHoursEnd) {
+    const startNull = config.activeHoursStart == null;
+    const endNull = config.activeHoursEnd == null;
+    if (startNull !== endNull) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [startNull ? "activeHoursStart" : "activeHoursEnd"],
+        message:
+          "heartbeat.activeHoursStart and heartbeat.activeHoursEnd must both be set or both be null",
+      });
+      return;
+    }
+    if (
+      config.activeHoursStart != null &&
+      config.activeHoursEnd != null &&
+      config.activeHoursStart === config.activeHoursEnd
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["activeHoursEnd"],

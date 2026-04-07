@@ -100,15 +100,22 @@ extension ChatBubble {
 
     // MARK: - Cache Recomputation
 
-    /// Recomputes all cached interleaved content state. Called from `.onAppear`
-    /// and `.onChange(of: message.contentOrder)` / `.onChange(of: message.textSegments)`.
+    /// Recomputes all cached interleaved content state when message structure
+    /// changes, while avoiding no-op `@State` writes that would otherwise
+    /// re-render the bubble on every streaming token.
     func recomputeInterleavedContentCache() {
         let interleaved = Self.computeHasInterleavedContent(message.contentOrder)
-        cachedHasInterleavedContent = interleaved
 
         guard interleaved else {
-            cachedContentGroups = []
-            cachedToolGroupsWithTrailingText = []
+            if cachedHasInterleavedContent {
+                cachedHasInterleavedContent = false
+            }
+            if !cachedContentGroups.isEmpty {
+                cachedContentGroups = []
+            }
+            if !cachedToolGroupsWithTrailingText.isEmpty {
+                cachedToolGroupsWithTrailingText = []
+            }
             // Update static cache with non-interleaved result
             Self.storeInterleavedResult(
                 InterleavedCacheValue(hasInterleaved: false, groups: [], trailingTextIds: []),
@@ -121,7 +128,6 @@ extension ChatBubble {
             contentOrder: message.contentOrder,
             hasInterleavedContent: interleaved
         )
-        cachedContentGroups = groups
 
         // Pre-compute which tool-call groups have trailing text so that
         // `interleavedContent` can look up the set instead of scanning
@@ -138,7 +144,15 @@ extension ChatBubble {
                 trailingTextIds.insert(group.stableId)
             }
         }
-        cachedToolGroupsWithTrailingText = trailingTextIds
+        if !cachedHasInterleavedContent {
+            cachedHasInterleavedContent = true
+        }
+        if cachedContentGroups != groups {
+            cachedContentGroups = groups
+        }
+        if cachedToolGroupsWithTrailingText != trailingTextIds {
+            cachedToolGroupsWithTrailingText = trailingTextIds
+        }
 
         // Update static cache so the next init() for this message uses fresh values
         Self.storeInterleavedResult(
@@ -326,7 +340,9 @@ extension ChatBubble {
                 onConfirmationDeny: onConfirmationDeny,
                 onAlwaysAllow: onAlwaysAllow,
                 onTemporaryAllow: onTemporaryAllow,
-                activeConfirmationRequestId: activeConfirmationRequestId
+                activeConfirmationRequestId: activeConfirmationRequestId,
+                expandedStepIds: $expandedStepIds,
+                cardExpansionOverrides: $cardExpansionOverrides
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 

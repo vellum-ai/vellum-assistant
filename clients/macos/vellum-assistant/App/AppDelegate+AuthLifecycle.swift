@@ -146,6 +146,13 @@ extension AppDelegate {
     @objc func performRestart() {
         let bundleURL = Bundle.main.bundleURL
 
+        // Disconnect SSE and health checks *before* the CLI kills the
+        // daemon/gateway.  Otherwise the health check detects the daemon
+        // dying, triggers autoWakeIfAssistantDied(), and wakes the daemon
+        // right back up — fighting with the shutdown.  (Same pattern as
+        // performRetireAsync().)
+        connectionManager.disconnect()
+
         // Write a timestamped sentinel so the new instance's single-instance
         // guard knows this is an intentional restart, not a duplicate launch.
         // The sentinel contains the current Unix timestamp; the new instance
@@ -165,10 +172,17 @@ extension AppDelegate {
                 // Clean up the sentinel so a failed restart doesn't leave
                 // a file that could bypass the guard on the next launch.
                 try? FileManager.default.removeItem(at: sentinelPath)
+                // Reconnect SSE and health checks so the app doesn't stay
+                // in a disconnected state after a failed relaunch attempt.
+                // (Same pattern as performRetireAsync()'s cancel path.)
+                Task { @MainActor [weak self] in
+                    try? await self?.connectionManager.connect()
+                }
                 return
             }
             Task { @MainActor [weak self] in
                 await self?.vellumCli.stop()
+                self?.isRestarting = true
                 NSApp.terminate(nil)
             }
         }
@@ -550,9 +564,17 @@ extension AppDelegate {
         // that depend on connectedAssistantId).
         featureFlagStore.reloadFromDisk()
 
-        // Reload avatar for the new assistant (customAvatarURL now resolves
-        // to the new assistant's path after connectedAssistantId was updated).
-        AvatarAppearanceManager.shared.reloadAvatar()
+        // Reload avatar for the new assistant via the gateway.
+        // Skip the reload when onboarding avatar traits are pending — the async
+        // fetchTraitsViaHTTP inside reloadAvatar would find no traits on the
+        // freshly-hatched assistant and clear the locally-saved character avatar.
+        // syncOnboardingAvatarIfNeeded saves locally first, then syncs to the
+        // assistant, which triggers its own reloadAvatar on success.
+        if onboardingState?.hatchAvatarBodyShape != nil {
+            syncOnboardingAvatarIfNeeded()
+        } else {
+            AvatarAppearanceManager.shared.reloadAvatar()
+        }
 
         showMainWindow()
     }

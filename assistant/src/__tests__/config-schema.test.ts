@@ -170,6 +170,7 @@ describe("AssistantConfigSchema", () => {
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
       conversationRetentionDays: 0,
+      llmRequestLogRetentionMs: 7 * 24 * 60 * 60 * 1000,
     });
   });
 
@@ -461,6 +462,8 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.permissions).toEqual({
       mode: "workspace",
+      askBeforeActing: true,
+      hostAccess: false,
     });
   });
 
@@ -1168,6 +1171,8 @@ describe("loadConfig with schema validation", () => {
     const config = loadConfig();
     expect(config.permissions).toEqual({
       mode: "workspace",
+      askBeforeActing: true,
+      hostAccess: false,
     });
   });
 

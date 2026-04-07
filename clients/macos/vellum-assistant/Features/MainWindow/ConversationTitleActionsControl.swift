@@ -72,7 +72,7 @@ struct ConversationActionsDrawer: View {
                 VMenuItem(icon: VIcon.gitBranch.rawValue, label: "Fork conversation", action: onForkConversation)
             }
 
-            if !presentation.isChannelConversation && !presentation.isPrivateConversation {
+            if presentation.isPersisted && !presentation.isChannelConversation && !presentation.isPrivateConversation {
                 VMenuItem(
                     icon: VIcon.sparkles.rawValue,
                     label: "Analyze conversation",

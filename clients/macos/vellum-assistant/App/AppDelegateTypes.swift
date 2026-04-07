@@ -3,7 +3,7 @@ import AppKit
 enum AssistantStatus {
     case idle
     case thinking
-    case error(String)
+    case error
     case disconnected
 
     var menuTitle: String {
@@ -15,7 +15,7 @@ enum AssistantStatus {
         switch self {
         case .idle: return "\(name) is idle"
         case .thinking: return "\(name) is thinking..."
-        case .error(let msg): return "Error: \(msg)"
+        case .error: return "\(name) encountered an error"
         case .disconnected: return "Disconnected from \(name)"
         }
     }

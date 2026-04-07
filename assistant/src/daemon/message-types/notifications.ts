@@ -27,6 +27,18 @@ export interface NotificationConversationCreated {
    * and should only be surfaced by clients bound to this guardian identity.
    */
   targetGuardianPrincipalId?: string;
+  /**
+   * Conversation group identifier propagated from the signal producer.
+   * Clients use this to place the conversation in the correct sidebar folder
+   * (e.g. "system:scheduled" for schedule completion threads).
+   */
+  groupId?: string;
+  /**
+   * Semantic source of the conversation (e.g. "schedule", "reminder").
+   * Allows clients to override the default "notification" source so the
+   * conversation is attributed correctly.
+   */
+  source?: string;
 }
 
 /** Client ack sent after UNUserNotificationCenter.add() completes (or fails). */

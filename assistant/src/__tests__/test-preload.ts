@@ -22,10 +22,28 @@ const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "vellum-test-workspace-")),
 );
 process.env.VELLUM_WORKSPACE_DIR = testDir;
+process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
+process.exitCode = 0;
+
+// Prevent tests from routing credential writes through the real CES
+// (Credential Execution Service). Without this, setSecureKeyAsync() in
+// containerized environments writes to the live credential store.
+const savedIsContainerized = process.env.IS_CONTAINERIZED;
+const savedCesCredentialUrl = process.env.CES_CREDENTIAL_URL;
+delete process.env.IS_CONTAINERIZED;
+delete process.env.CES_CREDENTIAL_URL;
 
 afterAll(() => {
   resetDb();
+  process.exitCode = 0;
   delete process.env.VELLUM_WORKSPACE_DIR;
+  delete process.env.VELLUM_PLATFORM_URL;
+  if (savedIsContainerized !== undefined) {
+    process.env.IS_CONTAINERIZED = savedIsContainerized;
+  }
+  if (savedCesCredentialUrl !== undefined) {
+    process.env.CES_CREDENTIAL_URL = savedCesCredentialUrl;
+  }
   try {
     rmSync(testDir, { recursive: true, force: true });
   } catch {

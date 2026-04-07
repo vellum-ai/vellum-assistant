@@ -220,8 +220,7 @@ struct MessageCellView: View, Equatable {
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(VColor.primaryBase.opacity(isHighlighted ? 0.15 : 0))
-                    .padding(.horizontal, -VSpacing.sm)
-                    .padding(.vertical, -VSpacing.xs)
+                    .padding(EdgeInsets(top: -VSpacing.xs, leading: -VSpacing.sm, bottom: -VSpacing.xs, trailing: -VSpacing.sm))
             )
             .animation(VAnimation.slow, value: isHighlighted)
             .id(message.id)

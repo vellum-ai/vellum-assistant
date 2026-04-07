@@ -49,7 +49,8 @@ export async function run(
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const account = input.account as string | undefined;
-  const query = (input.query as string) ?? "category:promotions newer_than:90d";
+  const query =
+    (input.query as string) ?? "in:inbox category:promotions newer_than:90d";
   const maxMessages = Math.min(
     (input.max_messages as number) ?? 5000,
     MAX_MESSAGES_CAP,

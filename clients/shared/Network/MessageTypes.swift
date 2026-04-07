@@ -168,7 +168,9 @@ private func buildConversationTransportMetadata(
     channelId: String?,
     interfaceId: String?,
     hints: [String]?,
-    uxBrief: String?
+    uxBrief: String?,
+    hostHomeDir: String? = nil,
+    hostUsername: String? = nil
 ) -> ConversationTransportMetadata? {
     guard let channelId, !channelId.isEmpty else { return nil }
 
@@ -181,6 +183,12 @@ private func buildConversationTransportMetadata(
     }
     if let uxBrief {
         payload["uxBrief"] = uxBrief
+    }
+    if let hostHomeDir {
+        payload["hostHomeDir"] = hostHomeDir
+    }
+    if let hostUsername {
+        payload["hostUsername"] = hostUsername
     }
 
     guard JSONSerialization.isValidJSONObject(payload) else { return nil }
@@ -207,6 +215,24 @@ extension ConversationCreateRequest {
         self.init(type: "conversation_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, conversationType: conversationType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
     }
 
+    /// The host home directory, populated automatically on macOS.
+    private static var defaultHostHomeDir: String? {
+        #if os(macOS)
+        return NSHomeDirectory()
+        #else
+        return nil
+        #endif
+    }
+
+    /// The host username, populated automatically on macOS.
+    private static var defaultHostUsername: String? {
+        #if os(macOS)
+        return NSUserName()
+        #else
+        return nil
+        #endif
+    }
+
     public init(
         title: String?,
         systemPromptOverride: String? = nil,
@@ -215,8 +241,15 @@ extension ConversationCreateRequest {
         transportChannelId: String?,
         transportInterfaceId: String? = nil,
         transportHints: [String]? = nil,
-        transportUxBrief: String? = nil
+        transportUxBrief: String? = nil,
+        transportHostHomeDir: String? = nil,
+        transportHostUsername: String? = nil
     ) {
+        let effectiveInterface = transportInterfaceId ?? Self.defaultTransportInterface
+        // Auto-populate host environment on macOS when using the default transport interface.
+        let effectiveHostHomeDir = transportHostHomeDir ?? (effectiveInterface == "macos" ? Self.defaultHostHomeDir : nil)
+        let effectiveHostUsername = transportHostUsername ?? (effectiveInterface == "macos" ? Self.defaultHostUsername : nil)
+
         self.init(
             type: "conversation_create",
             title: title,
@@ -225,9 +258,11 @@ extension ConversationCreateRequest {
             correlationId: correlationId,
             transport: buildConversationTransportMetadata(
                 channelId: transportChannelId,
-                interfaceId: transportInterfaceId ?? Self.defaultTransportInterface,
+                interfaceId: effectiveInterface,
                 hints: transportHints,
-                uxBrief: transportUxBrief
+                uxBrief: transportUxBrief,
+                hostHomeDir: effectiveHostHomeDir,
+                hostUsername: effectiveHostUsername
             ),
             conversationType: nil,
             preactivatedSkillIds: nil,
@@ -2225,6 +2260,9 @@ public enum ServerMessage: Decodable, Sendable {
     case recordingStop(RecordingStop)
     case clientSettingsUpdate(ClientSettingsUpdate)
     case avatarUpdated(AvatarUpdated)
+    case soundsConfigUpdated(SoundsConfigUpdated)
+    case configChanged(ConfigChanged)
+    case featureFlagsChanged(FeatureFlagsChanged)
     case generateAvatarResponse(GenerateAvatarResponse)
     case heartbeatConfigResponse(HeartbeatConfigResponse)
     case heartbeatRunsListResponse(HeartbeatRunsListResponse)
@@ -2241,6 +2279,7 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileCancel(HostFileCancelRequest)
     case hostCuRequest(HostCuRequest)
     case hostCuCancel(HostCuCancelRequest)
+    case permissionModeUpdate(PermissionModeUpdateMessage)
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
@@ -2637,6 +2676,15 @@ public enum ServerMessage: Decodable, Sendable {
         case "avatar_updated":
             let message = try AvatarUpdated(from: decoder)
             self = .avatarUpdated(message)
+        case "sounds_config_updated":
+            let message = try SoundsConfigUpdated(from: decoder)
+            self = .soundsConfigUpdated(message)
+        case "config_changed":
+            let message = try ConfigChanged(from: decoder)
+            self = .configChanged(message)
+        case "feature_flags_changed":
+            let message = try FeatureFlagsChanged(from: decoder)
+            self = .featureFlagsChanged(message)
         case "generate_avatar_response":
             let message = try GenerateAvatarResponse(from: decoder)
             self = .generateAvatarResponse(message)
@@ -2685,6 +2733,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_cancel":
             let message = try HostCuCancelRequest(from: decoder)
             self = .hostCuCancel(message)
+        case "permission_mode_update":
+            let message = try PermissionModeUpdateMessage(from: decoder)
+            self = .permissionModeUpdate(message)
         case "usage_update":
             let message = try UsageUpdate(from: decoder)
             self = .usageUpdate(message)
@@ -2705,6 +2756,14 @@ public enum ServerMessage: Decodable, Sendable {
     }
 }
 
+
+// MARK: - Permission Mode
+
+/// Two-axis permission mode state broadcast via SSE or returned by GET /v1/permission-mode.
+public struct PermissionModeUpdateMessage: Decodable, Sendable {
+    public let askBeforeActing: Bool
+    public let hostAccess: Bool
+}
 
 // MARK: - Token Rotation
 

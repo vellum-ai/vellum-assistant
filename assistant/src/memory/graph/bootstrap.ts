@@ -13,12 +13,13 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { and, asc, ne, sql } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
-import { getDb } from "../db.js";
+import { getDb, rawAll, rawGet, rawRun } from "../db.js";
 import { enqueueMemoryJob, hasActiveJobOfType } from "../jobs-store.js";
 import { initQdrantClient } from "../qdrant-client.js";
 import { conversations, memoryGraphNodes, memorySegments } from "../schema.js";
@@ -345,6 +346,142 @@ export function maybeEnqueueGraphBootstrap(): void {
     "Graph empty with historical data — enqueueing bootstrap",
   );
   enqueueMemoryJob("graph_bootstrap", {});
+}
+
+// ---------------------------------------------------------------------------
+// One-time migration: port tool-created memoryItems to graph nodes
+// ---------------------------------------------------------------------------
+
+const MIGRATE_ITEMS_CHECKPOINT = "graph_bootstrap:migrated_tool_items";
+
+interface LegacyItem {
+  id: string;
+  kind: string;
+  subject: string;
+  statement: string;
+  confidence: number;
+  importance: number;
+  scope_id: string;
+  first_seen_at: number;
+}
+
+/** Source prefix mapping from old kind to new sourceConversations key. */
+const KIND_TO_PREFIX: Record<string, string> = {
+  playbook: "playbook:",
+  style: "style:",
+  relationship: "relationship:",
+};
+
+/**
+ * Migrate tool-created memoryItems (playbooks, style patterns, relationship
+ * dynamics) into graph nodes. These were created directly by tool handlers
+ * and won't be picked up by the conversation-based graph bootstrap.
+ *
+ * Idempotent: uses a checkpoint to run only once. Skips items whose
+ * sourceKey already exists in the graph.
+ *
+ * Uses raw SQL for the INSERT to avoid coupling to the evolving Drizzle
+ * schema. ORM-based inserts include every column in the schema definition,
+ * so adding a column in a later migration would cause this migration to
+ * fail with "table has no column named …" on upgrade paths.
+ */
+export function migrateToolCreatedItems(): void {
+  if (getMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT)) return;
+
+  const kinds = Object.keys(KIND_TO_PREFIX);
+  const placeholders = kinds.map(() => "?").join(", ");
+
+  let rows: LegacyItem[];
+  try {
+    rows = rawAll<LegacyItem>(
+      `SELECT id, kind, subject, statement, confidence, importance, scope_id, first_seen_at
+       FROM memory_items
+       WHERE kind IN (${placeholders}) AND status = 'active'`,
+      ...kinds,
+    );
+  } catch (err) {
+    // Table may not exist (fresh install) — nothing to migrate
+    if (err instanceof Error && err.message.includes("no such table")) {
+      setMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT, "done");
+      return;
+    }
+    throw err;
+  }
+
+  if (rows.length === 0) {
+    setMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT, "done");
+    return;
+  }
+
+  let migrated = 0;
+
+  for (const row of rows) {
+    const prefix = KIND_TO_PREFIX[row.kind];
+    if (!prefix) continue;
+
+    // Build content in the format the new tools expect
+    const content = `${row.subject}\n${row.statement}`;
+
+    // Check if already migrated (sourceKey exists in graph)
+    const sourceKey = `${prefix}${row.id}`;
+    const existing = rawGet<{ id: string }>(
+      `SELECT id FROM memory_graph_nodes WHERE source_conversations LIKE ?`,
+      `%${sourceKey}%`,
+    );
+    if (existing) continue;
+
+    const now = Date.now();
+    const id = uuid();
+    const emotionalCharge = JSON.stringify({
+      valence: 0,
+      intensity: 0.1,
+      decayCurve: "linear",
+      decayRate: 0.05,
+      originalIntensity: 0.1,
+    });
+
+    rawRun(
+      `INSERT INTO memory_graph_nodes (
+        id, content, type, created, last_accessed, last_consolidated,
+        event_date, emotional_charge, fidelity, confidence, significance,
+        stability, reinforcement_count, last_reinforced,
+        source_conversations, source_type, narrative_role, part_of_story,
+        image_refs, scope_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      content,
+      "semantic",
+      row.first_seen_at || now,
+      now,
+      now,
+      null,
+      emotionalCharge,
+      "vivid",
+      row.confidence,
+      row.importance,
+      14,
+      0,
+      now,
+      JSON.stringify([sourceKey]),
+      "direct",
+      null,
+      null,
+      null,
+      row.scope_id || "default",
+    );
+
+    enqueueMemoryJob("embed_graph_node", { nodeId: id });
+    migrated++;
+  }
+
+  setMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT, "done");
+
+  if (migrated > 0) {
+    log.info(
+      { migrated, total: rows.length },
+      "Migrated tool-created items to graph nodes",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

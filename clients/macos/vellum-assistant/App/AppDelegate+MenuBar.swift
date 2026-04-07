@@ -318,7 +318,7 @@ extension AppDelegate {
     var currentAssistantStatus: AssistantStatus {
         if !connectionManager.isConnected { return .disconnected }
         guard let viewModel = mainWindow?.conversationManager.activeViewModel else { return .idle }
-        if let error = viewModel.errorText { return .error(error) }
+        if viewModel.errorText != nil { return .error }
         if viewModel.isThinking { return .thinking }
         return .idle
     }

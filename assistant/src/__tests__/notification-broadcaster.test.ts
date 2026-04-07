@@ -583,4 +583,69 @@ describe("notification broadcaster", () => {
     expect(vellumCall).toBeDefined();
     expect(vellumCall!.options?.bindingContext).toBeUndefined();
   });
+
+  // ── conversationMetadata propagation ──────────────────────────────
+
+  test("onConversationCreated includes groupId and source from conversationMetadata", async () => {
+    const vellumAdapter = new MockAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+    const createdCalls: ConversationCreatedInfo[] = [];
+    broadcaster.setOnConversationCreated((info) => createdCalls.push(info));
+
+    const signal = makeSignal({
+      sourceEventName: "schedule.complete",
+      conversationMetadata: {
+        groupId: "system:scheduled",
+        source: "schedule",
+        scheduleJobId: "job-abc-123",
+      },
+    });
+    const decision = makeDecision();
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    expect(createdCalls).toHaveLength(1);
+    expect(createdCalls[0].groupId).toBe("system:scheduled");
+    expect(createdCalls[0].source).toBe("schedule");
+    expect(createdCalls[0].sourceEventName).toBe("schedule.complete");
+  });
+
+  test("onConversationCreated omits groupId and source when conversationMetadata is absent", async () => {
+    const vellumAdapter = new MockAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+    const createdCalls: ConversationCreatedInfo[] = [];
+    broadcaster.setOnConversationCreated((info) => createdCalls.push(info));
+
+    const signal = makeSignal(); // no conversationMetadata
+    const decision = makeDecision();
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    expect(createdCalls).toHaveLength(1);
+    expect(createdCalls[0].groupId).toBeUndefined();
+    expect(createdCalls[0].source).toBeUndefined();
+  });
+
+  test("per-dispatch callback receives conversationMetadata fields", async () => {
+    const vellumAdapter = new MockAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+    const dispatchCalls: ConversationCreatedInfo[] = [];
+
+    const signal = makeSignal({
+      sourceEventName: "schedule.complete",
+      conversationMetadata: {
+        groupId: "system:scheduled",
+        source: "schedule",
+      },
+    });
+    const decision = makeDecision();
+
+    await broadcaster.broadcastDecision(signal, decision, {
+      onConversationCreated: (info) => dispatchCalls.push(info),
+    });
+
+    expect(dispatchCalls).toHaveLength(1);
+    expect(dispatchCalls[0].groupId).toBe("system:scheduled");
+    expect(dispatchCalls[0].source).toBe("schedule");
+  });
 });

@@ -56,6 +56,11 @@ export const OutlookOAuthServiceSchema = BaseServiceSchema.extend({
 });
 export type OutlookOAuthService = z.infer<typeof OutlookOAuthServiceSchema>;
 
+export const LinearOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type LinearOAuthService = z.infer<typeof LinearOAuthServiceSchema>;
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -69,6 +74,9 @@ export const ServicesSchema = z.object({
   ),
   "outlook-oauth": OutlookOAuthServiceSchema.default(
     OutlookOAuthServiceSchema.parse({}),
+  ),
+  "linear-oauth": LinearOAuthServiceSchema.default(
+    LinearOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;

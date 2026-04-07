@@ -43,6 +43,7 @@ struct SidebarConversationItem: View, Equatable {
         if gid == ConversationGroup.pinned.id { return ConversationGroup.pinned }
         if gid == ConversationGroup.scheduled.id { return ConversationGroup.scheduled }
         if gid == ConversationGroup.background.id { return ConversationGroup.background }
+        if gid == ConversationGroup.all.id { return ConversationGroup.all }
         // Custom group — not in moveToGroups (it's filtered out), but we know it's non-system
         return ConversationGroup(id: gid, name: "", sortPosition: 0, isSystemGroup: false)
     }
@@ -55,6 +56,7 @@ struct SidebarConversationItem: View, Equatable {
     private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
+            !conversation.shouldSuppressUnreadIndicator &&
             conversation.conversationId != nil &&
             conversation.latestAssistantMessageAt != nil
     }
@@ -92,10 +94,10 @@ struct SidebarConversationItem: View, Equatable {
                         onMoveToGroup(group.id)
                     }
                 }
-                if conversation.groupId != nil {
+                if let gid = conversation.groupId, !gid.hasPrefix("system:") {
                     VMenuDivider()
                     VMenuItem(label: "Remove from group") {
-                        onMoveToGroup(nil)
+                        onMoveToGroup(ConversationGroup.all.id)
                     }
                 }
             }
@@ -179,7 +181,7 @@ struct SidebarConversationItem: View, Equatable {
                 .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .nativeTooltip(conversation.title)
+                .vTooltip(conversation.title)
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)

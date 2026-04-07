@@ -205,7 +205,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     );
 
     const proc = Bun.spawn({
-      cmd: [bunPath, workerPath, this.model, modelCacheDir],
+      cmd: [bunPath, "--smol", workerPath, this.model, modelCacheDir],
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",

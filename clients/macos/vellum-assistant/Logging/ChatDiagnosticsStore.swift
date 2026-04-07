@@ -187,7 +187,7 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
     let hasBeenInteracted: Bool?
     /// Whether a pagination load is currently in flight.
     let isPaginationInFlight: Bool?
-    /// The current scroll mode (e.g. "followingBottom", "freeBrowsing", "pushToTop").
+    /// The current scroll mode (e.g. "followingBottom", "freeBrowsing", "programmaticScroll").
     let scrollMode: String?
     /// The message ID the scroll view is anchored to, if any.
     let anchorMessageId: String?

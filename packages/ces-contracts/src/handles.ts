@@ -146,14 +146,12 @@ export function parseHandle(raw: string): ParseHandleResult {
     }
 
     case HandleType.LocalOAuth: {
-      // providerKey is typically a bare name (e.g. "google"), but legacy handles
-      // may contain a colon (e.g. "integration:google"), so we split on the
-      // *last* "/" to separate providerKey from connectionId.
-      const lastSlashIdx = rest.lastIndexOf("/");
+      // Split providerKey from connectionId.
+      const slashIdx = rest.indexOf("/");
       if (
-        lastSlashIdx === -1 ||
-        lastSlashIdx === 0 ||
-        lastSlashIdx === rest.length - 1
+        slashIdx === -1 ||
+        slashIdx === 0 ||
+        slashIdx === rest.length - 1
       ) {
         return {
           ok: false,
@@ -164,8 +162,8 @@ export function parseHandle(raw: string): ParseHandleResult {
         ok: true,
         handle: {
           type: HandleType.LocalOAuth,
-          providerKey: rest.slice(0, lastSlashIdx),
-          connectionId: rest.slice(lastSlashIdx + 1),
+          providerKey: rest.slice(0, slashIdx),
+          connectionId: rest.slice(slashIdx + 1),
           raw,
         },
       };

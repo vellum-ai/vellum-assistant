@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.6.0
+  version: 0.6.1
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -3119,7 +3119,7 @@ paths:
     post:
       operationId: export_post
       summary: Export logs and audit data
-      description: Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
+      description: Export audit records, assistant logs, and config as a tar.gz archive.
       tags:
         - export
       responses:
@@ -4277,7 +4277,7 @@ paths:
     post:
       operationId: logs_export_post
       summary: Export logs and audit data (alias)
-      description: Alias for /v1/export. Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
+      description: Alias for /v1/export. Export audit records, assistant logs, and config as a tar.gz archive.
       tags:
         - export
       responses:
@@ -5109,6 +5109,63 @@ paths:
           schema:
             type: string
           description: Conversation ID
+  /v1/permission-mode:
+    get:
+      operationId: permissionmode_get
+      summary: Get permission mode
+      description: Return the current two-axis permission mode (askBeforeActing, hostAccess).
+      tags:
+        - settings
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  askBeforeActing:
+                    type: boolean
+                  hostAccess:
+                    type: boolean
+                required:
+                  - askBeforeActing
+                  - hostAccess
+                additionalProperties: false
+    put:
+      operationId: permissionmode_put
+      summary: Update permission mode
+      description: Update the two-axis permission mode. Requires the permission-controls-v2 feature flag.
+      tags:
+        - settings
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  askBeforeActing:
+                    type: boolean
+                  hostAccess:
+                    type: boolean
+                required:
+                  - askBeforeActing
+                  - hostAccess
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                askBeforeActing:
+                  type: boolean
+                hostAccess:
+                  type: boolean
+              additionalProperties: false
   /v1/profiler/runs:
     get:
       operationId: profiler_runs_get

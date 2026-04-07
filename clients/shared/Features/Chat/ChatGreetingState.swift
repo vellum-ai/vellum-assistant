@@ -38,6 +38,12 @@ public final class ChatGreetingState {
         "Ready when you are.",
     ]
 
+    /// Maximum character length for a daemon-generated greeting before we
+    /// fall back to a static greeting. The hero section renders greetings
+    /// at `VFont.displayLarge` (32pt), so anything beyond a short phrase
+    /// dominates the screen.
+    private static let maxGreetingLength = 80
+
     // MARK: - Dependencies
 
     @ObservationIgnored private let btwClient: any BtwClientProtocol
@@ -77,9 +83,10 @@ public final class ChatGreetingState {
                     result += delta
                 }
                 guard !Task.isCancelled else { return }
-                self.emptyStateGreeting = result.isEmpty
+                let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.emptyStateGreeting = (trimmed.isEmpty || trimmed.count > Self.maxGreetingLength)
                     ? Self.fallbackGreetings.randomElement()!
-                    : result
+                    : trimmed
             } catch is CancellationError {
                 return
             } catch {

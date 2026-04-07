@@ -10,21 +10,26 @@ const SETTINGS_TABS = [
   "Sounds",
   "Permissions & Privacy",
   "Billing",
-  "Archived Conversations",
+  "Archive",
   "Schedules",
   "Developer",
 ] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
+const LEGACY_TAB_ALIASES: Record<string, SettingsTab> = {
+  "Archived Conversations": "Archive",
+};
+
 export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const tab = input.tab as string;
+  const rawTab = input.tab as string;
+  const tab = LEGACY_TAB_ALIASES[rawTab] ?? rawTab;
   if (!SETTINGS_TABS.includes(tab as SettingsTab)) {
     return {
-      content: `Error: unknown tab "${tab}". Valid tabs: ${SETTINGS_TABS.join(
+      content: `Error: unknown tab "${rawTab}". Valid tabs: ${SETTINGS_TABS.join(
         ", ",
       )}`,
       isError: true,

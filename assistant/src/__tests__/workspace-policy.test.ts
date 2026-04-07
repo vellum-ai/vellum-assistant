@@ -198,7 +198,7 @@ describe("isWorkspaceScopedInvocation", () => {
   // ── Bash ───────────────────────────────────────────────────────────
 
   describe("bash", () => {
-    test("returns true (sandbox handles isolation)", () => {
+    test("returns true (container handles isolation)", () => {
       expect(
         isWorkspaceScopedInvocation(
           "bash",
@@ -255,12 +255,7 @@ describe("isWorkspaceScopedInvocation", () => {
   // ── Always-scoped safe tools ───────────────────────────────────────
 
   describe("always-scoped tools", () => {
-    const safeTools = [
-      "skill_load",
-      "recall",
-      "ui_update",
-      "ui_dismiss",
-    ];
+    const safeTools = ["skill_load", "recall", "ui_update", "ui_dismiss"];
 
     for (const tool of safeTools) {
       test(`${tool} is workspace-scoped`, () => {

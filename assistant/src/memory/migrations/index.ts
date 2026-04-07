@@ -153,6 +153,7 @@ export { migrateConversationsLastMessageAt } from "./208-conversations-last-mess
 export { migrateStripThinkingFromConsolidated } from "./209-strip-thinking-from-consolidated.js";
 export { migrateScheduleReuseConversation } from "./210-schedule-reuse-conversation.js";
 export { migrateMemoryRecallLogsQueryContext } from "./211-memory-recall-logs-query-context.js";
+export { migrateLlmRequestLogsCreatedAtIndex } from "./212-llm-request-logs-created-at-index.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

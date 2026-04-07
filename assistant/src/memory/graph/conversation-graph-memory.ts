@@ -6,7 +6,7 @@
 // retrieval mode based on conversation state.
 // ---------------------------------------------------------------------------
 
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
@@ -151,7 +151,15 @@ export class ConversationGraphMemory {
           conversations,
           eq(memorySummaries.scopeKey, conversations.id),
         )
-        .where(and(baseWhere, ne(conversations.conversationType, "background")))
+        .where(
+          and(
+            baseWhere,
+            notInArray(conversations.conversationType, [
+              "background",
+              "scheduled",
+            ]),
+          ),
+        )
         .orderBy(desc(memorySummaries.updatedAt))
         .limit(3)
         .all();
@@ -160,7 +168,7 @@ export class ConversationGraphMemory {
         return userRows.map((r) => r.summary);
       }
 
-      // Fill remaining slots with at most 1 background conversation
+      // Fill remaining slots with at most 1 background/scheduled conversation
       const remaining = Math.min(1, 3 - userRows.length);
       const bgRows = db
         .select({ summary: memorySummaries.summary })
@@ -169,7 +177,15 @@ export class ConversationGraphMemory {
           conversations,
           eq(memorySummaries.scopeKey, conversations.id),
         )
-        .where(and(baseWhere, eq(conversations.conversationType, "background")))
+        .where(
+          and(
+            baseWhere,
+            inArray(conversations.conversationType, [
+              "background",
+              "scheduled",
+            ]),
+          ),
+        )
         .orderBy(desc(memorySummaries.updatedAt))
         .limit(remaining)
         .all();
@@ -499,8 +515,8 @@ export class ConversationGraphMemory {
  * Remove all memory-injected blocks from the last user message.
  *
  * `injectMemoryBlock` always prepends blocks in this order:
- *   1. `<memory __injected>…</memory>` text block
- *   2. For each image: `<memory_image>…</memory_image>` text + `image` block
+ *   1. For each image: `<memory_image __injected>…` text + `image` + `</memory_image>` text (3-block group)
+ *   2. `<memory __injected>…</memory>` text block
  *
  * We strip all leading blocks that match this pattern so that
  * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
@@ -512,11 +528,13 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
 
   // Walk from the front and skip all memory-injected blocks.
   // The injection prefix is always contiguous at the start of content.
-  // Memory-injected images are always preceded by a <memory_image> text
-  // marker (see injectMemoryBlock). Only strip image blocks that follow
-  // such a marker — user-attached images must be preserved.
+  // Memory-injected images use a 3-block pattern: opening <memory_image> text,
+  // image block, closing </memory_image> text (see injectMemoryBlock).
+  // Legacy 2-block pattern (no closing tag) is also handled for backward compat.
+  // Only strip image blocks that follow a marker — user-attached images must be preserved.
   let firstNonMemory = 0;
   let prevWasMemoryImageMarker = false;
+  let prevWasInjectedImage = false;
   const content = last.content;
   while (firstNonMemory < content.length) {
     const block = content[firstNonMemory];
@@ -526,15 +544,26 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
     ) {
       firstNonMemory++;
       prevWasMemoryImageMarker = false;
+      prevWasInjectedImage = false;
     } else if (
       block.type === "text" &&
-      block.text.startsWith("<memory_image>")
+      block.text.startsWith("<memory_image")
     ) {
       firstNonMemory++;
       prevWasMemoryImageMarker = true;
+      prevWasInjectedImage = false;
     } else if (block.type === "image" && prevWasMemoryImageMarker) {
       firstNonMemory++;
       prevWasMemoryImageMarker = false;
+      prevWasInjectedImage = true;
+    } else if (
+      block.type === "text" &&
+      block.text === "</memory_image>" &&
+      prevWasInjectedImage
+    ) {
+      // Closing tag from the 3-block pattern — only strip after an injected image
+      firstNonMemory++;
+      prevWasInjectedImage = false;
     } else {
       break;
     }
@@ -590,7 +619,7 @@ function injectMemoryBlock(
   for (const [_nodeId, img] of images) {
     blocks.push({
       type: "text" as const,
-      text: `<memory_image>${img.description}</memory_image>`,
+      text: `<memory_image __injected>\n${img.description}`,
     });
     blocks.push({
       type: "image" as const,
@@ -600,6 +629,10 @@ function injectMemoryBlock(
         data: img.base64Data,
       },
     } as ImageContent);
+    blocks.push({
+      type: "text" as const,
+      text: `</memory_image>`,
+    });
   }
 
   blocks.push({

@@ -103,7 +103,7 @@ public struct VNavItem<Trailing: View>: View {
         .contentShape(Rectangle())
         .onTapGesture { action() }
         .padding(.horizontal, 0)
-        .help(isExpanded ? "" : label)
+        .vTooltip(label)
         .pointerCursor(onHover: { isHovered = $0 })
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)

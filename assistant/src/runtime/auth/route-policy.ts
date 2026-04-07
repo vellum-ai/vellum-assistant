@@ -481,6 +481,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Tools
   { endpoint: "tools", scopes: ["settings.read"] },
   { endpoint: "tools/simulate-permission", scopes: ["settings.read"] },
+
+  // Permission mode
+  { endpoint: "permission-mode:GET", scopes: ["settings.read"] },
+  { endpoint: "permission-mode", scopes: ["settings.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {

@@ -50,8 +50,8 @@ export function listConversations(
   ensureGroupMigration();
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} = 'background' AND ${conversations.source} != 'subagent'`
-    : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
+    ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
+    : sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`;
   const query = db
     .select()
     .from(conversations)
@@ -75,11 +75,12 @@ export function listPinnedConversations(): ConversationRow[] {
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+        sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
         sql`is_pinned = 1`,
       ),
     )
     .orderBy(
+      sql`COALESCE(display_order, 999999) ASC`,
       desc(
         sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
       ),
@@ -90,8 +91,8 @@ export function listPinnedConversations(): ConversationRow[] {
 export function countConversations(backgroundOnly = false): number {
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} = 'background' AND ${conversations.source} != 'subagent'`
-    : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
+    ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
+    : sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
@@ -106,7 +107,7 @@ export function getLatestConversation(): ConversationRow | null {
     .select()
     .from(conversations)
     .where(
-      sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+      sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
     )
     .orderBy(
       desc(
@@ -217,7 +218,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'private')
+        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'private', 'scheduled')
         LIMIT 1000
       `,
         ftsMatch,
@@ -242,7 +243,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'private')
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'private', 'scheduled')
       LIMIT 1000
     `,
       likePattern,
@@ -256,7 +257,7 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+        sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
       ),
     )

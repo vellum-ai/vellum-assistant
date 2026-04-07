@@ -17,6 +17,7 @@ import {
   isInteractiveInterface,
   parseChannelId,
   parseInterfaceId,
+  supportsHostProxy,
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
@@ -38,6 +39,10 @@ import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type {
+  MacosTransportMetadata,
+  NonMacosTransportMetadata,
+} from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
@@ -643,7 +648,9 @@ function isToolResultType(type: string): boolean {
 function isSystemNoticeText(block: Record<string, unknown>): boolean {
   if (block.type !== "text") return false;
   const text = typeof block.text === "string" ? block.text : "";
-  return text.startsWith("<system_notice>") && text.endsWith("</system_notice>");
+  return (
+    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+  );
 }
 
 /**
@@ -715,7 +722,10 @@ function mergeToolResultsIntoAssistantMessages(
       }
     }
 
-    // No tool results → pass through unchanged.
+    // No tool results → pass through unchanged. System notices are only
+    // injected alongside tool results in the agent loop, so a pure user
+    // message (no tool_result blocks) should never be filtered — even if
+    // the user's text happens to look like a system_notice tag.
     if (toolResultBlocks.length === 0) {
       result.push(msg);
       continue;
@@ -735,9 +745,29 @@ function mergeToolResultsIntoAssistantMessages(
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
       assistantContent.push(...toolResultBlocks);
+    } else {
+      // No preceding assistant message (pagination boundary) — keep the
+      // original message as-is to avoid permanent data loss. The preceding
+      // assistant tool_use lives in the previous page; dropping the result
+      // here would be unrecoverable.
+      // Still strip system notices so internal prompt text isn't exposed.
+      const filteredBlocks = blocks.filter(
+        (b) =>
+          !(
+            typeof b === "object" &&
+            b !== null &&
+            isSystemNoticeText(b as Record<string, unknown>)
+          ),
+      );
+      result.push({
+        ...msg,
+        content:
+          filteredBlocks.length === blocks.length
+            ? msg.content
+            : JSON.stringify(filteredBlocks),
+      });
+      continue;
     }
-    // else: no preceding assistant message (pagination boundary) — drop the
-    // tool_result blocks to avoid rendering "unknown" chips.
 
     // If the user message had only tool_result (+ system_notice) blocks,
     // suppress it entirely. Otherwise keep the non-tool-result content.
@@ -752,7 +782,7 @@ function mergeToolResultsIntoAssistantMessages(
     if (realUserContent.length > 0) {
       result.push({ ...msg, content: JSON.stringify(otherBlocks) });
     }
-    // else: tool-result-only → suppressed
+    // else: tool-result-only → suppressed (results already merged above)
   }
 
   // Write back any modified assistant message content.
@@ -920,6 +950,8 @@ export async function handleSendMessage(
     conversationType?: string;
     automated?: boolean;
     bypassSecretCheck?: boolean;
+    hostHomeDir?: string;
+    hostUsername?: string;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -1023,8 +1055,25 @@ export async function handleSendMessage(
     conversationType,
   });
   const smDeps = deps.sendMessageDeps;
+
+  // Build transport metadata from the request so the daemon can inject
+  // host environment hints (home directory, username) into the LLM context.
+  const transport =
+    sourceInterface === "macos"
+      ? ({
+          channelId: sourceChannel,
+          interfaceId: "macos" as const,
+          hostHomeDir: body.hostHomeDir,
+          hostUsername: body.hostUsername,
+        } satisfies MacosTransportMetadata)
+      : ({
+          channelId: sourceChannel,
+          interfaceId: sourceInterface,
+        } satisfies NonMacosTransportMetadata);
+
   const conversation = await smDeps.getOrCreateConversation(
     mapping.conversationId,
+    { transport },
   );
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
@@ -1095,7 +1144,7 @@ export async function handleSendMessage(
   // channels, headless) fall back to local execution.
   // Set the proxy BEFORE updateClient so updateClient's call to
   // hostBashProxy.updateSender targets the correct (new) proxy.
-  if (sourceInterface === "macos" || sourceInterface === "ios") {
+  if (supportsHostProxy(sourceInterface)) {
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
@@ -1132,9 +1181,7 @@ export async function handleSendMessage(
   // When proxies are preserved during an active turn (non-desktop request while
   // processing), skip updating proxy senders to avoid degrading them.
   const preservingProxies =
-    conversation.isProcessing() &&
-    sourceInterface !== "macos" &&
-    sourceInterface !== "ios";
+    conversation.isProcessing() && !supportsHostProxy(sourceInterface);
   conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
@@ -1295,6 +1342,8 @@ export async function handleSendMessage(
         ...(body.automated === true ? { automated: true } : {}),
       },
       { isInteractive },
+      undefined, // displayContent
+      transport,
     );
     if (enqueueResult.rejected) {
       return Response.json(
@@ -1306,36 +1355,47 @@ export async function handleSendMessage(
     // Auto-deny pending confirmations only after enqueue succeeds, so we
     // don't cancel approval-gated workflows when the replacement message
     // is itself rejected by the queue budget.
-    if (conversation.hasAnyPendingConfirmation()) {
-      // Emit authoritative denial state for each pending request.
-      // sendToClient (wired to the SSE hub) delivers these to the client.
-      for (const interaction of pendingInteractions.getByConversation(
-        mapping.conversationId,
-      )) {
-        if (
-          interaction.conversation === conversation &&
-          interaction.kind === "confirmation"
-        ) {
-          conversation.emitConfirmationStateChanged({
-            conversationId: mapping.conversationId,
-            requestId: interaction.requestId,
-            state: "denied" as const,
-            source: "auto_deny" as const,
-          });
-          // Sync canonical guardian request status so stale "pending" DB
-          // records don't get matched by later guardian reply routing.
-          resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
-            status: "denied",
-          });
+    // Wrapped in try-catch: the message is already enqueued, so a failure
+    // here must not turn the 202 response into a 500 — that would leave
+    // the client showing "Failed to send" for a message the daemon will
+    // process from the queue.
+    try {
+      if (conversation.hasAnyPendingConfirmation()) {
+        // Emit authoritative denial state for each pending request.
+        // sendToClient (wired to the SSE hub) delivers these to the client.
+        for (const interaction of pendingInteractions.getByConversation(
+          mapping.conversationId,
+        )) {
+          if (
+            interaction.conversation === conversation &&
+            interaction.kind === "confirmation"
+          ) {
+            conversation.emitConfirmationStateChanged({
+              conversationId: mapping.conversationId,
+              requestId: interaction.requestId,
+              state: "denied" as const,
+              source: "auto_deny" as const,
+            });
+            // Sync canonical guardian request status so stale "pending" DB
+            // records don't get matched by later guardian reply routing.
+            resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+              status: "denied",
+            });
+          }
         }
+        conversation.denyAllPendingConfirmations();
+        pendingInteractions.removeByConversation(conversation);
       }
-      conversation.denyAllPendingConfirmations();
-      pendingInteractions.removeByConversation(conversation);
-    }
 
-    // Expire any orphaned canonical requests that survived without a
-    // matching in-memory pending interaction (e.g. prompter timeouts).
-    expireOrphanedCanonicalRequests(mapping.conversationId);
+      // Expire any orphaned canonical requests that survived without a
+      // matching in-memory pending interaction (e.g. prompter timeouts).
+      expireOrphanedCanonicalRequests(mapping.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: mapping.conversationId },
+        "Post-enqueue auto-deny failed — queued message unaffected",
+      );
+    }
 
     return Response.json(
       { accepted: true, queued: true, conversationId: mapping.conversationId },

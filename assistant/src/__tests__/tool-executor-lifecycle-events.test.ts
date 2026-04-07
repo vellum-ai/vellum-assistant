@@ -41,7 +41,6 @@ let checkerDecision: "allow" | "prompt" | "deny" = "allow";
 let checkerReason = "allowed";
 let checkerRisk = "low";
 let promptDecision: "allow" | "always_allow" | "deny" | "always_deny" = "allow";
-let sandboxed = false;
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 let toolThrow: Error | null = null;
 
@@ -151,7 +150,7 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
 }));
 
 mock.module("../tools/terminal/sandbox.js", () => ({
-  wrapCommand: () => ({ command: "", sandboxed }),
+  wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
 
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -193,7 +192,6 @@ describe("ToolExecutor lifecycle events", () => {
     checkerReason = "allowed";
     checkerRisk = "low";
     promptDecision = "allow";
-    sandboxed = false;
     fakeToolResult = { content: "ok", isError: false };
     toolThrow = null;
   });
@@ -231,7 +229,6 @@ describe("ToolExecutor lifecycle events", () => {
     checkerReason = "medium risk: requires approval";
     checkerRisk = "medium";
     promptDecision = "deny";
-    sandboxed = true;
 
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
@@ -256,7 +253,6 @@ describe("ToolExecutor lifecycle events", () => {
     expect(promptEvent.executionTarget).toBe("sandbox");
     expect(promptEvent.riskLevel).toBe("medium");
     expect(promptEvent.reason).toBe("medium risk: requires approval");
-    expect(promptEvent.sandboxed).toBe(true);
     expect(promptEvent.allowlistOptions).toEqual([
       { label: "exact", description: "exact", pattern: "exact" },
     ]);
@@ -276,7 +272,6 @@ describe("ToolExecutor lifecycle events", () => {
     checkerDecision = "prompt";
     checkerReason = "guardrail prompt";
     checkerRisk = "high";
-    sandboxed = true;
 
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(
@@ -580,7 +575,6 @@ describe("ToolExecutor lifecycle events", () => {
     checkerReason = "Matched trust rule";
     checkerRisk = "low";
     promptDecision = "allow";
-    sandboxed = true;
 
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
@@ -602,7 +596,6 @@ describe("ToolExecutor lifecycle events", () => {
     expect(promptEvent.reason).toBe(
       "Private conversation: side-effect tools require explicit approval",
     );
-    expect(promptEvent.sandboxed).toBe(true);
   });
 
   test("no permission_prompt event for read-only tool even with forcePromptSideEffects", async () => {

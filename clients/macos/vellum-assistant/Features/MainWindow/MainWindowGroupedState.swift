@@ -47,8 +47,20 @@ final class SidebarInteractionState {
         if let saved = defaults.stringArray(forKey: "sidebar.expandedSections") {
             initial = Set(saved)
         } else {
-            // First-launch defaults: all groups collapsed.
-            initial = []
+            // First-launch defaults: Recents expanded so conversations are visible.
+            initial = [ConversationGroup.all.id]
+        }
+
+        // One-time migration: expand system:all for existing users upgrading
+        // from before the Recents group existed. Gated by a flag so it only
+        // runs once and doesn't override the user's collapse preference.
+        let migrationKey = "sidebar.systemAllExpandedMigrated"
+        if !defaults.bool(forKey: migrationKey) {
+            initial.insert(ConversationGroup.all.id)
+            // Persist immediately — didSet won't fire for the initial closure
+            // assignment, so without this the next launch loads the old list.
+            defaults.set(Array(initial), forKey: "sidebar.expandedSections")
+            defaults.set(true, forKey: migrationKey)
         }
 
         // Clean up old keys (one-time migration).

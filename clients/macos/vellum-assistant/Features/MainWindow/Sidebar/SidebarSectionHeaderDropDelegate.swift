@@ -125,7 +125,7 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
         customGroups.insert(source, at: min(insertIdx, customGroups.count))
 
         let updates = customGroups.enumerated().map { (i, g) in
-            (groupId: g.id, sortPosition: Double(3 + i))
+            (groupId: g.id, sortPosition: Double(4 + i))
         }
         Task { await conversationManager.reorderGroups(updates) }
     }

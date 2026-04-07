@@ -14,7 +14,7 @@ struct ScheduleSubGroup: Identifiable {
 /// Handles expand/collapse, show-more/less truncation, auto-expand on unread,
 /// and optional schedule sub-grouping for the Scheduled system group.
 struct SidebarSectionView: View {
-    let group: ConversationGroup?
+    let group: ConversationGroup
     let conversations: [ConversationModel]
     let isExpanded: Bool
     let showAll: Bool
@@ -101,49 +101,44 @@ struct SidebarSectionView: View {
     }
 
     var body: some View {
-        if let group = group {
-            SidebarSectionHeader(
-                group: group,
-                conversationCount: displayCount,
-                isExpanded: isExpanded,
-                isDropTarget: isDropTarget,
-                isGroupReorderTarget: !group.isSystemGroup && sidebar?.dropTargetSectionId == group.id && sidebar?.draggingConversationId == nil,
-                groupDropIndicatorAtBottom: sidebar?.groupDropIndicatorAtBottom ?? false,
-                aggregateState: aggregateState,
-                isRenaming: isRenaming,
-                renamingName: $renamingName,
-                onToggleExpand: onToggleExpand,
-                onRename: onRename,
-                onCommitRename: onCommitRename,
-                onCancelRename: onCancelRename,
-                onDelete: onDelete,
-                sidebar: sidebar
+        SidebarSectionHeader(
+            group: group,
+            conversationCount: displayCount,
+            isExpanded: isExpanded,
+            isDropTarget: isDropTarget,
+            isGroupReorderTarget: !group.isSystemGroup && sidebar?.dropTargetSectionId == group.id && sidebar?.draggingConversationId == nil,
+            groupDropIndicatorAtBottom: sidebar?.groupDropIndicatorAtBottom ?? false,
+            aggregateState: aggregateState,
+            isRenaming: isRenaming,
+            renamingName: $renamingName,
+            onToggleExpand: onToggleExpand,
+            onRename: onRename,
+            onCommitRename: onCommitRename,
+            onCancelRename: onCancelRename,
+            onDelete: onDelete,
+            sidebar: sidebar
+        )
+        .modifier(SectionHeaderDropModifier(
+            group: group,
+            sidebar: sidebar,
+            conversationManager: conversationManager
+        ))
+
+        if isExpanded && !conversations.isEmpty {
+            VStack(spacing: 0) {
+                sectionContent
+            }
+            .padding(.bottom, VSpacing.xxs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(isDropTarget ? VColor.systemPositiveWeak : .clear)
             )
-            .modifier(SectionHeaderDropModifier(
-                group: group,
+            .modifier(SectionBodyDropModifier(
+                groupId: group.id,
                 sidebar: sidebar,
                 conversationManager: conversationManager
             ))
-
-            if isExpanded && !conversations.isEmpty {
-                VStack(spacing: 0) {
-                    sectionContent
-                }
-                .padding(.bottom, VSpacing.xxs)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(isDropTarget ? VColor.systemPositiveWeak : .clear)
-                )
-                .modifier(SectionBodyDropModifier(
-                    groupId: group.id,
-                    sidebar: sidebar,
-                    conversationManager: conversationManager
-                ))
-                .transition(.opacity)
-            }
-        } else {
-            // Ungrouped -- no header, render conversations directly
-            sectionContent
+            .transition(.opacity)
         }
     }
 
@@ -174,12 +169,45 @@ struct SidebarSectionView: View {
                                 .transition(.opacity)
                         }
                     }
-                    .onDrop(of: [.plainText], delegate: GroupedReorderDropDelegate(
-                        targetConversation: conversation,
-                        groupId: group?.id,
-                        sidebar: sidebar,
-                        conversationManager: conversationManager
-                    ))
+                    .dropDestination(for: String.self) { items, _ in
+                        guard let droppedId = items.first,
+                              let sourceUUID = UUID(uuidString: droppedId),
+                              sourceUUID != conversation.id else {
+                            sidebar.endConversationDrag()
+                            return false
+                        }
+                        // Block within-Recents reorder — Recents uses recency sorting.
+                        // Compare actual conversation groupIds (not section group.id) so
+                        // cross-group moves still work when custom groups are folded into Recents.
+                        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceUUID })?.groupId
+                        if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
+                            sidebar.endConversationDrag()
+                            return false
+                        }
+                        let insertAfter = sidebar.dropIndicatorAtBottom
+                        let moved = conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id, insertAfterTarget: insertAfter)
+                        sidebar.endConversationDrag()
+                        return moved
+                    } isTargeted: { isTargeted in
+                        if isTargeted && conversation.id != sidebar.draggingConversationId {
+                            // Suppress drop indicator for within-Recents drags
+                            if conversation.groupId == ConversationGroup.all.id,
+                               let dragId = sidebar.draggingConversationId,
+                               conversationManager.conversations.first(where: { $0.id == dragId })?.groupId == ConversationGroup.all.id {
+                                return
+                            }
+                            sidebar.dropTargetConversationId = conversation.id
+                            if let dragId = sidebar.draggingConversationId {
+                                let groupConversations = conversationManager.groupedConversations
+                                    .first { $0.group?.id == group.id }?.conversations ?? []
+                                let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
+                                let tIdx = groupConversations.firstIndex(where: { $0.id == conversation.id }) ?? 0
+                                sidebar.dropIndicatorAtBottom = sIdx < tIdx
+                            }
+                        } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
+                            sidebar.dropTargetConversationId = nil
+                        }
+                    }
             }
         } else {
             ForEach(displayed) { conversation in
@@ -192,11 +220,13 @@ struct SidebarSectionView: View {
 
         showMoreLessButton
 
-        // When all loaded conversations fit within maxCollapsed (e.g. pinned
-        // sections use .max) the show-more button never appears, yet more
-        // conversations may exist on the server beyond the initial page.
-        // Auto-trigger a full load so those items become visible.
-        if conversations.count <= maxCollapsed,
+        // When all loaded pinned conversations fit within maxCollapsed (.max)
+        // the show-more button never appears, yet more conversations may exist
+        // on the server beyond the initial page. Auto-trigger a full load so
+        // those items become visible. Scoped to the pinned section only to
+        // avoid eagerly loading all conversations for small non-pinned sections.
+        if group.id == ConversationGroup.pinned.id,
+           conversations.count <= maxCollapsed,
            let conversationManager,
            conversationManager.hasMoreConversations {
             Color.clear
@@ -261,6 +291,7 @@ struct SidebarSectionView: View {
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .vTooltip(subGroup.label)
                 Spacer()
                 if hasUnread {
                     VBadge(style: .dot, color: VColor.systemMidStrong)
@@ -394,58 +425,6 @@ struct SidebarSectionView: View {
             }
             return ScheduleSubGroup(key: key, label: label, conversations: conversations)
         }
-    }
-}
-
-/// Drop delegate for reordering conversations within a grouped section.
-/// Uses section-local index comparison for drop indicator direction.
-struct GroupedReorderDropDelegate: DropDelegate {
-    let targetConversation: ConversationModel
-    let groupId: String?
-    let sidebar: SidebarInteractionState
-    let conversationManager: ConversationManager
-
-    func validateDrop(info: DropInfo) -> Bool {
-        guard let dragId = sidebar.draggingConversationId,
-              dragId != targetConversation.id
-        else { return false }
-        return true
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        return DropProposal(operation: .move)
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard let dragId = sidebar.draggingConversationId,
-              dragId != targetConversation.id
-        else { return }
-
-        sidebar.dropTargetConversationId = targetConversation.id
-        let groupConversations = conversationManager.groupedConversations
-            .first { $0.group?.id == groupId }?.conversations ?? []
-        let sIdx = groupConversations.firstIndex(where: { $0.id == dragId })
-        let tIdx = groupConversations.firstIndex(where: { $0.id == targetConversation.id }) ?? 0
-        if let sIdx {
-            sidebar.dropIndicatorAtBottom = sIdx < tIdx
-        } else {
-            sidebar.dropIndicatorAtBottom = false
-        }
-    }
-
-    func dropExited(info: DropInfo) {
-        if sidebar.dropTargetConversationId == targetConversation.id {
-            sidebar.dropTargetConversationId = nil
-        }
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        let sourceId = sidebar.draggingConversationId
-        let insertAfter = sidebar.dropIndicatorAtBottom
-        sidebar.dropTargetConversationId = nil
-        sidebar.endConversationDrag()
-        guard let sourceId = sourceId, sourceId != targetConversation.id else { return false }
-        return conversationManager.moveConversation(sourceId: sourceId, targetId: targetConversation.id, insertAfterTarget: insertAfter)
     }
 }
 

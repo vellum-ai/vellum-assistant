@@ -1,4 +1,5 @@
 import Foundation
+import os
 import VellumAssistantShared
 
 extension Notification.Name {
@@ -10,6 +11,7 @@ extension Notification.Name {
     static let navigateToSettingsTab = Notification.Name("MainWindow.navigateToSettingsTab")
     static let activationKeyChanged = Notification.Name("activationKeyChanged")
     static let identityChanged = Notification.Name("identityChanged")
+    static let configChanged = Notification.Name("configChanged")
     static let shareAppCloud = Notification.Name("MainWindow.shareAppCloud")
     static let pinApp = Notification.Name("MainWindow.pinApp")
     static let unpinApp = Notification.Name("MainWindow.unpinApp")
@@ -19,6 +21,8 @@ extension Notification.Name {
     static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }
+
+private let apiKeyLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "APIKeyManager")
 
 /// Manages API keys using file-based CredentialStorage. The daemon owns the
 /// canonical encrypted store; the app syncs
@@ -80,10 +84,59 @@ enum APIKeyManager {
         UserDefaults.standard.removeObject(forKey: udKey)
     }
 
-    // MARK: - Generic provider access
+    // MARK: - Generic provider access (sync — FileCredentialStorage)
 
     static func getKey(for provider: String) -> String? {
         storage.get(account: udPrefix + provider)
+    }
+
+    // MARK: - Generic provider access (async — gateway API)
+
+    /// Result of an async key-write operation via the gateway API.
+    struct SetKeyResult {
+        let success: Bool
+        let error: String?
+        let isTransient: Bool
+    }
+
+    /// Response from a non-revealing `secrets/read` call.
+    private struct SecretReadResult {
+        let found: Bool
+        let masked: String?
+    }
+
+    /// Calls `secrets/read` (without `reveal`) and returns existence + masked value.
+    private static func readSecret(for provider: String) async -> SecretReadResult {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets/read", json: body, timeout: 5
+            )
+            guard response.isSuccess,
+                  let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let found = json["found"] as? Bool else {
+                return SecretReadResult(found: false, masked: nil)
+            }
+            let masked = json["masked"] as? String
+            return SecretReadResult(found: found, masked: masked)
+        } catch {
+            apiKeyLog.error("readSecret(\(provider, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return SecretReadResult(found: false, masked: nil)
+        }
+    }
+
+    /// Check whether the assistant's secret store has a key for `provider`.
+    static func hasKey(for provider: String) async -> Bool {
+        await readSecret(for: provider).found
+    }
+
+    /// Read a masked API key from the assistant's secret store.
+    /// Returns a display-safe string like `"sk-ant-api...Ab1x"`, or `nil`
+    /// when no key is stored for the given provider.
+    static func maskedKey(for provider: String) async -> String? {
+        let result = await readSecret(for: provider)
+        guard result.found, let masked = result.masked, !masked.isEmpty else { return nil }
+        return masked
     }
 
     static func setKey(_ key: String, for provider: String) {
@@ -91,22 +144,47 @@ enum APIKeyManager {
         notifyKeyDidChange()
     }
 
+    /// Write a key to the daemon's secret store via the gateway API.
+    /// Performs server-side validation and returns the result.
+    static func setKey(_ key: String, for provider: String) async -> SetKeyResult {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider, "value": key]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/secrets", json: body, timeout: 5
+            )
+            if response.isSuccess {
+                return SetKeyResult(success: true, error: nil, isTransient: false)
+            }
+            let isServerError = response.statusCode >= 500
+            if let parsed = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+               let errorMsg = parsed["error"] as? String {
+                return SetKeyResult(success: false, error: errorMsg, isTransient: isServerError)
+            }
+            return SetKeyResult(success: false, error: "Failed to save API key (HTTP \(response.statusCode)).", isTransient: isServerError)
+        } catch {
+            apiKeyLog.error("setKey(\(provider, privacy: .public)) async failed: \(error.localizedDescription, privacy: .public)")
+            return SetKeyResult(success: false, error: "Could not reach assistant. Please check that it is running.", isTransient: true)
+        }
+    }
+
     static func deleteKey(for provider: String) {
         _ = storage.delete(account: udPrefix + provider)
         notifyKeyDidChange()
     }
 
-    /// Push an API key to the daemon's encrypted store via the gateway.
-    /// Waits up to 15s for the actor token if it's not yet available (e.g.
-    /// during initial onboarding before JWT bootstrap completes). Failures
-    /// are silently ignored — the reconnect sync will retry.
-    static func syncKeyToDaemon(provider: String, value: String) {
-        Task {
-            guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
-            let body: [String: Any] = ["type": "api_key", "name": provider, "value": value]
-            _ = try? await GatewayHTTPClient.post(
+    /// Delete a key from the daemon's secret store via the gateway API.
+    /// Returns `true` when the server confirms deletion.
+    @discardableResult
+    static func deleteKey(for provider: String) async -> Bool {
+        do {
+            let body: [String: Any] = ["type": "api_key", "name": provider]
+            let response = try await GatewayHTTPClient.delete(
                 path: "assistants/{assistantId}/secrets", json: body, timeout: 5
             )
+            return response.isSuccess
+        } catch {
+            apiKeyLog.error("deleteKey(\(provider, privacy: .public)) async failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 

@@ -190,7 +190,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationRestorer.delegate = self
         conversationRestorer.startObserving(skipInitialFetch: isFirstLaunch)
         if listStore.groups.isEmpty {
-            listStore.groups = [.pinned, .scheduled, .background]
+            listStore.groups = [.pinned, .scheduled, .background, .all]
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -486,7 +486,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     private func promoteDraft(fromUserSend: Bool) {
         guard let viewModel = selectionStore.draftViewModel else { return }
 
-        let conversation = ConversationModel(title: "Untitled")
+        let conversation = ConversationModel(title: "Untitled", groupId: ConversationGroup.all.id)
         let localId = conversation.id
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
@@ -606,14 +606,15 @@ final class ConversationManager: ConversationRestorerDelegate {
         log.info("Created schedule conversation \(localId) for conversation \(conversationId) (schedule \(scheduleJobId))")
     }
 
-    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String) {
+    func createNotificationConversation(conversationId: String, title: String, sourceEventName: String, groupId: String? = nil, source: String? = nil) {
         guard let localId = createBackgroundConversation(
             conversationId: conversationId,
             title: title,
-            source: "notification",
-            markHistoryLoaded: false
+            source: source ?? "notification",
+            markHistoryLoaded: false,
+            groupId: groupId ?? ConversationGroup.all.id
         ) else { return }
-        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName))")
+        log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName), groupId: \(groupId ?? "nil"))")
     }
 
     func createHeartbeatConversation(conversationId: String, title: String) {
@@ -709,6 +710,10 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func selectConversation(id: UUID) {
         guard let conversation = listStore.conversations.first(where: { $0.id == id }) else { return }
+
+        // Clear stale streaming segment data from previous conversation to prevent
+        // cross-conversation cache pollution from the single-entry streaming dedup cache.
+        ChatBubble.lastStreamingSegments = nil
 
         selectionStore.removeAbandonedEmptyConversation(switching: id)
 
@@ -935,7 +940,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         for i in updated.indices where updated[i].groupId == groupId {
             updated[i].isArchived = true
             updated[i].displayOrder = nil
-            updated[i].groupId = nil
+            updated[i].groupId = ConversationGroup.all.id
             if let cid = updated[i].conversationId {
                 newlyArchivedServerIds.insert(cid)
             }
@@ -1131,7 +1136,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversation.lastInteractedAt = Date()
 
         if localId != selectionStore.activeConversationId {
-            conversation.hasUnseenLatestAssistantMessage = true
+            if !conversation.shouldSuppressUnreadIndicator {
+                conversation.hasUnseenLatestAssistantMessage = true
+            }
             conversation.latestAssistantMessageAt = Date()
             listStore.pendingSeenConversationIds.removeAll { $0 == daemonConversationId }
         }
@@ -1315,7 +1322,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             if isNewMessage || streamingJustCompleted {
                 shouldEmitSeenSignal = true
             }
-        } else if !conversation.hasUnseenLatestAssistantMessage {
+        } else if !conversation.hasUnseenLatestAssistantMessage && !conversation.shouldSuppressUnreadIndicator {
             conversation.hasUnseenLatestAssistantMessage = true
         }
         listStore.conversations[index] = conversation

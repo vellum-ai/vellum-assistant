@@ -90,6 +90,11 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
   return INTERACTIVE_INTERFACES.has(id);
 }
 
+/** Whether the interface supports host proxies (bash, file, computer-use). */
+export function supportsHostProxy(id: InterfaceId): boolean {
+  return id === "macos";
+}
+
 export interface TurnInterfaceContext {
   userMessageInterface: InterfaceId;
   assistantMessageInterface: InterfaceId;

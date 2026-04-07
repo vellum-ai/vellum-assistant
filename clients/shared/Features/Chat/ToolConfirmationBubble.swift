@@ -322,7 +322,7 @@ public struct ToolConfirmationBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
-        .frame(maxHeight: maxHeight)
+        .adaptiveScrollFrame(for: content, maxHeight: maxHeight)
         .padding(VSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(

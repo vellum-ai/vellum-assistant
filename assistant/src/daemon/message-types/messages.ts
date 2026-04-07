@@ -151,7 +151,6 @@ export interface ConfirmationRequest {
     newContent: string;
     isNewFile: boolean;
   };
-  sandboxed?: boolean;
   conversationId?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
@@ -308,6 +307,13 @@ export interface AssistantActivityState {
   statusText?: string;
 }
 
+/** Broadcast to clients when the two-axis permission mode changes. */
+export interface PermissionModeUpdate {
+  type: "permission_mode_update";
+  askBeforeActing: boolean;
+  hostAccess: boolean;
+}
+
 /** Sent when a long-running tool is deferred to background execution. */
 export interface ToolDeferredToBackground {
   type: "tool_deferred_to_background";
@@ -392,5 +398,6 @@ export type _MessagesServerMessages =
   | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityState
+  | PermissionModeUpdate
   | ToolDeferredToBackground
   | BackgroundToolCompleted;

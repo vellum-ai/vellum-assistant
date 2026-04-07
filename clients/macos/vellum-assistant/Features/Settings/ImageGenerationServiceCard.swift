@@ -20,10 +20,8 @@ struct ImageGenerationServiceCard: View {
     @State private var draftModel: String = ""
     /// Snapshot of the model at card appear — used to detect model-only changes.
     @State private var initialModel: String = ""
-
-    private var isConnected: Bool {
-        store.hasImageGenKey
-    }
+    /// Whether the image generation provider has a stored API key (fetched per-component).
+    @State private var imageGenHasKey = false
 
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
@@ -74,9 +72,10 @@ struct ImageGenerationServiceCard: View {
                         savingLabel: "Validating...",
                         onReset: {
                             store.clearImageGenKey()
+                            imageGenHasKey = false
                             apiKeyText = ""
                         },
-                        showReset: isConnected
+                        showReset: imageGenHasKey
                     )
                 }
             }
@@ -85,6 +84,9 @@ struct ImageGenerationServiceCard: View {
             draftMode = store.imageGenMode
             draftModel = store.selectedImageGenModel
             initialModel = store.selectedImageGenModel
+        }
+        .task {
+            imageGenHasKey = await APIKeyManager.hasKey(for: "gemini")
         }
         .onChange(of: store.imageGenMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
@@ -124,7 +126,7 @@ struct ImageGenerationServiceCard: View {
 
     private var apiKeyField: some View {
         let placeholder: String = {
-            if isConnected {
+            if imageGenHasKey {
                 return "••••••••••••••••"
             }
             return "Enter your Gemini API key"
@@ -165,7 +167,8 @@ struct ImageGenerationServiceCard: View {
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
             let keyTextBinding = $apiKeyText
-            store.saveImageGenKey(trimmedKey, onSuccess: {
+            store.saveImageGenKey(trimmedKey, onSuccess: { [self] in
+                imageGenHasKey = true
                 keyTextBinding.wrappedValue = ""
                 showToast("Gemini API key saved", .success)
             })

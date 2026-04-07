@@ -295,6 +295,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { prompt: "consent" },
     loopbackPort: 17324,
+    managedServiceConfigKey: "linear-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.linear.app",

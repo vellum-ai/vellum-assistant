@@ -2090,13 +2090,25 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             self.reconnectLatchTimeoutTask?.cancel()
             self.isReconnectHistoryLoading = false
             refreshModelMetadataIfNeeded(hasModelCommand)
-        } else if messages.contains(where: { $0.role == .user }) {
+        } else if messages.contains(where: {
+            $0.role == .user && (
+                !$0.isContentStripped
+                || pendingMessageIds.contains($0.id)
+                || $0.status == .pendingOffline
+            )
+        }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
             // ones the user sent (and any assistant replies) before the
             // history_response arrived. Deduplicate by only prepending
             // history messages whose timestamps precede the earliest
             // existing message.
+            // Content-stripped messages (from trimForBackground) are excluded
+            // from this check — they should be fully replaced by fresh server
+            // data, not preserved with their heavy content cleared. However,
+            // pending/unsent local messages must be preserved even if stripped,
+            // since the server doesn't have them yet and a full replace would
+            // drop them.
             let earliestExisting = self.messages.map(\.timestamp).min()
             let uniqueHistory: [ChatMessage]
             if let earliest = earliestExisting {
@@ -2104,7 +2116,21 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             } else {
                 uniqueHistory = chatMessages
             }
-            var mergedMessages = uniqueHistory + self.messages
+            // Replace stripped non-pending messages with fresh server copies.
+            // Pending messages are kept as-is since the server doesn't have
+            // them yet, but stripped messages that already exist on the server
+            // should be refreshed with their full content.
+            let freshById = Dictionary(chatMessages.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+            let refreshedExisting = self.messages.map { msg -> ChatMessage in
+                if msg.isContentStripped
+                    && !pendingMessageIds.contains(msg.id)
+                    && msg.status != .pendingOffline,
+                   let fresh = freshById[msg.id] {
+                    return fresh
+                }
+                return msg
+            }
+            var mergedMessages = uniqueHistory + refreshedExisting
             mergedMessages.sort { $0.timestamp < $1.timestamp }
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
             self.messages = mergedMessages

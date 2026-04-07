@@ -75,11 +75,11 @@ ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1.5 -q:a 9 -acodec libmp3lame scr
 
 ```bash
 cat > scratch/concat.txt << 'EOF'
-file 'scratch/clip1.mp3'
-file 'scratch/silence.mp3'
-file 'scratch/clip2.mp3'
-file 'scratch/silence.mp3'
-file 'scratch/clip3.mp3'
+file 'clip1.mp3'
+file 'silence.mp3'
+file 'clip2.mp3'
+file 'silence.mp3'
+file 'clip3.mp3'
 EOF
 ```
 

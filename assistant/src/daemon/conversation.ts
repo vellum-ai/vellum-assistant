@@ -116,6 +116,7 @@ import type {
   UsageStats,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type {
   AssistantActivityState,
   ConfirmationStateChanged,
@@ -158,7 +159,6 @@ export class Conversation {
   /** @internal */ sendToClient: (msg: ServerMessage) => void;
   /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
-  /** @internal */ sandboxOverride?: boolean;
   /** @internal */ allowedToolNames?: Set<string>;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
@@ -547,10 +547,6 @@ export class Conversation {
     }
   }
 
-  setSandboxOverride(enabled: boolean | undefined): void {
-    this.sandboxOverride = enabled;
-  }
-
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
     this.subagentAllowedTools = tools;
   }
@@ -622,6 +618,7 @@ export class Conversation {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
+    transport?: ConversationTransportMetadata,
   ): { queued: boolean; requestId: string; rejected?: boolean } {
     return enqueueMessageImpl(
       this,
@@ -634,6 +631,7 @@ export class Conversation {
       metadata,
       options,
       displayContent,
+      transport,
     );
   }
 

@@ -5,7 +5,7 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import { seedCliCommandMemories } from "../cli/cli-memory.js";
+import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
   getQdrantHttpPortEnv,
@@ -32,6 +32,7 @@ import {
   awaitCesClientWithTimeout,
   DEFAULT_CES_STARTUP_TIMEOUT_MS,
 } from "../credential-execution/startup-timeout.js";
+import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -269,6 +270,15 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
+    // Pre-populate the feature flag cache from the gateway so all
+    // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
+    // Fired non-blocking so a slow or unreachable gateway doesn't delay
+    // daemon startup (the fetch has a 10s timeout that would otherwise
+    // stall the critical path).
+    void initFeatureFlagOverrides().catch((err) =>
+      log.warn({ err }, "Background feature flag init failed"),
+    );
+
     seedInterfaceFiles();
 
     log.info("Daemon startup: installing templates and initializing DB");
@@ -279,163 +289,191 @@ export async function runDaemon(): Promise<void> {
     // workspace migrations (e.g. 009-backfill-conversation-disk-view)
     // depend on DB migrations having run (e.g. the inline-attachment-to-disk
     // backfill that populates attachment filePaths).
-    initializeDb();
-    // Seed well-known OAuth provider configurations (insert-if-not-exists)
-    seedOAuthProviders();
-    log.info("Daemon startup: DB initialized");
-
-    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
-    log.info("Daemon startup: workspace migrations complete");
-
-    // Profiler retention sweep — prune completed profiler runs to stay
-    // within configured byte-count, run-count, and free-space budgets.
-    // Runs on every startup and is safe to call from explicit cleanup routes.
-    try {
-      const sweepResult = runProfilerSweep();
-      if (sweepResult.prunedCount > 0 || sweepResult.activeRunOverBudget) {
-        log.info(
-          {
-            prunedCount: sweepResult.prunedCount,
-            freedBytes: sweepResult.freedBytes,
-            activeRunOverBudget: sweepResult.activeRunOverBudget,
-            remainingRuns: sweepResult.remainingRuns,
-          },
-          "Profiler retention sweep completed on startup",
-        );
-      }
-    } catch (err) {
-      log.warn({ err }, "Profiler retention sweep failed — continuing startup");
-    }
-
-    // Backfill oauth_connection rows for manual-token providers (Telegram,
-    // Slack channel) that already have stored credentials from before the
-    // oauth_connection migration. Safe to call on every startup.
     //
-    // Must run AFTER workspace migrations.
-    // Otherwise syncManualTokenConnection sees no stored credentials and
-    // incorrectly removes existing connection rows.
+    // If DB initialization fails (e.g. a migration error), the daemon
+    // continues in a degraded state — DB-dependent features won't work but
+    // the HTTP server and config-based subsystems still start so the process
+    // remains reachable for health checks and diagnostics.
+    let dbReady = false;
     try {
-      await backfillManualTokenConnections();
+      initializeDb();
+      dbReady = true;
+      log.info("Daemon startup: DB initialized");
     } catch (err) {
-      log.warn(
+      log.error(
         { err },
-        "Manual-token connection backfill failed — continuing startup",
+        "DB initialization failed — continuing startup in degraded mode",
       );
     }
 
-    // Backfill injection templates on Slack bot token credentials so the
-    // credential proxy can inject Authorization headers. Safe on every startup.
-    try {
-      backfillSlackInjectionTemplates();
-    } catch (err) {
-      log.warn(
-        { err },
-        "Slack injection template backfill failed — continuing startup",
-      );
+    // Seed well-known OAuth provider configurations (insert-if-not-exists).
+    // Runs in its own try/catch so a seeding error doesn't force degraded mode
+    // when the DB itself initialized successfully.
+    if (dbReady) {
+      try {
+        seedOAuthProviders();
+      } catch (err) {
+        log.warn({ err }, "OAuth provider seeding failed — continuing startup");
+      }
     }
 
-    // Now that workspace migrations have run (including 003-seed-device-id
-    // which may copy the legacy installationId into device.json), it is safe
-    // to read the device ID and set the Sentry tag.
-    setSentryDeviceId(getDeviceId());
+    if (dbReady) {
+      await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
+      log.info("Daemon startup: workspace migrations complete");
 
-    // Purge private (temporary) conversations from the previous daemon run.
-    // These are ephemeral by design and should not survive daemon restarts.
-    const { count: purgedCount, deletedMemory } = purgePrivateConversations();
-    if (purgedCount > 0) {
-      log.info(
-        { purgedCount },
-        `Purged ${purgedCount} private conversation(s) from previous daemon run`,
-      );
-      // Qdrant may not be ready at startup, so enqueue vector cleanup jobs
-      // rather than attempting direct deletion.
-      for (const segId of deletedMemory.segmentIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "segment",
-          targetId: segId,
-        });
-      }
-      for (const summaryId of deletedMemory.deletedSummaryIds) {
-        enqueueMemoryJob("delete_qdrant_vectors", {
-          targetType: "summary",
-          targetId: summaryId,
-        });
-      }
-      if (
-        deletedMemory.segmentIds.length > 0 ||
-        deletedMemory.deletedSummaryIds.length > 0
-      ) {
-        log.info(
-          {
-            segments: deletedMemory.segmentIds.length,
-            deletedSummaries: deletedMemory.deletedSummaryIds.length,
-          },
-          "Enqueued Qdrant vector cleanup jobs for purged private conversations",
+      // Profiler retention sweep — prune completed profiler runs to stay
+      // within configured byte-count, run-count, and free-space budgets.
+      // Runs on every startup and is safe to call from explicit cleanup routes.
+      try {
+        const sweepResult = runProfilerSweep();
+        if (sweepResult.prunedCount > 0 || sweepResult.activeRunOverBudget) {
+          log.info(
+            {
+              prunedCount: sweepResult.prunedCount,
+              freedBytes: sweepResult.freedBytes,
+              activeRunOverBudget: sweepResult.activeRunOverBudget,
+              remainingRuns: sweepResult.remainingRuns,
+            },
+            "Profiler retention sweep completed on startup",
+          );
+        }
+      } catch (err) {
+        log.warn(
+          { err },
+          "Profiler retention sweep failed — continuing startup",
         );
       }
-    }
 
-    // Expire stale pending canonical guardian requests left over from before
-    // this process started.  Two categories are cleaned up:
-    //
-    // 1. Interaction-bound kinds (tool_approval, pending_question) — their
-    //    in-memory pending-interaction session references are gone, so they
-    //    can never be completed.
-    // 2. Any pending request whose expiresAt has already passed — persistent
-    //    kinds (access_request, tool_grant_request) that expired while the
-    //    daemon was stopped are transitioned so dedup logic doesn't return
-    //    stale rows.
-    const expiredCount = expireAllPendingCanonicalRequests();
-    if (expiredCount > 0) {
-      log.info(
-        { event: "startup_expired_stale_requests", expiredCount },
-        `Expired ${expiredCount} stale canonical request(s) from previous process`,
-      );
-    }
-
-    // Ensure a vellum guardian binding exists so the identity system works
-    // without requiring a manual bootstrap step.
-    try {
-      ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
-    } catch (err) {
-      log.warn(
-        { err },
-        "Vellum guardian binding backfill failed — continuing startup",
-      );
-    }
-
-    try {
-      syncUpdateBulletinOnStartup();
-    } catch (err) {
-      log.warn({ err }, "Bulletin sync failed — continuing startup");
-    }
-
-    // Recover orphaned work items that were left in 'running' state when the
-    // daemon previously crashed or was killed mid-task.
-    const orphanedRunning = listWorkItems({ status: "running" });
-    if (orphanedRunning.length > 0) {
-      for (const item of orphanedRunning) {
-        updateWorkItem(item.id, {
-          status: "failed",
-          lastRunStatus: "interrupted",
-        });
-        log.info(
-          { workItemId: item.id, title: item.title },
-          "Recovered orphaned running work item → failed (interrupted)",
+      // Backfill oauth_connection rows for manual-token providers (Telegram,
+      // Slack channel) that already have stored credentials from before the
+      // oauth_connection migration. Safe to call on every startup.
+      //
+      // Must run AFTER workspace migrations.
+      // Otherwise syncManualTokenConnection sees no stored credentials and
+      // incorrectly removes existing connection rows.
+      try {
+        await backfillManualTokenConnections();
+      } catch (err) {
+        log.warn(
+          { err },
+          "Manual-token connection backfill failed — continuing startup",
         );
       }
-      log.info(
-        { count: orphanedRunning.length },
-        "Recovered orphaned running work items",
-      );
-    }
 
-    try {
-      const twilioProvider = new TwilioConversationRelayProvider();
-      await reconcileCallsOnStartup(twilioProvider, log);
-    } catch (err) {
-      log.warn({ err }, "Call recovery failed — continuing startup");
-    }
+      // Backfill injection templates on Slack bot token credentials so the
+      // credential proxy can inject Authorization headers. Safe on every startup.
+      try {
+        backfillSlackInjectionTemplates();
+      } catch (err) {
+        log.warn(
+          { err },
+          "Slack injection template backfill failed — continuing startup",
+        );
+      }
+
+      // Now that workspace migrations have run (including 003-seed-device-id
+      // which may copy the legacy installationId into device.json), it is safe
+      // to read the device ID and set the Sentry tag.
+      setSentryDeviceId(getDeviceId());
+
+      // Purge private (temporary) conversations from the previous daemon run.
+      // These are ephemeral by design and should not survive daemon restarts.
+      const { count: purgedCount, deletedMemory } = purgePrivateConversations();
+      if (purgedCount > 0) {
+        log.info(
+          { purgedCount },
+          `Purged ${purgedCount} private conversation(s) from previous daemon run`,
+        );
+        // Qdrant may not be ready at startup, so enqueue vector cleanup jobs
+        // rather than attempting direct deletion.
+        for (const segId of deletedMemory.segmentIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "segment",
+            targetId: segId,
+          });
+        }
+        for (const summaryId of deletedMemory.deletedSummaryIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "summary",
+            targetId: summaryId,
+          });
+        }
+        if (
+          deletedMemory.segmentIds.length > 0 ||
+          deletedMemory.deletedSummaryIds.length > 0
+        ) {
+          log.info(
+            {
+              segments: deletedMemory.segmentIds.length,
+              deletedSummaries: deletedMemory.deletedSummaryIds.length,
+            },
+            "Enqueued Qdrant vector cleanup jobs for purged private conversations",
+          );
+        }
+      }
+
+      // Expire stale pending canonical guardian requests left over from before
+      // this process started.  Two categories are cleaned up:
+      //
+      // 1. Interaction-bound kinds (tool_approval, pending_question) — their
+      //    in-memory pending-interaction session references are gone, so they
+      //    can never be completed.
+      // 2. Any pending request whose expiresAt has already passed — persistent
+      //    kinds (access_request, tool_grant_request) that expired while the
+      //    daemon was stopped are transitioned so dedup logic doesn't return
+      //    stale rows.
+      const expiredCount = expireAllPendingCanonicalRequests();
+      if (expiredCount > 0) {
+        log.info(
+          { event: "startup_expired_stale_requests", expiredCount },
+          `Expired ${expiredCount} stale canonical request(s) from previous process`,
+        );
+      }
+
+      // Ensure a vellum guardian binding exists so the identity system works
+      // without requiring a manual bootstrap step.
+      try {
+        ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
+      } catch (err) {
+        log.warn(
+          { err },
+          "Vellum guardian binding backfill failed — continuing startup",
+        );
+      }
+
+      try {
+        syncUpdateBulletinOnStartup();
+      } catch (err) {
+        log.warn({ err }, "Bulletin sync failed — continuing startup");
+      }
+
+      // Recover orphaned work items that were left in 'running' state when the
+      // daemon previously crashed or was killed mid-task.
+      const orphanedRunning = listWorkItems({ status: "running" });
+      if (orphanedRunning.length > 0) {
+        for (const item of orphanedRunning) {
+          updateWorkItem(item.id, {
+            status: "failed",
+            lastRunStatus: "interrupted",
+          });
+          log.info(
+            { workItemId: item.id, title: item.title },
+            "Recovered orphaned running work item → failed (interrupted)",
+          );
+        }
+        log.info(
+          { count: orphanedRunning.length },
+          "Recovered orphaned running work items",
+        );
+      }
+
+      try {
+        const twilioProvider = new TwilioConversationRelayProvider();
+        await reconcileCallsOnStartup(twilioProvider, log);
+      } catch (err) {
+        log.warn({ err }, "Call recovery failed — continuing startup");
+      }
+    } // end if (dbReady)
 
     // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
     // into the workspace config file before the first loadConfig() call so
@@ -654,12 +692,6 @@ export async function runDaemon(): Promise<void> {
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
 
-      try {
-        seedCliCommandMemories();
-      } catch (err) {
-        log.warn({ err }, "CLI command memory seeding failed — continuing");
-      }
-
       // Seed capability graph nodes (new memory graph system)
       try {
         const {
@@ -668,7 +700,7 @@ export async function runDaemon(): Promise<void> {
           seedUninstalledCatalogSkillMemories,
         } = await import("../memory/graph/capability-seed.js");
         seedSkillGraphNodes();
-        seedCliGraphNodes();
+        await seedCliGraphNodes();
         void seedUninstalledCatalogSkillMemories().catch((err) =>
           log.warn(
             { err },
@@ -741,6 +773,11 @@ export async function runDaemon(): Promise<void> {
           },
           routingIntent: schedule.routingIntent,
           routingHints: schedule.routingHints,
+          conversationMetadata: {
+            groupId: "system:scheduled",
+            scheduleJobId: schedule.id,
+            source: "schedule",
+          },
           dedupeKey: `schedule:notify:${schedule.id}:${Date.now()}`,
           throwOnError: true,
         });
@@ -759,6 +796,11 @@ export async function runDaemon(): Promise<void> {
           contextPayload: {
             scheduleId: schedule.id,
             name: schedule.name,
+          },
+          conversationMetadata: {
+            groupId: "system:scheduled",
+            scheduleJobId: schedule.id,
+            source: "schedule",
           },
           dedupeKey: `schedule:complete:${schedule.id}:${Date.now()}`,
         });
@@ -848,8 +890,8 @@ export async function runDaemon(): Promise<void> {
       guardianFollowUpConversationGenerator:
         createGuardianFollowUpConversationGenerator(),
       sendMessageDeps: {
-        getOrCreateConversation: (conversationId) =>
-          server.getConversationForMessages(conversationId),
+        getOrCreateConversation: (conversationId, options) =>
+          server.getConversationForMessages(conversationId, options),
         assistantEventHub,
         resolveAttachments: (attachmentIds) => {
           const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
@@ -1225,6 +1267,26 @@ export async function runDaemon(): Promise<void> {
       "Heartbeat service configured",
     );
 
+    const filingConfig = config.filing;
+    const filing = new FilingService({
+      processMessage: (conversationId, content, options) =>
+        server.processMessage(conversationId, content, undefined, {
+          trustContext: {
+            sourceChannel: "vellum",
+            trustClass: "guardian",
+          },
+          ...options,
+        }),
+    });
+    filing.start();
+    log.info(
+      {
+        enabled: filingConfig.enabled,
+        intervalMs: filingConfig.intervalMs,
+      },
+      "Filing service configured",
+    );
+
     // Retrieve the MCP manager if MCP servers were configured.
     // The manager is a singleton created during initializeProvidersAndTools().
     const mcpManager =
@@ -1236,6 +1298,7 @@ export async function runDaemon(): Promise<void> {
       server,
       workspaceHeartbeat,
       heartbeat,
+      filing,
       hookManager,
       runtimeHttp,
       scheduler,

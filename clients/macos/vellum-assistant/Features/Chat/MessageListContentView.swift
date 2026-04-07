@@ -42,6 +42,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.state.hasActiveToolCall == rhs.state.hasActiveToolCall
             && lhs.state.canInlineProcessing == rhs.state.canInlineProcessing
             && lhs.state.shouldShowThinkingIndicator == rhs.state.shouldShowThinkingIndicator
+            && lhs.state.isStreamingWithoutText == rhs.state.isStreamingWithoutText
             && lhs.state.hasMessages == rhs.state.hasMessages
             && lhs.providerCatalogHash == rhs.providerCatalogHash
             && lhs.isLoadingMoreMessages == rhs.isLoadingMoreMessages
@@ -108,12 +109,18 @@ struct MessageListContentView: View, Equatable {
 
     @ViewBuilder
     private func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
-        RunningIndicator(
-            label: !hasEverSentMessage && hasUserMessage
+        HStack(spacing: VSpacing.sm) {
+            TypingIndicatorView()
+            let label = !hasEverSentMessage && hasUserMessage
                 ? "Waking up..."
-                : assistantStatusText ?? "Thinking",
-            showIcon: false
-        )
+                : assistantStatusText
+            if let label, !label.isEmpty {
+                Text(label)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+            Spacer()
+        }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -177,13 +184,20 @@ struct MessageListContentView: View, Equatable {
                 let messageIndex = state.messageIndexById[message.id] ?? 0
                 let isAnchored = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == messageIndex
                 let isUnanchoredThinking = state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil
+                // Only pass activePendingRequestId to cells that could use it:
+                // confirmation bubbles need it for keyboard focus, tool-call messages
+                // need it for inline confirmation rendering in AssistantProgressView.
+                // Text-only cells get nil, so they won't fail == when the ID changes.
+                let cellActivePendingRequestId: String? =
+                    (message.confirmation != nil || !message.toolCalls.isEmpty)
+                    ? state.activePendingRequestId : nil
                 MessageCellView(
                     message: message,
                     showTimestamp: state.showTimestamp.contains(message.id),
                     nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[messageIndex],
                     isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(messageIndex),
                     hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(messageIndex),
-                    activePendingRequestId: state.activePendingRequestId,
+                    activePendingRequestId: cellActivePendingRequestId,
                     subagentsByParent: state.subagentsByParent,
                     isLatestAssistantMessage: isLatestAssistant,
                     isProcessingAfterTools: state.canInlineProcessing && isLatestAssistant,
@@ -240,6 +254,14 @@ struct MessageListContentView: View, Equatable {
                     thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
                 }
                 thinkingAvatarRow
+            } else if state.isStreamingWithoutText && !state.canInlineProcessing {
+                HStack {
+                    TypingIndicatorView()
+                    Spacer()
+                }
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                .id("streaming-without-text-indicator")
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                 compactingIndicatorRow()
             }
@@ -247,12 +269,14 @@ struct MessageListContentView: View, Equatable {
             Color.clear.frame(height: 1)
                 .id("scroll-bottom-anchor")
                 .onAppear {
+                    // Signal that the bottom anchor has materialized —
+                    // isAtBottom is now reliable (based on actual content
+                    // height, not LazyVStack estimates).
+                    scrollState.bottomAnchorAppeared = true
                     if !scrollState.hasBeenInteracted {
                         scrollState.handleReachedBottom()
                     }
                 }
-
-            TailSpacerView(scrollState: scrollState)
         }
         .disabled(!isInteractionEnabled)
         .padding(.horizontal, VSpacing.xl)

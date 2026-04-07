@@ -94,7 +94,6 @@ struct ChatView: View {
     @State private var isDraggingInternalImage = false
     @State private var dragEndLocalMonitor: Any?
     @State private var dragEndGlobalMonitor: Any?
-    @State private var containerWidth: CGFloat = 0
 
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
@@ -122,23 +121,21 @@ struct ChatView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
         #endif
-        ZStack {
-            mainContentStack
-                .background(alignment: .bottom) {
-                    chatBackground
-                }
-                .background(VColor.surfaceBase)
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.width
-                } action: { newWidth in
-                    containerWidth = newWidth
-                }
-                .overlay(alignment: .bottom) {
-                    btwOverlay
-                }
-                .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
+        GeometryReader { proxy in
+            let containerWidth = proxy.size.width
+            ZStack {
+                mainContentStack(containerWidth: containerWidth)
+                    .background(alignment: .bottom) {
+                        chatBackground
+                    }
+                    .background(VColor.surfaceBase)
+                    .overlay(alignment: .bottom) {
+                        btwOverlay
+                    }
+                    .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
 
-            dropTargetOverlay
+                dropTargetOverlay
+            }
         }
         .environment(\.dropActions, currentDropActions)
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
@@ -217,7 +214,7 @@ struct ChatView: View {
     // MARK: - Body Subviews (extracted to help the Swift type checker)
 
     @ViewBuilder
-    private var mainContentStack: some View {
+    private func mainContentStack(containerWidth: CGFloat) -> some View {
         VStack(spacing: 0) {
             if showSkeleton {
                 ChatLoadingSkeleton()
@@ -280,15 +277,16 @@ struct ChatView: View {
                         onSelectStarter: { starter in viewModel.inputText = starter.prompt },
                         onFetchConversationStarters: { viewModel.fetchConversationStarters() }
                     )
+                    .id(conversationId)
                 }
             } else {
-                activeConversationContent
+                activeConversationContent(containerWidth: containerWidth)
             }
         }
     }
 
     @ViewBuilder
-    private var activeConversationContent: some View {
+    private func activeConversationContent(containerWidth: CGFloat) -> some View {
         VStack(spacing: 0) {
             MessageListView(
                 messages: viewModel.messages,
@@ -762,5 +760,3 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
         }
     }
 }
-
-

@@ -31,7 +31,7 @@ struct ConversationModel: Identifiable, Hashable {
         get { groupId == ConversationGroup.pinned.id }
         set {
             if newValue { groupId = ConversationGroup.pinned.id }
-            else if groupId == ConversationGroup.pinned.id { groupId = nil }
+            else if groupId == ConversationGroup.pinned.id { groupId = ConversationGroup.all.id }
         }
     }
     /// Explicit display order set by the user via drag-and-drop reordering.
@@ -89,6 +89,14 @@ struct ConversationModel: Identifiable, Hashable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
+    /// Whether this conversation is automated (heartbeat, schedule, background/task)
+    /// and should never show unread indicators. Per Apple HIG, badges and unread
+    /// indicators should only reflect content requiring user attention — system-generated
+    /// messages from automated threads do not qualify.
+    var shouldSuppressUnreadIndicator: Bool {
+        isScheduleConversation || shouldReturnToBackgroundOnUnpin
+    }
+
     var isChannelConversation: Bool {
         guard let originChannel else { return false }
         return originChannel != "vellum"
@@ -109,7 +117,7 @@ struct ConversationModel: Identifiable, Hashable {
         if title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ") {
             return ConversationGroup.scheduled.id
         }
-        return nil
+        return "system:all"
     }
 
     static func == (lhs: ConversationModel, rhs: ConversationModel) -> Bool {

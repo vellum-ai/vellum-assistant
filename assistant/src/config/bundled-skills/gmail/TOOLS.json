@@ -490,7 +490,7 @@
         "properties": {
           "query": {
             "type": "string",
-            "description": "Gmail search query (default 'category:promotions newer_than:90d')"
+            "description": "Gmail search query (default 'in:inbox category:promotions newer_than:90d')"
           },
           "max_messages": {
             "type": "number",

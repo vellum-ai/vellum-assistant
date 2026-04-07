@@ -21,7 +21,7 @@ AUDIO_DEVICE="${5:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKSPACE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SIGNALS_DIR="$HOME/.vellum/workspace/signals"
+SIGNALS_DIR="${VELLUM_WORKSPACE_DIR:-$HOME/.vellum/workspace}/signals"
 CHUNKS_DIR="$SESSION_DIR/chunks"
 PROCESSED_DIR="$SESSION_DIR/processed"
 

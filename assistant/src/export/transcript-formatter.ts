@@ -20,8 +20,7 @@ interface ContentBlock {
   content?: string;
   tool_use_id?: string;
   is_error?: boolean;
-  source?: { media_type?: string };
-  filename?: string;
+  source?: { media_type?: string; filename?: string };
 }
 
 function formatTimestamp(ms: number): string {
@@ -57,7 +56,7 @@ function extractAnalysisText(blocks: ContentBlock[]): string {
         parts.push("[Image attachment]");
         break;
       case "file":
-        parts.push(`[File: ${block.filename ?? "unknown"}]`);
+        parts.push(`[File: ${block.source?.filename ?? "unknown"}]`);
         break;
       case "thinking":
       case "redacted_thinking":
@@ -129,7 +128,7 @@ export function buildAnalysisTranscript(conversationId: string): string {
         if (parsed.success && parsed.data.subagentNotification) {
           const notif = parsed.data.subagentNotification;
           if (
-            (notif.status === "completed" || notif.status === "failed") &&
+            (notif.status === "completed" || notif.status === "failed" || notif.status === "aborted") &&
             notif.conversationId
           ) {
             const subMessages = getMessages(notif.conversationId);
