@@ -31,6 +31,7 @@ import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
 import { HostBashProxy } from "../host-bash-proxy.js";
+import { HostBrowserProxy } from "../host-browser-proxy.js";
 import { HostCuProxy } from "../host-cu-proxy.js";
 import { HostFileProxy } from "../host-file-proxy.js";
 import type {
@@ -131,6 +132,12 @@ export function makeEventSender(params: {
         conversation,
         conversationId,
         kind: "host_bash",
+      });
+    } else if (event.type === "host_browser_request") {
+      pendingInteractions.register(event.requestId, {
+        conversation,
+        conversationId,
+        kind: "host_browser",
       });
     } else if (event.type === "host_file_request") {
       pendingInteractions.register(event.requestId, {
@@ -307,6 +314,10 @@ export async function handleConversationCreate(
         pendingInteractions.resolve(requestId);
       });
       conversationObj.setHostBashProxy(proxy);
+      const browserProxy = new HostBrowserProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      conversationObj.setHostBrowserProxy(browserProxy);
       const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
