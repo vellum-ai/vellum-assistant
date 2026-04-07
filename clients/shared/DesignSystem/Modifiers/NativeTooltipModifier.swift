@@ -416,49 +416,32 @@ private final class VTooltipTrackerView: NSView {
         p.contentView = host
         p.setContentSize(host.fittingSize)
 
-        // Position the tooltip, clamped to the screen's visible frame so
-        // it never extends off any edge. Matches native tooltip behavior.
-        let viewFrameInWindow = convert(bounds, to: nil)
-        let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
+        // Position the tooltip relative to the mouse cursor, matching
+        // native NSView.toolTip behaviour. This avoids depending on the
+        // tracker view's bounds which can be unreliable in ScrollView /
+        // List contexts where the overlay NSView may span a larger area
+        // than the visible text.
+        let mouse = NSEvent.mouseLocation          // already in screen coords
+        let screen = (window.screen ?? NSScreen.main ?? NSScreen.screens.first)
         let visibleFrame = screen?.visibleFrame ?? .zero
         let tooltipSize = host.fittingSize
-        let gap: CGFloat = 4
 
-        // Preferred anchor: center horizontally on the source view.
-        let anchorY = tooltipEdge == .bottom ? viewFrameInWindow.minY : viewFrameInWindow.maxY
-        let screenPoint = window.convertPoint(toScreen: NSPoint(
-            x: viewFrameInWindow.midX,
-            y: anchorY
-        ))
+        // Native tooltips appear below the cursor with a small vertical
+        // offset (~18 pt accounts for the standard cursor height).
+        let cursorOffset: CGFloat = 18
 
-        // Compute preferred Y, then flip edge if it would go off-screen.
-        var y: CGFloat
-        if tooltipEdge == .bottom {
-            y = screenPoint.y - tooltipSize.height - gap
-            if y < visibleFrame.minY {
-                // Flip to top
-                let topAnchor = window.convertPoint(toScreen: NSPoint(
-                    x: viewFrameInWindow.midX, y: viewFrameInWindow.maxY
-                )).y
-                y = topAnchor + gap
-            }
-        } else {
-            y = screenPoint.y + gap
-            if y + tooltipSize.height > visibleFrame.maxY {
-                // Flip to bottom
-                let bottomAnchor = window.convertPoint(toScreen: NSPoint(
-                    x: viewFrameInWindow.midX, y: viewFrameInWindow.minY
-                )).y
-                y = bottomAnchor - tooltipSize.height - gap
-            }
+        // Preferred placement: below cursor, horizontally centered on it.
+        var x = mouse.x - tooltipSize.width / 2
+        var y = mouse.y - tooltipSize.height - cursorOffset
+
+        // If the tooltip would go below the visible screen, flip above.
+        if y < visibleFrame.minY {
+            y = mouse.y + cursorOffset
         }
 
-        // Horizontal: center on source, then clamp to screen edges.
-        var x = screenPoint.x - tooltipSize.width / 2
+        // Clamp to screen edges.
         x = max(x, visibleFrame.minX)
         x = min(x, visibleFrame.maxX - tooltipSize.width)
-
-        // Final vertical clamp (safety net after flip).
         y = max(y, visibleFrame.minY)
         y = min(y, visibleFrame.maxY - tooltipSize.height)
 
