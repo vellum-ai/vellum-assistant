@@ -1225,7 +1225,7 @@ export async function handleSendMessage(
   // chrome-extension turn can drive the browser via CDP without leaking
   // host_bash/host_file tool availability into tool gating.
   if (supportsHostProxy(sourceInterface, "host_browser")) {
-    conversation.restoreBrowserProxyAvailability();
+    conversation.restoreBrowserProxyAvailability?.();
   }
 
   // ── Canned first-greeting fast path ──
