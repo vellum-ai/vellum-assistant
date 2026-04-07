@@ -826,6 +826,8 @@ private struct CodeBlockView: View, Equatable {
                     Spacer()
                     VCopyButton(text: code, size: .compact)
                         .opacity(isHovered ? 1 : 0)
+                        .allowsHitTesting(isHovered)
+                        .accessibilityHidden(!isHovered)
                         .animation(VAnimation.fast, value: isHovered)
                 }
                 .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.sm))
@@ -868,6 +870,8 @@ private struct CodeBlockView: View, Equatable {
             if language == nil || language?.isEmpty == true {
                 VCopyButton(text: code, size: .compact)
                     .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .accessibilityHidden(!isHovered)
                     .animation(VAnimation.fast, value: isHovered)
                     .padding(VSpacing.xs)
             }
