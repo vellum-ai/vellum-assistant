@@ -176,7 +176,6 @@ struct WorkspacePanel: View {
             }
         }
         .onChange(of: state.directoryCache) { rebuildWorkspaceNodes() }
-        .onChange(of: state.expandedDirs) { rebuildWorkspaceNodes() }
         .onDisappear {
             state.fileLoadTask?.cancel()
             state.fileLoadTask = nil
@@ -446,32 +445,33 @@ struct WorkspacePanel: View {
 
     // MARK: - Tree builder
 
-    /// Recomputes the `VFileBrowserNode` tree from the current directory cache
-    /// and expansion set. Called whenever the underlying state changes so that
-    /// the view body only has to read a prebuilt `@State` array.
+    /// Recomputes the `VFileBrowserNode` tree from the current directory
+    /// cache. Called whenever the underlying cache changes so that the view
+    /// body only has to read a prebuilt `@State` array.
     private func rebuildWorkspaceNodes() {
         workspaceNodes = buildWorkspaceNodes(
             parent: "",
-            cache: state.directoryCache,
-            expanded: state.expandedDirs
+            cache: state.directoryCache
         )
     }
 
     private func buildWorkspaceNodes(
         parent: String,
-        cache: [String: [WorkspaceTreeEntry]],
-        expanded: Set<String>
+        cache: [String: [WorkspaceTreeEntry]]
     ) -> [VFileBrowserNode] {
         guard let entries = cache[parent] else { return [] }
         return entries.map { entry in
             let children: [VFileBrowserNode]
-            if entry.isDirectory && expanded.contains(entry.path) {
-                // Recurse into cached children. If the cache has not been
-                // populated yet (mid-fetch from onExpand), pass empty
-                // children — the row renders as expanded with no children
-                // and re-renders when the cache update fires
-                // `rebuildWorkspaceNodes()` via `.onChange`.
-                children = buildWorkspaceNodes(parent: entry.path, cache: cache, expanded: expanded)
+            if entry.isDirectory && cache[entry.path] != nil {
+                // Always materialize cached children — expansion state
+                // controls visibility (in `flattenTree` inside
+                // `VFileBrowser`), not whether the children exist in the
+                // searchable tree. Keeping cached children in the tree even
+                // when the parent is collapsed means search via
+                // `filterTreeForSearch` can find any file that has ever been
+                // loaded into the cache, not just files under currently
+                // expanded directories.
+                children = buildWorkspaceNodes(parent: entry.path, cache: cache)
             } else {
                 children = []
             }

@@ -565,16 +565,18 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
     }
 }
 
-/// Conditionally attaches an `.onDrop` handler to a row when both the node is
-/// a directory and an `onDrop` callback is provided. Files and rows without an
-/// `onDrop` callback are no-ops.
+/// Conditionally attaches an `.onDrop` handler to a row when the node is a
+/// non-hidden directory and an `onDrop` callback is provided. Files, hidden
+/// (dimmed) directories, and rows without an `onDrop` callback are no-ops so
+/// the OS doesn't offer a drop interaction that the callback will reject
+/// anyway (e.g. dropping into `.git/` or `.env/`).
 private struct DropTargetModifier: ViewModifier {
     let node: VFileBrowserNode
     @Binding var isTargeted: Bool
     let onDrop: ((VFileBrowserNode?, [NSItemProvider]) -> Bool)?
 
     func body(content: Content) -> some View {
-        if node.isDirectory, let onDrop {
+        if node.isDirectory, !node.isDimmed, let onDrop {
             content.onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
                 onDrop(node, providers)
             }
