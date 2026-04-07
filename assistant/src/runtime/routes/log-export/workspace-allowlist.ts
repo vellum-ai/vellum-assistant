@@ -122,16 +122,22 @@ function collectConversations(
   result: CollectWorkspaceDataResult,
 ): void {
   const maxBytes = opts.maxBytes ?? MAX_WORKSPACE_PAYLOAD_BYTES;
+  // Initialize the entry summary and push it onto `result.entries`
+  // immediately so the conversations entry is always present in the
+  // result, even if the candidate loop below throws partway through.
+  // The array holds a reference to this object, so all later mutations
+  // to `entry.itemCount`, `entry.bytes`, and `entry.skippedDueToCap`
+  // are visible to consumers via `result.entries`.
   const entry = {
     entry: "conversations",
     itemCount: 0,
     bytes: 0,
     skippedDueToCap: 0,
   };
+  result.entries.push(entry);
 
   const sourceDir = getConversationsDir();
   if (!existsSync(sourceDir)) {
-    result.entries.push(entry);
     return;
   }
 
@@ -143,7 +149,6 @@ function collectConversations(
       { err, sourceDir },
       "Failed to read conversations directory; skipping conversations entry",
     );
-    result.entries.push(entry);
     return;
   }
 
@@ -252,8 +257,6 @@ function collectConversations(
     entry.bytes += dirBytes;
     result.totalBytes += dirBytes;
   }
-
-  result.entries.push(entry);
 }
 
 /**
