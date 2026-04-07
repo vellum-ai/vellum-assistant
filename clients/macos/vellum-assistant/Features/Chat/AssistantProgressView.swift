@@ -952,10 +952,23 @@ private struct StepDetailRow: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
                     if !resolvedInputFull.isEmpty {
-                        Text(resolvedInputFull)
-                            .font(VFont.bodySmallDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        let inputLines = resolvedInputFull.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
+                        let inputIsLong = inputLines > 30 || (inputLines == 1 && resolvedInputFull.count > 50_000)
+
+                        if inputIsLong {
+                            ScrollView {
+                                Text(resolvedInputFull)
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(height: 300)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        } else {
+                            Text(resolvedInputFull)
+                                .font(VFont.bodySmallDefault)
+                                .foregroundStyle(VColor.contentSecondary)
+                        }
                     }
                 }
             }
@@ -1024,8 +1037,9 @@ private struct StepDetailRow: View {
 
     // MARK: - Output Block
 
-    /// Reusable output block with a max-height ScrollView.
-    /// Short content naturally takes its small height; long content caps at 400pt and scrolls.
+    /// Reusable output block with copy button.
+    /// Long content (>30 lines) gets a definite-height ScrollView so LazyVStack
+    /// skips content measurement. Short content renders directly with no ScrollView.
     @ViewBuilder
     private func outputBlock(
         text: String?,
@@ -1034,12 +1048,20 @@ private struct StepDetailRow: View {
         copyLabel: String,
         isError: Bool = false
     ) -> some View {
+        let lines = copyText.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
+        let isLong = lines > 30 || (lines == 1 && copyText.count > 50_000)
+
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                ScrollView {
+                if isLong {
+                    // Definite height — LazyVStack never measures content inside.
+                    ScrollView {
+                        outputTextView(text: text, attributedText: attributedText, isError: isError)
+                    }
+                    .frame(height: 400)
+                } else {
                     outputTextView(text: text, attributedText: attributedText, isError: isError)
                 }
-                .frame(maxHeight: 400)
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
             .frame(maxWidth: .infinity, alignment: .leading)
