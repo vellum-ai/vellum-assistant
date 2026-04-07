@@ -43,8 +43,13 @@ import { join } from "node:path";
 
 const IS_DESKTOP = !!process.env.VELLUM_DESKTOP_APP;
 
-function desktopLog(msg: string): void {
-  process.stdout.write(msg + "\n");
+/** Log a progress message. Uses plain stdout.write when running under the desktop app. */
+function log(msg: string): void {
+  if (IS_DESKTOP) {
+    process.stdout.write(msg + "\n");
+  } else {
+    console.log(msg);
+  }
 }
 
 /** Emit a structured JSON line that the desktop app can parse reliably. */
@@ -1102,11 +1107,7 @@ export async function teleport(): Promise<void> {
   }
 
   // Export from source
-  if (IS_DESKTOP) {
-    desktopLog(`Exporting from ${from} (${fromCloud})...`);
-  } else {
-    console.log(`Exporting from ${from} (${fromCloud})...`);
-  }
+  log(`Exporting from ${from} (${fromCloud})...`);
   const bundleData = await exportFromAssistant(fromEntry, fromCloud);
 
   // Platform target: reordered flow — upload to GCS before hatching so that
@@ -1147,11 +1148,7 @@ export async function teleport(): Promise<void> {
         targetPlatformUrl,
       );
       bundleKey = key;
-      if (IS_DESKTOP) {
-        desktopLog("Uploading bundle to GCS...");
-      } else {
-        console.log("Uploading bundle to GCS...");
-      }
+      log("Uploading bundle to GCS...");
       await platformUploadToSignedUrl(uploadUrl, bundleData);
     } catch (err) {
       // If signed uploads unavailable (503), fall back to inline upload later
@@ -1169,11 +1166,7 @@ export async function teleport(): Promise<void> {
 
     // Step E — Import from GCS (or inline fallback)
     // Pass bundleKey (string) or null to signal "already tried, use inline".
-    if (IS_DESKTOP) {
-      desktopLog(`Importing to ${toEntry.assistantId} (${toCloud})...`);
-    } else {
-      console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
-    }
+    log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
     await importToAssistant(toEntry, toCloud, bundleData, false, bundleKey);
 
     // Success summary
@@ -1184,7 +1177,7 @@ export async function teleport(): Promise<void> {
         sourceRetired: false,
       });
     } else {
-      console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
+      log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
     }
     return;
   }
@@ -1196,11 +1189,7 @@ export async function teleport(): Promise<void> {
   const sourceIsLocalOrDocker = fromCloud === "local" || fromCloud === "docker";
   const targetIsLocalOrDocker = targetEnv === "local" || targetEnv === "docker";
   if (sourceIsLocalOrDocker && targetIsLocalOrDocker && !keepSource) {
-    if (IS_DESKTOP) {
-      desktopLog(`Stopping source assistant '${from}' to free ports...`);
-    } else {
-      console.log(`Stopping source assistant '${from}' to free ports...`);
-    }
+    log(`Stopping source assistant '${from}' to free ports...`);
     if (fromCloud === "docker") {
       const res = dockerResourceNames(fromEntry.assistantId);
       await sleepContainers(res);
@@ -1211,11 +1200,7 @@ export async function teleport(): Promise<void> {
       await stopProcessByPidFile(pidFile, "assistant");
       await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
     }
-    if (IS_DESKTOP) {
-      desktopLog(`Source assistant '${from}' stopped.`);
-    } else {
-      console.log(`Source assistant '${from}' stopped.`);
-    }
+    log(`Source assistant '${from}' stopped.`);
   }
 
   // Resolve or hatch target (after source is stopped to avoid port conflicts)
@@ -1234,22 +1219,14 @@ export async function teleport(): Promise<void> {
   }
 
   // Import to target
-  if (IS_DESKTOP) {
-    desktopLog(`Importing to ${toEntry.assistantId} (${toCloud})...`);
-  } else {
-    console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
-  }
+  log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
   await importToAssistant(toEntry, toCloud, bundleData, false);
 
   // Retire source after successful import
   let sourceRetired = false;
   if (sourceIsLocalOrDocker && targetIsLocalOrDocker) {
     if (!keepSource) {
-      if (IS_DESKTOP) {
-        desktopLog(`Retiring source assistant '${from}'...`);
-      } else {
-        console.log(`Retiring source assistant '${from}'...`);
-      }
+      log(`Retiring source assistant '${from}'...`);
       if (fromCloud === "docker") {
         await retireDocker(fromEntry.assistantId);
       } else {
@@ -1257,17 +1234,9 @@ export async function teleport(): Promise<void> {
       }
       removeAssistantEntry(fromEntry.assistantId);
       sourceRetired = true;
-      if (IS_DESKTOP) {
-        desktopLog(`Source assistant '${from}' retired.`);
-      } else {
-        console.log(`Source assistant '${from}' retired.`);
-      }
+      log(`Source assistant '${from}' retired.`);
     } else {
-      if (IS_DESKTOP) {
-        desktopLog(`Source assistant '${from}' kept (--keep-source).`);
-      } else {
-        console.log(`Source assistant '${from}' kept (--keep-source).`);
-      }
+      log(`Source assistant '${from}' kept (--keep-source).`);
     }
   }
 
@@ -1279,6 +1248,6 @@ export async function teleport(): Promise<void> {
       sourceRetired,
     });
   } else {
-    console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
+    log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
   }
 }
