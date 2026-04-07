@@ -643,7 +643,7 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$NATIVE_HOST_SRC_DIR/src" ] && co
     elif [ -n "$(find "$NATIVE_HOST_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" -print -quit 2>/dev/null)" ]; then
         NATIVE_HOST_BIN_NEEDS_BUILD=true
     elif [ "$NATIVE_HOST_SRC_DIR/package.json" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ] || \
-         [ -f "$NATIVE_HOST_SRC_DIR/bun.lock" ] && [ "$NATIVE_HOST_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; then
+         { [ -f "$NATIVE_HOST_SRC_DIR/bun.lock" ] && [ "$NATIVE_HOST_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; }; then
         NATIVE_HOST_BIN_NEEDS_BUILD=true
     fi
 fi
