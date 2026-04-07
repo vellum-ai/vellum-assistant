@@ -121,10 +121,7 @@ struct MessageListView: View {
                     visibleRectHeight: geometry.visibleRect.height
                 )
             } action: { _, newState in
-                scrollState.contentOffsetY = newState.contentOffsetY
-                scrollState.contentHeight = newState.contentHeight
-                scrollState.viewportHeight = newState.visibleRectHeight
-                scrollState.updateNearBottom()
+                handleScrollGeometryUpdate(newState)
                 if scrollState.canAutoFollow() {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
