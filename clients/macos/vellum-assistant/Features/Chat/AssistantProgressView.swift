@@ -1055,6 +1055,7 @@ private struct StepDetailRow: View {
                     .fill(VColor.surfaceOverlay.opacity(0.6))
                     .stroke(VColor.borderBase, lineWidth: 0.5)
             }
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
 
             ChatEquatableButton(
                 config: ChatButtonConfig(
