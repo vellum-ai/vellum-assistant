@@ -31,6 +31,7 @@ import {
   clearSentryConversationContext,
   setSentryConversationContext,
 } from "../instrument.js";
+import { getSubagentManager } from "../subagent/index.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import {
@@ -100,6 +101,7 @@ import type {
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
   inboundActorContextFromTrust,
@@ -261,6 +263,8 @@ export interface AgentLoopConversationContext {
   lastAttachmentWarnings: string[];
 
   hasNoClient: boolean;
+  /** True when this conversation is itself a subagent (suppresses subagent status injection). */
+  isSubagent?: boolean;
   headlessLock?: boolean;
   readonly streamThinking: boolean;
   readonly prompter: PermissionPrompter;
@@ -788,6 +792,14 @@ export async function runAgentLoopImpl(
     const pkbContext = isFirstMessage ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
+    // Subagent status injection — gives the parent LLM visibility into active/completed children.
+    // Skipped when this conversation IS a subagent (no nesting) or has no children.
+    const subagentStatusBlock = ctx.isSubagent
+      ? null
+      : buildSubagentStatusBlock(
+          getSubagentManager().getChildrenOf(ctx.conversationId),
+        );
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       activeSurface,
@@ -803,6 +815,7 @@ export async function runAgentLoopImpl(
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
+      subagentStatusBlock,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";
