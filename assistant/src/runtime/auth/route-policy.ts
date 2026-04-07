@@ -148,6 +148,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "secret", scopes: ["approval.write"] },
   { endpoint: "trust-rules", scopes: ["approval.write"] },
   { endpoint: "host-bash-result", scopes: ["approval.write"] },
+  { endpoint: "host-browser-result", scopes: ["approval.write"] },
   { endpoint: "host-cu-result", scopes: ["approval.write"] },
   { endpoint: "host-file-result", scopes: ["approval.write"] },
   { endpoint: "pending-interactions", scopes: ["approval.read"] },
