@@ -15,14 +15,17 @@
  */
 
 import {
+  closeSync,
   cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
-  readFileSync,
+  readSync,
 } from "node:fs";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 import { parseConversationDirName } from "../../../memory/conversation-directories.js";
 import { getLogger } from "../../../util/logger.js";
@@ -125,6 +128,41 @@ function dirSizeWithinBudget(
 }
 
 /**
+ * Chunk size used by the streaming `messages.jsonl` reader. 64 KB is
+ * large enough to amortize syscall overhead but small enough to keep
+ * the synchronous read path off the event loop for any meaningful
+ * stretch.
+ */
+const MESSAGES_SCAN_CHUNK_BYTES = 64 * 1024;
+
+/**
+ * Check whether a single JSONL line records a message whose `ts` falls
+ * in the `[startTime, endTime]` window. Returns `false` for malformed
+ * lines, missing/wrong-typed `ts` fields, and dates outside the window.
+ * Pulled out as a helper so the streaming reader can call it on each
+ * decoded line without duplicating the parsing logic.
+ */
+function lineMatchesWindow(
+  line: string,
+  startTime: number | undefined,
+  endTime: number | undefined,
+): boolean {
+  if (!line) return false;
+  let record: { ts?: unknown };
+  try {
+    record = JSON.parse(line) as { ts?: unknown };
+  } catch {
+    return false;
+  }
+  if (typeof record.ts !== "string") return false;
+  const ms = Date.parse(record.ts);
+  if (Number.isNaN(ms)) return false;
+  if (startTime !== undefined && ms < startTime) return false;
+  if (endTime !== undefined && ms > endTime) return false;
+  return true;
+}
+
+/**
  * Scan a conversation's `messages.jsonl` file and report whether any
  * message's `ts` (an ISO 8601 string written by `conversation-disk-view`)
  * falls inside the `[startTime, endTime]` window.
@@ -139,10 +177,13 @@ function dirSizeWithinBudget(
  * throw, since the export pipeline must never crash on a malformed
  * conversation file.
  *
- * The scan bails out as soon as it finds the first matching message, so
- * the worst case for an in-window conversation is "one early hit", and
- * the worst case for an out-of-window conversation is "read the whole
- * file once". Files are bounded by the workspace cap so this is safe.
+ * The reader streams the file in fixed-size chunks (`MESSAGES_SCAN_CHUNK_BYTES`)
+ * via `readSync` and decodes UTF-8 across chunk boundaries with
+ * `StringDecoder`. It bails out as soon as it finds the first matching
+ * line, so the worst case for an in-window conversation is "one early
+ * hit", and the worst case for an out-of-window conversation is "read
+ * the whole file once" — without ever holding more than one chunk plus
+ * one in-progress line in memory.
  */
 function conversationHasMessageInWindow(
   conversationDir: string,
@@ -156,28 +197,41 @@ function conversationHasMessageInWindow(
   if (startTime === undefined && endTime === undefined) return true;
 
   const messagesPath = join(conversationDir, "messages.jsonl");
-  let raw: string;
+  let fd: number;
   try {
-    raw = readFileSync(messagesPath, "utf-8");
+    fd = openSync(messagesPath, "r");
   } catch {
     // Missing or unreadable messages file → no in-window evidence.
     return false;
   }
 
-  for (const line of raw.split("\n")) {
-    if (!line) continue;
-    let record: { ts?: unknown };
-    try {
-      record = JSON.parse(line) as { ts?: unknown };
-    } catch {
-      continue;
+  const buffer = Buffer.alloc(MESSAGES_SCAN_CHUNK_BYTES);
+  const decoder = new StringDecoder("utf8");
+  let leftover = "";
+  try {
+    while (true) {
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      const text = leftover + decoder.write(buffer.subarray(0, bytesRead));
+      const lines = text.split("\n");
+      // The last segment may be a partial line — hold it back for the
+      // next chunk to complete.
+      leftover = lines.pop() ?? "";
+      for (const line of lines) {
+        if (lineMatchesWindow(line, startTime, endTime)) return true;
+      }
     }
-    if (typeof record.ts !== "string") continue;
-    const ms = Date.parse(record.ts);
-    if (Number.isNaN(ms)) continue;
-    if (startTime !== undefined && ms < startTime) continue;
-    if (endTime !== undefined && ms > endTime) continue;
-    return true;
+    // Drain any partial UTF-8 sequence the decoder is still holding,
+    // then check the final unterminated line (the file may not end with
+    // a newline).
+    const tail = leftover + decoder.end();
+    if (lineMatchesWindow(tail, startTime, endTime)) return true;
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+      /* best-effort close */
+    }
   }
   return false;
 }
@@ -219,11 +273,16 @@ function collectConversations(
 
   const destBase = join(opts.staging, "workspace", "conversations");
 
-  // First pass: parse + filter all names and collect the surviving
-  // candidates so we can sort them deterministically before applying the
-  // byte cap. Without this, `readdirSync` order determines which
-  // conversations are dropped on truncation, which both makes capped
-  // exports nondeterministic and can drop the newest conversations.
+  // First pass: parse the name, apply the conversationId filter, validate
+  // that the entry is a real directory (not a symlink, not a regular
+  // file), then apply the time-window filter (which may need to read
+  // `messages.jsonl`). Collect surviving candidates so we can sort them
+  // deterministically before applying the byte cap.
+  //
+  // The non-directory / symlink validation happens BEFORE the message
+  // scan so a canonical-named symlink can never coerce
+  // `conversationHasMessageInWindow` into reading from outside the
+  // `conversations/` boundary.
   const candidates: Array<{
     name: string;
     parsed: { conversationId: string; createdAtMs: number };
@@ -248,58 +307,16 @@ function collectConversations(
       continue;
     }
 
-    // Time-window filter: keep the conversation if EITHER its createdAt
-    // (parsed from the directory name) OR any individual message inside
-    // `messages.jsonl` falls in the requested window. This is the union
-    // semantics — a conversation that was started before the window but
-    // received messages during it should still ship, since the user
-    // running an export almost always wants to see the activity that
-    // happened during the window, not just conversations that were
-    // _created_ in it.
-    if (opts.startTime !== undefined || opts.endTime !== undefined) {
-      const createdAtInWindow =
-        (opts.startTime === undefined ||
-          parsed.createdAtMs >= opts.startTime) &&
-        (opts.endTime === undefined || parsed.createdAtMs <= opts.endTime);
-      if (!createdAtInWindow) {
-        // Fall back to scanning messages.jsonl for in-window activity.
-        // This is more expensive than the directory-name parse, so we
-        // only do it when the cheap check failed.
-        const conversationDir = join(sourceDir, name);
-        let hasMessageInWindow: boolean;
-        try {
-          hasMessageInWindow = conversationHasMessageInWindow(
-            conversationDir,
-            opts.startTime,
-            opts.endTime,
-          );
-        } catch (err) {
-          log.warn(
-            { err, conversationDir },
-            "Failed to scan messages.jsonl for window match; skipping",
-          );
-          continue;
-        }
-        if (!hasMessageInWindow) continue;
-      }
-    }
-
-    candidates.push({ name, parsed });
-  }
-
-  // Newest first so cap-truncation keeps the most recent conversations.
-  candidates.sort((a, b) => b.parsed.createdAtMs - a.parsed.createdAtMs);
-
-  for (const { name } of candidates) {
     const srcPath = join(sourceDir, name);
 
-    // Guard: a canonical-looking entry must be a real directory under
-    // `conversations/`. Use `lstatSync` (not `statSync`) so symlinks are
-    // not dereferenced — a symlink with a canonical name pointing at an
-    // external directory must not be allowed to escape the allowlist
-    // boundary. Symlinks are rejected explicitly below; regular files
-    // (and anything else that isn't a directory) are also skipped so
-    // `dirSizeWithinBudget` and `cpSync` never see them.
+    // Boundary guard: a canonical-looking entry must be a real directory
+    // under `conversations/`. Use `lstatSync` (not `statSync`) so
+    // symlinks are not dereferenced — a symlink with a canonical name
+    // pointing at an external directory must not be allowed to escape
+    // the allowlist boundary, neither for the time-window message scan
+    // below nor for the eventual `cpSync` copy. Symlinks and regular
+    // files are rejected explicitly here so the message scan and the
+    // copy loop only ever see real directories.
     let srcStat: ReturnType<typeof lstatSync>;
     try {
       srcStat = lstatSync(srcPath);
@@ -318,6 +335,52 @@ function collectConversations(
       log.warn({ srcPath }, "Conversation entry is not a directory; skipping");
       continue;
     }
+
+    // Time-window filter: keep the conversation if EITHER its createdAt
+    // (parsed from the directory name) OR any individual message inside
+    // `messages.jsonl` falls in the requested window. This is the union
+    // semantics — a conversation that was started before the window but
+    // received messages during it should still ship, since the user
+    // running an export almost always wants to see the activity that
+    // happened during the window, not just conversations that were
+    // _created_ in it.
+    if (opts.startTime !== undefined || opts.endTime !== undefined) {
+      const createdAtInWindow =
+        (opts.startTime === undefined ||
+          parsed.createdAtMs >= opts.startTime) &&
+        (opts.endTime === undefined || parsed.createdAtMs <= opts.endTime);
+      if (!createdAtInWindow) {
+        // Fall back to scanning messages.jsonl for in-window activity.
+        // This is more expensive than the directory-name parse, so we
+        // only do it when the cheap check failed. The boundary guard
+        // above guarantees `srcPath` is a real in-allowlist directory,
+        // so the file path the scanner reads stays inside the allowlist.
+        let hasMessageInWindow: boolean;
+        try {
+          hasMessageInWindow = conversationHasMessageInWindow(
+            srcPath,
+            opts.startTime,
+            opts.endTime,
+          );
+        } catch (err) {
+          log.warn(
+            { err, srcPath },
+            "Failed to scan messages.jsonl for window match; skipping",
+          );
+          continue;
+        }
+        if (!hasMessageInWindow) continue;
+      }
+    }
+
+    candidates.push({ name, parsed });
+  }
+
+  // Newest first so cap-truncation keeps the most recent conversations.
+  candidates.sort((a, b) => b.parsed.createdAtMs - a.parsed.createdAtMs);
+
+  for (const { name } of candidates) {
+    const srcPath = join(sourceDir, name);
 
     const remainingBudget = maxBytes - result.totalBytes;
     let dirBytes: number | null;
