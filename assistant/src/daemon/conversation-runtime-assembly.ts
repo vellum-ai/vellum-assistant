@@ -599,6 +599,7 @@ export function injectPkbContext(message: Message, content: string): Message {
     if (
       block.type === "text" &&
       (block.text.startsWith("<memory") ||
+        block.text.startsWith("</memory") ||
         block.text.startsWith("<memory_context"))
     ) {
       insertIdx = i + 1;
