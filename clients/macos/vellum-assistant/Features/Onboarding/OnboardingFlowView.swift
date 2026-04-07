@@ -372,6 +372,15 @@ struct OnboardingFlowView: View {
         state.hasExistingManagedAssistant = false
         log.info("Beginning managed assistant bootstrap")
 
+        // When re-hatching, clear the stored assistant ID so
+        // ensureManagedAssistant() doesn't short-circuit by fetching the
+        // old assistant. Without this, the hatch endpoint is never called
+        // and the user ends up reconnected to their previous assistant.
+        if state.isRehatch {
+            log.info("Re-hatch: clearing connectedAssistantId to force hatch endpoint")
+            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        }
+
         do {
             let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
             let assistant = activation.assistant
