@@ -1004,9 +1004,8 @@ private struct StepDetailRow: View {
                         .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
 
-                    // Use cached colored output when available. On the very
-                    // first render before .onAppear fires, fall back to plain
-                    // text for long content to avoid a first-render hang.
+                    // Pass cached colored output; falls back to plain text
+                    // until the cache is populated by .onAppear.
                     outputBlock(
                         text: cachedColoredResult == nil ? result : nil,
                         attributedText: cachedColoredResult,
@@ -1093,7 +1092,7 @@ private struct StepDetailRow: View {
         }
     }
 
-    /// Text view used inside the ScrollView for long outputs.
+    /// Text view for output content, used by both the ScrollView (long) and direct (short) paths.
     @ViewBuilder
     private func outputTextView(
         text: String?,
