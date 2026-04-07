@@ -42,13 +42,15 @@ export type PairServerContext = {
 
 /**
  * Hard-coded allowlist of chrome extension origins permitted to request a
- * capability token. Mirrors the placeholder id used by PR 7's native
- * messaging helper scaffold. Update in tandem with PR 7's
- * `ALLOWED_EXTENSION_IDS` constant before release.
+ * capability token. Mirrors the placeholder id used by the native messaging
+ * helper at `clients/chrome-extension-native-host/src/index.ts`
+ * (`ALLOWED_EXTENSION_IDS`). Both lists must agree for the dev pair flow
+ * to work end-to-end — update them together before release.
  */
 export const ALLOWED_EXTENSION_ORIGINS: ReadonlySet<string> = new Set<string>([
-  // TODO: production chrome extension id
-  "chrome-extension://fakedevid/",
+  // Dev placeholder — replaced when the unpacked extension is loaded locally.
+  // TODO: production chrome extension id before release
+  "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
 ]);
 
 /**
@@ -57,7 +59,8 @@ export const ALLOWED_EXTENSION_ORIGINS: ReadonlySet<string> = new Set<string>([
  * Handles IPv6 bracket notation (`[::1]:8765`), unbracketed IPv6
  * (`::1`), hostname with port (`localhost:8765`), and bare hostnames
  * (`localhost`). Returns `null` when the header is malformed (e.g.
- * missing closing bracket).
+ * missing closing bracket, or content after the closing bracket that
+ * isn't an optional `:port`).
  *
  * Exported for testing.
  */
@@ -67,6 +70,11 @@ export function parseHostHeader(raw: string): string | null {
   if (raw.startsWith("[")) {
     const end = raw.indexOf("]");
     if (end < 0) return null;
+    // After the closing bracket only an optional ":port" is valid. Anything
+    // else (e.g. `[::1]attacker.com`) is a malformed Host header that an
+    // attacker could craft to slip a non-loopback hostname past the parser.
+    const after = raw.substring(end + 1);
+    if (after.length > 0 && !after.startsWith(":")) return null;
     return raw.substring(1, end);
   }
   // Bare IPv6 (no brackets) contains multiple colons and should be

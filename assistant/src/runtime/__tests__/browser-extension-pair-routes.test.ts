@@ -91,7 +91,9 @@ describe("handleBrowserExtensionPair", () => {
   test("rejects non-POST methods with 405", async () => {
     const req = buildRequest({
       method: "GET",
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(405);
@@ -99,7 +101,9 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects non-loopback peer with 403", async () => {
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
     });
     const res = await handleBrowserExtensionPair(req, publicPeerServer);
     expect(res.status).toBe(403);
@@ -107,7 +111,9 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects LAN peer (not loopback) with 403", async () => {
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
     });
     const res = await handleBrowserExtensionPair(req, lanPeerServer);
     expect(res.status).toBe(403);
@@ -115,7 +121,9 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects request with non-loopback Host header", async () => {
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
       host: "vellum.example.com",
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -124,7 +132,9 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects request with x-forwarded-for header", async () => {
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
       forwardedFor: "1.2.3.4",
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -171,7 +181,9 @@ describe("handleBrowserExtensionPair", () => {
 
   test("returns 200 with a valid token for the preferred extensionOrigin field", async () => {
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);
@@ -210,7 +222,7 @@ describe("handleBrowserExtensionPair", () => {
 
   test("returns 200 using the legacy `origin` field for backwards compat", async () => {
     const req = buildRequest({
-      body: { origin: "chrome-extension://fakedevid/" },
+      body: { origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/" },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);
@@ -227,7 +239,7 @@ describe("handleBrowserExtensionPair", () => {
     // request must succeed because we honor `extensionOrigin` first.
     const req = buildRequest({
       body: {
-        extensionOrigin: "chrome-extension://fakedevid/",
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
         origin: "chrome-extension://not-allowed/",
       },
     });
@@ -248,7 +260,10 @@ describe("handleBrowserExtensionPair", () => {
     ];
     for (const host of variants) {
       const req = buildRequest({
-        body: { extensionOrigin: "chrome-extension://fakedevid/" },
+        body: {
+          extensionOrigin:
+            "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        },
         host,
       });
       const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -258,8 +273,25 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects malformed bracketed Host header", async () => {
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
       host: "[::1", // missing closing bracket
+    });
+    const res = await handleBrowserExtensionPair(req, loopbackServer);
+    expect(res.status).toBe(403);
+  });
+
+  test("rejects bracketed Host header with junk after closing bracket", async () => {
+    // Defensive against `[::1]attacker.com`-style injection: the parser
+    // used to silently truncate at the first `]` and treat the rest as
+    // the hostname, which would let an attacker spoof a non-loopback
+    // host while still passing the loopback Host header check.
+    const req = buildRequest({
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
+      host: "[::1]attacker.com",
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(403);
@@ -267,7 +299,9 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects non-loopback IPv6 Host header", async () => {
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
       host: "[2001:db8::1]:8765",
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
@@ -284,11 +318,18 @@ describe("handleBrowserExtensionPair", () => {
     expect(parseHostHeader("[2001:db8::1]:443")).toBe("2001:db8::1");
     expect(parseHostHeader("[::1")).toBeNull();
     expect(parseHostHeader("")).toBeNull();
+    // Anything after the closing bracket that isn't an optional ":port"
+    // must be rejected — otherwise `[::1]attacker.com` would slip past
+    // the loopback check by parsing as `::1`.
+    expect(parseHostHeader("[::1]attacker.com")).toBeNull();
+    expect(parseHostHeader("[::1]extra")).toBeNull();
   });
 
   test("tampered tokens fail verification", async () => {
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);
@@ -310,7 +351,9 @@ describe("handleBrowserExtensionPair", () => {
   test("tokens minted with a different secret fail verification", async () => {
     // Mint a token, then swap the secret — verification should fail.
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);
@@ -323,7 +366,9 @@ describe("handleBrowserExtensionPair", () => {
 
   test("rejects tampered payload even with matching signature length", async () => {
     const req = buildRequest({
-      body: { extensionOrigin: "chrome-extension://fakedevid/" },
+      body: {
+        extensionOrigin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      },
     });
     const res = await handleBrowserExtensionPair(req, loopbackServer);
     expect(res.status).toBe(200);
