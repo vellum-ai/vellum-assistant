@@ -722,9 +722,15 @@ function mergeToolResultsIntoAssistantMessages(
       }
     }
 
-    // No tool results → pass through unchanged.
+    // No tool results → pass through unless the message is purely system notices.
     if (toolResultBlocks.length === 0) {
-      result.push(msg);
+      const hasRealContent = blocks.some((block) => {
+        if (typeof block !== "object" || block === null) return true;
+        return !isSystemNoticeText(block as Record<string, unknown>);
+      });
+      if (hasRealContent) {
+        result.push(msg);
+      }
       continue;
     }
 
