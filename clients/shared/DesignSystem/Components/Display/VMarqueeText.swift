@@ -67,16 +67,19 @@ public struct VMarqueeText: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .opacity(isHovered && isTruncated ? 0 : 1)
-            .overlay(alignment: .leading) {
+            .overlay {
                 if isHovered && isTruncated {
-                    Text(text)
-                        .font(font)
-                        .foregroundStyle(foregroundStyle)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .offset(x: animationOffset)
+                    Color.clear
+                        .overlay(alignment: .leading) {
+                            Text(text)
+                                .font(font)
+                                .foregroundStyle(foregroundStyle)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .offset(x: animationOffset)
+                        }
+                        .clipped()
                 }
             }
-            .clipped()
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
             } action: { newWidth in
