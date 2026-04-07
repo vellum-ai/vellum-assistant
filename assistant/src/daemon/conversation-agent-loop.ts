@@ -507,6 +507,7 @@ export async function runAgentLoopImpl(
 
     const isFirstMessage = ctx.messages.length === 1;
     let shouldInjectWorkspace = isFirstMessage;
+    let compactedThisTurn = false;
 
     const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
     if (compactCheck.needed) {
@@ -562,6 +563,7 @@ export async function runAgentLoopImpl(
         collapseRawResponses(compacted.summaryRawResponses),
       );
       shouldInjectWorkspace = true;
+      compactedThisTurn = true;
     }
 
     const state = createEventHandlerState();
@@ -786,10 +788,11 @@ export async function runAgentLoopImpl(
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
     const currentNowContent = readNowScratchpad();
-    const nowScratchpad = isFirstMessage ? currentNowContent : null;
+    const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
+    const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
     const currentPkbContent = readPkbContext();
-    const pkbContext = isFirstMessage ? currentPkbContent : null;
+    const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
