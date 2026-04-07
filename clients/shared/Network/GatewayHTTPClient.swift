@@ -126,12 +126,12 @@ public enum GatewayHTTPClient {
     /// Performs an authenticated POST request that streams the response and
     /// reports download progress via an `onProgress` callback.
     ///
-    /// Uses `URLSession.bytes(for:)` to stream the response body. When the
-    /// server provides a `Content-Length` header, `onProgress` is called on
-    /// the main actor with a value between 0.0 and 1.0 representing
-    /// `bytesReceived / totalBytes`. When `Content-Length` is absent (e.g.
-    /// chunked transfer encoding), `onProgress` is called once with `-1` to
-    /// signal indeterminate progress.
+    /// Uses a custom `URLSessionDataDelegate` to receive the response body in
+    /// network-sized chunks and track progress. When the server provides a
+    /// `Content-Length` header, `onProgress` is called on the main actor with
+    /// a value between 0.0 and 1.0 representing `bytesReceived / totalBytes`.
+    /// When `Content-Length` is absent (e.g. chunked transfer encoding),
+    /// `onProgress` is called once with `-1` to signal indeterminate progress.
     ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/`.
@@ -201,24 +201,35 @@ public enum GatewayHTTPClient {
             logResponse(request, http: http, quiet: false)
         }
 
-        // Send final progress if we tracked determinately.
+        // Send final progress if we tracked determinately, then invalidate
+        // to prevent any queued Tasks from dispatching stale callbacks.
         if delegate.totalBytes > 0, delegate.lastReportedFraction < 1.0 {
             await MainActor.run { onProgress(1.0) }
         }
+        delegate.invalidate()
 
         return (Response(data: data, statusCode: statusCode), http)
     }
 
     /// URLSessionDataDelegate that tracks download progress via `didReceive data:` chunks.
+    /// Uses a generation counter to prevent stale callbacks from firing after invalidation.
     private class DownloadProgressDelegate: NSObject, URLSessionDataDelegate {
         let onProgress: @MainActor (Double) -> Void
         var totalBytes: Int64 = -1
         var receivedBytes: Int64 = 0
         var lastReportedFraction: Double = 0.0
         private var reportedIndeterminate = false
+        private var generation: Int = 0
+        private var invalidated = false
 
         init(onProgress: @escaping @MainActor (Double) -> Void) {
             self.onProgress = onProgress
+        }
+
+        /// Prevents any further progress callbacks from being dispatched.
+        func invalidate() {
+            invalidated = true
+            generation += 1
         }
 
         func urlSession(
@@ -228,22 +239,30 @@ public enum GatewayHTTPClient {
             completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
         ) {
             totalBytes = response.expectedContentLength // -1 when unknown
-            if totalBytes <= 0, !reportedIndeterminate {
+            if totalBytes <= 0, !reportedIndeterminate, !invalidated {
                 reportedIndeterminate = true
                 let callback = self.onProgress
-                Task { await callback(-1) }
+                let gen = self.generation
+                Task { [weak self] in
+                    guard self?.generation == gen else { return }
+                    await callback(-1)
+                }
             }
             completionHandler(.allow)
         }
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             receivedBytes += Int64(data.count)
-            guard totalBytes > 0 else { return }
+            guard totalBytes > 0, !invalidated else { return }
             let fraction = Double(receivedBytes) / Double(totalBytes)
             guard fraction - lastReportedFraction >= 0.01 || receivedBytes >= totalBytes else { return }
             lastReportedFraction = fraction
             let callback = self.onProgress
-            Task { await callback(min(fraction, 1.0)) }
+            let gen = self.generation
+            Task { [weak self] in
+                guard self?.generation == gen else { return }
+                await callback(min(fraction, 1.0))
+            }
         }
     }
 
