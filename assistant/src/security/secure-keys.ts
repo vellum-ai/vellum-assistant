@@ -89,8 +89,11 @@ const RECONNECT_COOLDOWN_MS = 3_000;
 /**
  * Hard timeout for each public credential operation (resolve + backend call).
  * Prevents indefinite blocking when CES reconnection or backend operations hang.
+ *
+ * Set to 45s to comfortably cover the CES HTTP set worst case (~34s:
+ * 3 fetch attempts × 10s REQUEST_TIMEOUT_MS + 2 × 2s SET_RETRY_DELAY_MS).
  */
-const CREDENTIAL_OP_TIMEOUT_MS = 30_000;
+const CREDENTIAL_OP_TIMEOUT_MS = 45_000;
 
 /** Inject a CES RPC client for credential routing. Resets the resolved backend. */
 export function setCesClient(client: CesClient | undefined): void {
@@ -318,29 +321,37 @@ function updateCesHttpReachability(
 // Timeout helper
 // ---------------------------------------------------------------------------
 
+const CREDENTIAL_TIMEOUT_MSG = "Credential operation timed out";
+
 /**
  * Race a credential operation against a hard deadline. If the operation
  * does not settle within `CREDENTIAL_OP_TIMEOUT_MS`, return the supplied
  * fallback value so callers degrade gracefully instead of hanging.
+ *
+ * Non-timeout errors from `op()` are propagated to callers rather than
+ * silently swallowed — only genuine timeouts return the fallback.
  */
 async function withCredentialTimeout<T>(
   op: () => Promise<T>,
   fallback: T,
 ): Promise<T> {
-  try {
-    return await Promise.race([
-      op(),
-      new Promise<T>((_, reject) =>
-        setTimeout(
-          () => reject(new Error("Credential operation timed out")),
-          CREDENTIAL_OP_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-  } catch (err) {
-    log.warn({ err }, "Credential operation timed out — returning fallback");
-    return fallback;
-  }
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      log.warn(CREDENTIAL_TIMEOUT_MSG + " — returning fallback");
+      resolve(fallback);
+    }, CREDENTIAL_OP_TIMEOUT_MS);
+
+    op().then(
+      (val) => {
+        clearTimeout(timer);
+        resolve(val);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 /**
