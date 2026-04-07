@@ -171,19 +171,47 @@ struct IntegrationDetailModal: View {
     private var managedBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if !isLoggedIn {
-                integrationEmptyState(buttonLabel: "Log in to Vellum", buttonIcon: VIcon.logOut.rawValue) {
-                    Task {
-                        await authManager.loginWithToast(showToast: showToast, onSuccess: {
-                            if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                                AppDelegate.shared?.reconnectManagedAssistant()
-                            }
-                            Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
-                        })
+                if authManager.isSubmitting {
+                    VStack(spacing: VSpacing.md) {
+                        VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
+                        HStack(spacing: VSpacing.sm) {
+                            VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                            Text("Logging in...")
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, VSpacing.xl)
+                } else {
+                    integrationEmptyState(buttonLabel: "Log in to Vellum", buttonIcon: VIcon.logOut.rawValue) {
+                        Task {
+                            await authManager.loginWithToast(showToast: showToast, onSuccess: {
+                                if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
+                                    AppDelegate.shared?.reconnectManagedAssistant()
+                                }
+                                Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
+                            })
+                        }
                     }
                 }
-            } else if connections.isEmpty && !isConnecting {
-                integrationEmptyState {
-                    store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+            } else if connections.isEmpty {
+                if isConnecting {
+                    VStack(spacing: VSpacing.md) {
+                        VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
+                        HStack(spacing: VSpacing.sm) {
+                            VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                            Text("Waiting for authorization...")
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, VSpacing.xl)
+                } else {
+                    integrationEmptyState {
+                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                    }
                 }
             } else {
                 // Connection count + add button row
@@ -339,8 +367,7 @@ struct IntegrationDetailModal: View {
             } else {
                 // Top row: count + add button
                 HStack {
-                    let totalConns = apps.reduce(0) { $0 + (store.yourOwnOAuthConnectionsByApp[$1.id] ?? []).count }
-                    Text("\(totalConns) connected")
+                    Text("\(apps.count) connected")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentSecondary)
 
