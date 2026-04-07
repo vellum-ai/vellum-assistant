@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { createExtensionBackend } from "../backends/extension.js";
-import { BrowserSessionManager } from "../manager.js";
-import type { BrowserBackend, CdpCommand, CdpResult } from "../types.js";
+import {
+  type BrowserBackend,
+  BrowserSessionManager,
+  type CdpCommand,
+  type CdpResult,
+  createExtensionBackend,
+} from "../index.js";
 
 interface MockBackendState {
   available: boolean;
