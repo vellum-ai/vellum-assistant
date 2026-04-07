@@ -96,13 +96,17 @@ internal func parseJSON(_ text: String) -> JSONParseResult {
 /// included as string nodes annotated with the parse error so the tree view
 /// shows them rather than dropping them silently.
 internal func parseJSONL(_ text: String) -> JSONParseResult {
-    // Normalize CRLF → LF before splitting. Swift's String treats "\r\n" as a
-    // single grapheme cluster (Character), so a per-Character split on "\n"
-    // would never match CRLF line endings. Replacing CRLF with LF up front
-    // ensures the split sees real newline boundaries on Windows-authored
-    // files. The per-line trailing "\r" strip below is kept as a safety net
-    // for legacy CR-only line endings.
-    let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+    // Normalize all three line-ending conventions to LF before splitting:
+    //   1. CRLF → LF (Windows). Swift's String treats "\r\n" as a single
+    //      grapheme cluster (Character), so a per-Character split on "\n"
+    //      would never match CRLF line endings without this step.
+    //   2. Lone CR → LF (classic Mac). After step 1, any remaining "\r" is a
+    //      standalone carriage return used as a line terminator, so convert
+    //      it to LF too. Without this, CR-delimited files would parse as one
+    //      giant line and surface as a single parse-error node.
+    let normalized = text
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .replacingOccurrences(of: "\r", with: "\n")
     // Empty / whitespace-only lines are skipped — they're explicitly
     // permitted by the de-facto JSONL spec and are common at end-of-file.
     let rawLines = normalized.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" })

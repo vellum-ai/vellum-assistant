@@ -63,6 +63,27 @@ final class JSONLParserTests: XCTestCase {
         XCTAssertEqual(elements.count, 2)
     }
 
+    func testLegacyCROnlyLineEndingsAreHandled() {
+        // Classic Mac line endings use a lone \r. parseJSONL should split on
+        // these too, not treat the whole file as a single line.
+        let input = "{\"a\":1}\r{\"b\":2}\r{\"c\":3}"
+        let result = parseJSONL(input)
+        guard case .success(.array(_, let elements)) = result else {
+            return XCTFail("Expected array root")
+        }
+        XCTAssertEqual(elements.count, 3)
+    }
+
+    func testMixedLineEndingsAreHandled() {
+        // Truly pathological input: CRLF, lone CR, and lone LF in the same file.
+        let input = "{\"a\":1}\r\n{\"b\":2}\r{\"c\":3}\n{\"d\":4}"
+        let result = parseJSONL(input)
+        guard case .success(.array(_, let elements)) = result else {
+            return XCTFail("Expected array root")
+        }
+        XCTAssertEqual(elements.count, 4)
+    }
+
     func testInvalidLineSurfacedAsStringNode() {
         let input = "{\"a\":1}\nNOT_VALID_JSON\n{\"b\":2}"
         let result = parseJSONL(input)
