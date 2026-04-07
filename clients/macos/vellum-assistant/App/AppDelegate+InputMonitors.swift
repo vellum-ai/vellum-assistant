@@ -78,12 +78,6 @@ extension UserDefaults {
         }
         return string(forKey: "popOutShortcut") ?? ""
     }
-    /// Legacy KVO-observable property. No longer used by SettingsStore
-    /// (which now subscribes to `LockfileAssistant.activeAssistantDidChange`)
-    /// but retained for any remaining KVO observers.
-    @objc dynamic var connectedAssistantId: String? {
-        return string(forKey: "connectedAssistantId")
-    }
     @objc dynamic var connectedOrganizationId: String? {
         return string(forKey: "connectedOrganizationId")
     }
