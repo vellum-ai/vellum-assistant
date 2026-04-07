@@ -32,6 +32,13 @@ final class SoundManager {
     /// fetch completes (the Settings dropdown reads this via `availableSounds()`).
     private var cachedAvailableSounds: [(label: String, filename: String)] = []
 
+    /// Guards against re-entrant `refreshAvailableSounds()` calls. Without this,
+    /// each SwiftUI render of the sounds tab calls `availableSounds()` which
+    /// triggers a fetch when empty, the fetch sets `cachedAvailableSounds`
+    /// (even to `[]`), which triggers another render, creating an infinite loop
+    /// that hammers the workspace/tree API with 429s.
+    @ObservationIgnored private var isRefreshingAvailableSounds = false
+
     // MARK: - Lifecycle
 
     func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
@@ -239,6 +246,7 @@ final class SoundManager {
     func clearCache() {
         soundCache.removeAll()
         cachedAvailableSounds = []
+        isRefreshingAvailableSounds = false
     }
 
     // MARK: - Available Sounds
@@ -247,8 +255,12 @@ final class SoundManager {
     /// asynchronously via `refreshAvailableSounds()` during `reloadConfig()`.
     /// This powers the Settings UI dropdown for sound selection.
     func availableSounds() -> [(label: String, filename: String)] {
-        if cachedAvailableSounds.isEmpty {
-            Task { await refreshAvailableSounds() }
+        if cachedAvailableSounds.isEmpty && !isRefreshingAvailableSounds {
+            isRefreshingAvailableSounds = true
+            Task {
+                await refreshAvailableSounds()
+                isRefreshingAvailableSounds = false
+            }
         }
         return cachedAvailableSounds
     }
