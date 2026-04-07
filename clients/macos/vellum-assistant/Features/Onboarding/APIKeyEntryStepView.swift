@@ -13,6 +13,10 @@ struct APIKeyEntryStepView: View {
     @State private var showContent = false
     @FocusState private var keyFieldFocused: Bool
 
+    /// Cancels the in-flight provider lookup when the user switches
+    /// providers again before the previous lookup completes.
+    @State private var providerLookupTask: Task<Void, Never>?
+
     // MARK: - Provider Catalog
 
     private var providerCatalog: [ProviderCatalogEntry] {
@@ -146,8 +150,12 @@ struct APIKeyEntryStepView: View {
             if let entry = providerCatalog.first(where: { $0.id == newProvider }) {
                 state.selectedModel = entry.defaultModel
             }
-            Task {
-                if let masked = await APIKeyManager.maskedKey(for: newProvider) {
+            providerLookupTask?.cancel()
+            providerLookupTask = Task {
+                let masked = await APIKeyManager.maskedKey(for: newProvider)
+                guard !Task.isCancelled else { return }
+                if let masked {
+                    apiKey = ""
                     maskedKeyDisplay = masked
                     hasExistingKey = true
                     isEditing = false
