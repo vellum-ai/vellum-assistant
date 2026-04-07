@@ -14,6 +14,8 @@ struct DrawerMenuView: View {
     @State private var isLowBalance = false
     @State private var isZeroBalance = false
     @State private var bootstrapGeneration: Int = 0
+    @State private var isReferralCodesEnabled: Bool = false
+    @State private var showEarnCreditsModal: Bool = false
     @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
 
     private var isBillingVisible: Bool {
@@ -21,6 +23,10 @@ struct DrawerMenuView: View {
         return authManager.isAuthenticated &&
         MacOSClientFeatureFlagManager.shared.isEnabled("settings-billing") &&
         connectedOrgId != nil
+    }
+
+    private var isReferralVisible: Bool {
+        isBillingVisible && isReferralCodesEnabled
     }
 
     var body: some View {
@@ -51,6 +57,12 @@ struct DrawerMenuView: View {
                     }
                 }
 
+                if isReferralVisible {
+                    VMenuItem(icon: VIcon.gift.rawValue, label: String(localized: "Earn credits")) {
+                        showEarnCreditsModal = true
+                    }
+                }
+
                 VMenuDivider()
             }
 
@@ -77,7 +89,18 @@ struct DrawerMenuView: View {
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+            if let key = notification.userInfo?["key"] as? String,
+               key == "referral-codes",
+               let enabled = notification.userInfo?["enabled"] as? Bool {
+                isReferralCodesEnabled = enabled
+            }
+        }
+        .sheet(isPresented: $showEarnCreditsModal) {
+            EarnCreditsModal()
+        }
         .task {
+            isReferralCodesEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("referral-codes")
             await loadBalance()
         }
     }
